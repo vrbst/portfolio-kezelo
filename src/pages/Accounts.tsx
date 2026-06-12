@@ -1,0 +1,128 @@
+import { Link } from 'react-router-dom'
+import { motion } from 'motion/react'
+import { Wallet, Landmark, ArrowRight } from 'lucide-react'
+import { usePortfolio } from '../lib/store'
+import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
+import { formatMoney } from '../lib/format'
+import { accountKindLabel } from '../lib/labels'
+import type { AccountSummary } from '../lib/portfolio'
+
+export default function Accounts() {
+  const accounts = usePortfolio((s) => s.accounts)
+  const summary = usePortfolio((s) => s.summary())
+
+  if (accounts.length === 0) {
+    return (
+      <div>
+        <PageHeader title="Számlák" />
+        <EmptyState
+          title="Nincs számla"
+          description="Importálj egy kivonatot, és a számláid itt jelennek meg."
+          action={
+            <Link to="/import" className="btn-primary mt-2">
+              Importálás
+            </Link>
+          }
+        />
+      </div>
+    )
+  }
+
+  const treasury = summary.accounts.filter(
+    (a) => a.account.provider === 'allamkincstar',
+  )
+  const investing = summary.accounts.filter(
+    (a) => a.account.provider !== 'allamkincstar',
+  )
+
+  return (
+    <div>
+      <PageHeader
+        title="Számlák"
+        subtitle="TBSZ és államkincstári számláid részletesen."
+      />
+
+      <Section
+        title="Befektetési számlák"
+        icon={<Wallet className="h-5 w-5" />}
+        items={investing}
+      />
+      <Section
+        title="Magyar Államkincstár"
+        icon={<Landmark className="h-5 w-5" />}
+        items={treasury}
+      />
+    </div>
+  )
+}
+
+function Section({
+  title,
+  icon,
+  items,
+}: {
+  title: string
+  icon: React.ReactNode
+  items: AccountSummary[]
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="mb-8">
+      <div className="mb-3 flex items-center gap-2 text-[var(--color-muted)]">
+        {icon}
+        <h2 className="text-sm font-semibold uppercase tracking-wide">
+          {title}
+        </h2>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((a, i) => (
+          <motion.div
+            key={a.account.id}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+          >
+            <Link to={`/accounts/${a.account.id}`}>
+              <Card hover className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{a.account.name}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Badge tone="brand">{accountKindLabel(a.account)}</Badge>
+                      {a.account.externalRef && (
+                        <span className="text-xs text-[var(--color-muted)]">
+                          {a.account.externalRef}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
+                </div>
+
+                <div className="mt-4 flex items-end justify-between">
+                  <div>
+                    <div className="text-xs text-[var(--color-muted)]">
+                      Teljes érték
+                    </div>
+                    <div className="text-xl font-semibold tabular-nums">
+                      {formatMoney(a.totalValueHuf)}
+                    </div>
+                  </div>
+                  {a.netDepositedHuf > 0 && (
+                    <Delta
+                      pct={
+                        (a.totalValueHuf - a.netDepositedHuf) /
+                        a.netDepositedHuf
+                      }
+                      className="text-sm"
+                    />
+                  )}
+                </div>
+              </Card>
+            </Link>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  )
+}
