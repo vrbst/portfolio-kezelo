@@ -135,7 +135,8 @@ export function computeAccountSummary(
         if (!t.instrumentKey) break
         const p = positions.get(t.instrumentKey)
         const qty = t.quantity ?? 0
-        const proceeds = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
+        // Incoming money: net of fees is what actually hits the cash pocket.
+        const proceeds = Math.abs(t.netAmount ?? t.grossAmount ?? 0)
         if (p && p.qty > 0) {
           const soldFrac = qty > 0 ? Math.min(qty / p.qty, 1) : 1
           const costOut = p.cost * soldFrac
@@ -163,11 +164,14 @@ export function computeAccountSummary(
         addCash(ccy, Math.abs(t.netAmount ?? t.grossAmount ?? 0))
         break
       case 'withdrawal':
-        addCash(ccy, -Math.abs(t.netAmount ?? t.grossAmount ?? 0))
+        // Outgoing money: gross is the full debit (incl. fee).
+        addCash(ccy, -Math.abs(t.grossAmount ?? t.netAmount ?? 0))
         break
       case 'conversion': {
-        // A conversion leg moves money between currency pockets.
-        const amt = t.netAmount ?? t.grossAmount ?? 0
+        // A conversion leg moves money between currency pockets. Gross is the
+        // full signed amount moved in this currency (fee is embedded in the
+        // spread between the two legs), so using gross keeps the books square.
+        const amt = t.grossAmount ?? t.netAmount ?? 0
         addCash(ccy, amt)
         break
       }
