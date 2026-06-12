@@ -13,6 +13,14 @@ import {
   fetchLiveFx,
   type PriceFile,
 } from './prices'
+import {
+  loadSyncConfig,
+  saveSyncConfig,
+  getRemoteSnapshot,
+  putRemoteSnapshot,
+  type SyncConfig,
+  type PortfolioSnapshot,
+} from './sync'
 
 interface PortfolioState {
   loaded: boolean
@@ -41,6 +49,14 @@ interface PortfolioState {
   refreshPrices: () => Promise<void>
   setManualPrice: (key: string, price: number | null) => Promise<void>
   clearAll: () => Promise<void>
+
+  // ---- Cross-device sync (private GitHub repo) ----
+  syncConfig: SyncConfig | null
+  syncing: boolean
+  lastSyncedAt?: string
+  setSyncConfig: (config: SyncConfig | null) => void
+  pushToCloud: () => Promise<void>
+  pullFromCloud: () => Promise<{ added: number }>
 
   instrumentMap: () => Map<string, Instrument>
   summary: () => PortfolioSummary
@@ -77,6 +93,66 @@ function buildPriceMap(
   return map
 }
 
+function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    accounts: s.accounts,
+    instruments: s.instruments,
+    transactions: s.transactions,
+    manualPrices: s.manualPrices,
+  }
+}
+
+/** Merge a remote snapshot into local state + IndexedDB. Returns # new txs. */
+async function mergeSnapshot(
+  set: (partial: Partial<PortfolioState>) => void,
+  get: () => PortfolioState,
+  snap: PortfolioSnapshot,
+): Promise<number> {
+  const s = get()
+
+  const txById = new Map(s.transactions.map((t) => [t.id, t]))
+  let added = 0
+  for (const t of snap.transactions ?? []) {
+    if (!txById.has(t.id)) {
+      txById.set(t.id, t)
+      added++
+    }
+  }
+  const transactions = [...txById.values()]
+
+  const instByKey = new Map(s.instruments.map((i) => [i.key, i]))
+  for (const i of snap.instruments ?? []) {
+    if (!instByKey.has(i.key)) instByKey.set(i.key, i)
+  }
+  const instruments = [...instByKey.values()]
+
+  // Accounts: remote wins so TBSZ labels / edits propagate across devices.
+  const accById = new Map(s.accounts.map((a) => [a.id, a]))
+  for (const a of snap.accounts ?? []) accById.set(a.id, a)
+  const accounts = [...accById.values()]
+
+  const manualPrices = { ...s.manualPrices, ...(snap.manualPrices ?? {}) }
+
+  await Promise.all([
+    db.accounts.bulkPut(accounts),
+    db.instruments.bulkPut(instruments),
+    db.transactions.bulkPut(transactions),
+    setMeta('manualPrices', manualPrices),
+  ])
+
+  set({
+    accounts,
+    instruments,
+    transactions,
+    manualPrices,
+    prices: buildPriceMap(s.priceFile, manualPrices),
+    fx: { ...deriveFx(transactions), ...s.fx },
+  })
+  return added
+}
+
 export const usePortfolio = create<PortfolioState>((set, get) => ({
   loaded: false,
   accounts: [],
@@ -88,6 +164,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
+  syncConfig: loadSyncConfig(),
+  syncing: false,
+  lastSyncedAt: undefined,
 
   load: async () => {
     const [accounts, instruments, transactions, savedFx, manualPrices] =
@@ -192,6 +271,41 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       manualPrices,
       prices: buildPriceMap(s.priceFile, manualPrices),
     }))
+  },
+
+  setSyncConfig: (config) => {
+    saveSyncConfig(config)
+    set({ syncConfig: config })
+  },
+
+  pushToCloud: async () => {
+    const { syncConfig } = get()
+    if (!syncConfig) throw new Error('Nincs beállítva szinkron.')
+    set({ syncing: true })
+    try {
+      const snapshot = buildSnapshot(get())
+      // Use the remote sha if a file already exists (required for update).
+      const existing = await getRemoteSnapshot(syncConfig)
+      await putRemoteSnapshot(syncConfig, snapshot, existing?.sha)
+      set({ lastSyncedAt: snapshot.exportedAt })
+    } finally {
+      set({ syncing: false })
+    }
+  },
+
+  pullFromCloud: async () => {
+    const { syncConfig } = get()
+    if (!syncConfig) throw new Error('Nincs beállítva szinkron.')
+    set({ syncing: true })
+    try {
+      const remote = await getRemoteSnapshot(syncConfig)
+      if (!remote) return { added: 0 }
+      const added = await mergeSnapshot(set, get, remote.snapshot)
+      set({ lastSyncedAt: new Date().toISOString() })
+      return { added }
+    } finally {
+      set({ syncing: false })
+    }
   },
 
   clearAll: async () => {
