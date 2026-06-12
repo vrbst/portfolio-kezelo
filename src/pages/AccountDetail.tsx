@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react'
-import { usePortfolio } from '../lib/store'
+import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
   PageHeader,
   Card,
@@ -18,7 +18,7 @@ export default function AccountDetail() {
   const { id } = useParams()
   const accounts = usePortfolio((s) => s.accounts)
   const transactions = usePortfolio((s) => s.transactions)
-  const summary = usePortfolio((s) => s.summary())
+  const summary = usePortfolioSummary()
   const updateAccount = usePortfolio((s) => s.updateAccount)
 
   const account = accounts.find((a) => a.id === id)

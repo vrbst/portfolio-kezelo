@@ -14,7 +14,7 @@ import {
   Coins,
   ArrowRight,
 } from 'lucide-react'
-import { usePortfolio } from '../lib/store'
+import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
   PageHeader,
   StatCard,
@@ -30,7 +30,7 @@ const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185'
 
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts)
-  const summary = usePortfolio((s) => s.summary())
+  const summary = usePortfolioSummary()
 
   const allocation = useMemo(
     () =>

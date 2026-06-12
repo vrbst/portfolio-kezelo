@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { db, getMeta, setMeta } from './db'
 import type { Account, Instrument, Transaction } from './model'
@@ -149,3 +150,30 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     )
   },
 }))
+
+/**
+ * Memoised portfolio summary for components.
+ *
+ * IMPORTANT: never select `s.summary()` directly — it returns a fresh object on
+ * every call, which makes Zustand re-render in an infinite loop. Select the raw
+ * slices (each a stable reference) and derive with useMemo instead.
+ */
+export function usePortfolioSummary(): PortfolioSummary {
+  const accounts = usePortfolio((s) => s.accounts)
+  const transactions = usePortfolio((s) => s.transactions)
+  const instruments = usePortfolio((s) => s.instruments)
+  const prices = usePortfolio((s) => s.prices)
+  const fx = usePortfolio((s) => s.fx)
+
+  return useMemo(
+    () =>
+      computePortfolio(
+        accounts,
+        transactions,
+        new Map(instruments.map((i) => [i.key, i])),
+        prices,
+        fx,
+      ),
+    [accounts, transactions, instruments, prices, fx],
+  )
+}

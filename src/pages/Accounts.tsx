@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'motion/react'
 import { Wallet, Landmark, ArrowRight } from 'lucide-react'
-import { usePortfolio } from '../lib/store'
+import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
 import { formatMoney } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
@@ -9,7 +9,7 @@ import type { AccountSummary } from '../lib/portfolio'
 
 export default function Accounts() {
   const accounts = usePortfolio((s) => s.accounts)
-  const summary = usePortfolio((s) => s.summary())
+  const summary = usePortfolioSummary()
 
   if (accounts.length === 0) {
     return (
