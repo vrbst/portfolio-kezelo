@@ -1,0 +1,35 @@
+name: Árfolyamok frissítése
+
+on:
+  schedule:
+    # Hétköznap 16:05 UTC (≈ 18:05 CET, európai tőzsdezárás után).
+    - cron: '5 16 * * 1-5'
+  workflow_dispatch: {} # kézi indítás a GitHub felületről
+
+permissions:
+  contents: write
+
+jobs:
+  update-prices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Árfolyamok lekérése
+        run: node scripts/fetch-prices.mjs
+
+      - name: Commit, ha változott
+        run: |
+          if [ -n "$(git status --porcelain public/prices.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add public/prices.json
+            git commit -m "chore: árfolyamok frissítése"
+            git push
+          else
+            echo "Nincs változás az árfolyamokban."
+          fi

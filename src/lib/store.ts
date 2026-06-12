@@ -8,6 +8,11 @@ import {
   type PortfolioSummary,
   type PriceMap,
 } from './portfolio'
+import {
+  loadPriceFile,
+  fetchLiveFx,
+  type PriceFile,
+} from './prices'
 
 interface PortfolioState {
   loaded: boolean
@@ -18,6 +23,13 @@ interface PortfolioState {
   prices: PriceMap
   /** currency -> HUF per 1 unit. */
   fx: Record<string, number>
+  /** Last loaded committed snapshot (for symbol/currency display). */
+  priceFile: PriceFile | null
+  /** User overrides: instrument key -> price (instrument ccy). */
+  manualPrices: Record<string, number>
+  /** ISO timestamp shown in the UI. */
+  priceUpdatedAt?: string
+  pricesLoading: boolean
 
   load: () => Promise<void>
   importParsed: (parsed: ParsedImport) => Promise<{
@@ -26,6 +38,8 @@ interface PortfolioState {
   }>
   updateAccount: (id: string, patch: Partial<Account>) => Promise<void>
   setPrices: (prices: PriceMap, fx?: Record<string, number>) => void
+  refreshPrices: () => Promise<void>
+  setManualPrice: (key: string, price: number | null) => Promise<void>
   clearAll: () => Promise<void>
 
   instrumentMap: () => Map<string, Instrument>
@@ -48,6 +62,21 @@ function deriveFx(txs: Transaction[]): Record<string, number> {
   return fx
 }
 
+/** Merge committed snapshot prices with user overrides (overrides win). */
+function buildPriceMap(
+  file: PriceFile | null,
+  manual: Record<string, number>,
+): PriceMap {
+  const map: PriceMap = new Map()
+  if (file) {
+    for (const [key, entry] of Object.entries(file.prices)) {
+      if (typeof entry?.price === 'number') map.set(key, entry.price)
+    }
+  }
+  for (const [key, price] of Object.entries(manual)) map.set(key, price)
+  return map
+}
+
 export const usePortfolio = create<PortfolioState>((set, get) => ({
   loaded: false,
   accounts: [],
@@ -55,16 +84,31 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   transactions: [],
   prices: new Map(),
   fx: {},
+  priceFile: null,
+  manualPrices: {},
+  priceUpdatedAt: undefined,
+  pricesLoading: false,
 
   load: async () => {
-    const [accounts, instruments, transactions, savedFx] = await Promise.all([
-      db.accounts.toArray(),
-      db.instruments.toArray(),
-      db.transactions.toArray(),
-      getMeta<Record<string, number>>('fx'),
-    ])
+    const [accounts, instruments, transactions, savedFx, manualPrices] =
+      await Promise.all([
+        db.accounts.toArray(),
+        db.instruments.toArray(),
+        db.transactions.toArray(),
+        getMeta<Record<string, number>>('fx'),
+        getMeta<Record<string, number>>('manualPrices'),
+      ])
     const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) }
-    set({ accounts, instruments, transactions, fx, loaded: true })
+    set({
+      accounts,
+      instruments,
+      transactions,
+      fx,
+      manualPrices: manualPrices ?? {},
+      loaded: true,
+    })
+    // Pull live prices in the background (non-blocking).
+    void get().refreshPrices()
   },
 
   importParsed: async (parsed) => {
@@ -120,6 +164,36 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     })
   },
 
+  refreshPrices: async () => {
+    set({ pricesLoading: true })
+    const [file, liveFx] = await Promise.all([loadPriceFile(), fetchLiveFx()])
+    set((s) => {
+      const priceFile = file ?? s.priceFile
+      const prices = buildPriceMap(priceFile, s.manualPrices)
+      // Live FX wins, then snapshot FX, then whatever we had (derived).
+      const fx = { ...s.fx, ...(priceFile?.fx ?? {}), ...liveFx }
+      void setMeta('fx', fx)
+      return {
+        priceFile,
+        prices,
+        fx,
+        priceUpdatedAt: priceFile?.updatedAt,
+        pricesLoading: false,
+      }
+    })
+  },
+
+  setManualPrice: async (key, price) => {
+    const manualPrices = { ...get().manualPrices }
+    if (price == null || Number.isNaN(price)) delete manualPrices[key]
+    else manualPrices[key] = price
+    await setMeta('manualPrices', manualPrices)
+    set((s) => ({
+      manualPrices,
+      prices: buildPriceMap(s.priceFile, manualPrices),
+    }))
+  },
+
   clearAll: async () => {
     await Promise.all([
       db.accounts.clear(),
@@ -134,6 +208,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       transactions: [],
       prices: new Map(),
       fx: {},
+      manualPrices: {},
+      priceFile: null,
+      priceUpdatedAt: undefined,
     })
   },
 

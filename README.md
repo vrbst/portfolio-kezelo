@@ -61,5 +61,15 @@ számítanak bele a készpénzbe / hozamba (de a tranzakció-listában látható
 - [x] Lightyear + Államkincstár parserek (valós adaton ellenőrizve)
 - [x] Adatmodell + IndexedDB tárolás
 - [x] Dashboard + számla nézetek
-- [ ] Élő árfolyamok (ETF + EUR/HUF)
+- [x] Élő árfolyamok (ETF Yahoo + EUR/HUF frankfurter) + kézi felülírás
 - [ ] GitHub Pages deploy + privát repós szinkron több eszközre
+
+## Árfolyamok frissítése
+
+```bash
+npm run prices   # public/prices.json frissítése (Yahoo + frankfurter)
+```
+
+A `.github/workflows/prices.yml` ezt hétköznaponta automatikusan lefuttatja és
+commitolja, miután a repó felkerült a GitHubra. Új ISIN-t a
+`scripts/fetch-prices.mjs` `INSTRUMENTS` listájához adj hozzá.

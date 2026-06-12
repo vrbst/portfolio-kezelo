@@ -13,6 +13,7 @@ import {
   PiggyBank,
   Coins,
   ArrowRight,
+  RefreshCw,
 } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
@@ -23,7 +24,7 @@ import {
   Delta,
   Badge,
 } from '../components/ui'
-import { formatMoney, formatPercent } from '../lib/format'
+import { formatMoney, formatPercent, formatDateTime } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185']
@@ -31,6 +32,10 @@ const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185'
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts)
   const summary = usePortfolioSummary()
+  const refreshPrices = usePortfolio((s) => s.refreshPrices)
+  const pricesLoading = usePortfolio((s) => s.pricesLoading)
+  const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt)
+  const eurHuf = usePortfolio((s) => s.fx['EUR'])
 
   const allocation = useMemo(
     () =>
@@ -63,6 +68,35 @@ export default function Dashboard() {
       <PageHeader
         title="Áttekintés"
         subtitle="A teljes portfóliód egy helyen."
+        action={
+          <div className="flex items-center gap-3 text-sm">
+            {eurHuf && (
+              <span className="hidden text-[var(--color-muted)] sm:inline">
+                EUR/HUF{' '}
+                <span className="font-medium text-[var(--color-text)]">
+                  {eurHuf.toLocaleString('hu-HU', {
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </span>
+            )}
+            <button
+              className="btn-ghost"
+              onClick={() => refreshPrices()}
+              disabled={pricesLoading}
+              title={
+                priceUpdatedAt
+                  ? `Árfolyamok frissítve: ${formatDateTime(priceUpdatedAt)}`
+                  : 'Árfolyamok frissítése'
+              }
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${pricesLoading ? 'animate-spin' : ''}`}
+              />
+              Árfolyamok
+            </button>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
