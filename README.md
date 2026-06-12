@@ -62,7 +62,7 @@ számítanak bele a készpénzbe / hozamba (de a tranzakció-listában látható
 - [x] Adatmodell + IndexedDB tárolás
 - [x] Dashboard + számla nézetek
 - [x] Élő árfolyamok (ETF Yahoo + EUR/HUF frankfurter) + kézi felülírás
-- [ ] GitHub Pages deploy + privát repós szinkron több eszközre
+- [x] GitHub Pages deploy workflow + privát repós szinkron (Beállítások → Szinkron)
 
 ## Árfolyamok frissítése
 
