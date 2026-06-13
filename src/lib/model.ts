@@ -60,6 +60,12 @@ export interface BondTerms {
    * (FixMÁP-nál 0.01 = 1%). Lejáratkor nem vonódik le. Alapértelmezés 1%.
    */
   saleCostPct?: number
+  /**
+   * Az első (tört) kamatfizetés pontos összege HUF-ban, kézzel megadva. A tört
+   * első periódus nap-számlálási konvenciója nem rekonstruálható forintra, ezért
+   * ha tudod a MÁK-értéket, ide beírhatod. Üresen a becsült érték jelenik meg.
+   */
+  firstCouponHuf?: number
 }
 
 export interface Instrument {

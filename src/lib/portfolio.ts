@@ -200,6 +200,10 @@ export function couponAmountHuf(
     !!bond?.firstCouponDate &&
     couponDateIso?.slice(0, 10) === bond.firstCouponDate.slice(0, 10)
   if (isFirst) {
+    // Exact value if the user supplied it (the stub day-count isn't recoverable
+    // to the forint); else estimate from actual days since issuance.
+    if (bond?.firstCouponHuf != null && bond.firstCouponHuf > 0)
+      return bond.firstCouponHuf
     const issue = parseDayMs(bond?.issueDate)
     if (Number.isFinite(issue)) {
       const days = (d - issue) / 86_400_000

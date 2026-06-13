@@ -370,8 +370,10 @@ function BondSeriesSettings() {
         felhalmozott kamatot a kupon-ütemterv szerint. Az érték a lejárat előtti
         eladási költséggel csökkentve jelenik meg (alapból a névérték 1%-a),
         vagyis a most realizálható összeg. Hétvégén a következő hétfői nappal
-        számolunk (mint a MobilKincstár). A diszkont kincstárjegyek automatikusan
-        a vételár → névérték akkrécióval értékelődnek.
+        számolunk (mint a MobilKincstár). Az első (tört) kamat összegét kézzel is
+        megadhatod (a MÁK-érték), mert a tört periódus nem számolható forintra
+        pontosan. A diszkont kincstárjegyek automatikusan a vételár → névérték
+        akkrécióval értékelődnek.
       </p>
 
       <div className="space-y-3">
@@ -473,6 +475,21 @@ function BondSeriesSettings() {
                         const v = e.target.value.trim()
                         setBond(inst, {
                           saleCostPct: v === '' ? undefined : Number(v) / 100,
+                        })
+                      }}
+                    />
+                  </Field>
+                  <Field label="Első kamat (Ft)">
+                    <input
+                      type="number"
+                      step="any"
+                      className={`${inputCls} w-32 text-right`}
+                      defaultValue={b.firstCouponHuf ?? ''}
+                      placeholder="becsült"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        setBond(inst, {
+                          firstCouponHuf: v === '' ? undefined : Number(v),
                         })
                       }}
                     />
