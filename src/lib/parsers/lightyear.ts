@@ -60,14 +60,25 @@ export function parseLightyear(
   const hasSecurities = rows.some((r) =>
     /^(buy|sell)$/i.test((r['Type'] || '').trim()),
   )
+  // The funding "hub": an account that sends more internal transfers (IT-) than
+  // it receives. All external money lands here, then flows out to the TBSZ /
+  // investment accounts. A stray buy/sell must not misclassify it as investing.
+  const itFlow = (type: string) =>
+    rows.filter(
+      (r) =>
+        /^IT-/i.test((r['Reference'] || '').trim()) &&
+        new RegExp(`^${type}$`, 'i').test((r['Type'] || '').trim()),
+    ).length
+  const isHub = itFlow('withdrawal') > itFlow('deposit')
 
   const account: Account = {
     id: externalRef ? slug(externalRef) : `lightyear-${slug(fileName)}`,
-    name: hasSecurities
-      ? `Lightyear befektetési${externalRef ? ` (${externalRef})` : ''}`
-      : `Lightyear pénzszámla${externalRef ? ` (${externalRef})` : ''}`,
+    name:
+      isHub || !hasSecurities
+        ? `Lightyear pénzszámla${externalRef ? ` (${externalRef})` : ''}`
+        : `Lightyear befektetési${externalRef ? ` (${externalRef})` : ''}`,
     provider: 'lightyear',
-    kind: hasSecurities ? 'regular' : 'cash',
+    kind: isHub ? 'cash' : hasSecurities ? 'regular' : 'cash',
     currency: 'HUF',
     externalRef,
   }

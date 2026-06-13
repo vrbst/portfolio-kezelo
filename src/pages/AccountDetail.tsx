@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
+import { accountReturn, isInternalTransfer } from '../lib/portfolio'
 import {
   PageHeader,
   Card,
@@ -10,6 +11,7 @@ import {
   Delta,
   EmptyState,
 } from '../components/ui'
+import TbszTimeline from '../components/TbszTimeline'
 import { formatMoney, formatNumber, formatDate } from '../lib/format'
 import { accountKindLabel, txTypeLabel, instrumentTypeLabel } from '../lib/labels'
 import type { AccountKind } from '../lib/model'
@@ -53,11 +55,8 @@ export default function AccountDetail() {
   }
 
   const isTreasury = account.provider === 'allamkincstar'
-  const ret =
-    accSummary.netDepositedHuf > 0
-      ? (accSummary.totalValueHuf - accSummary.netDepositedHuf) /
-        accSummary.netDepositedHuf
-      : undefined
+  const isCashHub = account.kind === 'cash'
+  const ret = accountReturn(accSummary)
 
   async function saveEdit() {
     await updateAccount(account!.id, {
@@ -126,29 +125,59 @@ export default function AccountDetail() {
           index={0}
           accent
         />
-        <StatCard
-          label="Hozam"
-          value={formatMoney(
-            accSummary.totalValueHuf - accSummary.netDepositedHuf,
-            'HUF',
-            { sign: true },
-          )}
-          deltaPct={ret}
-          index={1}
-        />
-        <StatCard
-          label="Készpénz"
-          value={formatMoney(accSummary.cashValueHuf)}
-          index={2}
-        />
-        <StatCard
-          label={isTreasury ? 'Kapott kamat' : 'Befektetett tőke'}
-          value={formatMoney(
-            isTreasury ? accSummary.interestHuf : accSummary.netDepositedHuf,
-          )}
-          index={3}
-        />
+        {isCashHub ? (
+          <>
+            <StatCard
+              label="Külső befizetés"
+              value={formatMoney(accSummary.netDepositedHuf)}
+              index={1}
+            />
+            <StatCard
+              label="Befektetésekbe utalva"
+              value={formatMoney(accSummary.transfersOutHuf)}
+              index={2}
+            />
+            <StatCard
+              label="Készpénz"
+              value={formatMoney(accSummary.cashValueHuf)}
+              index={3}
+            />
+          </>
+        ) : (
+          <>
+            <StatCard
+              label="Hozam"
+              value={formatMoney(
+                accSummary.totalValueHuf - accSummary.capitalBasisHuf,
+                'HUF',
+                { sign: true },
+              )}
+              deltaPct={ret}
+              index={1}
+            />
+            <StatCard
+              label="Készpénz"
+              value={formatMoney(accSummary.cashValueHuf)}
+              index={2}
+            />
+            <StatCard
+              label={isTreasury ? 'Kapott kamat' : 'Befektetett tőke'}
+              value={formatMoney(
+                isTreasury
+                  ? accSummary.interestHuf
+                  : accSummary.capitalBasisHuf,
+              )}
+              index={3}
+            />
+          </>
+        )}
       </div>
+
+      {account.kind === 'tbsz' && account.tbszYear && (
+        <div className="mt-6">
+          <TbszTimeline year={account.tbszYear} />
+        </div>
+      )}
 
       {/* Holdings */}
       <div className="mt-6">
@@ -274,7 +303,13 @@ export default function AccountDetail() {
                         {formatDate(t.date)}
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge tone="neutral">{txTypeLabel[t.type]}</Badge>
+                        <Badge tone="neutral">
+                          {isInternalTransfer(t)
+                            ? t.type === 'deposit'
+                              ? 'Transzfer be'
+                              : 'Transzfer ki'
+                            : txTypeLabel[t.type]}
+                        </Badge>
                       </td>
                       <td className="px-4 py-2.5 text-[var(--color-muted)]">
                         {inst?.name ?? t.instrumentKey ?? '—'}

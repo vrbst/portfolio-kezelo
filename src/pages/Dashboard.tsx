@@ -16,6 +16,8 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
+import { accountReturn } from '../lib/portfolio'
+import { tbszStatus } from '../lib/tbsz'
 import {
   PageHeader,
   StatCard,
@@ -24,8 +26,9 @@ import {
   Delta,
   Badge,
 } from '../components/ui'
-import { formatMoney, formatPercent, formatDateTime } from '../lib/format'
+import { formatMoney, formatPercent, formatDateTime, formatDate } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
+import { CalendarClock } from 'lucide-react'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185']
 
@@ -43,6 +46,22 @@ export default function Dashboard() {
         .filter((a) => a.totalValueHuf > 0)
         .map((a) => ({ name: a.account.name, value: a.totalValueHuf }))
         .sort((a, b) => b.value - a.value),
+    [summary],
+  )
+
+  const tbszUpcoming = useMemo(
+    () =>
+      summary.accounts
+        .filter((a) => a.account.kind === 'tbsz' && a.account.tbszYear)
+        .map((a) => ({
+          account: a.account,
+          status: tbszStatus(a.account.tbszYear!),
+        }))
+        .filter((t) => t.status.next)
+        .sort(
+          (a, b) =>
+            (a.status.daysToNext ?? 0) - (b.status.daysToNext ?? 0),
+        ),
     [summary],
   )
 
@@ -218,14 +237,8 @@ export default function Dashboard() {
                     <div className="font-semibold tabular-nums">
                       {formatMoney(a.totalValueHuf)}
                     </div>
-                    {a.netDepositedHuf > 0 && (
-                      <Delta
-                        pct={
-                          (a.totalValueHuf - a.netDepositedHuf) /
-                          a.netDepositedHuf
-                        }
-                        className="text-xs"
-                      />
+                    {accountReturn(a) != null && (
+                      <Delta pct={accountReturn(a)} className="text-xs" />
                     )}
                   </div>
                 </div>
@@ -234,6 +247,39 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {tbszUpcoming.length > 0 && (
+        <Card className="mt-6 p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">TBSZ mérföldkövek</h2>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {tbszUpcoming.map(({ account, status }) => (
+              <Link
+                key={account.id}
+                to={`/accounts/${account.id}`}
+                className="card-hover rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">TBSZ {account.tbszYear}</span>
+                  <Badge tone="neutral">
+                    {Math.round(status.taxRate * 100)}% adó
+                  </Badge>
+                </div>
+                <div className="mt-2 text-sm text-[var(--color-muted)]">
+                  {status.next?.label}
+                </div>
+                <div className="text-sm">
+                  <span className="font-medium text-[var(--color-brand)]">
+                    {formatDate(status.next?.date)}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

@@ -5,7 +5,8 @@ import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
 import { formatMoney } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
-import type { AccountSummary } from '../lib/portfolio'
+import { accountReturn, type AccountSummary } from '../lib/portfolio'
+import { tbszStatus } from '../lib/tbsz'
 
 export default function Accounts() {
   const accounts = usePortfolio((s) => s.accounts)
@@ -75,53 +76,69 @@ function Section({
         </h2>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        {items.map((a, i) => (
-          <motion.div
-            key={a.account.id}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-          >
-            <Link to={`/accounts/${a.account.id}`}>
-              <Card hover className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{a.account.name}</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <Badge tone="brand">{accountKindLabel(a.account)}</Badge>
-                      {a.account.externalRef && (
-                        <span className="text-xs text-[var(--color-muted)]">
-                          {a.account.externalRef}
+        {items.map((a, i) => {
+          const ret = accountReturn(a)
+          const tbsz =
+            a.account.kind === 'tbsz' && a.account.tbszYear
+              ? tbszStatus(a.account.tbszYear)
+              : undefined
+          return (
+            <motion.div
+              key={a.account.id}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <Link to={`/accounts/${a.account.id}`}>
+                <Card hover className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {a.account.name}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <Badge tone="brand">
+                          {accountKindLabel(a.account)}
+                        </Badge>
+                        {a.account.externalRef && (
+                          <span className="text-xs text-[var(--color-muted)]">
+                            {a.account.externalRef}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
+                  </div>
+
+                  <div className="mt-4 flex items-end justify-between">
+                    <div>
+                      <div className="text-xs text-[var(--color-muted)]">
+                        Teljes érték
+                      </div>
+                      <div className="text-xl font-semibold tabular-nums">
+                        {formatMoney(a.totalValueHuf)}
+                      </div>
+                    </div>
+                    {ret != null && <Delta pct={ret} className="text-sm" />}
+                  </div>
+
+                  {tbsz && (
+                    <div className="mt-3 flex items-center justify-between border-t border-[var(--color-border)] pt-3 text-xs">
+                      <span className="text-[var(--color-muted)]">
+                        {tbsz.phaseLabel} · {Math.round(tbsz.taxRate * 100)}% adó
+                      </span>
+                      {tbsz.next && (
+                        <span className="text-[var(--color-muted)]">
+                          {tbsz.next.label}: {tbsz.next.date.slice(0, 4)}
                         </span>
                       )}
                     </div>
-                  </div>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
-                </div>
-
-                <div className="mt-4 flex items-end justify-between">
-                  <div>
-                    <div className="text-xs text-[var(--color-muted)]">
-                      Teljes érték
-                    </div>
-                    <div className="text-xl font-semibold tabular-nums">
-                      {formatMoney(a.totalValueHuf)}
-                    </div>
-                  </div>
-                  {a.netDepositedHuf > 0 && (
-                    <Delta
-                      pct={
-                        (a.totalValueHuf - a.netDepositedHuf) /
-                        a.netDepositedHuf
-                      }
-                      className="text-sm"
-                    />
                   )}
-                </div>
-              </Card>
-            </Link>
-          </motion.div>
-        ))}
+                </Card>
+              </Link>
+            </motion.div>
+          )
+        })}
       </div>
     </div>
   )

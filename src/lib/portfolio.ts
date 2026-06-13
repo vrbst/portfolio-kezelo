@@ -39,8 +39,22 @@ export interface AccountSummary {
   account: Account
   holdings: HoldingView[]
   cash: CashByCurrency
-  /** Σ external deposits − withdrawals, account currency (HUF). */
+  /**
+   * Σ EXTERNAL deposits − withdrawals (HUF). Internal transfers between the
+   * user's own accounts are excluded, so summing this across accounts gives the
+   * true external capital without double counting.
+   */
   netDepositedHuf: number
+  /** Internal transfers received from the user's other accounts (HUF). */
+  transfersInHuf: number
+  /** Internal transfers sent to the user's other accounts (HUF). */
+  transfersOutHuf: number
+  /**
+   * Capital committed to THIS account = external net + net internal transfers
+   * in. The right denominator for a single account's return (a TBSZ funded by
+   * transfers from the cash hub still shows a sensible % on its own holdings).
+   */
+  capitalBasisHuf: number
   holdingsValueHuf: number
   cashValueHuf: number
   totalValueHuf: number
@@ -68,6 +82,29 @@ export interface PortfolioSummary {
 }
 
 const BOND_TYPES = new Set(['gov_bond', 'tbill'])
+
+/**
+ * A deposit/withdrawal that is really a transfer between the user's own
+ * Lightyear accounts. Lightyear marks these with an `IT-` reference (Internal
+ * Transfer), versus `DT-` for real external deposits. Detected by reference so
+ * the stored transaction (and its id) stays untouched — no re-import needed.
+ */
+export function isInternalTransfer(t: Transaction): boolean {
+  return (
+    (t.type === 'deposit' || t.type === 'withdrawal') &&
+    /^IT-/i.test((t.reference ?? '').trim())
+  )
+}
+
+/**
+ * Per-account return on the capital committed to it. Undefined for the cash hub
+ * (a pass-through with no meaningful return) and when no capital is committed.
+ */
+export function accountReturn(s: AccountSummary): number | undefined {
+  if (s.account.kind === 'cash') return undefined
+  if (s.capitalBasisHuf <= 0) return undefined
+  return (s.totalValueHuf - s.capitalBasisHuf) / s.capitalBasisHuf
+}
 
 /**
  * Convert an amount to HUF.
@@ -100,6 +137,8 @@ export function computeAccountSummary(
   let interestHuf = 0
   let feesHuf = 0
   let taxHuf = 0
+  let transfersInHuf = 0
+  let transfersOutHuf = 0
   const cash: CashByCurrency = {}
 
   const addCash = (ccy: Currency, amount: number) => {
@@ -109,6 +148,22 @@ export function computeAccountSummary(
   for (const t of accountTxs) {
     if (t.internal) continue // mirror entries — excluded from cash / P&L
     const ccy = t.currency || 'HUF'
+
+    // Internal transfer between the user's own accounts: it moves cash, but it
+    // is NOT external capital, so it never touches netDeposited. Tracked
+    // separately so a transfer-funded account still shows a real return.
+    if (isInternalTransfer(t)) {
+      const amt = Math.abs(t.netAmount ?? t.grossAmount ?? 0)
+      if (t.type === 'deposit') {
+        addCash(ccy, amt)
+        transfersInHuf += toHuf(amt, ccy, fx)
+      } else {
+        addCash(ccy, -amt)
+        transfersOutHuf += toHuf(amt, ccy, fx)
+      }
+      continue
+    }
+
     if (t.fee) feesHuf += toHuf(t.fee, ccy, fx)
     if (t.taxAmount) taxHuf += toHuf(t.taxAmount, ccy, fx)
 
@@ -235,10 +290,11 @@ export function computeAccountSummary(
 
   holdings.sort((a, b) => (b.marketValueHuf ?? 0) - (a.marketValueHuf ?? 0))
 
-  // ---- Net deposited (external money in − out), HUF ----
+  // ---- Net deposited (EXTERNAL money in − out only), HUF ----
   let netDepositedHuf = 0
   for (const t of accountTxs) {
     if (t.internal) continue
+    if (isInternalTransfer(t)) continue // internal — not external capital
     if (t.type === 'deposit')
       netDepositedHuf += toHuf(
         Math.abs(t.netAmount ?? t.grossAmount ?? 0),
@@ -263,6 +319,9 @@ export function computeAccountSummary(
     holdings,
     cash,
     netDepositedHuf,
+    transfersInHuf,
+    transfersOutHuf,
+    capitalBasisHuf: netDepositedHuf + transfersInHuf - transfersOutHuf,
     holdingsValueHuf,
     cashValueHuf,
     totalValueHuf: holdingsValueHuf + cashValueHuf,
