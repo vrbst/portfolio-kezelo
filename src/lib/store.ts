@@ -10,8 +10,10 @@ import {
 } from './portfolio'
 import {
   loadPriceFile,
+  loadHistoryFile,
   fetchLiveFx,
   type PriceFile,
+  type HistoryFile,
 } from './prices'
 import {
   loadSyncConfig,
@@ -33,6 +35,8 @@ interface PortfolioState {
   fx: Record<string, number>
   /** Last loaded committed snapshot (for symbol/currency display). */
   priceFile: PriceFile | null
+  /** Daily price/FX history for the value chart (from public/history.json). */
+  historyFile: HistoryFile | null
   /** User overrides: instrument key -> price (instrument ccy). */
   manualPrices: Record<string, number>
   /** ISO timestamp shown in the UI. */
@@ -162,6 +166,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   prices: new Map(),
   fx: {},
   priceFile: null,
+  historyFile: null,
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
@@ -255,7 +260,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   refreshPrices: async () => {
     set({ pricesLoading: true })
-    const [file, liveFx] = await Promise.all([loadPriceFile(), fetchLiveFx()])
+    const [file, history, liveFx] = await Promise.all([
+      loadPriceFile(),
+      loadHistoryFile(),
+      fetchLiveFx(),
+    ])
     set((s) => {
       const priceFile = file ?? s.priceFile
       const prices = buildPriceMap(priceFile, s.manualPrices)
@@ -264,6 +273,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       void setMeta('fx', fx)
       return {
         priceFile,
+        historyFile: history ?? s.historyFile,
         prices,
         fx,
         priceUpdatedAt: priceFile?.updatedAt,

@@ -16,6 +16,15 @@ export interface PriceFile {
   prices: Record<string, PriceEntry>
 }
 
+/** Daily history written by the GitHub Action. Dates are YYYY-MM-DD, ascending. */
+export interface HistoryFile {
+  updatedAt?: string
+  /** instrument key (ISIN) -> [date, close in instrument currency]. */
+  prices: Record<string, [string, number][]>
+  /** 'EUR' -> [date, HUF per 1 EUR]. */
+  fx: Record<string, [string, number][]>
+}
+
 /** Load the committed price snapshot (base-path aware for GitHub Pages). */
 export async function loadPriceFile(): Promise<PriceFile | null> {
   try {
@@ -24,6 +33,19 @@ export async function loadPriceFile(): Promise<PriceFile | null> {
     })
     if (!res.ok) return null
     return (await res.json()) as PriceFile
+  } catch {
+    return null
+  }
+}
+
+/** Load the committed daily-history snapshot, if present. */
+export async function loadHistoryFile(): Promise<HistoryFile | null> {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}history.json`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    return (await res.json()) as HistoryFile
   } catch {
     return null
   }

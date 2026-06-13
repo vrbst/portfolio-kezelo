@@ -602,12 +602,35 @@ export interface ValuePoint {
   invested: number
 }
 
+/** Daily history series: ascending [YYYY-MM-DD, value] per key. */
+export interface ValueHistory {
+  prices: Record<string, [string, number][]>
+  fx: Record<string, [string, number][]>
+}
+
+/** Last value in an ascending [date, value][] series on/before `day`. */
+function asOf(
+  series: [string, number][] | undefined,
+  day: string,
+): number | undefined {
+  if (!series || series.length === 0) return undefined
+  let v: number | undefined
+  for (const [d, x] of series) {
+    if (d <= day) v = x
+    else break
+  }
+  return v
+}
+
 /**
- * Portfolio value over time, reconstructed from the transactions. We have no
- * historical market prices, so equities are valued at the price embedded in the
- * most recent buy/sell on/before each sample day (flat between trades), bonds at
- * their accrued value on that day, and FX at the conversion rate of the day. The
- * final point uses today's live prices so it matches the dashboard total.
+ * Portfolio value over time, reconstructed from the transactions.
+ *  - With `history` (daily ETF closes + EUR/HUF from the GitHub Action) each
+ *    sample day is marked to the real market close and FX of that day → a
+ *    genuine daily curve, sampled weekly.
+ *  - Without history we fall back to the price embedded in the most recent
+ *    trade on/before the day and the conversion-rate FX, sampled at trade days.
+ * Bonds use their accrued value on the day. The final point uses live prices so
+ * it matches the dashboard total.
  */
 export function buildValueSeries(
   accounts: Account[],
@@ -615,13 +638,17 @@ export function buildValueSeries(
   instruments: Map<string, Instrument>,
   prices: PriceMap,
   fx: Record<string, number>,
+  history?: ValueHistory | null,
   now: Date = new Date(),
 ): ValuePoint[] {
   if (txs.length === 0) return []
   const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date))
   const fxHistory = buildFxHistory(sorted)
+  const hasHistory =
+    !!history && Object.values(history.prices).some((s) => s.length > 0)
 
-  // Per-instrument price timeline from trades (instrument currency per unit).
+  // Per-instrument trade-price timeline (instrument currency per unit) — the
+  // fallback when no market history is available.
   const priceTimeline = new Map<string, { date: string; price: number }[]>()
   for (const t of sorted) {
     if (
@@ -634,7 +661,7 @@ export function buildValueSeries(
       priceTimeline.set(t.instrumentKey, arr)
     }
   }
-  const priceAsOf = (key: string, dayEnd: string): number | undefined => {
+  const tradePriceAsOf = (key: string, dayEnd: string): number | undefined => {
     const arr = priceTimeline.get(key)
     if (!arr) return undefined
     let p: number | undefined
@@ -646,9 +673,17 @@ export function buildValueSeries(
   }
 
   const todayIso = now.toISOString().slice(0, 10)
-  const days = [...new Set(sorted.map((t) => t.date.slice(0, 10)))].filter(
-    (d) => d <= todayIso,
-  )
+  const tradeDays = [...new Set(sorted.map((t) => t.date.slice(0, 10)))]
+  // With history, sample weekly from the first trade for a smooth daily curve;
+  // always include the trade days so events land on the line.
+  const dayset = new Set(tradeDays)
+  if (hasHistory) {
+    const startMs = Date.parse(tradeDays[0])
+    const endMs = Date.parse(todayIso)
+    for (let t = startMs; t <= endMs; t += 7 * 86_400_000)
+      dayset.add(new Date(t).toISOString().slice(0, 10))
+  }
+  const days = [...dayset].filter((d) => d <= todayIso).sort()
 
   const points: ValuePoint[] = []
   for (const day of days) {
@@ -656,12 +691,16 @@ export function buildValueSeries(
     const txsUpTo = sorted.filter((t) => t.date <= dayEnd)
     const pricesAtD: PriceMap = new Map()
     for (const inst of instruments.values()) {
-      const p = priceAsOf(inst.key, dayEnd)
+      const p =
+        asOf(history?.prices[inst.key], day) ??
+        tradePriceAsOf(inst.key, dayEnd)
       if (p != null) pricesAtD.set(inst.key, p)
     }
     const fxAtD = {
       ...fx,
-      EUR: histFxRate(fxHistory, 'EUR', dayEnd, fx),
+      EUR:
+        asOf(history?.fx['EUR'], day) ??
+        histFxRate(fxHistory, 'EUR', dayEnd, fx),
     }
     const s = computePortfolio(
       accounts,

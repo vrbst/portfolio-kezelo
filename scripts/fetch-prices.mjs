@@ -12,12 +12,21 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../public/prices.json')
+const HIST_OUT = resolve(__dirname, '../public/history.json')
+const HISTORY_YEARS = 2
 
 // instrument.key (ISIN) -> label + the currency the position is held in.
 // `currency` makes the resolver pick the matching listing (e.g. the EUR Xetra
 // line, not the USD London line of the same fund).
+// `historySymbol` pins the Yahoo symbol used for the daily history chart, since
+// the ISIN search often surfaces a listing (e.g. *.SG) that has no history.
 const INSTRUMENTS = [
-  { isin: 'IE00BK5BQT80', label: 'VWCE', currency: 'EUR' },
+  {
+    isin: 'IE00BK5BQT80',
+    label: 'VWCE',
+    currency: 'EUR',
+    historySymbol: 'VWCE.DE',
+  },
   { isin: 'GB00BJYDH287', label: 'WBIT', currency: 'EUR' },
 ]
 
@@ -73,9 +82,48 @@ async function fetchFx() {
   return data.rates?.HUF
 }
 
+/** Daily close history for a resolved symbol: [[YYYY-MM-DD, close], …]. */
+async function fetchHistory(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+    symbol,
+  )}?range=${HISTORY_YEARS}y&interval=1d`
+  const res = await fetch(url, { headers: UA })
+  if (!res.ok) throw new Error(`history ${symbol}: HTTP ${res.status}`)
+  const data = await res.json()
+  const r = data?.chart?.result?.[0]
+  const ts = r?.timestamp || []
+  const closes = r?.indicators?.quote?.[0]?.close || []
+  const out = []
+  for (let i = 0; i < ts.length; i++) {
+    const c = closes[i]
+    if (c == null) continue
+    const date = new Date(ts[i] * 1000).toISOString().slice(0, 10)
+    out.push([date, Math.round(c * 1e4) / 1e4])
+  }
+  return out
+}
+
+/** Daily EUR/HUF history from frankfurter: [[YYYY-MM-DD, rate], …]. */
+async function fetchFxHistory() {
+  const end = new Date().toISOString().slice(0, 10)
+  const start = new Date(Date.now() - HISTORY_YEARS * 365 * 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+  const res = await fetch(
+    `https://api.frankfurter.app/${start}..${end}?from=EUR&to=HUF`,
+  )
+  if (!res.ok) throw new Error(`fx history: HTTP ${res.status}`)
+  const data = await res.json()
+  return Object.entries(data.rates || {})
+    .map(([date, r]) => [date, r.HUF])
+    .filter(([, h]) => h != null)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+}
+
 async function main() {
   const prices = {}
-  for (const { isin, label, currency } of INSTRUMENTS) {
+  const histPrices = {}
+  for (const { isin, label, currency, historySymbol } of INSTRUMENTS) {
     try {
       const q = await resolveQuote(isin, currency)
       prices[isin] = {
@@ -88,6 +136,18 @@ async function main() {
       console.log(
         `✓ ${label} (${isin}) = ${q.price} ${q.currency} [${q.symbol}]${warn}`,
       )
+      const histSym = historySymbol || q.symbol
+      try {
+        const hist = await fetchHistory(histSym)
+        if (hist.length) {
+          histPrices[isin] = hist
+          console.log(`  ↳ ${hist.length} napi záróár [${histSym}]`)
+        } else {
+          console.warn(`  ↳ nincs history [${histSym}]`)
+        }
+      } catch (err) {
+        console.warn(`  ↳ history ${label}: ${err.message}`)
+      }
     } catch (err) {
       console.warn(`! ${label} (${isin}): ${err.message}`)
     }
@@ -101,6 +161,14 @@ async function main() {
     console.warn(`! FX: ${err.message}`)
   }
 
+  let fxHist = []
+  try {
+    fxHist = await fetchFxHistory()
+    console.log(`✓ EUR/HUF history: ${fxHist.length} nap`)
+  } catch (err) {
+    console.warn(`! FX history: ${err.message}`)
+  }
+
   const out = {
     updatedAt: new Date().toISOString(),
     fx: eurHuf ? { EUR: eurHuf } : {},
@@ -108,7 +176,15 @@ async function main() {
   }
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, JSON.stringify(out, null, 2) + '\n')
-  console.log(`\n→ írva: ${OUT}`)
+  console.log(`→ írva: ${OUT}`)
+
+  const histOut = {
+    updatedAt: new Date().toISOString(),
+    prices: histPrices,
+    fx: fxHist.length ? { EUR: fxHist } : {},
+  }
+  writeFileSync(HIST_OUT, JSON.stringify(histOut) + '\n')
+  console.log(`→ írva: ${HIST_OUT}`)
 }
 
 main()

@@ -45,6 +45,7 @@ export default function Dashboard() {
   const instruments = usePortfolio((s) => s.instruments)
   const prices = usePortfolio((s) => s.prices)
   const fx = usePortfolio((s) => s.fx)
+  const historyFile = usePortfolio((s) => s.historyFile)
   const summary = usePortfolioSummary()
   const refreshPrices = usePortfolio((s) => s.refreshPrices)
   const pricesLoading = usePortfolio((s) => s.pricesLoading)
@@ -59,8 +60,9 @@ export default function Dashboard() {
         new Map(instruments.map((i) => [i.key, i])),
         prices,
         fx,
+        historyFile,
       ),
-    [accounts, transactions, instruments, prices, fx],
+    [accounts, transactions, instruments, prices, fx, historyFile],
   )
 
   const allocation = useMemo(
