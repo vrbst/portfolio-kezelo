@@ -47,7 +47,7 @@ export default function InstallPrompt() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="fixed inset-x-0 bottom-16 z-50 flex justify-center px-4 md:bottom-0 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="flex w-full max-w-md items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-3 shadow-xl backdrop-blur-xl">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-brand-2)] text-white">
           <Download className="h-5 w-5" />
