@@ -38,6 +38,25 @@ export function saveSyncConfig(config: SyncConfig | null) {
   else localStorage.removeItem(CONFIG_KEY)
 }
 
+const AUTOSYNC_KEY = 'portfolio.autoSync'
+
+/** Auto-push after import/edits is on by default once sync is configured. */
+export function loadAutoSync(): boolean {
+  try {
+    return localStorage.getItem(AUTOSYNC_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+
+export function saveAutoSync(enabled: boolean) {
+  try {
+    localStorage.setItem(AUTOSYNC_KEY, enabled ? 'true' : 'false')
+  } catch {
+    // ignore storage failures
+  }
+}
+
 // ---- UTF-8 safe base64 (GitHub wants base64 content) ----------------------
 function toBase64(str: string): string {
   const bytes = new TextEncoder().encode(str)

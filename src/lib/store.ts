@@ -18,6 +18,8 @@ import {
 import {
   loadSyncConfig,
   saveSyncConfig,
+  loadAutoSync,
+  saveAutoSync,
   getRemoteSnapshot,
   putRemoteSnapshot,
   type SyncConfig,
@@ -59,7 +61,12 @@ interface PortfolioState {
   syncConfig: SyncConfig | null
   syncing: boolean
   lastSyncedAt?: string
+  /** Auto-push to the cloud after imports and edits. */
+  autoSync: boolean
+  /** Message from the last failed auto-push, if any. */
+  syncError?: string
   setSyncConfig: (config: SyncConfig | null) => void
+  setAutoSync: (enabled: boolean) => void
   pushToCloud: () => Promise<void>
   pullFromCloud: () => Promise<{ added: number }>
 
@@ -158,6 +165,32 @@ async function mergeSnapshot(
   return added
 }
 
+// Debounced background auto-push: coalesces a burst of imports/edits into one
+// upload a couple of seconds after the last change.
+let autoSyncTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleAutoSync(
+  set: (partial: Partial<PortfolioState>) => void,
+  get: () => PortfolioState,
+) {
+  const s = get()
+  if (!s.syncConfig || !s.autoSync) return
+  if (autoSyncTimer) clearTimeout(autoSyncTimer)
+  autoSyncTimer = setTimeout(async () => {
+    autoSyncTimer = null
+    const st = get()
+    if (!st.syncConfig || !st.autoSync) return
+    if (st.syncing) {
+      scheduleAutoSync(set, get) // a push is in flight — try again shortly
+      return
+    }
+    try {
+      await st.pushToCloud()
+    } catch (e) {
+      set({ syncError: (e as Error).message })
+    }
+  }, 2500)
+}
+
 export const usePortfolio = create<PortfolioState>((set, get) => ({
   loaded: false,
   accounts: [],
@@ -173,6 +206,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   syncConfig: loadSyncConfig(),
   syncing: false,
   lastSyncedAt: undefined,
+  autoSync: loadAutoSync(),
+  syncError: undefined,
 
   load: async () => {
     const [accounts, instruments, transactions, savedFx, manualPrices] =
@@ -229,6 +264,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     ])
 
     set({ accounts, instruments, transactions, fx })
+    if (newTxs.length > 0) scheduleAutoSync(set, get)
     return { added: newTxs.length, skipped }
   },
 
@@ -239,6 +275,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const updated = accounts.find((a) => a.id === id)
     if (updated) await db.accounts.put(updated)
     set({ accounts })
+    scheduleAutoSync(set, get)
   },
 
   updateInstrument: async (key, patch) => {
@@ -248,6 +285,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const updated = instruments.find((i) => i.key === key)
     if (updated) await db.instruments.put(updated)
     set({ instruments })
+    scheduleAutoSync(set, get)
   },
 
   setPrices: (prices, fx) => {
@@ -291,11 +329,18 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       manualPrices,
       prices: buildPriceMap(s.priceFile, manualPrices),
     }))
+    scheduleAutoSync(set, get)
   },
 
   setSyncConfig: (config) => {
     saveSyncConfig(config)
     set({ syncConfig: config })
+  },
+
+  setAutoSync: (enabled) => {
+    saveAutoSync(enabled)
+    set({ autoSync: enabled })
+    if (enabled) scheduleAutoSync(set, get)
   },
 
   pushToCloud: async () => {
@@ -307,7 +352,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // Use the remote sha if a file already exists (required for update).
       const existing = await getRemoteSnapshot(syncConfig)
       await putRemoteSnapshot(syncConfig, snapshot, existing?.sha)
-      set({ lastSyncedAt: snapshot.exportedAt })
+      set({ lastSyncedAt: snapshot.exportedAt, syncError: undefined })
     } finally {
       set({ syncing: false })
     }

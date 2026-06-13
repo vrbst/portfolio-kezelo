@@ -101,6 +101,9 @@ function SyncSettings() {
   const pullFromCloud = usePortfolio((s) => s.pullFromCloud)
   const syncing = usePortfolio((s) => s.syncing)
   const lastSyncedAt = usePortfolio((s) => s.lastSyncedAt)
+  const autoSync = usePortfolio((s) => s.autoSync)
+  const setAutoSync = usePortfolio((s) => s.setAutoSync)
+  const syncError = usePortfolio((s) => s.syncError)
 
   const [form, setForm] = useState<SyncConfig>(
     syncConfig ?? { token: '', owner: '', repo: '', path: 'data.json' },
@@ -201,9 +204,28 @@ function SyncSettings() {
         )}
       </div>
 
+      {connected && (
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={autoSync}
+            onChange={(e) => setAutoSync(e.target.checked)}
+            className="h-4 w-4 accent-[var(--color-brand)]"
+          />
+          <span>Automatikus feltöltés import és szerkesztés után</span>
+        </label>
+      )}
+
       {lastSyncedAt && (
         <p className="mt-2 text-xs text-[var(--color-muted)]">
           Utolsó szinkron: {formatDateTime(lastSyncedAt)}
+          {autoSync && connected ? ' · auto' : ''}
+        </p>
+      )}
+      {syncError && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-negative)]">
+          <AlertTriangle className="h-4 w-4" />
+          Auto-szinkron hiba: {syncError}
         </p>
       )}
       {msg && (
