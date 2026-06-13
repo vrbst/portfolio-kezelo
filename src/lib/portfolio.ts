@@ -674,13 +674,16 @@ export function buildValueSeries(
 
   const todayIso = now.toISOString().slice(0, 10)
   const tradeDays = [...new Set(sorted.map((t) => t.date.slice(0, 10)))]
-  // With history, sample weekly from the first trade for a smooth daily curve;
-  // always include the trade days so events land on the line.
+  // With history, sample at a fixed cadence from the first trade so hovering is
+  // smooth: daily for up to ~a year, thinning for longer spans (≤ ~370 points).
+  // Trade days are always included so events land exactly on the line.
   const dayset = new Set(tradeDays)
   if (hasHistory) {
     const startMs = Date.parse(tradeDays[0])
     const endMs = Date.parse(todayIso)
-    for (let t = startMs; t <= endMs; t += 7 * 86_400_000)
+    const spanDays = (endMs - startMs) / 86_400_000
+    const stepDays = spanDays <= 370 ? 1 : Math.ceil(spanDays / 370)
+    for (let t = startMs; t <= endMs; t += stepDays * 86_400_000)
       dayset.add(new Date(t).toISOString().slice(0, 10))
   }
   const days = [...dayset].filter((d) => d <= todayIso).sort()
