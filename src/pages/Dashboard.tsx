@@ -22,7 +22,7 @@ import {
   allocationByClass,
   allocationByCurrency,
 } from '../lib/portfolio'
-import { tbszStatus } from '../lib/tbsz'
+import { upcomingEvents, type EventKind } from '../lib/events'
 import ValueChart from '../components/ValueChart'
 import {
   PageHeader,
@@ -40,7 +40,7 @@ import {
   eurEquivalent,
 } from '../lib/format'
 import { accountKindLabel, assetClassLabel } from '../lib/labels'
-import { CalendarClock } from 'lucide-react'
+import { CalendarClock, Landmark, Coins as CoinsIcon } from 'lucide-react'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185']
 
@@ -90,21 +90,7 @@ export default function Dashboard() {
     }))
   }, [summary, allocMode, fx])
 
-  const tbszUpcoming = useMemo(
-    () =>
-      summary.accounts
-        .filter((a) => a.account.kind === 'tbsz' && a.account.tbszYear)
-        .map((a) => ({
-          account: a.account,
-          status: tbszStatus(a.account.tbszYear!),
-        }))
-        .filter((t) => t.status.next)
-        .sort(
-          (a, b) =>
-            (a.status.daysToNext ?? 0) - (b.status.daysToNext ?? 0),
-        ),
-    [summary],
-  )
+  const events = useMemo(() => upcomingEvents(summary).slice(0, 8), [summary])
 
   if (accounts.length === 0) {
     return (
@@ -324,40 +310,61 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {tbszUpcoming.length > 0 && (
+      {events.length > 0 && (
         <Card className="mt-6 p-6">
           <div className="mb-4 flex items-center gap-2">
             <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
-            <h2 className="text-lg font-semibold">TBSZ mérföldkövek</h2>
+            <h2 className="text-lg font-semibold">Közelgő események</h2>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {tbszUpcoming.map(({ account, status }) => (
-              <Link
-                key={account.id}
-                to={`/accounts/${account.id}`}
-                className="card-hover rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">TBSZ {account.tbszYear}</span>
-                  <Badge tone="neutral">
-                    {Math.round(status.taxRate * 100)}% adó
-                  </Badge>
-                </div>
-                <div className="mt-2 text-sm text-[var(--color-muted)]">
-                  {status.next?.label}
-                </div>
-                <div className="text-sm">
-                  <span className="font-medium text-[var(--color-brand)]">
-                    {formatDate(status.next?.date)}
+          <div className="space-y-2">
+            {events.map((e, i) => {
+              const Icon = EVENT_ICON[e.kind]
+              const inner = (
+                <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
+                    <Icon className="h-[18px] w-[18px]" />
                   </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {e.title}
+                    </div>
+                    {e.detail && (
+                      <div className="text-xs text-[var(--color-muted)]">
+                        {e.detail}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-medium tabular-nums">
+                      {formatDate(e.date)}
+                    </div>
+                    <div className="text-xs text-[var(--color-muted)]">
+                      {e.daysUntil === 0
+                        ? 'ma'
+                        : `${e.daysUntil} nap múlva`}
+                    </div>
+                  </div>
                 </div>
-              </Link>
-            ))}
+              )
+              return e.accountId ? (
+                <Link key={i} to={`/accounts/${e.accountId}`} className="block card-hover rounded-xl">
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i}>{inner}</div>
+              )
+            })}
           </div>
         </Card>
       )}
     </div>
   )
+}
+
+const EVENT_ICON: Record<EventKind, typeof CalendarClock> = {
+  tbsz: CalendarClock,
+  maturity: Landmark,
+  coupon: CoinsIcon,
 }
 
 const tooltipStyle = {

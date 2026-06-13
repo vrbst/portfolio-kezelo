@@ -166,6 +166,26 @@ function fixedBondAccrued(
   return days > 0 ? (rate * days) / 365 : 0
 }
 
+/** Next coupon date strictly after `now` from the series terms, or undefined. */
+export function nextCouponDate(
+  bond: BondTerms | undefined,
+  now: Date = new Date(),
+): string | undefined {
+  const first = parseDayMs(bond?.firstCouponDate)
+  if (!Number.isFinite(first)) return undefined
+  const interval =
+    bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
+      ? bond.couponIntervalMonths
+      : 12
+  const nowDay = new Date(now)
+  nowDay.setHours(0, 0, 0, 0)
+  let cur = first
+  while (cur <= nowDay.getTime()) cur = addMonths(cur, interval)
+  const mat = parseDayMs(bond?.maturity)
+  if (Number.isFinite(mat) && cur > mat) return undefined // redeemed by then
+  return new Date(cur).toISOString()
+}
+
 /**
  * Current HUF value of a bond position (face = quantity), more accurate than par:
  *  - Discount T-bill (zero coupon): accretes linearly from the average purchase
