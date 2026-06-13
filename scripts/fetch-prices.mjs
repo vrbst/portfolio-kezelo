@@ -44,14 +44,20 @@ const UA = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
 }
 
-async function searchSymbols(isin) {
+async function searchQuotes(isin) {
   const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
     isin,
   )}&quotesCount=10&newsCount=0`
   const res = await fetch(url, { headers: UA })
   if (!res.ok) throw new Error(`search ${isin}: HTTP ${res.status}`)
   const data = await res.json()
-  return (data.quotes || []).map((q) => q.symbol).filter(Boolean)
+  return (data.quotes || []).filter((q) => q.symbol)
+}
+
+/** Best human name across the search hits (longname preferred, else shortname). */
+function bestName(quotes) {
+  const long = quotes.find((q) => q.longname)?.longname
+  return long || quotes.find((q) => q.shortname)?.shortname || undefined
 }
 
 async function fetchQuote(symbol) {
@@ -68,19 +74,20 @@ async function fetchQuote(symbol) {
 
 /** Pick the listing whose currency matches the position's currency. */
 async function resolveQuote(isin, wantCcy) {
-  const symbols = await searchSymbols(isin)
-  if (symbols.length === 0) throw new Error('nincs tőzsdei szimbólum')
+  const quotes = await searchQuotes(isin)
+  if (quotes.length === 0) throw new Error('nincs tőzsdei szimbólum')
+  const name = bestName(quotes)
   let fallback = null
-  for (const symbol of symbols.slice(0, 8)) {
+  for (const { symbol } of quotes.slice(0, 8)) {
     try {
       const q = await fetchQuote(symbol)
       if (!fallback) fallback = q
-      if (!wantCcy || q.currency === wantCcy) return q
+      if (!wantCcy || q.currency === wantCcy) return { ...q, name }
     } catch {
       // try the next listing
     }
   }
-  if (fallback) return fallback
+  if (fallback) return { ...fallback, name }
   throw new Error('egyik listán sincs ár')
 }
 
@@ -140,6 +147,7 @@ async function main() {
         currency: q.currency,
         symbol: q.symbol,
         label,
+        name: q.name,
       }
       const warn = currency && q.currency !== currency ? '  ⚠ deviza eltér!' : ''
       console.log(

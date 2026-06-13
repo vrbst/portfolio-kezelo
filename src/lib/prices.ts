@@ -8,6 +8,8 @@ export interface PriceEntry {
   currency: string
   symbol?: string
   label?: string
+  /** Full instrument name (e.g. "Vanguard FTSE All-World UCITS ETF"). */
+  name?: string
 }
 
 export interface PriceFile {

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-13T10:12:33.266Z",
+  "updatedAt": "2026-06-13T12:16:02.323Z",
   "fx": {
     "EUR": 352.88
   },
@@ -8,13 +8,15 @@
       "price": 162.24,
       "currency": "EUR",
       "symbol": "IE00BK5BQT80.SG",
-      "label": "VWCE"
+      "label": "VWCE",
+      "name": "Vanguard FTSE All-World UCITS ETF"
     },
     "GB00BJYDH287": {
       "price": 13.157,
       "currency": "EUR",
       "symbol": "GB00BJYDH287.SG",
-      "label": "WBIT"
+      "label": "WBIT",
+      "name": "WisdomTree Bitcoin"
     }
   }
 }

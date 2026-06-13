@@ -28,6 +28,8 @@ export default function AccountDetail() {
   const summary = usePortfolioSummary()
   const updateAccount = usePortfolio((s) => s.updateAccount)
   const eurHuf = usePortfolio((s) => s.fx['EUR'])
+  const fx = usePortfolio((s) => s.fx)
+  const priceFile = usePortfolio((s) => s.priceFile)
 
   const account = accounts.find((a) => a.id === id)
   const accSummary = summary.accounts.find((a) => a.account.id === id)
@@ -227,7 +229,13 @@ export default function AccountDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {accSummary.holdings.map((h) => (
+                  {accSummary.holdings.map((h) => {
+                    const priceName = priceFile?.prices[h.instrumentKey]?.name
+                    const unitHuf =
+                      h.currentPrice != null && h.currency !== 'HUF'
+                        ? h.currentPrice * (fx[h.currency] ?? 0)
+                        : undefined
+                    return (
                     <tr
                       key={h.instrumentKey}
                       className="border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40"
@@ -236,6 +244,26 @@ export default function AccountDetail() {
                         <div className="font-medium">
                           {h.instrument?.name ?? h.instrumentKey}
                         </div>
+                        {priceName && priceName !== h.instrument?.name && (
+                          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                            {priceName}
+                          </div>
+                        )}
+                        {h.currentPrice != null && h.currency !== 'HUF' && (
+                          <div className="mt-1 text-xs text-[var(--color-muted)]">
+                            <span>
+                              Árfolyam:{' '}
+                              <span className="text-[var(--color-text)]">
+                                {formatMoney(h.currentPrice, h.currency)}
+                              </span>
+                            </span>
+                            {unitHuf != null && (
+                              <div className="opacity-70">
+                                ≈ {formatMoney(unitHuf)}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
                           {h.instrument && (
                             <Badge tone="neutral">
@@ -299,7 +327,8 @@ export default function AccountDetail() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
