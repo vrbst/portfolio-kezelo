@@ -125,21 +125,40 @@ interface FxPoint {
 export type FxHistory = Map<string, FxPoint[]>
 
 /**
- * Historical EUR/HUF (etc.) rates harvested from `conversion` legs. Lightyear
- * records the realised rate on the foreign-currency leg, so this is exactly
- * what the user paid to acquire the currency that funded a purchase.
+ * Historical EUR/HUF (etc.) rates harvested from `conversion` legs. The two legs
+ * of a conversion share a reference; the EFFECTIVE rate is |HUF leg gross| /
+ * |foreign leg gross|, which embeds the conversion fee — so a purchase valued at
+ * this rate carries its share of the FX fee in the cost basis (not just the
+ * fee-free quoted `fxRate`).
  */
 export function buildFxHistory(txs: Transaction[]): FxHistory {
-  const map: FxHistory = new Map()
+  // Group the legs of each conversion together (same account + reference).
+  const groups = new Map<string, Transaction[]>()
   for (const t of txs) {
     if (t.type !== 'conversion') continue
-    const ccy = t.currency
-    if (!ccy || ccy === 'HUF') continue
-    const rate = t.fxRate
-    if (typeof rate !== 'number' || rate <= 1) continue
-    const arr = map.get(ccy) ?? []
-    arr.push({ date: t.date, rate })
-    map.set(ccy, arr)
+    const ref = (t.reference ?? '').trim()
+    const key = `${t.accountId}|${ref || t.date}`
+    const arr = groups.get(key) ?? []
+    arr.push(t)
+    groups.set(key, arr)
+  }
+
+  const map: FxHistory = new Map()
+  for (const legs of groups.values()) {
+    const hufLeg = legs.find((l) => (l.currency || 'HUF') === 'HUF')
+    const hufAbs = Math.abs(hufLeg?.grossAmount ?? hufLeg?.netAmount ?? 0)
+    if (!hufAbs) continue
+    for (const leg of legs) {
+      const ccy = leg.currency
+      if (!ccy || ccy === 'HUF') continue
+      const foreignAbs = Math.abs(leg.grossAmount ?? leg.netAmount ?? 0)
+      if (!foreignAbs) continue
+      const rate = hufAbs / foreignAbs // effective, fee-inclusive
+      if (rate <= 1) continue
+      const arr = map.get(ccy) ?? []
+      arr.push({ date: leg.date, rate })
+      map.set(ccy, arr)
+    }
   }
   for (const arr of map.values())
     arr.sort((a, b) => a.date.localeCompare(b.date))
