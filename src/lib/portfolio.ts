@@ -593,6 +593,125 @@ export function computePortfolio(
   }
 }
 
+export interface YearIncome {
+  year: number
+  /** Realized P/L from sells/redemptions (cost & proceeds in HUF). */
+  realizedPlHuf: number
+  interestHuf: number
+  dividendHuf: number
+  /** Total fees paid (trade + conversion + other). */
+  feesHuf: number
+  taxHuf: number
+}
+
+/**
+ * Realized income/cost grouped by calendar year: realized P/L (avg-cost, HUF at
+ * historical FX), interest, dividends, fees and tax. Internal transfers and
+ * sub-ledger mirrors are excluded.
+ */
+export function computeIncomeByYear(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+): YearIncome[] {
+  const fxHistory = buildFxHistory(txs)
+  const byYear = new Map<number, YearIncome>()
+  const ensure = (y: number) => {
+    let r = byYear.get(y)
+    if (!r) {
+      r = {
+        year: y,
+        realizedPlHuf: 0,
+        interestHuf: 0,
+        dividendHuf: 0,
+        feesHuf: 0,
+        taxHuf: 0,
+      }
+      byYear.set(y, r)
+    }
+    return r
+  }
+
+  for (const account of accounts) {
+    const accTxs = txs
+      .filter((t) => t.accountId === account.id)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const positions = new Map<
+      string,
+      { qty: number; cost: number; costHuf: number; ccy: Currency }
+    >()
+    for (const t of accTxs) {
+      if (t.internal) continue
+      const ccy = t.currency || 'HUF'
+      const year = Number(t.date.slice(0, 4))
+      if (!Number.isFinite(year)) continue
+      const yr = ensure(year)
+      if (t.fee) yr.feesHuf += toHuf(t.fee, ccy, fx)
+      if (t.taxAmount) yr.taxHuf += toHuf(t.taxAmount, ccy, fx)
+      if (isInternalTransfer(t)) continue
+
+      switch (t.type) {
+        case 'buy': {
+          if (!t.instrumentKey) break
+          const inst = instruments.get(t.instrumentKey)
+          const p = positions.get(t.instrumentKey) ?? {
+            qty: 0,
+            cost: 0,
+            costHuf: 0,
+            ccy: inst?.currency ?? ccy,
+          }
+          const qty = t.quantity ?? 0
+          const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
+          p.qty += qty
+          p.cost += spend
+          p.costHuf += spend * histFxRate(fxHistory, ccy, t.date, fx)
+          positions.set(t.instrumentKey, p)
+          break
+        }
+        case 'sell':
+        case 'redemption': {
+          if (!t.instrumentKey) break
+          const p = positions.get(t.instrumentKey)
+          const qty = t.quantity ?? 0
+          const proceedsCcy = Math.abs(t.netAmount ?? t.grossAmount ?? 0)
+          if (p && p.qty > 0) {
+            const soldFrac = qty > 0 ? Math.min(qty / p.qty, 1) : 1
+            const costHufOut = p.costHuf * soldFrac
+            const proceedsHuf =
+              p.ccy === 'HUF'
+                ? proceedsCcy
+                : proceedsCcy * histFxRate(fxHistory, p.ccy, t.date, fx)
+            yr.realizedPlHuf += proceedsHuf - costHufOut
+            p.qty -= qty
+            p.cost -= p.cost * soldFrac
+            p.costHuf -= costHufOut
+            if (p.qty < 1e-9) {
+              p.qty = 0
+              p.cost = 0
+              p.costHuf = 0
+            }
+          }
+          break
+        }
+        case 'interest':
+          yr.interestHuf += toHuf(t.netAmount ?? t.grossAmount ?? 0, ccy, fx)
+          break
+        case 'dividend':
+          yr.dividendHuf += toHuf(
+            Math.abs(t.netAmount ?? t.grossAmount ?? 0),
+            ccy,
+            fx,
+          )
+          break
+        default:
+          break
+      }
+    }
+  }
+  return [...byYear.values()].sort((a, b) => b.year - a.year)
+}
+
 export type AssetClass = 'equity' | 'crypto' | 'bond' | 'tbill' | 'cash'
 
 const CRYPTO_RE = /btc|bitcoin|crypto|ethereum|wbit|wbtc/i
