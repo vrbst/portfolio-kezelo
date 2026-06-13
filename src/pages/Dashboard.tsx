@@ -16,8 +16,9 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { accountReturn } from '../lib/portfolio'
+import { accountReturn, buildValueSeries } from '../lib/portfolio'
 import { tbszStatus } from '../lib/tbsz'
+import ValueChart from '../components/ValueChart'
 import {
   PageHeader,
   StatCard,
@@ -40,11 +41,27 @@ const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185'
 
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts)
+  const transactions = usePortfolio((s) => s.transactions)
+  const instruments = usePortfolio((s) => s.instruments)
+  const prices = usePortfolio((s) => s.prices)
+  const fx = usePortfolio((s) => s.fx)
   const summary = usePortfolioSummary()
   const refreshPrices = usePortfolio((s) => s.refreshPrices)
   const pricesLoading = usePortfolio((s) => s.pricesLoading)
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt)
   const eurHuf = usePortfolio((s) => s.fx['EUR'])
+
+  const valueSeries = useMemo(
+    () =>
+      buildValueSeries(
+        accounts,
+        transactions,
+        new Map(instruments.map((i) => [i.key, i])),
+        prices,
+        fx,
+      ),
+    [accounts, transactions, instruments, prices, fx],
+  )
 
   const allocation = useMemo(
     () =>
@@ -155,6 +172,20 @@ export default function Dashboard() {
           index={3}
         />
       </div>
+
+      {valueSeries.length > 1 && (
+        <Card className="mt-6 p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Érték az időben</h2>
+              <p className="text-sm text-[var(--color-muted)]">
+                Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)
+              </p>
+            </div>
+          </div>
+          <ValueChart data={valueSeries} />
+        </Card>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* Allocation donut */}

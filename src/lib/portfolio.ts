@@ -592,3 +592,103 @@ export function computePortfolio(
     totalReturnPct: netDepositedHuf > 0 ? totalPlHuf / netDepositedHuf : 0,
   }
 }
+
+export interface ValuePoint {
+  /** ISO day (YYYY-MM-DD). */
+  date: string
+  /** Total portfolio value in HUF as of that day. */
+  value: number
+  /** Cumulative net external capital (befektetett tőke) in HUF. */
+  invested: number
+}
+
+/**
+ * Portfolio value over time, reconstructed from the transactions. We have no
+ * historical market prices, so equities are valued at the price embedded in the
+ * most recent buy/sell on/before each sample day (flat between trades), bonds at
+ * their accrued value on that day, and FX at the conversion rate of the day. The
+ * final point uses today's live prices so it matches the dashboard total.
+ */
+export function buildValueSeries(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  now: Date = new Date(),
+): ValuePoint[] {
+  if (txs.length === 0) return []
+  const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date))
+  const fxHistory = buildFxHistory(sorted)
+
+  // Per-instrument price timeline from trades (instrument currency per unit).
+  const priceTimeline = new Map<string, { date: string; price: number }[]>()
+  for (const t of sorted) {
+    if (
+      (t.type === 'buy' || t.type === 'sell') &&
+      t.instrumentKey &&
+      t.pricePerUnit
+    ) {
+      const arr = priceTimeline.get(t.instrumentKey) ?? []
+      arr.push({ date: t.date, price: t.pricePerUnit })
+      priceTimeline.set(t.instrumentKey, arr)
+    }
+  }
+  const priceAsOf = (key: string, dayEnd: string): number | undefined => {
+    const arr = priceTimeline.get(key)
+    if (!arr) return undefined
+    let p: number | undefined
+    for (const x of arr) {
+      if (x.date <= dayEnd) p = x.price
+      else break
+    }
+    return p
+  }
+
+  const todayIso = now.toISOString().slice(0, 10)
+  const days = [...new Set(sorted.map((t) => t.date.slice(0, 10)))].filter(
+    (d) => d <= todayIso,
+  )
+
+  const points: ValuePoint[] = []
+  for (const day of days) {
+    const dayEnd = `${day}T23:59:59.999Z`
+    const txsUpTo = sorted.filter((t) => t.date <= dayEnd)
+    const pricesAtD: PriceMap = new Map()
+    for (const inst of instruments.values()) {
+      const p = priceAsOf(inst.key, dayEnd)
+      if (p != null) pricesAtD.set(inst.key, p)
+    }
+    const fxAtD = {
+      ...fx,
+      EUR: histFxRate(fxHistory, 'EUR', dayEnd, fx),
+    }
+    const s = computePortfolio(
+      accounts,
+      txsUpTo,
+      instruments,
+      pricesAtD,
+      fxAtD,
+      new Date(`${day}T12:00:00`),
+    )
+    points.push({
+      date: day,
+      value: s.totalValueHuf,
+      invested: s.netDepositedHuf,
+    })
+  }
+
+  // Final point: today, at live prices / FX (matches the dashboard total).
+  const live = computePortfolio(accounts, sorted, instruments, prices, fx, now)
+  const livePoint: ValuePoint = {
+    date: todayIso,
+    value: live.totalValueHuf,
+    invested: live.netDepositedHuf,
+  }
+  if (points.length && points[points.length - 1].date === todayIso) {
+    points[points.length - 1] = livePoint
+  } else {
+    points.push(livePoint)
+  }
+  return points
+}
