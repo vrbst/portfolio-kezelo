@@ -112,6 +112,14 @@ function addMonths(ms: number, months: number): number {
   return d.getTime()
 }
 
+/** Local-midnight ms -> "YYYY-MM-DD" (avoids the UTC shift of toISOString). */
+function toLocalDay(ms: number): string {
+  const d = new Date(ms)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 /**
  * Bonds are valued on business days at local-midnight granularity: on a weekend
  * MobilKincstár uses the following Monday, so accrued interest runs to Monday.
@@ -184,13 +192,22 @@ export function couponAmountHuf(
     bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
       ? bond.couponIntervalMonths
       : 12
-  const prev = addMonths(d, -interval)
-  const issue = parseDayMs(bond?.issueDate)
-  // First coupon: accrue from issuance (stub period), else from the prior coupon.
-  const start = Number.isFinite(issue) && issue > prev ? issue : prev
-  const days = (d - start) / 86_400_000
-  if (days <= 0) return undefined
-  return faceValue * rate * (days / 365)
+  // A regular coupon is a FIXED amount per period (interval/12 of the annual
+  // coupon), e.g. an exact quarter — the holder gets the whole period at the
+  // coupon date, the accrued paid at purchase squares it up. The SERIES' first
+  // coupon is a stub from issuance, prorated by actual days/365.
+  const isFirst =
+    !!bond?.firstCouponDate &&
+    couponDateIso?.slice(0, 10) === bond.firstCouponDate.slice(0, 10)
+  if (isFirst) {
+    const issue = parseDayMs(bond?.issueDate)
+    if (Number.isFinite(issue)) {
+      const days = (d - issue) / 86_400_000
+      if (days <= 0) return undefined
+      return faceValue * rate * (days / 365)
+    }
+  }
+  return faceValue * rate * (interval / 12)
 }
 
 /** Next coupon date strictly after `now` from the series terms, or undefined. */
@@ -210,7 +227,7 @@ export function nextCouponDate(
   while (cur <= nowDay.getTime()) cur = addMonths(cur, interval)
   const mat = parseDayMs(bond?.maturity)
   if (Number.isFinite(mat) && cur > mat) return undefined // redeemed by then
-  return new Date(cur).toISOString()
+  return toLocalDay(cur)
 }
 
 /**

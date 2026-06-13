@@ -76,12 +76,17 @@ export function upcomingEvents(
       const coupon = nextCouponDate(inst.bond, now)
       if (coupon) {
         const amount = couponAmountHuf(inst.bond, face, coupon)
-        const firstMs = Date.parse(inst.bond?.firstCouponDate ?? '')
-        const detail =
-          Number.isFinite(firstMs) && Date.parse(coupon) === firstMs
-            ? 'első kamat (tört időszak)'
-            : undefined
-        push(coupon, 'coupon', `${inst.name} — kamatfizetés`, detail, amount, a.id)
+        const isFirst =
+          !!inst.bond?.firstCouponDate &&
+          coupon.slice(0, 10) === inst.bond.firstCouponDate.slice(0, 10)
+        push(
+          coupon,
+          'coupon',
+          `${inst.name} — kamatfizetés`,
+          isFirst ? 'első kamat (tört időszak)' : undefined,
+          amount,
+          a.id,
+        )
       }
     }
   }
