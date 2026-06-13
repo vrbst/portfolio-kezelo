@@ -121,15 +121,18 @@ function toLocalDay(ms: number): string {
 }
 
 /**
- * Bonds are valued on business days at local-midnight granularity: on a weekend
- * MobilKincstár uses the following Monday, so accrued interest runs to Monday.
+ * Az állampapírt MINDIG a következő (el)számolási napra értékeljük, local-midnight
+ * granularitással. Hétfő–csütörtök → másnap; péntek/szombat/vasárnap → következő
+ * hétfő (a MobilKincstár is a következő hétfőt használja hétvégén).
  */
 function bondValuationMs(ms: number): number {
   const d = new Date(ms)
   d.setHours(0, 0, 0, 0) // local midnight
-  const day = d.getDay() // 0 = Sun, 6 = Sat
-  if (day === 6) d.setDate(d.getDate() + 2)
-  else if (day === 0) d.setDate(d.getDate() + 1)
+  const day = d.getDay() // 0 = Vas, 1 = Hét, ... 5 = Pén, 6 = Szo
+  if (day === 5) d.setDate(d.getDate() + 3) // Pén → Hét
+  else if (day === 6) d.setDate(d.getDate() + 2) // Szo → Hét
+  else if (day === 0) d.setDate(d.getDate() + 1) // Vas → Hét
+  else d.setDate(d.getDate() + 1) // Hét–Csüt → másnap
   return d.getTime()
 }
 
@@ -387,7 +390,7 @@ export function computeAccountSummary(
     .sort((a, b) => a.date.localeCompare(b.date))
   const history = fxHistory ?? buildFxHistory(txs)
   const nowMs = now.getTime()
-  const bondNowMs = bondValuationMs(nowMs) // weekend → next Monday
+  const bondNowMs = bondValuationMs(nowMs) // mindig másnap; Pén/Szo/Vas → köv. hétfő
 
   // ---- Holdings (avg-cost) + realized P/L ----
   // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
