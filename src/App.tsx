@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import Sidebar from './components/Sidebar'
+import InstallPrompt from './components/InstallPrompt'
 import { usePortfolio } from './lib/store'
 
 export default function App() {
@@ -37,6 +38,7 @@ export default function App() {
           )}
         </div>
       </main>
+      <InstallPrompt />
     </div>
   )
 }
