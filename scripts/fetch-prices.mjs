@@ -20,6 +20,10 @@ const HISTORY_YEARS = 2
 // line, not the USD London line of the same fund).
 // `historySymbol` pins the Yahoo symbol used for the daily history chart, since
 // the ISIN search often surfaces a listing (e.g. *.SG) that has no history.
+// `proxySymbol` derives the history from an underlying when the instrument has
+// no usable Yahoo history of its own. WBIT (physical Bitcoin ETP) tracks BTC, so
+// its past prices = BTC history scaled by today's WBIT/BTC ratio. The proxy must
+// quote in the instrument's currency (BTC-EUR for the EUR-held WBIT).
 const INSTRUMENTS = [
   {
     isin: 'IE00BK5BQT80',
@@ -27,7 +31,12 @@ const INSTRUMENTS = [
     currency: 'EUR',
     historySymbol: 'VWCE.DE',
   },
-  { isin: 'GB00BJYDH287', label: 'WBIT', currency: 'EUR' },
+  {
+    isin: 'GB00BJYDH287',
+    label: 'WBIT',
+    currency: 'EUR',
+    proxySymbol: 'BTC-EUR',
+  },
 ]
 
 const UA = {
@@ -123,7 +132,7 @@ async function fetchFxHistory() {
 async function main() {
   const prices = {}
   const histPrices = {}
-  for (const { isin, label, currency, historySymbol } of INSTRUMENTS) {
+  for (const { isin, label, currency, historySymbol, proxySymbol } of INSTRUMENTS) {
     try {
       const q = await resolveQuote(isin, currency)
       prices[isin] = {
@@ -136,14 +145,32 @@ async function main() {
       console.log(
         `✓ ${label} (${isin}) = ${q.price} ${q.currency} [${q.symbol}]${warn}`,
       )
-      const histSym = historySymbol || q.symbol
       try {
-        const hist = await fetchHistory(histSym)
-        if (hist.length) {
-          histPrices[isin] = hist
-          console.log(`  ↳ ${hist.length} napi záróár [${histSym}]`)
+        if (proxySymbol) {
+          // Derive history from the underlying, scaled to today's price ratio.
+          const proxy = await fetchHistory(proxySymbol)
+          const proxyLast = proxy.at(-1)?.[1]
+          if (proxy.length && proxyLast) {
+            const ratio = q.price / proxyLast
+            histPrices[isin] = proxy.map(([d, p]) => [
+              d,
+              Math.round(p * ratio * 1e4) / 1e4,
+            ])
+            console.log(
+              `  ↳ ${proxy.length} nap ${proxySymbol}-ből skálázva (arány ${ratio.toExponential(3)})`,
+            )
+          } else {
+            console.warn(`  ↳ nincs proxy history [${proxySymbol}]`)
+          }
         } else {
-          console.warn(`  ↳ nincs history [${histSym}]`)
+          const histSym = historySymbol || q.symbol
+          const hist = await fetchHistory(histSym)
+          if (hist.length) {
+            histPrices[isin] = hist
+            console.log(`  ↳ ${hist.length} napi záróár [${histSym}]`)
+          } else {
+            console.warn(`  ↳ nincs history [${histSym}]`)
+          }
         }
       } catch (err) {
         console.warn(`  ↳ history ${label}: ${err.message}`)
