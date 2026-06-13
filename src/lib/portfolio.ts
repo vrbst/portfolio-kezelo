@@ -672,6 +672,52 @@ export function buildValueSeries(
     return p
   }
 
+  // Bridge money in transit between the user's own accounts. A withdrawal from
+  // one account is often funded into another a few days later (e.g. treasury →
+  // bank → Lightyear), with no shared reference and possibly split across
+  // deposits. FIFO-match external outflows to later external inflows within a
+  // short window; for the in-transit interval the amount is added back so the
+  // chart doesn't show a phantom dip while the money is between accounts.
+  const TRANSIT_DAYS = 10
+  const flows = sorted
+    .filter(
+      (t) =>
+        !isInternalTransfer(t) &&
+        (t.type === 'deposit' || t.type === 'withdrawal'),
+    )
+    .map((t) => {
+      const huf = toHuf(
+        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
+        t.currency,
+        fx,
+      )
+      return { day: t.date.slice(0, 10), amt: t.type === 'deposit' ? huf : -huf }
+    })
+  const pending: { day: string; rem: number }[] = []
+  const bridges: { from: string; to: string; amt: number }[] = []
+  for (const ev of flows) {
+    if (ev.amt < 0) {
+      pending.push({ day: ev.day, rem: -ev.amt })
+      continue
+    }
+    let dep = ev.amt
+    while (dep > 1 && pending.length) {
+      const o = pending[0]
+      const gap = (Date.parse(ev.day) - Date.parse(o.day)) / 86_400_000
+      if (gap > TRANSIT_DAYS) {
+        pending.shift() // too old to be a transfer — treat as real spending
+        continue
+      }
+      const m = Math.min(dep, o.rem)
+      if (o.day < ev.day) bridges.push({ from: o.day, to: ev.day, amt: m })
+      o.rem -= m
+      dep -= m
+      if (o.rem < 1) pending.shift()
+    }
+  }
+  const inTransitOn = (day: string) =>
+    bridges.reduce((s, b) => (b.from <= day && day < b.to ? s + b.amt : s), 0)
+
   const todayIso = now.toISOString().slice(0, 10)
   const tradeDays = [...new Set(sorted.map((t) => t.date.slice(0, 10)))]
   // With history, sample at a fixed cadence from the first trade so hovering is
@@ -713,19 +759,21 @@ export function buildValueSeries(
       fxAtD,
       new Date(`${day}T12:00:00`),
     )
+    const transit = inTransitOn(day)
     points.push({
       date: day,
-      value: s.totalValueHuf,
-      invested: s.netDepositedHuf,
+      value: s.totalValueHuf + transit,
+      invested: s.netDepositedHuf + transit,
     })
   }
 
   // Final point: today, at live prices / FX (matches the dashboard total).
   const live = computePortfolio(accounts, sorted, instruments, prices, fx, now)
+  const transitToday = inTransitOn(todayIso)
   const livePoint: ValuePoint = {
     date: todayIso,
-    value: live.totalValueHuf,
-    invested: live.netDepositedHuf,
+    value: live.totalValueHuf + transitToday,
+    invested: live.netDepositedHuf + transitToday,
   }
   if (points.length && points[points.length - 1].date === todayIso) {
     points[points.length - 1] = livePoint
