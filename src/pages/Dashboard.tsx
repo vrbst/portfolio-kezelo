@@ -26,7 +26,13 @@ import {
   Delta,
   Badge,
 } from '../components/ui'
-import { formatMoney, formatPercent, formatDateTime, formatDate } from '../lib/format'
+import {
+  formatMoney,
+  formatPercent,
+  formatDateTime,
+  formatDate,
+  eurEquivalent,
+} from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
 import { CalendarClock } from 'lucide-react'
 
@@ -122,6 +128,7 @@ export default function Dashboard() {
         <StatCard
           label="Teljes érték"
           value={formatMoney(summary.totalValueHuf)}
+          sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
           icon={<Wallet className="h-5 w-5" />}
           index={0}
           accent
@@ -129,6 +136,7 @@ export default function Dashboard() {
         <StatCard
           label="Teljes hozam"
           value={formatMoney(summary.totalPlHuf, 'HUF', { sign: true })}
+          sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
           deltaPct={summary.totalReturnPct}
           icon={<TrendingUp className="h-5 w-5" />}
           index={1}
@@ -136,6 +144,7 @@ export default function Dashboard() {
         <StatCard
           label="Befektetett tőke"
           value={formatMoney(summary.netDepositedHuf)}
+          sub={eurEquivalent(summary.netDepositedHuf, eurHuf)}
           icon={<PiggyBank className="h-5 w-5" />}
           index={2}
         />

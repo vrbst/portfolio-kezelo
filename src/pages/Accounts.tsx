@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Wallet, Landmark, ArrowRight } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
-import { formatMoney } from '../lib/format'
+import { formatMoney, eurEquivalent } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
 import { accountReturn, type AccountSummary } from '../lib/portfolio'
 import { tbszStatus } from '../lib/tbsz'
@@ -11,6 +11,7 @@ import { tbszStatus } from '../lib/tbsz'
 export default function Accounts() {
   const accounts = usePortfolio((s) => s.accounts)
   const summary = usePortfolioSummary()
+  const eurHuf = usePortfolio((s) => s.fx['EUR'])
 
   if (accounts.length === 0) {
     return (
@@ -47,6 +48,7 @@ export default function Accounts() {
         title="Befektetési számlák"
         icon={<Wallet className="h-5 w-5" />}
         items={investing}
+        eurHuf={eurHuf}
       />
       <Section
         title="Magyar Államkincstár"
@@ -61,10 +63,13 @@ function Section({
   title,
   icon,
   items,
+  eurHuf,
 }: {
   title: string
   icon: React.ReactNode
   items: AccountSummary[]
+  /** When set, show an EUR equivalent under each account's value. */
+  eurHuf?: number
 }) {
   if (items.length === 0) return null
   return (
@@ -118,6 +123,11 @@ function Section({
                       <div className="text-xl font-semibold tabular-nums">
                         {formatMoney(a.totalValueHuf)}
                       </div>
+                      {eurEquivalent(a.totalValueHuf, eurHuf) && (
+                        <div className="text-xs tabular-nums text-[var(--color-muted)]">
+                          {eurEquivalent(a.totalValueHuf, eurHuf)}
+                        </div>
+                      )}
                     </div>
                     {ret != null && <Delta pct={ret} className="text-sm" />}
                   </div>

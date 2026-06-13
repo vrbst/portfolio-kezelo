@@ -12,7 +12,12 @@ import {
   EmptyState,
 } from '../components/ui'
 import TbszTimeline from '../components/TbszTimeline'
-import { formatMoney, formatNumber, formatDate } from '../lib/format'
+import {
+  formatMoney,
+  formatNumber,
+  formatDate,
+  eurEquivalent,
+} from '../lib/format'
 import { accountKindLabel, txTypeLabel, instrumentTypeLabel } from '../lib/labels'
 import type { AccountKind } from '../lib/model'
 
@@ -22,6 +27,7 @@ export default function AccountDetail() {
   const transactions = usePortfolio((s) => s.transactions)
   const summary = usePortfolioSummary()
   const updateAccount = usePortfolio((s) => s.updateAccount)
+  const eurHuf = usePortfolio((s) => s.fx['EUR'])
 
   const account = accounts.find((a) => a.id === id)
   const accSummary = summary.accounts.find((a) => a.account.id === id)
@@ -57,6 +63,10 @@ export default function AccountDetail() {
   const isTreasury = account.provider === 'allamkincstar'
   const isCashHub = account.kind === 'cash'
   const ret = accountReturn(accSummary)
+  // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
+  // not the HUF-denominated treasury bonds.
+  const eur = (huf: number, opts?: { sign?: boolean }) =>
+    isTreasury ? undefined : eurEquivalent(huf, eurHuf, opts)
 
   async function saveEdit() {
     await updateAccount(account!.id, {
@@ -122,6 +132,7 @@ export default function AccountDetail() {
         <StatCard
           label="Teljes érték"
           value={formatMoney(accSummary.totalValueHuf)}
+          sub={eur(accSummary.totalValueHuf)}
           index={0}
           accent
         />
@@ -130,16 +141,19 @@ export default function AccountDetail() {
             <StatCard
               label="Külső befizetés"
               value={formatMoney(accSummary.netDepositedHuf)}
+              sub={eur(accSummary.netDepositedHuf)}
               index={1}
             />
             <StatCard
               label="Befektetésekbe utalva"
               value={formatMoney(accSummary.transfersOutHuf)}
+              sub={eur(accSummary.transfersOutHuf)}
               index={2}
             />
             <StatCard
               label="Készpénz"
               value={formatMoney(accSummary.cashValueHuf)}
+              sub={eur(accSummary.cashValueHuf)}
               index={3}
             />
           </>
@@ -152,12 +166,16 @@ export default function AccountDetail() {
                 'HUF',
                 { sign: true },
               )}
+              sub={eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
+                sign: true,
+              })}
               deltaPct={ret}
               index={1}
             />
             <StatCard
               label="Készpénz"
               value={formatMoney(accSummary.cashValueHuf)}
+              sub={eur(accSummary.cashValueHuf)}
               index={2}
             />
             <StatCard
@@ -167,6 +185,9 @@ export default function AccountDetail() {
                   ? accSummary.interestHuf
                   : accSummary.capitalBasisHuf,
               )}
+              sub={
+                isTreasury ? undefined : eur(accSummary.capitalBasisHuf)
+              }
               index={3}
             />
           </>
@@ -233,10 +254,20 @@ export default function AccountDetail() {
                         {formatNumber(h.quantity, isTreasury ? 0 : 4)}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                        {formatMoney(h.costBasisHuf)}
+                        <div>{formatMoney(h.costBasisHuf)}</div>
+                        {h.currency !== 'HUF' && (
+                          <div className="text-xs opacity-70">
+                            {formatMoney(h.costBasisCcy, h.currency)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium tabular-nums">
-                        {formatMoney(h.marketValueHuf)}
+                        <div>{formatMoney(h.marketValueHuf)}</div>
+                        {h.currency !== 'HUF' && h.marketValueCcy != null && (
+                          <div className="text-xs font-normal text-[var(--color-muted)]">
+                            {formatMoney(h.marketValueCcy, h.currency)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {h.unrealizedPlHuf != null &&

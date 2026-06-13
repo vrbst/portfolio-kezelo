@@ -81,3 +81,27 @@ export const isPositive = (n: number | null | undefined) =>
   typeof n === 'number' && n > 0
 export const isNegative = (n: number | null | undefined) =>
   typeof n === 'number' && n < 0
+
+/** Convert a HUF amount to EUR using the current EUR/HUF rate (HUF per 1 EUR). */
+export function hufToEur(
+  huf: number | null | undefined,
+  eurHuf: number | null | undefined,
+): number | undefined {
+  if (huf == null || Number.isNaN(huf)) return undefined
+  if (!eurHuf || eurHuf <= 0) return undefined
+  return huf / eurHuf
+}
+
+/**
+ * Formatted "≈ X €" equivalent of a HUF amount, or undefined when the rate is
+ * unknown. Use as a muted secondary line under a HUF value.
+ */
+export function eurEquivalent(
+  huf: number | null | undefined,
+  eurHuf: number | null | undefined,
+  opts: { sign?: boolean } = {},
+): string | undefined {
+  const eur = hufToEur(huf, eurHuf)
+  if (eur == null) return undefined
+  return `≈ ${formatMoney(eur, 'EUR', opts)}`
+}

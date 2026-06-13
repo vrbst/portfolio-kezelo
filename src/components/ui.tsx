@@ -76,6 +76,7 @@ export function Delta({
 export function StatCard({
   label,
   value,
+  sub,
   delta,
   deltaPct,
   icon,
@@ -84,6 +85,8 @@ export function StatCard({
 }: {
   label: string
   value: ReactNode
+  /** Muted secondary line under the value (e.g. an EUR equivalent). */
+  sub?: ReactNode
   delta?: number
   deltaPct?: number
   icon?: ReactNode
@@ -107,6 +110,11 @@ export function StatCard({
         {icon && <span className="text-[var(--color-muted)]">{icon}</span>}
       </div>
       <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+      {sub != null && (
+        <div className="mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
+          {sub}
+        </div>
+      )}
       {(delta != null || deltaPct != null) && (
         <div className="mt-1.5 text-sm">
           <Delta value={delta} pct={deltaPct} />
