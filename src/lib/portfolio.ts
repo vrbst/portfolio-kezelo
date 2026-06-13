@@ -206,7 +206,9 @@ export function couponAmountHuf(
       return bond.firstCouponHuf
     const issue = parseDayMs(bond?.issueDate)
     if (Number.isFinite(issue)) {
-      const days = (d - issue) / 86_400_000
+      // Whole calendar days — round so a DST hour between the two dates doesn't
+      // shave a fraction off the count.
+      const days = Math.round((d - issue) / 86_400_000)
       if (days <= 0) return undefined
       return faceValue * rate * (days / 365)
     }
