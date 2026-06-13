@@ -18,22 +18,35 @@ const tooltipStyle = {
   color: '#e8ecf8',
 } as const
 
-function formatMonth(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
+function formatMonth(ms: number): string {
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
   return new Intl.DateTimeFormat('hu-HU', {
     year: '2-digit',
     month: 'short',
   }).format(d)
 }
 
+function formatDay(ms: number): string {
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat('hu-HU', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+}
+
 /** Portfolio value over time, with the invested-capital line for reference. */
 export default function ValueChart({ data }: { data: ValuePoint[] }) {
+  // Real time axis: x is the timestamp so points are spaced by actual elapsed
+  // time (not evenly per sample) and month ticks land correctly.
+  const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }))
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart
-          data={data}
+          data={chartData}
           margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
         >
           <defs>
@@ -44,11 +57,14 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
           </defs>
           <CartesianGrid stroke="#232b45" vertical={false} />
           <XAxis
-            dataKey="date"
+            dataKey="ts"
+            type="number"
+            scale="time"
+            domain={['dataMin', 'dataMax']}
             tickFormatter={formatMonth}
             tick={{ fill: '#8b93a7', fontSize: 12 }}
             stroke="#232b45"
-            minTickGap={32}
+            minTickGap={40}
           />
           <YAxis
             tickFormatter={formatCompact}
@@ -58,7 +74,7 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
           />
           <Tooltip
             contentStyle={tooltipStyle}
-            labelFormatter={(l) => formatMonth(String(l))}
+            labelFormatter={(l) => formatDay(Number(l))}
             formatter={(v, name) => [
               formatMoney(Number(v)),
               name === 'value' ? 'Érték' : 'Befektetett tőke',
