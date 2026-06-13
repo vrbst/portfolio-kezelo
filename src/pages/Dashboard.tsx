@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   PieChart,
@@ -16,7 +16,12 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { accountReturn, buildValueSeries } from '../lib/portfolio'
+import {
+  accountReturn,
+  buildValueSeries,
+  allocationByClass,
+  allocationByCurrency,
+} from '../lib/portfolio'
 import { tbszStatus } from '../lib/tbsz'
 import ValueChart from '../components/ValueChart'
 import {
@@ -34,7 +39,7 @@ import {
   formatDate,
   eurEquivalent,
 } from '../lib/format'
-import { accountKindLabel } from '../lib/labels'
+import { accountKindLabel, assetClassLabel } from '../lib/labels'
 import { CalendarClock } from 'lucide-react'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185']
@@ -65,14 +70,25 @@ export default function Dashboard() {
     [accounts, transactions, instruments, prices, fx, historyFile],
   )
 
-  const allocation = useMemo(
-    () =>
-      summary.accounts
+  const [allocMode, setAllocMode] = useState<'class' | 'currency' | 'account'>(
+    'class',
+  )
+  const allocation = useMemo(() => {
+    if (allocMode === 'account')
+      return summary.accounts
         .filter((a) => a.totalValueHuf > 0)
         .map((a) => ({ name: a.account.name, value: a.totalValueHuf }))
-        .sort((a, b) => b.value - a.value),
-    [summary],
-  )
+        .sort((a, b) => b.value - a.value)
+    if (allocMode === 'currency')
+      return allocationByCurrency(summary, fx).map((s) => ({
+        name: s.key,
+        value: s.value,
+      }))
+    return allocationByClass(summary).map((s) => ({
+      name: assetClassLabel[s.key as keyof typeof assetClassLabel] ?? s.key,
+      value: s.value,
+    }))
+  }, [summary, allocMode, fx])
 
   const tbszUpcoming = useMemo(
     () =>
@@ -192,10 +208,28 @@ export default function Dashboard() {
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* Allocation donut */}
         <Card className="p-6 lg:col-span-2">
-          <h2 className="mb-1 text-lg font-semibold">Eszközallokáció</h2>
-          <p className="mb-4 text-sm text-[var(--color-muted)]">
-            Számlák szerinti megoszlás
-          </p>
+          <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
+          <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+            {(
+              [
+                ['class', 'Eszköztípus'],
+                ['currency', 'Deviza'],
+                ['account', 'Számla'],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => setAllocMode(mode)}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  allocMode === mode
+                    ? 'bg-[var(--color-brand)]/20 text-[var(--color-text)]'
+                    : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="relative h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>

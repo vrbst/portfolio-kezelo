@@ -1,4 +1,13 @@
 import type { Account, AccountKind, InstrumentType, TxType } from './model'
+import type { AssetClass } from './portfolio'
+
+export const assetClassLabel: Record<AssetClass, string> = {
+  equity: 'Részvény / ETF',
+  crypto: 'Kripto',
+  bond: 'Állampapír',
+  tbill: 'Diszkont kincstárjegy',
+  cash: 'Készpénz',
+}
 
 export function accountKindLabel(account: Account): string {
   if (account.kind === 'tbsz') {

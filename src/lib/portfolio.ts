@@ -593,6 +593,66 @@ export function computePortfolio(
   }
 }
 
+export type AssetClass = 'equity' | 'crypto' | 'bond' | 'tbill' | 'cash'
+
+const CRYPTO_RE = /btc|bitcoin|crypto|ethereum|wbit|wbtc/i
+
+/** Coarse asset class for allocation. Crypto ETPs (e.g. WBIT) split off ETFs. */
+export function assetClassOf(inst?: Instrument): AssetClass {
+  if (!inst) return 'cash'
+  if (CRYPTO_RE.test(inst.name) || CRYPTO_RE.test(inst.ticker ?? ''))
+    return 'crypto'
+  switch (inst.type) {
+    case 'gov_bond':
+      return 'bond'
+    case 'tbill':
+      return 'tbill'
+    case 'cash':
+      return 'cash'
+    default:
+      return 'equity' // etf, stock, fund
+  }
+}
+
+export interface AllocationSlice {
+  key: string
+  value: number
+}
+
+/** Portfolio value grouped by asset class (cash lumped across currencies). */
+export function allocationByClass(summary: PortfolioSummary): AllocationSlice[] {
+  const m = new Map<string, number>()
+  const add = (k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
+  for (const acc of summary.accounts) {
+    for (const h of acc.holdings)
+      add(assetClassOf(h.instrument), h.marketValueHuf ?? 0)
+    if (acc.cashValueHuf > 0.5) add('cash', acc.cashValueHuf)
+  }
+  return [...m.entries()]
+    .map(([key, value]) => ({ key, value }))
+    .sort((a, b) => b.value - a.value)
+}
+
+/** Portfolio value grouped by the asset's underlying currency. */
+export function allocationByCurrency(
+  summary: PortfolioSummary,
+  fx: Record<string, number>,
+): AllocationSlice[] {
+  const m = new Map<string, number>()
+  const add = (k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
+  for (const acc of summary.accounts) {
+    for (const h of acc.holdings) add(h.currency, h.marketValueHuf ?? 0)
+    for (const [ccy, amt] of Object.entries(acc.cash)) {
+      const huf = ccy === 'HUF' ? amt : amt * (fx[ccy] ?? 0)
+      if (Math.abs(huf) > 0.5) add(ccy, huf)
+    }
+  }
+  return [...m.entries()]
+    .map(([key, value]) => ({ key, value }))
+    .filter((s) => s.value > 0.5)
+    .sort((a, b) => b.value - a.value)
+}
+
 export interface ValuePoint {
   /** ISO day (YYYY-MM-DD). */
   date: string
