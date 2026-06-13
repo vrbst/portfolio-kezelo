@@ -166,6 +166,33 @@ function fixedBondAccrued(
   return days > 0 ? (rate * days) / 365 : 0
 }
 
+/**
+ * Expected coupon payment (HUF) for the coupon falling on `couponDateIso`. Uses
+ * the ACTUAL period length (period start → coupon date) / 365, so the first
+ * coupon after issuance — a possibly short/long stub period — is correct, not a
+ * full regular period.
+ */
+export function couponAmountHuf(
+  bond: BondTerms | undefined,
+  faceValue: number,
+  couponDateIso: string | undefined,
+): number | undefined {
+  const rate = bond?.couponRate
+  const d = parseDayMs(couponDateIso)
+  if (!rate || rate <= 0 || !Number.isFinite(d)) return undefined
+  const interval =
+    bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
+      ? bond.couponIntervalMonths
+      : 12
+  const prev = addMonths(d, -interval)
+  const issue = parseDayMs(bond?.issueDate)
+  // First coupon: accrue from issuance (stub period), else from the prior coupon.
+  const start = Number.isFinite(issue) && issue > prev ? issue : prev
+  const days = (d - start) / 86_400_000
+  if (days <= 0) return undefined
+  return faceValue * rate * (days / 365)
+}
+
 /** Next coupon date strictly after `now` from the series terms, or undefined. */
 export function nextCouponDate(
   bond: BondTerms | undefined,

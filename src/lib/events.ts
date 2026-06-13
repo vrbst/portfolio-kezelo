@@ -1,6 +1,10 @@
 // Upcoming portfolio events: TBSZ tax milestones, bond maturities, next coupons.
 
-import { nextCouponDate, type PortfolioSummary } from './portfolio'
+import {
+  nextCouponDate,
+  couponAmountHuf,
+  type PortfolioSummary,
+} from './portfolio'
 import { tbszStatus } from './tbsz'
 
 export type EventKind = 'tbsz' | 'maturity' | 'coupon'
@@ -71,10 +75,13 @@ export function upcomingEvents(
         push(maturity, 'maturity', `${inst.name} — lejárat`, undefined, face, a.id)
       const coupon = nextCouponDate(inst.bond, now)
       if (coupon) {
-        const rate = inst.bond?.couponRate
-        const interval = inst.bond?.couponIntervalMonths || 12
-        const amount = rate ? face * rate * (interval / 12) : undefined
-        push(coupon, 'coupon', `${inst.name} — kamatfizetés`, undefined, amount, a.id)
+        const amount = couponAmountHuf(inst.bond, face, coupon)
+        const firstMs = Date.parse(inst.bond?.firstCouponDate ?? '')
+        const detail =
+          Number.isFinite(firstMs) && Date.parse(coupon) === firstMs
+            ? 'első kamat (tört időszak)'
+            : undefined
+        push(coupon, 'coupon', `${inst.name} — kamatfizetés`, detail, amount, a.id)
       }
     }
   }
