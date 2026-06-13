@@ -682,6 +682,7 @@ export function buildValueSeries(
   const flows = sorted
     .filter(
       (t) =>
+        !t.internal && // skip sub-ledger mirror entries (e.g. bond settlements)
         !isInternalTransfer(t) &&
         (t.type === 'deposit' || t.type === 'withdrawal'),
     )
