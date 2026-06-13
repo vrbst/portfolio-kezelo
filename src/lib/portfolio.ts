@@ -82,6 +82,42 @@ export interface PortfolioSummary {
 }
 
 const BOND_TYPES = new Set(['gov_bond', 'tbill'])
+const YEAR_MS = 365 * 86_400_000
+
+const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1)
+
+/**
+ * Current HUF value of a bond position (face = quantity), more accurate than par:
+ *  - Discount T-bill (zero coupon): accretes linearly from the average purchase
+ *    price toward par (100%) by maturity. At/after maturity it is par.
+ *  - Fixed-rate bond (FixMÁP…): par + accrued coupon since the last interest
+ *    payment (rate × elapsed/365). Falls back to par when no coupon is known.
+ */
+function bondMarketValue(
+  inst: Instrument | undefined,
+  faceQty: number,
+  cost: number,
+  avgBuyMs: number,
+  coupon: { dateMs: number; ratePerFace: number } | undefined,
+  nowMs: number,
+): number {
+  const matMs = inst?.maturity ? Date.parse(inst.maturity) : NaN
+
+  if (inst?.type === 'tbill') {
+    if (!Number.isFinite(matMs) || nowMs >= matMs) return faceQty // par
+    const avgPrice = faceQty > 0 ? cost / faceQty : 1
+    const span = matMs - avgBuyMs
+    const frac = span > 0 ? clamp01((nowMs - avgBuyMs) / span) : 1
+    return faceQty * (avgPrice + (1 - avgPrice) * frac)
+  }
+
+  // Fixed-rate / other government bond: par + accrued coupon.
+  let accrued = 0
+  if (coupon && coupon.ratePerFace > 0) {
+    accrued = coupon.ratePerFace * clamp01((nowMs - coupon.dateMs) / YEAR_MS)
+  }
+  return faceQty * (1 + accrued)
+}
 
 /**
  * A deposit/withdrawal that is really a transfer between the user's own
@@ -192,18 +228,41 @@ export function computeAccountSummary(
   prices: PriceMap,
   fx: Record<string, number>,
   fxHistory?: FxHistory,
+  now: Date = new Date(),
 ): AccountSummary {
   const accountTxs = txs
     .filter((t) => t.accountId === account.id)
     .sort((a, b) => a.date.localeCompare(b.date))
   const history = fxHistory ?? buildFxHistory(txs)
+  const nowMs = now.getTime()
+
+  // Last coupon paid per bond, for accrued-interest valuation.
+  const bondCoupons = new Map<string, { dateMs: number; ratePerFace: number }>()
+  for (const t of accountTxs) {
+    if (t.type !== 'interest' || !t.instrumentKey) continue
+    const face = t.quantity ?? 0
+    const amt = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
+    if (face <= 0 || amt <= 0) continue
+    const dateMs = Date.parse(t.date)
+    const prev = bondCoupons.get(t.instrumentKey)
+    if (!prev || dateMs > prev.dateMs)
+      bondCoupons.set(t.instrumentKey, { dateMs, ratePerFace: amt / face })
+  }
 
   // ---- Holdings (avg-cost) + realized P/L ----
   // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
-  // the same basis fixed in HUF at the historical FX paid on each purchase.
+  // the same basis fixed in HUF at the historical FX paid on each purchase;
+  // `costDateMs` is Σ(spend × buy date) for a cost-weighted average buy date.
   const positions = new Map<
     string,
-    { qty: number; cost: number; costHuf: number; ccy: Currency; realized: number }
+    {
+      qty: number
+      cost: number
+      costHuf: number
+      costDateMs: number
+      ccy: Currency
+      realized: number
+    }
   >()
   let realizedPlHuf = 0
   let interestHuf = 0
@@ -250,6 +309,7 @@ export function computeAccountSummary(
           qty: 0,
           cost: 0,
           costHuf: 0,
+          costDateMs: 0,
           ccy: inst?.currency ?? ccy,
           realized: 0,
         }
@@ -259,6 +319,7 @@ export function computeAccountSummary(
         p.cost += spend
         // Lock the HUF cost at the FX actually paid on the purchase date.
         p.costHuf += spend * histFxRate(history, ccy, t.date, fx)
+        p.costDateMs += spend * Date.parse(t.date)
         positions.set(t.instrumentKey, p)
         addCash(ccy, -spend) // money left the cash pocket
         break
@@ -279,10 +340,12 @@ export function computeAccountSummary(
           p.qty -= qty
           p.cost -= costOut
           p.costHuf -= p.costHuf * soldFrac
+          p.costDateMs -= p.costDateMs * soldFrac
           if (p.qty < 1e-9) {
             p.qty = 0
             p.cost = 0
             p.costHuf = 0
+            p.costDateMs = 0
           }
           positions.set(t.instrumentKey, p)
         }
@@ -337,8 +400,15 @@ export function computeAccountSummary(
 
     let marketValueCcy: number | undefined
     if (isBond) {
-      // Value bonds/T-bills at nominal held (par proxy).
-      marketValueCcy = p.qty
+      const avgBuyMs = p.cost > 0 ? p.costDateMs / p.cost : nowMs
+      marketValueCcy = bondMarketValue(
+        inst,
+        p.qty,
+        p.cost,
+        avgBuyMs,
+        bondCoupons.get(key),
+        nowMs,
+      )
     } else if (currentPrice != null) {
       marketValueCcy = p.qty * currentPrice
     } else {
@@ -421,10 +491,11 @@ export function computePortfolio(
   instruments: Map<string, Instrument>,
   prices: PriceMap,
   fx: Record<string, number>,
+  now: Date = new Date(),
 ): PortfolioSummary {
   const fxHistory = buildFxHistory(txs)
   const summaries = accounts.map((a) =>
-    computeAccountSummary(a, txs, instruments, prices, fx, fxHistory),
+    computeAccountSummary(a, txs, instruments, prices, fx, fxHistory, now),
   )
 
   const sum = (pick: (s: AccountSummary) => number) =>

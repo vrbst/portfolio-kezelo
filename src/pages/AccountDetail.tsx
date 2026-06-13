@@ -268,6 +268,16 @@ export default function AccountDetail() {
                             {formatMoney(h.marketValueCcy, h.currency)}
                           </div>
                         )}
+                        {isTreasury &&
+                          h.marketValueHuf != null &&
+                          h.quantity > 0 && (
+                            <div className="text-xs font-normal text-[var(--color-muted)]">
+                              {((h.marketValueHuf / h.quantity) * 100).toFixed(
+                                2,
+                              )}
+                              %
+                            </div>
+                          )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {h.unrealizedPlHuf != null &&
