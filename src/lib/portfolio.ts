@@ -117,21 +117,74 @@ function toHuf(amount: number, ccy: Currency, fx: Record<string, number>) {
   return rate ? amount * rate : amount // fall back to raw if rate unknown
 }
 
+interface FxPoint {
+  date: string
+  rate: number
+}
+/** currency -> conversion rates over time (HUF per 1 unit), sorted by date. */
+export type FxHistory = Map<string, FxPoint[]>
+
+/**
+ * Historical EUR/HUF (etc.) rates harvested from `conversion` legs. Lightyear
+ * records the realised rate on the foreign-currency leg, so this is exactly
+ * what the user paid to acquire the currency that funded a purchase.
+ */
+export function buildFxHistory(txs: Transaction[]): FxHistory {
+  const map: FxHistory = new Map()
+  for (const t of txs) {
+    if (t.type !== 'conversion') continue
+    const ccy = t.currency
+    if (!ccy || ccy === 'HUF') continue
+    const rate = t.fxRate
+    if (typeof rate !== 'number' || rate <= 1) continue
+    const arr = map.get(ccy) ?? []
+    arr.push({ date: t.date, rate })
+    map.set(ccy, arr)
+  }
+  for (const arr of map.values())
+    arr.sort((a, b) => a.date.localeCompare(b.date))
+  return map
+}
+
+/** Rate in effect at `date`: the latest conversion on/before it (else nearest). */
+function histFxRate(
+  history: FxHistory | undefined,
+  ccy: Currency,
+  date: string,
+  fx: Record<string, number>,
+): number {
+  if (ccy === 'HUF') return 1
+  const arr = history?.get(ccy)
+  if (arr && arr.length) {
+    let chosen = arr[0]
+    for (const p of arr) {
+      if (p.date <= date) chosen = p
+      else break
+    }
+    return chosen.rate
+  }
+  return fx[ccy] ?? 1 // no conversion history — fall back to current rate
+}
+
 export function computeAccountSummary(
   account: Account,
   txs: Transaction[],
   instruments: Map<string, Instrument>,
   prices: PriceMap,
   fx: Record<string, number>,
+  fxHistory?: FxHistory,
 ): AccountSummary {
   const accountTxs = txs
     .filter((t) => t.accountId === account.id)
     .sort((a, b) => a.date.localeCompare(b.date))
+  const history = fxHistory ?? buildFxHistory(txs)
 
   // ---- Holdings (avg-cost) + realized P/L ----
+  // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
+  // the same basis fixed in HUF at the historical FX paid on each purchase.
   const positions = new Map<
     string,
-    { qty: number; cost: number; ccy: Currency; realized: number }
+    { qty: number; cost: number; costHuf: number; ccy: Currency; realized: number }
   >()
   let realizedPlHuf = 0
   let interestHuf = 0
@@ -154,12 +207,15 @@ export function computeAccountSummary(
     // separately so a transfer-funded account still shows a real return.
     if (isInternalTransfer(t)) {
       const amt = Math.abs(t.netAmount ?? t.grossAmount ?? 0)
+      // Value the transfer in HUF at the FX of its date, so a foreign-currency
+      // transfer never inflates an account's basis above what was deposited.
+      const huf = amt * histFxRate(history, ccy, t.date, fx)
       if (t.type === 'deposit') {
         addCash(ccy, amt)
-        transfersInHuf += toHuf(amt, ccy, fx)
+        transfersInHuf += huf
       } else {
         addCash(ccy, -amt)
-        transfersOutHuf += toHuf(amt, ccy, fx)
+        transfersOutHuf += huf
       }
       continue
     }
@@ -174,6 +230,7 @@ export function computeAccountSummary(
         const p = positions.get(t.instrumentKey) ?? {
           qty: 0,
           cost: 0,
+          costHuf: 0,
           ccy: inst?.currency ?? ccy,
           realized: 0,
         }
@@ -181,6 +238,8 @@ export function computeAccountSummary(
         const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
         p.qty += qty
         p.cost += spend
+        // Lock the HUF cost at the FX actually paid on the purchase date.
+        p.costHuf += spend * histFxRate(history, ccy, t.date, fx)
         positions.set(t.instrumentKey, p)
         addCash(ccy, -spend) // money left the cash pocket
         break
@@ -200,9 +259,11 @@ export function computeAccountSummary(
           realizedPlHuf += toHuf(realized, p.ccy, fx)
           p.qty -= qty
           p.cost -= costOut
+          p.costHuf -= p.costHuf * soldFrac
           if (p.qty < 1e-9) {
             p.qty = 0
             p.cost = 0
+            p.costHuf = 0
           }
           positions.set(t.instrumentKey, p)
         }
@@ -266,7 +327,8 @@ export function computeAccountSummary(
     }
 
     const marketValueHuf = toHuf(marketValueCcy, ccy, fx)
-    const costBasisHufThis = isBond ? p.cost : toHuf(p.cost, ccy, fx)
+    // HUF cost fixed at the FX paid on purchase (bonds are HUF-native already).
+    const costBasisHufThis = isBond ? p.cost : p.costHuf
     const unrealized = marketValueHuf - costBasisHufThis
 
     holdingsValueHuf += marketValueHuf
@@ -341,8 +403,9 @@ export function computePortfolio(
   prices: PriceMap,
   fx: Record<string, number>,
 ): PortfolioSummary {
+  const fxHistory = buildFxHistory(txs)
   const summaries = accounts.map((a) =>
-    computeAccountSummary(a, txs, instruments, prices, fx),
+    computeAccountSummary(a, txs, instruments, prices, fx, fxHistory),
   )
 
   const sum = (pick: (s: AccountSummary) => number) =>
