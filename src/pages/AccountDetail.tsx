@@ -253,12 +253,12 @@ export default function AccountDetail() {
                           <div className="mt-1 text-xs text-[var(--color-muted)]">
                             <span>
                               Árfolyam:{' '}
-                              <span className="text-[var(--color-text)]">
+                              <span className="amt text-[var(--color-text)]">
                                 {formatMoney(h.currentPrice, h.currency)}
                               </span>
                             </span>
                             {unitHuf != null && (
-                              <div className="opacity-70">
+                              <div className="amt opacity-70">
                                 ≈ {formatMoney(unitHuf)}
                               </div>
                             )}
@@ -289,10 +289,10 @@ export default function AccountDetail() {
                           </Link>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="amt px-4 py-3 text-right tabular-nums">
                         {formatNumber(h.quantity, isTreasury ? 0 : 4)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                      <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
                         <div>{formatMoney(h.costBasisHuf)}</div>
                         {h.currency !== 'HUF' && (
                           <div className="text-xs opacity-70">
@@ -301,9 +301,9 @@ export default function AccountDetail() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium tabular-nums">
-                        <div>{formatMoney(h.marketValueHuf)}</div>
+                        <div className="amt">{formatMoney(h.marketValueHuf)}</div>
                         {h.currency !== 'HUF' && h.marketValueCcy != null && (
-                          <div className="text-xs font-normal text-[var(--color-muted)]">
+                          <div className="amt text-xs font-normal text-[var(--color-muted)]">
                             {formatMoney(h.marketValueCcy, h.currency)}
                           </div>
                         )}
@@ -344,7 +344,7 @@ export default function AccountDetail() {
             {Object.entries(accSummary.cash).map(([ccy, amt]) => (
               <Card key={ccy} className="px-5 py-4">
                 <div className="text-xs text-[var(--color-muted)]">{ccy}</div>
-                <div className="text-lg font-semibold tabular-nums">
+                <div className="amt text-lg font-semibold tabular-nums">
                   {formatMoney(amt, ccy)}
                 </div>
               </Card>
@@ -395,10 +395,10 @@ export default function AccountDetail() {
                       <td className="px-4 py-2.5 text-[var(--color-muted)]">
                         {inst?.name ?? t.instrumentKey ?? '—'}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
+                      <td className="amt px-4 py-2.5 text-right tabular-nums">
                         {t.quantity != null ? formatNumber(t.quantity, 4) : '—'}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
+                      <td className="amt px-4 py-2.5 text-right tabular-nums">
                         {t.grossAmount != null
                           ? formatMoney(t.grossAmount, t.currency)
                           : '—'}

@@ -3,6 +3,21 @@ import { motion } from 'motion/react'
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react'
 import { formatMoney, formatPercent } from '../lib/format'
 
+/**
+ * Wrap a Ft/EUR amount or quantity so it blurs in privacy mode. Percentages are
+ * never wrapped, so they always stay readable. inline-block keeps the CSS blur
+ * filter rendering reliably for inline text.
+ */
+export function Amt({
+  children,
+  className = '',
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return <span className={`amt inline-block ${className}`}>{children}</span>
+}
+
 export function PageHeader({
   title,
   subtitle,
@@ -60,7 +75,7 @@ export function Delta({
     <span className={`inline-flex items-center gap-1 ${color} ${className}`}>
       <Icon className="h-4 w-4" />
       {value != null && (
-        <span>{formatMoney(value, 'HUF', { sign: true })}</span>
+        <span className="amt">{formatMoney(value, 'HUF', { sign: true })}</span>
       )}
       {pct != null && (
         <span className={value != null ? 'opacity-80' : ''}>
@@ -109,9 +124,11 @@ export function StatCard({
         <span className="text-sm text-[var(--color-muted)]">{label}</span>
         {icon && <span className="text-[var(--color-muted)]">{icon}</span>}
       </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+      <div className="amt mt-2 text-2xl font-semibold tracking-tight">
+        {value}
+      </div>
       {sub != null && (
-        <div className="mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
+        <div className="amt mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
           {sub}
         </div>
       )}

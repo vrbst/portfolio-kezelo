@@ -10,10 +10,15 @@ export default function App() {
   const location = useLocation()
   const load = usePortfolio((s) => s.load)
   const loaded = usePortfolio((s) => s.loaded)
+  const privacy = usePortfolio((s) => s.privacy)
 
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('privacy-on', privacy)
+  }, [privacy])
 
   return (
     <div className="flex min-h-screen">

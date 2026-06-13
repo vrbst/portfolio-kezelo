@@ -151,7 +151,7 @@ export default function Income() {
         <span className="text-sm text-[var(--color-muted)]">
           Nettó pénzbeáramlás (realizált + kamat + osztalék − díj − adó)
         </span>
-        <span className="ml-auto text-lg font-semibold tabular-nums">
+        <span className="amt ml-auto text-lg font-semibold tabular-nums">
           {formatMoney(net, 'HUF', { sign: true })}
         </span>
       </div>
@@ -177,7 +177,7 @@ export default function Income() {
                 >
                   <td className="px-4 py-3 font-medium">{y.year}</td>
                   <td
-                    className={`px-4 py-3 text-right tabular-nums ${
+                    className={`amt px-4 py-3 text-right tabular-nums ${
                       y.realizedPlHuf < 0
                         ? 'text-[var(--color-negative)]'
                         : 'text-[var(--color-positive)]'
@@ -185,16 +185,16 @@ export default function Income() {
                   >
                     {formatMoney(y.realizedPlHuf, 'HUF', { sign: true })}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="amt px-4 py-3 text-right tabular-nums">
                     {formatMoney(y.interestHuf)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
+                  <td className="amt px-4 py-3 text-right tabular-nums">
                     {formatMoney(y.dividendHuf)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                  <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
                     {formatMoney(y.feesHuf)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                  <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
                     {formatMoney(y.taxHuf)}
                   </td>
                 </tr>

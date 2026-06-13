@@ -45,6 +45,10 @@ interface PortfolioState {
   priceUpdatedAt?: string
   pricesLoading: boolean
 
+  /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
+  privacy: boolean
+  togglePrivacy: () => void
+
   load: () => Promise<void>
   importParsed: (parsed: ParsedImport) => Promise<{
     added: number
@@ -72,6 +76,22 @@ interface PortfolioState {
 
   instrumentMap: () => Map<string, Instrument>
   summary: () => PortfolioSummary
+}
+
+const PRIVACY_KEY = 'pf-privacy'
+function loadPrivacy(): boolean {
+  try {
+    return localStorage.getItem(PRIVACY_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function savePrivacy(v: boolean) {
+  try {
+    localStorage.setItem(PRIVACY_KEY, v ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Derive a fallback EUR->HUF rate from the latest conversion legs. */
@@ -203,6 +223,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
+  privacy: loadPrivacy(),
+  togglePrivacy: () => {
+    const v = !get().privacy
+    savePrivacy(v)
+    set({ privacy: v })
+  },
   syncConfig: loadSyncConfig(),
   syncing: false,
   lastSyncedAt: undefined,

@@ -120,11 +120,11 @@ function Section({
                       <div className="text-xs text-[var(--color-muted)]">
                         Teljes érték
                       </div>
-                      <div className="text-xl font-semibold tabular-nums">
+                      <div className="amt text-xl font-semibold tabular-nums">
                         {formatMoney(a.totalValueHuf)}
                       </div>
                       {eurEquivalent(a.totalValueHuf, eurHuf) && (
-                        <div className="text-xs tabular-nums text-[var(--color-muted)]">
+                        <div className="amt text-xs tabular-nums text-[var(--color-muted)]">
                           {eurEquivalent(a.totalValueHuf, eurHuf)}
                         </div>
                       )}

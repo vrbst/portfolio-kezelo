@@ -14,6 +14,8 @@ import {
   Coins,
   ArrowRight,
   RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
@@ -31,6 +33,7 @@ import {
   EmptyState,
   Delta,
   Badge,
+  Amt,
 } from '../components/ui'
 import {
   formatMoney,
@@ -56,6 +59,8 @@ export default function Dashboard() {
   const pricesLoading = usePortfolio((s) => s.pricesLoading)
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt)
   const eurHuf = usePortfolio((s) => s.fx['EUR'])
+  const privacy = usePortfolio((s) => s.privacy)
+  const togglePrivacy = usePortfolio((s) => s.togglePrivacy)
 
   const valueSeries = useMemo(
     () =>
@@ -126,6 +131,20 @@ export default function Dashboard() {
                 </span>
               </span>
             )}
+            <button
+              className="btn-ghost"
+              onClick={togglePrivacy}
+              title={privacy ? 'Összegek megjelenítése' : 'Összegek elrejtése'}
+            >
+              {privacy ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">
+                {privacy ? 'Megmutat' : 'Elrejt'}
+              </span>
+            </button>
             <button
               className="btn-ghost"
               onClick={() => refreshPrices()}
@@ -240,7 +259,7 @@ export default function Dashboard() {
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-xs text-[var(--color-muted)]">Összesen</span>
-              <span className="text-xl font-semibold">
+              <span className="amt text-xl font-semibold">
                 {formatMoney(summary.totalValueHuf)}
               </span>
             </div>
@@ -292,11 +311,11 @@ export default function Dashboard() {
                     </div>
                     <div className="mt-0.5 text-xs text-[var(--color-muted)]">
                       {a.holdings.length} pozíció · készpénz{' '}
-                      {formatMoney(a.cashValueHuf)}
+                      <Amt>{formatMoney(a.cashValueHuf)}</Amt>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold tabular-nums">
+                    <div className="amt font-semibold tabular-nums">
                       {formatMoney(a.totalValueHuf)}
                     </div>
                     {accountReturn(a) != null && (
@@ -335,7 +354,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   {e.amountHuf != null && (
-                    <div className="text-right text-sm font-semibold tabular-nums">
+                    <div className="amt text-right text-sm font-semibold tabular-nums">
                       {e.kind === 'coupon' ? '+' : ''}
                       {formatMoney(e.amountHuf)}
                     </div>

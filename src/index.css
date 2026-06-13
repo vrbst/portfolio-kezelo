@@ -101,3 +101,20 @@ body::before {
       hover:bg-[var(--color-surface-2)] hover:border-[var(--color-brand)]/40;
   }
 }
+
+/* ----- Privacy mode ------------------------------------------------------ */
+/* When the root has `.privacy-on`, every element marked `.amt` (Ft/EUR
+ * amounts and quantities) is blurred. Percentages are never marked, so they
+ * stay readable. Chart axis numbers and tooltips blur via the recharts hooks. */
+.privacy-on .amt {
+  filter: blur(0.45em);
+  -webkit-filter: blur(0.45em);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: filter 0.15s ease;
+}
+.privacy-on .recharts-yAxis .recharts-cartesian-axis-tick-value,
+.privacy-on .recharts-tooltip-wrapper {
+  filter: blur(6px);
+  -webkit-filter: blur(6px);
+}
