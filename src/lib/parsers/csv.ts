@@ -8,7 +8,7 @@ export function parseCsv(text: string): string[][] {
   let inQuotes = false
 
   // Normalise newlines, strip a leading BOM.
-  const src = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
+  const src = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
 
   for (let i = 0; i < src.length; i++) {
     const c = src[i]
@@ -71,7 +71,7 @@ export function num(value: string | undefined | null): number | undefined {
   const s = String(value).trim()
   if (s === '') return undefined
   // Drop spaces (thousands) and currency symbols.
-  let cleaned = s.replace(/\s/g, '').replace(/[^0-9.,\-]/g, '')
+  let cleaned = s.replace(/\s/g, '').replace(/[^0-9.,-]/g, '')
   // If both separators present, the last one is the decimal separator.
   const lastComma = cleaned.lastIndexOf(',')
   const lastDot = cleaned.lastIndexOf('.')
