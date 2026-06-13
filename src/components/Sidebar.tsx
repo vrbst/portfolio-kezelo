@@ -12,7 +12,7 @@ import {
 const links = [
   { to: '/', label: 'Áttekintés', icon: LayoutDashboard, end: true },
   { to: '/accounts', label: 'Számlák', icon: Wallet, end: false },
-  { to: '/income', label: 'Realizált hozam', icon: Receipt, end: false },
+  { to: '/income', label: 'Hozam', icon: Receipt, end: false },
   { to: '/import', label: 'Importálás', icon: Upload, end: false },
   { to: '/settings', label: 'Beállítások', icon: SettingsIcon, end: false },
 ]

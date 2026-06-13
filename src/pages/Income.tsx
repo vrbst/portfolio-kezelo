@@ -2,25 +2,39 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Coins, TrendingUp, Landmark, Receipt, Banknote } from 'lucide-react'
 import { usePortfolio } from '../lib/store'
-import { computeIncomeByYear } from '../lib/portfolio'
+import { computeIncomeByYear, computeReturns } from '../lib/portfolio'
 import { PageHeader, Card, StatCard, EmptyState } from '../components/ui'
-import { formatMoney } from '../lib/format'
+import { formatMoney, formatPercent } from '../lib/format'
 
 export default function Income() {
   const accounts = usePortfolio((s) => s.accounts)
   const transactions = usePortfolio((s) => s.transactions)
   const instruments = usePortfolio((s) => s.instruments)
+  const prices = usePortfolio((s) => s.prices)
   const fx = usePortfolio((s) => s.fx)
+  const historyFile = usePortfolio((s) => s.historyFile)
+
+  const instMap = useMemo(
+    () => new Map(instruments.map((i) => [i.key, i])),
+    [instruments],
+  )
 
   const years = useMemo(
+    () => computeIncomeByYear(accounts, transactions, instMap, fx),
+    [accounts, transactions, instMap, fx],
+  )
+
+  const returns = useMemo(
     () =>
-      computeIncomeByYear(
+      computeReturns(
         accounts,
         transactions,
-        new Map(instruments.map((i) => [i.key, i])),
+        instMap,
+        prices,
         fx,
+        historyFile,
       ),
-    [accounts, transactions, instruments, fx],
+    [accounts, transactions, instMap, prices, fx, historyFile],
   )
 
   const total = useMemo(
@@ -71,9 +85,38 @@ export default function Income() {
   return (
     <div>
       <PageHeader
-        title="Realizált hozam"
-        subtitle="Lezárt nyereség, kamat, osztalék, díjak és adó évenként."
+        title="Hozam"
+        subtitle="Teljesítmény-mutatók és a realizált eredmény évenként."
       />
+
+      <Card className="mb-6 p-6">
+        <h2 className="mb-1 text-lg font-semibold">Teljesítmény</h2>
+        <p className="mb-4 text-sm text-[var(--color-muted)]">
+          Évesített hozam-mutatók ({returns.days} nap adat alapján).
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Metric
+            label="XIRR — pénzsúlyozott"
+            pct={returns.xirrPct}
+            hint="A te pénzed tényleges évesített hozama, a be- és kifizetések időzítését is figyelembe véve."
+          />
+          <Metric
+            label="TWR — idősúlyozott"
+            pct={returns.twrPct}
+            sub={
+              returns.twrCumulativePct != null
+                ? `${formatPercent(returns.twrCumulativePct)} a teljes időszakban`
+                : undefined
+            }
+            hint="A befektetéseid teljesítménye, a befizetések időzítésétől megtisztítva — benchmarkhoz."
+          />
+          <Metric
+            label="Egyszerű hozam"
+            pct={returns.simplePct}
+            hint="Jelenlegi érték a befektetett tőkéhez képest. A befizetések időzítése torzítja."
+          />
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -161,12 +204,51 @@ export default function Income() {
         </div>
       </Card>
 
-      <p className="mt-4 text-xs text-[var(--color-muted)]">
+      <p className="mt-4 text-xs leading-relaxed text-[var(--color-muted)]">
+        Az XIRR (pénzsúlyozott) a saját pénzed évesített hozama; a TWR
+        (idősúlyozott) a befektetések teljesítménye a befizetések időzítésétől
+        függetlenül. Friss portfóliónál az évesítés még zajos lehet.
+        {' '}
         A realizált eredmény átlagos bekerülési áron, a vételkori árfolyamon
         számol. A díjak tájékoztató jellegűek (a vétel díja a bekerülésben is
         benne van). A lakossági állampapír kamata és a TBSZ a lekötési időszak
         alatt adómentes.
       </p>
+    </div>
+  )
+}
+
+function Metric({
+  label,
+  pct,
+  sub,
+  hint,
+}: {
+  label: string
+  pct?: number
+  sub?: string
+  hint?: string
+}) {
+  const color =
+    pct == null
+      ? 'text-[var(--color-muted)]'
+      : pct >= 0
+        ? 'text-[var(--color-positive)]'
+        : 'text-[var(--color-negative)]'
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+      <div className="text-xs text-[var(--color-muted)]">{label}</div>
+      <div className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>
+        {pct == null ? '—' : formatPercent(pct)}
+      </div>
+      {sub && (
+        <div className="mt-0.5 text-xs text-[var(--color-muted)]">{sub}</div>
+      )}
+      {hint && (
+        <div className="mt-2 text-xs leading-relaxed text-[var(--color-muted)]">
+          {hint}
+        </div>
+      )}
     </div>
   )
 }
