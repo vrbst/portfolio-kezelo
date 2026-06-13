@@ -37,11 +37,29 @@ function formatDay(ms: number): string {
   }).format(d)
 }
 
+/** Month-start timestamps across [min,max], thinned to at most `maxLabels`. */
+function monthTicks(min: number, max: number, maxLabels = 8): number[] {
+  const ticks: number[] = []
+  const d = new Date(min)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(1)
+  if (d.getTime() < min) d.setMonth(d.getMonth() + 1)
+  while (d.getTime() <= max) {
+    ticks.push(d.getTime())
+    d.setMonth(d.getMonth() + 1)
+  }
+  const step = Math.max(1, Math.ceil(ticks.length / maxLabels))
+  return ticks.filter((_, i) => i % step === 0)
+}
+
 /** Portfolio value over time, with the invested-capital line for reference. */
 export default function ValueChart({ data }: { data: ValuePoint[] }) {
   // Real time axis: x is the timestamp so points are spaced by actual elapsed
   // time (not evenly per sample) and month ticks land correctly.
   const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }))
+  const min = chartData[0]?.ts ?? 0
+  const max = chartData[chartData.length - 1]?.ts ?? 0
+  const ticks = monthTicks(min, max)
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -59,12 +77,11 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
           <XAxis
             dataKey="ts"
             type="number"
-            scale="time"
-            domain={['dataMin', 'dataMax']}
+            domain={[min, max]}
+            ticks={ticks}
             tickFormatter={formatMonth}
             tick={{ fill: '#8b93a7', fontSize: 12 }}
             stroke="#232b45"
-            minTickGap={40}
           />
           <YAxis
             tickFormatter={formatCompact}
