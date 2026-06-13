@@ -10,6 +10,9 @@ import {
 } from 'recharts'
 import type { ValuePoint } from '../lib/portfolio'
 import { formatMoney, formatCompact } from '../lib/format'
+import { usePortfolio } from '../lib/store'
+
+const MASK = '•••'
 
 const tooltipStyle = {
   background: '#141a2e',
@@ -54,6 +57,9 @@ function monthTicks(min: number, max: number, maxLabels = 8): number[] {
 
 /** Portfolio value over time, with the invested-capital line for reference. */
 export default function ValueChart({ data }: { data: ValuePoint[] }) {
+  // Privacy mode: SVG <text> doesn't reliably take a CSS blur filter, so we mask
+  // the Y-axis amounts and the tooltip value at the formatter level instead.
+  const privacy = usePortfolio((s) => s.privacy)
   // Real time axis: x is the timestamp so points are spaced by actual elapsed
   // time (not evenly per sample) and month ticks land correctly.
   const chartData = data.map((d) => ({ ...d, ts: new Date(d.date).getTime() }))
@@ -84,7 +90,7 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
             stroke="#232b45"
           />
           <YAxis
-            tickFormatter={formatCompact}
+            tickFormatter={(v) => (privacy ? MASK : formatCompact(v))}
             tick={{ fill: '#8b93a7', fontSize: 12 }}
             stroke="#232b45"
             width={52}
@@ -93,7 +99,7 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
             contentStyle={tooltipStyle}
             labelFormatter={(l) => formatDay(Number(l))}
             formatter={(v, name) => [
-              formatMoney(Number(v)),
+              privacy ? MASK : formatMoney(Number(v)),
               name === 'value' ? 'Érték' : 'Befektetett tőke',
             ]}
           />

@@ -252,7 +252,7 @@ export default function Dashboard() {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v) => formatMoney(Number(v))}
+                  formatter={(v) => (privacy ? '•••' : formatMoney(Number(v)))}
                   contentStyle={tooltipStyle}
                 />
               </PieChart>
