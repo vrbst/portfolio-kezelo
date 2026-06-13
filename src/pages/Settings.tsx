@@ -345,8 +345,11 @@ function BondSeriesSettings() {
       <p className="mb-4 text-xs text-[var(--color-muted)]">
         A pontos értékeléshez add meg a sorozat adatait: kibocsátás, éves kamat,
         kamatperiódus és az első kamatfizetés dátuma — ebből számoljuk a
-        felhalmozott kamatot a kupon-ütemterv szerint. A diszkont kincstárjegyek
-        automatikusan a vételár → névérték akkrécióval értékelődnek.
+        felhalmozott kamatot a kupon-ütemterv szerint. Az érték a lejárat előtti
+        eladási költséggel csökkentve jelenik meg (alapból a névérték 1%-a),
+        vagyis a most realizálható összeg. Hétvégén a következő hétfői nappal
+        számolunk (mint a MobilKincstár). A diszkont kincstárjegyek automatikusan
+        a vételár → névérték akkrécióval értékelődnek.
       </p>
 
       <div className="space-y-3">
@@ -433,6 +436,23 @@ function BondSeriesSettings() {
                           firstCouponDate: e.target.value || undefined,
                         })
                       }
+                    />
+                  </Field>
+                  <Field label="Eladási költség %">
+                    <input
+                      type="number"
+                      step="any"
+                      className={`${inputCls} w-24 text-right`}
+                      defaultValue={
+                        b.saleCostPct != null ? b.saleCostPct * 100 : ''
+                      }
+                      placeholder="1"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        setBond(inst, {
+                          saleCostPct: v === '' ? undefined : Number(v) / 100,
+                        })
+                      }}
                     />
                   </Field>
                 </div>

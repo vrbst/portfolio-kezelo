@@ -88,9 +88,40 @@ const BOND_TYPES = new Set(['gov_bond', 'tbill'])
 
 const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1)
 
+const DEFAULT_BOND_SALE_COST = 0.01 // FixMÁP early-sale cost (1% of par)
+
+/**
+ * Parse a bond date to LOCAL midnight ms. Coupon boundaries are date-only, so
+ * everything must compare at day granularity in one timezone — mixing UTC-parsed
+ * dates with a local `now` would slip boundaries by the UTC offset (and wrongly
+ * accrue a whole period on the coupon day).
+ */
+function parseDayMs(s: string | undefined): number {
+  if (!s) return NaN
+  const m = s.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime()
+  const d = new Date(s)
+  return Number.isNaN(d.getTime())
+    ? NaN
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
 function addMonths(ms: number, months: number): number {
   const d = new Date(ms)
   d.setMonth(d.getMonth() + months)
+  return d.getTime()
+}
+
+/**
+ * Bonds are valued on business days at local-midnight granularity: on a weekend
+ * MobilKincstár uses the following Monday, so accrued interest runs to Monday.
+ */
+function bondValuationMs(ms: number): number {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0) // local midnight
+  const day = d.getDay() // 0 = Sun, 6 = Sat
+  if (day === 6) d.setDate(d.getDate() + 2)
+  else if (day === 0) d.setDate(d.getDate() + 1)
   return d.getTime()
 }
 
@@ -111,8 +142,8 @@ function fixedBondAccrued(
     bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
       ? bond.couponIntervalMonths
       : 12
-  const first = bond?.firstCouponDate ? Date.parse(bond.firstCouponDate) : NaN
-  const issue = bond?.issueDate ? Date.parse(bond.issueDate) : NaN
+  const first = parseDayMs(bond?.firstCouponDate)
+  const issue = parseDayMs(bond?.issueDate)
 
   let anchorMs: number
   if (Number.isFinite(first) && nowMs >= first) {
@@ -149,8 +180,7 @@ function bondMarketValue(
   avgBuyMs: number,
   nowMs: number,
 ): { value: number; needsData: boolean } {
-  const matIso = inst?.bond?.maturity ?? inst?.maturity
-  const matMs = matIso ? Date.parse(matIso) : NaN
+  const matMs = parseDayMs(inst?.bond?.maturity ?? inst?.maturity)
 
   if (inst?.type === 'tbill') {
     if (!Number.isFinite(matMs) || nowMs >= matMs)
@@ -163,7 +193,12 @@ function bondMarketValue(
 
   const accrued = fixedBondAccrued(inst?.bond, nowMs)
   if (accrued == null) return { value: faceQty, needsData: true } // par fallback
-  return { value: faceQty * (1 + accrued), needsData: false }
+  // Early-sale cost (what you'd actually get if redeeming now); none at maturity.
+  const beforeMaturity = !Number.isFinite(matMs) || nowMs < matMs
+  const saleCost = beforeMaturity
+    ? (inst?.bond?.saleCostPct ?? DEFAULT_BOND_SALE_COST)
+    : 0
+  return { value: faceQty * (1 + accrued - saleCost), needsData: false }
 }
 
 /**
@@ -282,6 +317,7 @@ export function computeAccountSummary(
     .sort((a, b) => a.date.localeCompare(b.date))
   const history = fxHistory ?? buildFxHistory(txs)
   const nowMs = now.getTime()
+  const bondNowMs = bondValuationMs(nowMs) // weekend → next Monday
 
   // ---- Holdings (avg-cost) + realized P/L ----
   // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
@@ -436,7 +472,7 @@ export function computeAccountSummary(
     let bondNeedsData = false
     if (isBond) {
       const avgBuyMs = p.cost > 0 ? p.costDateMs / p.cost : nowMs
-      const bv = bondMarketValue(inst, p.qty, p.cost, avgBuyMs, nowMs)
+      const bv = bondMarketValue(inst, p.qty, p.cost, avgBuyMs, bondNowMs)
       marketValueCcy = bv.value
       bondNeedsData = bv.needsData
     } else if (currentPrice != null) {

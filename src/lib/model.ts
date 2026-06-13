@@ -55,6 +55,11 @@ export interface BondTerms {
   firstCouponDate?: string
   /** Lejárat felülírása, ha a névből származtatott pontatlan (ISO). */
   maturity?: string
+  /**
+   * Lejárat előtti eladási/visszaváltási költség a névérték törtjében
+   * (FixMÁP-nál 0.01 = 1%). Lejáratkor nem vonódik le. Alapértelmezés 1%.
+   */
+  saleCostPct?: number
 }
 
 export interface Instrument {
