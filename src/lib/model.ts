@@ -39,6 +39,24 @@ export type InstrumentType =
   | 'fund'
   | 'cash'
 
+/**
+ * User-supplied terms for a bond series, used to value it between imports
+ * (accrued interest from the coupon schedule). Derivable items (maturity) may be
+ * overridden here too.
+ */
+export interface BondTerms {
+  /** Kibocsátás dátuma (ISO). */
+  issueDate?: string
+  /** Éves névleges kamat, tört alakban (0.07 = 7%). */
+  couponRate?: number
+  /** Kamatfizetés gyakorisága hónapban (12 = éves, 6 = féléves, 3 = negyedéves). */
+  couponIntervalMonths?: number
+  /** Az első (vagy bármely ismert) kamatfizetés dátuma (ISO) — ettől lépdel. */
+  firstCouponDate?: string
+  /** Lejárat felülírása, ha a névből származtatott pontatlan (ISO). */
+  maturity?: string
+}
+
 export interface Instrument {
   /** Stable key: ISIN if known, otherwise a slug of the name. */
   key: string
@@ -51,6 +69,8 @@ export interface Instrument {
   maturity?: string
   /** Bonds: face value per unit (névérték), usually 1 (HUF). */
   faceValue?: number
+  /** Bonds: user-supplied series terms for accurate valuation. */
+  bond?: BondTerms
 }
 
 /** Normalised transaction type across all providers. */

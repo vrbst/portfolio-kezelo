@@ -4,6 +4,7 @@
 
 import type {
   Account,
+  BondTerms,
   Currency,
   Instrument,
   Transaction,
@@ -29,6 +30,8 @@ export interface HoldingView {
   /** Cost basis converted to HUF (par/face proxy for bonds). */
   costBasisHuf: number
   unrealizedPlHuf?: number
+  /** Fixed-rate bond valued at par because its series terms are missing. */
+  bondNeedsData?: boolean
 }
 
 export interface CashByCurrency {
@@ -82,41 +85,85 @@ export interface PortfolioSummary {
 }
 
 const BOND_TYPES = new Set(['gov_bond', 'tbill'])
-const YEAR_MS = 365 * 86_400_000
 
 const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1)
+
+function addMonths(ms: number, months: number): number {
+  const d = new Date(ms)
+  d.setMonth(d.getMonth() + months)
+  return d.getTime()
+}
+
+/**
+ * Accrued-interest fraction of par for a fixed-rate bond from its (user-supplied)
+ * coupon schedule. Walks the coupon dates forward from `firstCouponDate` by the
+ * interval to the latest boundary on/before `now`, then accrues linearly.
+ * Before the first coupon it accrues from the issue date (the first period may be
+ * irregular). Returns undefined when there is not enough data (→ value at par).
+ */
+function fixedBondAccrued(
+  bond: BondTerms | undefined,
+  nowMs: number,
+): number | undefined {
+  const rate = bond?.couponRate
+  if (!rate || rate <= 0) return undefined
+  const interval =
+    bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
+      ? bond.couponIntervalMonths
+      : 12
+  const first = bond?.firstCouponDate ? Date.parse(bond.firstCouponDate) : NaN
+  const issue = bond?.issueDate ? Date.parse(bond.issueDate) : NaN
+
+  let anchorMs: number
+  if (Number.isFinite(first) && nowMs >= first) {
+    let cur = first
+    for (;;) {
+      const next = addMonths(cur, interval)
+      if (next > nowMs) break
+      cur = next
+    }
+    anchorMs = cur
+  } else if (Number.isFinite(issue)) {
+    anchorMs = issue // first coupon not due yet — accrue from issuance
+  } else if (Number.isFinite(first)) {
+    anchorMs = first
+  } else {
+    return undefined
+  }
+
+  const days = (nowMs - anchorMs) / 86_400_000
+  return days > 0 ? (rate * days) / 365 : 0
+}
 
 /**
  * Current HUF value of a bond position (face = quantity), more accurate than par:
  *  - Discount T-bill (zero coupon): accretes linearly from the average purchase
  *    price toward par (100%) by maturity. At/after maturity it is par.
- *  - Fixed-rate bond (FixMÁP…): par + accrued coupon since the last interest
- *    payment (rate × elapsed/365). Falls back to par when no coupon is known.
+ *  - Fixed-rate bond (FixMÁP…): par + accrued coupon from the user-supplied
+ *    series terms. Falls back to par (`needsData`) when terms are missing.
  */
 function bondMarketValue(
   inst: Instrument | undefined,
   faceQty: number,
   cost: number,
   avgBuyMs: number,
-  coupon: { dateMs: number; ratePerFace: number } | undefined,
   nowMs: number,
-): number {
-  const matMs = inst?.maturity ? Date.parse(inst.maturity) : NaN
+): { value: number; needsData: boolean } {
+  const matIso = inst?.bond?.maturity ?? inst?.maturity
+  const matMs = matIso ? Date.parse(matIso) : NaN
 
   if (inst?.type === 'tbill') {
-    if (!Number.isFinite(matMs) || nowMs >= matMs) return faceQty // par
+    if (!Number.isFinite(matMs) || nowMs >= matMs)
+      return { value: faceQty, needsData: false } // par at/after maturity
     const avgPrice = faceQty > 0 ? cost / faceQty : 1
     const span = matMs - avgBuyMs
     const frac = span > 0 ? clamp01((nowMs - avgBuyMs) / span) : 1
-    return faceQty * (avgPrice + (1 - avgPrice) * frac)
+    return { value: faceQty * (avgPrice + (1 - avgPrice) * frac), needsData: false }
   }
 
-  // Fixed-rate / other government bond: par + accrued coupon.
-  let accrued = 0
-  if (coupon && coupon.ratePerFace > 0) {
-    accrued = coupon.ratePerFace * clamp01((nowMs - coupon.dateMs) / YEAR_MS)
-  }
-  return faceQty * (1 + accrued)
+  const accrued = fixedBondAccrued(inst?.bond, nowMs)
+  if (accrued == null) return { value: faceQty, needsData: true } // par fallback
+  return { value: faceQty * (1 + accrued), needsData: false }
 }
 
 /**
@@ -235,19 +282,6 @@ export function computeAccountSummary(
     .sort((a, b) => a.date.localeCompare(b.date))
   const history = fxHistory ?? buildFxHistory(txs)
   const nowMs = now.getTime()
-
-  // Last coupon paid per bond, for accrued-interest valuation.
-  const bondCoupons = new Map<string, { dateMs: number; ratePerFace: number }>()
-  for (const t of accountTxs) {
-    if (t.type !== 'interest' || !t.instrumentKey) continue
-    const face = t.quantity ?? 0
-    const amt = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
-    if (face <= 0 || amt <= 0) continue
-    const dateMs = Date.parse(t.date)
-    const prev = bondCoupons.get(t.instrumentKey)
-    if (!prev || dateMs > prev.dateMs)
-      bondCoupons.set(t.instrumentKey, { dateMs, ratePerFace: amt / face })
-  }
 
   // ---- Holdings (avg-cost) + realized P/L ----
   // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
@@ -399,16 +433,12 @@ export function computeAccountSummary(
     const currentPrice = prices.get(key)
 
     let marketValueCcy: number | undefined
+    let bondNeedsData = false
     if (isBond) {
       const avgBuyMs = p.cost > 0 ? p.costDateMs / p.cost : nowMs
-      marketValueCcy = bondMarketValue(
-        inst,
-        p.qty,
-        p.cost,
-        avgBuyMs,
-        bondCoupons.get(key),
-        nowMs,
-      )
+      const bv = bondMarketValue(inst, p.qty, p.cost, avgBuyMs, nowMs)
+      marketValueCcy = bv.value
+      bondNeedsData = bv.needsData
     } else if (currentPrice != null) {
       marketValueCcy = p.qty * currentPrice
     } else {
@@ -436,6 +466,7 @@ export function computeAccountSummary(
       marketValueHuf,
       costBasisHuf: costBasisHufThis,
       unrealizedPlHuf: unrealized,
+      bondNeedsData: bondNeedsData || undefined,
     })
   }
 

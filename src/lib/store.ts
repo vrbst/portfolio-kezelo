@@ -45,6 +45,7 @@ interface PortfolioState {
     skipped: number
   }>
   updateAccount: (id: string, patch: Partial<Account>) => Promise<void>
+  updateInstrument: (key: string, patch: Partial<Instrument>) => Promise<void>
   setPrices: (prices: PriceMap, fx?: Record<string, number>) => void
   refreshPrices: () => Promise<void>
   setManualPrice: (key: string, price: number | null) => Promise<void>
@@ -122,10 +123,10 @@ async function mergeSnapshot(
   }
   const transactions = [...txById.values()]
 
+  // Remote wins so instrument edits (e.g. bond series terms) propagate across
+  // devices, mirroring the account-merge policy below.
   const instByKey = new Map(s.instruments.map((i) => [i.key, i]))
-  for (const i of snap.instruments ?? []) {
-    if (!instByKey.has(i.key)) instByKey.set(i.key, i)
-  }
+  for (const i of snap.instruments ?? []) instByKey.set(i.key, i)
   const instruments = [...instByKey.values()]
 
   // Accounts: remote wins so TBSZ labels / edits propagate across devices.
@@ -233,6 +234,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const updated = accounts.find((a) => a.id === id)
     if (updated) await db.accounts.put(updated)
     set({ accounts })
+  },
+
+  updateInstrument: async (key, patch) => {
+    const instruments = get().instruments.map((i) =>
+      i.key === key ? { ...i, ...patch } : i,
+    )
+    const updated = instruments.find((i) => i.key === key)
+    if (updated) await db.instruments.put(updated)
+    set({ instruments })
   },
 
   setPrices: (prices, fx) => {

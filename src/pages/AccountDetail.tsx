@@ -249,6 +249,17 @@ export default function AccountDetail() {
                           )}
                           {h.instrument?.isin && <span>{h.instrument.isin}</span>}
                         </div>
+                        {h.bondNeedsData && (
+                          <Link
+                            to="/settings"
+                            className="mt-1 inline-block"
+                            title="Add meg a sorozat adatait a pontos értékhez"
+                          >
+                            <Badge tone="warning">
+                              névértéken — sorozat-adat hiányzik
+                            </Badge>
+                          </Link>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {formatNumber(h.quantity, isTreasury ? 0 : 4)}

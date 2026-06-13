@@ -10,14 +10,17 @@ import {
   CloudDownload,
   CheckCircle2,
   AlertTriangle,
+  Landmark,
 } from 'lucide-react'
 import { usePortfolio } from '../lib/store'
 import { PageHeader, Card, Badge } from '../components/ui'
 import { formatDateTime, formatNumber } from '../lib/format'
 import { instrumentTypeLabel } from '../lib/labels'
 import { verifyAccess, type SyncConfig } from '../lib/sync'
+import type { BondTerms, Instrument } from '../lib/model'
 
 const PRICED_TYPES = new Set(['etf', 'stock', 'fund'])
+const BOND_TYPES = new Set(['gov_bond', 'tbill'])
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts)
@@ -52,6 +55,8 @@ export default function Settings() {
       </div>
 
       <PriceSettings />
+
+      <BondSeriesSettings />
 
       <Card className="mt-4 border-[var(--color-negative)]/30 p-6">
         <div className="mb-2 flex items-center gap-2">
@@ -308,6 +313,150 @@ function PriceSettings() {
         </div>
       )}
     </Card>
+  )
+}
+
+const INTERVALS = [
+  { months: 12, label: 'éves' },
+  { months: 6, label: 'féléves' },
+  { months: 3, label: 'negyedéves' },
+  { months: 1, label: 'havi' },
+]
+
+const inputCls =
+  'rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm'
+
+function BondSeriesSettings() {
+  const instruments = usePortfolio((s) => s.instruments)
+  const updateInstrument = usePortfolio((s) => s.updateInstrument)
+
+  const bonds = instruments.filter((i) => BOND_TYPES.has(i.type))
+  if (bonds.length === 0) return null
+
+  const setBond = (inst: Instrument, patch: Partial<BondTerms>) =>
+    updateInstrument(inst.key, { bond: { ...inst.bond, ...patch } })
+
+  return (
+    <Card className="mt-4 p-6">
+      <div className="mb-1 flex items-center gap-2">
+        <Landmark className="h-5 w-5 text-[var(--color-brand)]" />
+        <h2 className="text-lg font-semibold">Állampapír sorozatok</h2>
+      </div>
+      <p className="mb-4 text-xs text-[var(--color-muted)]">
+        A pontos értékeléshez add meg a sorozat adatait: kibocsátás, éves kamat,
+        kamatperiódus és az első kamatfizetés dátuma — ebből számoljuk a
+        felhalmozott kamatot a kupon-ütemterv szerint. A diszkont kincstárjegyek
+        automatikusan a vételár → névérték akkrécióval értékelődnek.
+      </p>
+
+      <div className="space-y-3">
+        {bonds.map((inst) => {
+          const isTbill = inst.type === 'tbill'
+          const b = inst.bond ?? {}
+          const missing = !isTbill && b.couponRate == null
+          return (
+            <div
+              key={inst.key}
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="font-medium">{inst.name}</span>
+                <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
+                {missing && <Badge tone="warning">hiányzó adat</Badge>}
+                {!isTbill && !missing && (
+                  <Badge tone="positive">megadva</Badge>
+                )}
+                <span className="text-xs text-[var(--color-muted)]">
+                  lejárat:{' '}
+                  {(b.maturity ?? inst.maturity)?.slice(0, 10) ?? '—'}
+                </span>
+              </div>
+
+              {isTbill ? (
+                <p className="text-xs text-[var(--color-muted)]">
+                  Diszkont kincstárjegy — automatikus akkréció a lejáratig (
+                  {inst.maturity?.slice(0, 10) ?? 'ismeretlen lejárat'}).
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field label="Kibocsátás">
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={b.issueDate?.slice(0, 10) ?? ''}
+                      onChange={(e) =>
+                        setBond(inst, { issueDate: e.target.value || undefined })
+                      }
+                    />
+                  </Field>
+                  <Field label="Éves kamat %">
+                    <input
+                      type="number"
+                      step="any"
+                      className={`${inputCls} w-24 text-right`}
+                      defaultValue={
+                        b.couponRate != null ? b.couponRate * 100 : ''
+                      }
+                      placeholder="pl. 7.04"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        setBond(inst, {
+                          couponRate: v === '' ? undefined : Number(v) / 100,
+                        })
+                      }}
+                    />
+                  </Field>
+                  <Field label="Kamatperiódus">
+                    <select
+                      className={inputCls}
+                      value={b.couponIntervalMonths ?? 12}
+                      onChange={(e) =>
+                        setBond(inst, {
+                          couponIntervalMonths: Number(e.target.value),
+                        })
+                      }
+                    >
+                      {INTERVALS.map((iv) => (
+                        <option key={iv.months} value={iv.months}>
+                          {iv.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Első kamatfizetés">
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={b.firstCouponDate?.slice(0, 10) ?? ''}
+                      onChange={(e) =>
+                        setBond(inst, {
+                          firstCouponDate: e.target.value || undefined,
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-[var(--color-muted)]">{label}</span>
+      {children}
+    </label>
   )
 }
 
