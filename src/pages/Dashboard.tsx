@@ -328,22 +328,18 @@ export default function Dashboard() {
                     <div className="truncate text-sm font-medium">
                       {e.title}
                     </div>
-                    {e.detail && (
-                      <div className="text-xs text-[var(--color-muted)]">
-                        {e.detail}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium tabular-nums">
-                      {formatDate(e.date)}
-                    </div>
                     <div className="text-xs text-[var(--color-muted)]">
-                      {e.daysUntil === 0
-                        ? 'ma'
-                        : `${e.daysUntil} nap múlva`}
+                      {formatDate(e.date)} ·{' '}
+                      {e.daysUntil === 0 ? 'ma' : `${e.daysUntil} nap múlva`}
+                      {e.detail ? ` · ${e.detail}` : ''}
                     </div>
                   </div>
+                  {e.amountHuf != null && (
+                    <div className="text-right text-sm font-semibold tabular-nums">
+                      {e.kind === 'coupon' ? '+' : ''}
+                      {formatMoney(e.amountHuf)}
+                    </div>
+                  )}
                 </div>
               )
               return e.accountId ? (

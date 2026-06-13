@@ -12,6 +12,8 @@ export interface UpcomingEvent {
   kind: EventKind
   title: string
   detail?: string
+  /** HUF amount tied to the event (coupon, redemption, or affected value). */
+  amountHuf?: number
   accountId?: string
 }
 
@@ -24,7 +26,14 @@ export function upcomingEvents(
 ): UpcomingEvent[] {
   const nowMs = now.getTime()
   const out: UpcomingEvent[] = []
-  const push = (date: string, kind: EventKind, title: string, detail?: string, accountId?: string) => {
+  const push = (
+    date: string,
+    kind: EventKind,
+    title: string,
+    detail?: string,
+    amountHuf?: number,
+    accountId?: string,
+  ) => {
     const ms = Date.parse(date)
     if (!Number.isFinite(ms) || ms < nowMs) return
     out.push({
@@ -33,6 +42,7 @@ export function upcomingEvents(
       kind,
       title,
       detail,
+      amountHuf,
       accountId,
     })
   }
@@ -47,6 +57,7 @@ export function upcomingEvents(
           'tbsz',
           `TBSZ ${a.tbszYear} — ${st.next.label}`,
           `${Math.round(st.taxRate * 100)}% adó`,
+          acc.totalValueHuf,
           a.id,
         )
     }
@@ -54,10 +65,17 @@ export function upcomingEvents(
     for (const h of acc.holdings) {
       const inst = h.instrument
       if (!inst || !BOND_TYPES.has(inst.type)) continue
+      const face = h.quantity // bonds: quantity = face value (HUF nominal)
       const maturity = inst.bond?.maturity ?? inst.maturity
-      if (maturity) push(maturity, 'maturity', `${inst.name} — lejárat`, undefined, a.id)
+      if (maturity)
+        push(maturity, 'maturity', `${inst.name} — lejárat`, undefined, face, a.id)
       const coupon = nextCouponDate(inst.bond, now)
-      if (coupon) push(coupon, 'coupon', `${inst.name} — kamatfizetés`, undefined, a.id)
+      if (coupon) {
+        const rate = inst.bond?.couponRate
+        const interval = inst.bond?.couponIntervalMonths || 12
+        const amount = rate ? face * rate * (interval / 12) : undefined
+        push(coupon, 'coupon', `${inst.name} — kamatfizetés`, undefined, amount, a.id)
+      }
     }
   }
 
