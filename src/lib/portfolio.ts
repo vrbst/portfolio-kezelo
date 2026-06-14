@@ -845,6 +845,62 @@ export function allocationByCurrency(
     .sort((a, b) => b.value - a.value)
 }
 
+export interface ConsolidatedHolding {
+  instrumentKey: string
+  instrument?: Instrument
+  currency: Currency
+  /** Total units held across every account. */
+  quantity: number
+  costBasisCcy: number
+  costBasisHuf: number
+  marketValueCcy?: number
+  marketValueHuf: number
+  unrealizedPlHuf: number
+  /** How many accounts hold this instrument. */
+  accountCount: number
+}
+
+/**
+ * Aggregate holdings by instrument across ALL accounts, so a position split over
+ * several accounts (e.g. the same ETF in two TBSZ-ek) shows a single combined
+ * total. Sorted by market value, highest first.
+ */
+export function consolidatedHoldings(
+  summary: PortfolioSummary,
+): ConsolidatedHolding[] {
+  const map = new Map<string, ConsolidatedHolding>()
+  for (const acc of summary.accounts) {
+    for (const h of acc.holdings) {
+      const mv = h.marketValueHuf ?? 0
+      const existing = map.get(h.instrumentKey)
+      if (existing) {
+        existing.quantity += h.quantity
+        existing.costBasisCcy += h.costBasisCcy
+        existing.costBasisHuf += h.costBasisHuf
+        existing.marketValueHuf += mv
+        if (h.marketValueCcy != null)
+          existing.marketValueCcy = (existing.marketValueCcy ?? 0) + h.marketValueCcy
+        existing.unrealizedPlHuf += h.unrealizedPlHuf ?? 0
+        existing.accountCount += 1
+      } else {
+        map.set(h.instrumentKey, {
+          instrumentKey: h.instrumentKey,
+          instrument: h.instrument,
+          currency: h.currency,
+          quantity: h.quantity,
+          costBasisCcy: h.costBasisCcy,
+          costBasisHuf: h.costBasisHuf,
+          marketValueCcy: h.marketValueCcy,
+          marketValueHuf: mv,
+          unrealizedPlHuf: h.unrealizedPlHuf ?? 0,
+          accountCount: 1,
+        })
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => b.marketValueHuf - a.marketValueHuf)
+}
+
 export interface ValuePoint {
   /** ISO day (YYYY-MM-DD). */
   date: string

@@ -27,6 +27,7 @@ import {
 import { upcomingEvents, type EventKind } from '../lib/events'
 import ValueChart from '../components/ValueChart'
 import AiPanel from '../components/AiPanel'
+import HoldingsPanel from '../components/HoldingsPanel'
 import {
   PageHeader,
   StatCard,
@@ -401,6 +402,8 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      <HoldingsPanel />
 
       <AiPanel />
 
