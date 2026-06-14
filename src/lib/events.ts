@@ -55,15 +55,25 @@ export function upcomingEvents(
     const a = acc.account
     if (a.kind === 'tbsz' && a.tbszYear) {
       const st = tbszStatus(a.tbszYear, now)
-      if (st.next)
+      for (const ms of st.milestones) {
+        if (ms.done) continue
+        // The 3-year mark drops the tax; the 5-year is the tax-free maturity.
+        // No amount — the account value isn't a meaningful "event amount".
+        const detail =
+          ms.key === 'three'
+            ? `adó ${st.hasSzocho ? '18' : '10'}%-ra csökken`
+            : ms.key === 'five'
+              ? 'adómentessé válik'
+              : undefined
         push(
-          st.next.date,
+          ms.date,
           'tbsz',
-          `TBSZ ${a.tbszYear} — ${st.next.label}`,
-          `${Math.round(st.taxRate * 100)}% adó`,
-          acc.totalValueHuf,
+          `TBSZ ${a.tbszYear} — ${ms.label}`,
+          detail,
+          undefined,
           a.id,
         )
+      }
     }
 
     for (const h of acc.holdings) {

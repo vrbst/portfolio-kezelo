@@ -140,7 +140,7 @@ export default function Dashboard() {
     }))
   }, [summary, allocMode, fx])
 
-  const events = useMemo(() => upcomingEvents(summary).slice(0, 8), [summary])
+  const events = useMemo(() => upcomingEvents(summary).slice(0, 12), [summary])
 
   if (accounts.length === 0) {
     return (
