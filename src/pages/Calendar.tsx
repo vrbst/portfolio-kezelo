@@ -1,5 +1,11 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  CalendarDays,
+} from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import { futureBondCashflows, isInternalTransfer } from '../lib/portfolio'
 import { tbszStatus } from '../lib/tbsz'
@@ -232,9 +238,16 @@ export default function Calendar() {
               {view.y}. {MONTHS[view.m]}
             </h2>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
-              className="btn-ghost px-2.5 py-1.5"
+              className="btn-ghost px-2 py-1.5"
+              onClick={() => move(-12)}
+              title="Előző év"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </button>
+            <button
+              className="btn-ghost px-2 py-1.5"
               onClick={() => move(-1)}
               title="Előző hónap"
             >
@@ -247,11 +260,18 @@ export default function Calendar() {
               Ma
             </button>
             <button
-              className="btn-ghost px-2.5 py-1.5"
+              className="btn-ghost px-2 py-1.5"
               onClick={() => move(1)}
               title="Következő hónap"
             >
               <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              className="btn-ghost px-2 py-1.5"
+              onClick={() => move(12)}
+              title="Következő év"
+            >
+              <ChevronsRight className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -289,7 +309,7 @@ export default function Calendar() {
             // Area ∝ amount → diameter ∝ √. Direction sets the colour; a roughly
             // balanced day (a rebalance) is neutral brand.
             const diam =
-              gross > 0 && maxGross > 0 ? 16 + 26 * Math.sqrt(gross / maxGross) : 0
+              gross > 0 && maxGross > 0 ? 22 + 32 * Math.sqrt(gross / maxGross) : 0
             const tol = gross * 0.05
             const color =
               net > tol ? '#34d399' : net < -tol ? '#fb7185' : '#6366f1'
@@ -331,15 +351,11 @@ export default function Calendar() {
                       style={{
                         width: diam,
                         height: diam,
-                        background: `${color}2e`,
-                        border: `1px ${isFuture ? 'dashed' : 'solid'} ${color}`,
+                        background: `${color}${isFuture ? '70' : 'e6'}`,
                       }}
                     >
-                      {diam >= 30 && label && (
-                        <span
-                          className="amt px-0.5 text-[10px] font-semibold leading-none tabular-nums"
-                          style={{ color }}
-                        >
+                      {diam >= 28 && label && (
+                        <span className="amt whitespace-nowrap px-0.5 text-[10px] font-semibold leading-none tabular-nums text-white sm:text-[11px]">
                           {label}
                         </span>
                       )}
@@ -363,24 +379,15 @@ export default function Calendar() {
         {/* Legend */}
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
           <span className="flex items-center gap-1.5">
-            <span
-              className="h-3 w-3 rounded-full"
-              style={{ background: '#34d3992e', border: '1px solid #34d399' }}
-            />
+            <span className="h-3 w-3 rounded-full" style={{ background: '#34d399' }} />
             Pénz be
           </span>
           <span className="flex items-center gap-1.5">
-            <span
-              className="h-3 w-3 rounded-full"
-              style={{ background: '#fb71852e', border: '1px solid #fb7185' }}
-            />
+            <span className="h-3 w-3 rounded-full" style={{ background: '#fb7185' }} />
             Pénz ki
           </span>
           <span className="flex items-center gap-1.5">
-            <span
-              className="h-3 w-3 rounded-full"
-              style={{ background: '#6366f12e', border: '1px solid #6366f1' }}
-            />
+            <span className="h-3 w-3 rounded-full" style={{ background: '#6366f1' }} />
             Átrendezés (be ≈ ki)
           </span>
           <span className="flex items-center gap-1.5">
@@ -390,7 +397,7 @@ export default function Calendar() {
             />
             TBSZ mérföldkő
           </span>
-          <span>A kör mérete az összeggel arányos · szaggatott = várható.</span>
+          <span>A kör mérete az összeggel arányos · halványabb = várható.</span>
         </div>
       </Card>
 
