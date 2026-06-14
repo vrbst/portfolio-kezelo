@@ -167,19 +167,31 @@ export default function AccountDetail() {
           </>
         ) : (
           <>
-            <StatCard
-              label="Hozam"
-              value={formatMoney(
-                accSummary.totalValueHuf - accSummary.capitalBasisHuf,
-                'HUF',
-                { sign: true },
-              )}
-              sub={eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
-                sign: true,
-              })}
-              deltaPct={ret}
-              index={1}
-            />
+            {isTreasury ? (
+              // A bond's mark-to-market return oscillates with the coupon cycle
+              // (drops to ~−1% right after each kamatfizetés, then rebuilds), so
+              // showing it as "Hozam" is misleading. The real return is the
+              // accumulated coupons (Kapott kamat).
+              <StatCard
+                label="Befektetett tőke"
+                value={formatMoney(accSummary.capitalBasisHuf)}
+                index={1}
+              />
+            ) : (
+              <StatCard
+                label="Hozam"
+                value={formatMoney(
+                  accSummary.totalValueHuf - accSummary.capitalBasisHuf,
+                  'HUF',
+                  { sign: true },
+                )}
+                sub={eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
+                  sign: true,
+                })}
+                deltaPct={ret}
+                index={1}
+              />
+            )}
             <StatCard
               label="Készpénz"
               value={formatMoney(accSummary.cashValueHuf)}
@@ -234,7 +246,9 @@ export default function AccountDetail() {
                       Bekerülés
                     </th>
                     <th className="px-4 py-3 text-right font-medium">Érték</th>
-                    <th className="px-4 py-3 text-right font-medium">Hozam</th>
+                    {!isTreasury && (
+                      <th className="px-4 py-3 text-right font-medium">Hozam</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -324,7 +338,7 @@ export default function AccountDetail() {
                           </div>
                         )}
                       </td>
-                      <ReturnCell h={h} fx={fx} />
+                      {!isTreasury && <ReturnCell h={h} fx={fx} />}
                     </tr>
                     )
                   })}
