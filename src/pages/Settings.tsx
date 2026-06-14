@@ -530,6 +530,16 @@ function BondSeriesSettings() {
                 </p>
               ) : (
                 <div className="flex flex-wrap items-end gap-3">
+                  <Field label="Lejárat">
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={(b.maturity ?? inst.maturity)?.slice(0, 10) ?? ''}
+                      onChange={(e) =>
+                        setBond(inst, { maturity: e.target.value || undefined })
+                      }
+                    />
+                  </Field>
                   <Field label="Kibocsátás">
                     <input
                       type="date"
