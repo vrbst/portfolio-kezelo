@@ -229,14 +229,14 @@ export default function Calendar() {
             const items = byDay.get(key)
             const isToday = key === todayIso
             const isSel = key === selected
-            // Gross in/out shown separately — netting would hide a day where a
-            // deposit funds an equal purchase (both real cash moves, net ≈ 0).
-            let inflow = 0
-            let outflow = 0
+            // Net investment flow for the day (single signed figure). Netting
+            // collapses round-trips like buy→sell→re-buy (the wash cancels) so a
+            // 14M re-buy shows −14M, not +14M / −28M. The detail panel still
+            // lists every leg. Funding deposits are already excluded above.
+            let net = 0
             for (const it of items ?? []) {
               if (it.amountHuf == null) continue
-              if (it.cat === 'out') outflow += it.amountHuf
-              else inflow += it.amountHuf
+              net += it.cat === 'out' ? -it.amountHuf : it.amountHuf
             }
             const cats = items ? [...new Set(items.map((it) => it.cat))] : []
             return (
@@ -259,14 +259,16 @@ export default function Calendar() {
                   {d}
                 </span>
                 <div className="mt-auto space-y-0.5">
-                  {inflow > 0 && (
-                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-positive)] sm:text-xs">
-                      +{formatCompact(inflow)}
-                    </span>
-                  )}
-                  {outflow > 0 && (
-                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-negative)] sm:text-xs">
-                      −{formatCompact(outflow)}
+                  {Math.abs(net) > 0.5 && (
+                    <span
+                      className={`amt block truncate text-[11px] font-medium tabular-nums sm:text-xs ${
+                        net > 0
+                          ? 'text-[var(--color-positive)]'
+                          : 'text-[var(--color-negative)]'
+                      }`}
+                    >
+                      {net > 0 ? '+' : '−'}
+                      {formatCompact(Math.abs(net))}
                     </span>
                   )}
                   {cats.length > 0 && (
