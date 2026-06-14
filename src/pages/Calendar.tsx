@@ -81,9 +81,12 @@ export default function Calendar() {
       else map.set(key, [item])
     }
 
-    // Past transactions
+    // Past transactions. Skip mirror/internal entries: the treasury export
+    // duplicates every bond settlement's cash side as a `pénzszámla kifizetés`
+    // (flagged internal), and Lightyear marks own-account transfers IT-. Counting
+    // them would double the day's flow (e.g. a 6,2M buy showing as −12,4M).
     for (const t of transactions) {
-      if (isInternalTransfer(t)) continue
+      if (t.internal || isInternalTransfer(t)) continue
       const cat = TX_CAT[t.type] ?? null
       if (!cat) continue
       const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
