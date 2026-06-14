@@ -14,21 +14,23 @@ const MONTHS = [
 ]
 
 /**
- * Map a transaction type to a calendar category, or null to skip it. This is a
- * CASH-FLOW view (the cash pocket's perspective): spending cash on a buy is
- * money out (−), receiving cash from a sell / coupon / interest is money in (+).
- * Currency conversions and internal transfers are cash-neutral, so skipped.
+ * Map a transaction type to a calendar category, or null to skip it. This is an
+ * INVESTMENT-activity view: money you put into investments (buy) is out (−),
+ * money you get from them (sell / coupon / interest / maturity) is in (+).
+ * Moving your OWN money to/from the account (deposit, withdrawal), currency
+ * conversions and internal transfers are funding moves, not events, so skipped —
+ * otherwise a deposit that funds a same-day purchase would show a spurious +.
  */
 const TX_CAT: Record<string, DayItem['cat'] | null> = {
-  deposit: 'in',
   sell: 'in',
   interest: 'in',
   dividend: 'in',
   redemption: 'maturity',
   buy: 'out',
-  withdrawal: 'out',
   fee: 'out',
   tax: 'out',
+  deposit: null,
+  withdrawal: null,
   conversion: null,
   transfer: null,
 }
@@ -165,7 +167,7 @@ export default function Calendar() {
     <div>
       <PageHeader
         title="Naptár"
-        subtitle="Várható kifizetések és múltbeli tranzakciók napokra bontva."
+        subtitle="Befektetési mozgások és várható kifizetések napokra bontva (a saját pénz be-/kiutalása nélkül)."
       />
 
       <Card className="p-5 sm:p-6">
@@ -288,8 +290,8 @@ export default function Calendar() {
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
           {(
             [
-              ['in', 'Pénz be (befizetés, eladás, kamat, osztalék)'],
-              ['out', 'Pénz ki (vétel, kivét, díj, adó)'],
+              ['in', 'Pénz be (eladás, kamat, osztalék)'],
+              ['out', 'Pénz ki (vétel, díj, adó)'],
               ['coupon', 'Várható kamat'],
               ['maturity', 'Lejárat / beváltás'],
               ['tbsz', 'TBSZ mérföldkő'],
