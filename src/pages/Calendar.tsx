@@ -42,6 +42,8 @@ interface DayItem {
   future: boolean
   tag: string
   cat: 'coupon' | 'maturity' | 'tbsz' | 'in' | 'out'
+  /** Set for asset buys/sells (instrument key) so same-asset round-trips net. */
+  tradeKey?: string
 }
 
 const CAT_COLOR: Record<DayItem['cat'], string> = {
@@ -95,12 +97,14 @@ export default function Calendar() {
       if (raw === 0) continue
       const huf = t.currency === 'HUF' ? raw : raw * (fx[t.currency] ?? 0)
       const inst = t.instrumentKey ? instMap.get(t.instrumentKey) : undefined
+      const isTrade = t.type === 'buy' || t.type === 'sell'
       push(t.date, {
         title: inst?.name ?? txTypeLabel[t.type],
         amountHuf: huf,
         future: false,
         tag: txTypeLabel[t.type],
         cat,
+        tradeKey: isTrade ? t.instrumentKey : undefined,
       })
     }
 
@@ -229,14 +233,24 @@ export default function Calendar() {
             const items = byDay.get(key)
             const isToday = key === todayIso
             const isSel = key === selected
-            // Net investment flow for the day (single signed figure). Netting
-            // collapses round-trips like buy→sell→re-buy (the wash cancels) so a
-            // 14M re-buy shows −14M, not +14M / −28M. The detail panel still
-            // lists every leg. Funding deposits are already excluded above.
-            let net = 0
+            // Net trades PER INSTRUMENT first so a same-asset round-trip (buy→
+            // sell→re-buy) cancels to its real remainder, while a genuine
+            // rebalance (sell DKJ, buy VWCE) keeps both legs. Income and costs
+            // are never washed. Then show gross in (+) and out (−) separately.
+            const tradeNet = new Map<string, number>()
+            let inflow = 0
+            let outflow = 0
             for (const it of items ?? []) {
               if (it.amountHuf == null) continue
-              net += it.cat === 'out' ? -it.amountHuf : it.amountHuf
+              const signed = it.cat === 'out' ? -it.amountHuf : it.amountHuf
+              if (it.tradeKey)
+                tradeNet.set(it.tradeKey, (tradeNet.get(it.tradeKey) ?? 0) + signed)
+              else if (signed >= 0) inflow += signed
+              else outflow += -signed
+            }
+            for (const v of tradeNet.values()) {
+              if (v > 0) inflow += v
+              else outflow += -v
             }
             const cats = items ? [...new Set(items.map((it) => it.cat))] : []
             return (
@@ -259,16 +273,14 @@ export default function Calendar() {
                   {d}
                 </span>
                 <div className="mt-auto space-y-0.5">
-                  {Math.abs(net) > 0.5 && (
-                    <span
-                      className={`amt block truncate text-[11px] font-medium tabular-nums sm:text-xs ${
-                        net > 0
-                          ? 'text-[var(--color-positive)]'
-                          : 'text-[var(--color-negative)]'
-                      }`}
-                    >
-                      {net > 0 ? '+' : '−'}
-                      {formatCompact(Math.abs(net))}
+                  {inflow > 0.5 && (
+                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-positive)] sm:text-xs">
+                      +{formatCompact(inflow)}
+                    </span>
+                  )}
+                  {outflow > 0.5 && (
+                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-negative)] sm:text-xs">
+                      −{formatCompact(outflow)}
                     </span>
                   )}
                   {cats.length > 0 && (
