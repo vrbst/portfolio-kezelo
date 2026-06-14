@@ -221,11 +221,7 @@ export default function Dashboard() {
         <StatCard
           label="Teljes hozam"
           value={formatMoney(summary.totalPlHuf, 'HUF', { sign: true })}
-          sub={`ebből nem realizált: ${formatMoney(
-            summary.unrealizedPlHuf,
-            'HUF',
-            { sign: true },
-          )}`}
+          sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
           deltaPct={summary.totalReturnPct}
           icon={<TrendingUp className="h-5 w-5" />}
           index={1}
