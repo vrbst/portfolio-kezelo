@@ -57,11 +57,47 @@ const CAT_COLOR: Record<DayItem['cat'], string> = {
 const pad = (n: number) => String(n).padStart(2, '0')
 const isoDay = (y: number, m0: number, d: number) => `${y}-${pad(m0 + 1)}-${pad(d)}`
 
+interface DayAgg {
+  inflow: number
+  outflow: number
+  /** A day has an amountless marker (e.g. a TBSZ milestone). */
+  hasMarker: boolean
+}
+
+/**
+ * Aggregate a day's items into gross in/out. Trades are netted PER INSTRUMENT
+ * first, so a same-asset round-trip cancels but a cross-asset rebalance keeps
+ * both legs. Income/costs are never washed.
+ */
+function dayAggregate(items: DayItem[]): DayAgg {
+  const tradeNet = new Map<string, number>()
+  let inflow = 0
+  let outflow = 0
+  let hasMarker = false
+  for (const it of items) {
+    if (it.amountHuf == null) {
+      if (it.cat === 'tbsz') hasMarker = true
+      continue
+    }
+    const signed = it.cat === 'out' ? -it.amountHuf : it.amountHuf
+    if (it.tradeKey)
+      tradeNet.set(it.tradeKey, (tradeNet.get(it.tradeKey) ?? 0) + signed)
+    else if (signed >= 0) inflow += signed
+    else outflow += -signed
+  }
+  for (const v of tradeNet.values()) {
+    if (v > 0) inflow += v
+    else outflow += -v
+  }
+  return { inflow, outflow, hasMarker }
+}
+
 export default function Calendar() {
   const accounts = usePortfolio((s) => s.accounts)
   const transactions = usePortfolio((s) => s.transactions)
   const instruments = usePortfolio((s) => s.instruments)
   const fx = usePortfolio((s) => s.fx)
+  const privacy = usePortfolio((s) => s.privacy)
   const summary = usePortfolioSummary()
 
   const today = new Date()
@@ -148,6 +184,19 @@ export default function Calendar() {
     return out
   }, [view])
 
+  // Largest day's gross flow this month — normalises the bubble sizes.
+  const maxGross = useMemo(() => {
+    let mx = 0
+    const days = new Date(view.y, view.m + 1, 0).getDate()
+    for (let d = 1; d <= days; d++) {
+      const items = byDay.get(isoDay(view.y, view.m, d))
+      if (!items) continue
+      const { inflow, outflow } = dayAggregate(items)
+      mx = Math.max(mx, inflow + outflow)
+    }
+    return mx
+  }, [byDay, view])
+
   // This month's expected (future) inflow total.
   const monthExpected = useMemo(() => {
     let sum = 0
@@ -233,38 +282,40 @@ export default function Calendar() {
             const items = byDay.get(key)
             const isToday = key === todayIso
             const isSel = key === selected
-            // Net trades PER INSTRUMENT first so a same-asset round-trip (buy→
-            // sell→re-buy) cancels to its real remainder, while a genuine
-            // rebalance (sell DKJ, buy VWCE) keeps both legs. Income and costs
-            // are never washed. Then show gross in (+) and out (−) separately.
-            const tradeNet = new Map<string, number>()
-            let inflow = 0
-            let outflow = 0
-            for (const it of items ?? []) {
-              if (it.amountHuf == null) continue
-              const signed = it.cat === 'out' ? -it.amountHuf : it.amountHuf
-              if (it.tradeKey)
-                tradeNet.set(it.tradeKey, (tradeNet.get(it.tradeKey) ?? 0) + signed)
-              else if (signed >= 0) inflow += signed
-              else outflow += -signed
-            }
-            for (const v of tradeNet.values()) {
-              if (v > 0) inflow += v
-              else outflow += -v
-            }
-            const cats = items ? [...new Set(items.map((it) => it.cat))] : []
+            const isFuture = key > todayIso
+            const agg = items ? dayAggregate(items) : null
+            const gross = agg ? agg.inflow + agg.outflow : 0
+            const net = agg ? agg.inflow - agg.outflow : 0
+            // Area ∝ amount → diameter ∝ √. Direction sets the colour; a roughly
+            // balanced day (a rebalance) is neutral brand.
+            const diam =
+              gross > 0 && maxGross > 0 ? 16 + 26 * Math.sqrt(gross / maxGross) : 0
+            const tol = gross * 0.05
+            const color =
+              net > tol ? '#34d399' : net < -tol ? '#fb7185' : '#6366f1'
+            const label =
+              Math.abs(net) > tol
+                ? `${net > 0 ? '+' : '−'}${formatCompact(Math.abs(net))}`
+                : gross > 0
+                  ? formatCompact(gross)
+                  : ''
+            const parts: string[] = []
+            if (agg && agg.inflow > 0.5) parts.push(`Be +${formatCompact(agg.inflow)}`)
+            if (agg && agg.outflow > 0.5) parts.push(`Ki −${formatCompact(agg.outflow)}`)
+            const title = !privacy && parts.length ? parts.join(' · ') : undefined
             return (
               <button
                 key={i}
                 onClick={() => setSelected(key)}
-                className={`flex min-h-[4rem] flex-col rounded-lg border p-1.5 text-left transition sm:min-h-[5rem] ${
+                title={title}
+                className={`relative flex min-h-[4.5rem] items-start rounded-lg border p-1.5 transition sm:min-h-[5.5rem] ${
                   isSel
-                    ? 'border-[var(--color-brand)]/60 bg-[var(--color-brand)]/10'
+                    ? 'border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40'
                     : 'border-[var(--color-border)]/60 hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40'
                 }`}
               >
                 <span
-                  className={`text-xs tabular-nums ${
+                  className={`relative z-10 text-xs tabular-nums ${
                     isToday
                       ? 'grid h-5 w-5 place-items-center rounded-full bg-[var(--color-brand)] font-semibold text-white'
                       : 'text-[var(--color-muted)]'
@@ -272,53 +323,74 @@ export default function Calendar() {
                 >
                   {d}
                 </span>
-                <div className="mt-auto space-y-0.5">
-                  {inflow > 0.5 && (
-                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-positive)] sm:text-xs">
-                      +{formatCompact(inflow)}
-                    </span>
-                  )}
-                  {outflow > 0.5 && (
-                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-negative)] sm:text-xs">
-                      −{formatCompact(outflow)}
-                    </span>
-                  )}
-                  {cats.length > 0 && (
-                    <span className="flex gap-0.5">
-                      {cats.map((c) => (
+
+                {diam > 0 && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span
+                      className="flex items-center justify-center rounded-full"
+                      style={{
+                        width: diam,
+                        height: diam,
+                        background: `${color}2e`,
+                        border: `1px ${isFuture ? 'dashed' : 'solid'} ${color}`,
+                      }}
+                    >
+                      {diam >= 30 && label && (
                         <span
-                          key={c}
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ background: CAT_COLOR[c] }}
-                        />
-                      ))}
+                          className="amt px-0.5 text-[10px] font-semibold leading-none tabular-nums"
+                          style={{ color }}
+                        >
+                          {label}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </div>
+                  </span>
+                )}
+
+                {diam === 0 && agg?.hasMarker && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span
+                      className="h-3.5 w-3.5 rounded-full border-2"
+                      style={{ borderColor: CAT_COLOR.tbsz }}
+                    />
+                  </span>
+                )}
               </button>
             )
           })}
         </div>
 
         {/* Legend */}
-        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
-          {(
-            [
-              ['in', 'Pénz be (eladás, kamat, osztalék)'],
-              ['out', 'Pénz ki (vétel, díj, adó)'],
-              ['coupon', 'Várható kamat'],
-              ['maturity', 'Lejárat / beváltás'],
-              ['tbsz', 'TBSZ mérföldkő'],
-            ] as const
-          ).map(([c, label]) => (
-            <span key={c} className="flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ background: CAT_COLOR[c] }}
-              />
-              {label}
-            </span>
-          ))}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
+          <span className="flex items-center gap-1.5">
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: '#34d3992e', border: '1px solid #34d399' }}
+            />
+            Pénz be
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: '#fb71852e', border: '1px solid #fb7185' }}
+            />
+            Pénz ki
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: '#6366f12e', border: '1px solid #6366f1' }}
+            />
+            Átrendezés (be ≈ ki)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="h-3.5 w-3.5 rounded-full border-2"
+              style={{ borderColor: CAT_COLOR.tbsz }}
+            />
+            TBSZ mérföldkő
+          </span>
+          <span>A kör mérete az összeggel arányos · szaggatott = várható.</span>
         </div>
       </Card>
 
