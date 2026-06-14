@@ -38,7 +38,12 @@ export default function TbszTimeline({
             gyűjtőév {year}
           </span>
         </div>
-        <Badge tone={phaseTone[s.phase]}>{s.phaseLabel}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={s.hasSzocho ? 'warning' : 'neutral'}>
+            {s.hasSzocho ? 'szochoköteles (2025-től)' : 'szochomentes (2024-ig)'}
+          </Badge>
+          <Badge tone={phaseTone[s.phase]}>{s.phaseLabel}</Badge>
+        </div>
       </div>
 
       <p className="mt-2 text-sm text-[var(--color-muted)]">{s.taxLabel}</p>

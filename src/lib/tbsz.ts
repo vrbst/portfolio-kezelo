@@ -1,14 +1,22 @@
 // ---------------------------------------------------------------------------
-// TBSZ (Tartós Befektetési Számla) tax timeline — Szja tv. 67/B §.
+// TBSZ (Tartós Befektetési Számla) tax timeline — Szja tv. 67/B § + Szocho tv.
 //
 // A TBSZ opened in the "gyűjtőév" Y:
-//   • during Y you may still deposit (the collection year);
-//   • the 5-year lock then runs to the end of Y+5.
-// Tax on the gain if the account is broken / withdrawn:
-//   • within the 3-year lock (up to 31 Dec Y+3):   15%  (no relief)
-//   • after 3 full years, before 5 (…to 31 Dec Y+5): 10%  (kedvezményes)
-//   • after the 5-year lock (from 1 Jan Y+6):         0%  (adómentes)
+//   • during Y you may still deposit (the collection year, ends 31 Dec Y);
+//   • the 3-year lock runs to 31 Dec Y+3, the full 5-year lock to 31 Dec Y+5.
+//
+// Tax on the GAIN if the account is broken / withdrawn early. Since 2025 a
+// social-contribution tax (szocho) is layered on top of the personal income tax
+// (szja) for contracts concluded AFTER 2024-12-31 (collection year ≥ 2025).
+// Accounts opened/re-fixed by 2024-12-31 stay szocho-free.
+//
+//                              régi (≤2024)         új (2025-től)
+//   gyűjtőév / 3 év előtt:     15% szja             15% szja + 13% szocho = 28%
+//   3–5 év között:             10% szja             10% szja +  8% szocho = 18%
+//   5 év után:                 0% (adómentes)       0% (adómentes)
+//
 // At the 3-year turn a partial withdrawal is allowed while re-locking the rest.
+// Sources: NAV (A tartós befektetésből származó jövedelem szochokötelezettsége).
 // ---------------------------------------------------------------------------
 
 export type TbszPhase = 'collecting' | 'locked' | 'reduced' | 'matured'
@@ -26,9 +34,15 @@ export interface TbszStatus {
   year: number
   phase: TbszPhase
   phaseLabel: string
-  /** Szja rate applicable if broken today (0–0.15). */
+  /** Personal income tax (szja) on the gain if broken now (0–0.15). */
+  szjaRate: number
+  /** Social-contribution tax (szocho) on the gain if broken now (0–0.13). */
+  szochoRate: number
+  /** Total tax burden if broken now = szja + szocho (0–0.28). */
   taxRate: number
   taxLabel: string
+  /** Szocho applies to contracts opened from 2025 (collection year ≥ 2025). */
+  hasSzocho: boolean
   milestones: TbszMilestone[]
   /** Next milestone not yet reached, if any. */
   next?: TbszMilestone
@@ -46,10 +60,23 @@ function daysBetween(from: Date, to: Date): number {
   return Math.ceil((to.getTime() - from.getTime()) / 86_400_000)
 }
 
+const pct = (n: number) => `${Math.round(n * 100)}%`
+
 export function tbszStatus(year: number, now: Date = new Date()): TbszStatus {
+  // Szocho on the szja-taxable TBSZ gain applies only to contracts concluded
+  // after 2024-12-31 (collection year 2025+). Older accounts stay szocho-free.
+  const hasSzocho = year >= 2025
+  const earlySzocho = hasSzocho ? 0.13 : 0 // break before the 3-year milestone
+  const reducedSzocho = hasSzocho ? 0.08 : 0 // 3–5 year window
+
   const depositEnd = yearEnd(year)
   const threeEnd = yearEnd(year + 3)
   const fiveEnd = yearEnd(year + 5)
+
+  // Milestone hint reflects the rate that applies *after* the 3-year turn.
+  const threeHint = hasSzocho
+    ? 'Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.'
+    : 'Innentől a hozam adója 10%-ra csökken (szja, szocho nélkül). Részkivét lehetséges.'
 
   const milestones: TbszMilestone[] = [
     {
@@ -63,42 +90,59 @@ export function tbszStatus(year: number, now: Date = new Date()): TbszStatus {
       key: 'three',
       date: threeEnd.toISOString(),
       label: '3 éves lekötés',
-      hint: 'Innentől a hozam adója 10%-ra csökken (részkivét lehetséges).',
+      hint: threeHint,
       done: now > threeEnd,
     },
     {
       key: 'five',
       date: fiveEnd.toISOString(),
       label: '5 éves lejárat',
-      hint: 'A teljes hozam adómentes (0%).',
+      hint: 'A teljes hozam adómentes — sem szja, sem szocho.',
       done: now > fiveEnd,
     },
   ]
 
   let phase: TbszPhase
   let phaseLabel: string
-  let taxRate: number
-  let taxLabel: string
+  let szjaRate: number
+  let szochoRate: number
   if (now <= depositEnd) {
     phase = 'collecting'
     phaseLabel = 'Gyűjtési időszak'
-    taxRate = 0.15
-    taxLabel = 'Megszakításkor 15% szja (a gyűjtőévben még be is fizethetsz).'
+    szjaRate = 0.15
+    szochoRate = earlySzocho
   } else if (now <= threeEnd) {
     phase = 'locked'
     phaseLabel = 'Lekötés (3 év előtt)'
-    taxRate = 0.15
-    taxLabel = 'Megszakításkor 15% szja a hozamra.'
+    szjaRate = 0.15
+    szochoRate = earlySzocho
   } else if (now <= fiveEnd) {
     phase = 'reduced'
     phaseLabel = 'Kedvezményes szakasz'
-    taxRate = 0.1
-    taxLabel = 'Kivétkor 10% szja a hozamra.'
+    szjaRate = 0.1
+    szochoRate = reducedSzocho
   } else {
     phase = 'matured'
     phaseLabel = 'Lejárt — adómentes'
-    taxRate = 0
-    taxLabel = 'A hozam teljesen adómentes.'
+    szjaRate = 0
+    szochoRate = 0
+  }
+
+  const taxRate = szjaRate + szochoRate
+
+  let taxLabel: string
+  if (phase === 'matured') {
+    taxLabel = 'A hozam teljesen adómentes (0% szja, 0% szocho).'
+  } else {
+    const breakdown = hasSzocho
+      ? `${pct(taxRate)} (${pct(szjaRate)} szja + ${pct(szochoRate)} szocho)`
+      : `${pct(szjaRate)} szja (szocho nélkül)`
+    taxLabel =
+      phase === 'collecting'
+        ? `Megszakításkor ${breakdown} a hozamra. A gyűjtőévben még befizethetsz.`
+        : phase === 'reduced'
+          ? `Kivétkor ${breakdown} a hozamra.`
+          : `Megszakításkor ${breakdown} a hozamra.`
   }
 
   const next = milestones.find((m) => !m.done)
@@ -106,17 +150,17 @@ export function tbszStatus(year: number, now: Date = new Date()): TbszStatus {
 
   const start = new Date(year, 0, 1).getTime()
   const span = fiveEnd.getTime() - start
-  const progress = Math.max(
-    0,
-    Math.min(1, (now.getTime() - start) / span),
-  )
+  const progress = Math.max(0, Math.min(1, (now.getTime() - start) / span))
 
   return {
     year,
     phase,
     phaseLabel,
+    szjaRate,
+    szochoRate,
     taxRate,
     taxLabel,
+    hasSzocho,
     milestones,
     next,
     daysToNext,

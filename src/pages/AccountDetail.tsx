@@ -222,6 +222,9 @@ export default function AccountDetail() {
                       {isTreasury ? 'Névérték' : 'Mennyiség'}
                     </th>
                     <th className="px-4 py-3 text-right font-medium">
+                      Árfolyam
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
                       Bekerülés
                     </th>
                     <th className="px-4 py-3 text-right font-medium">Érték</th>
@@ -247,21 +250,6 @@ export default function AccountDetail() {
                         {priceName && priceName !== h.instrument?.name && (
                           <div className="mt-0.5 text-xs text-[var(--color-muted)]">
                             {priceName}
-                          </div>
-                        )}
-                        {h.currentPrice != null && h.currency !== 'HUF' && (
-                          <div className="mt-1 text-xs text-[var(--color-muted)]">
-                            <span>
-                              Árfolyam:{' '}
-                              <span className="amt text-[var(--color-text)]">
-                                {formatMoney(h.currentPrice, h.currency)}
-                              </span>
-                            </span>
-                            {unitHuf != null && (
-                              <div className="amt opacity-70">
-                                ≈ {formatMoney(unitHuf)}
-                              </div>
-                            )}
                           </div>
                         )}
                         <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
@@ -292,6 +280,28 @@ export default function AccountDetail() {
                       <td className="amt px-4 py-3 text-right tabular-nums">
                         {formatNumber(h.quantity, isTreasury ? 0 : 4)}
                       </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                        {h.currentPrice != null && h.currency !== 'HUF' ? (
+                          <>
+                            <div className="amt text-[var(--color-text)]">
+                              {formatMoney(h.currentPrice, h.currency)}
+                            </div>
+                            {unitHuf != null && (
+                              <div className="amt text-xs opacity-70">
+                                ≈ {formatMoney(unitHuf)}
+                              </div>
+                            )}
+                          </>
+                        ) : isTreasury &&
+                          h.marketValueHuf != null &&
+                          h.quantity > 0 ? (
+                          <div>
+                            {((h.marketValueHuf / h.quantity) * 100).toFixed(2)}%
+                          </div>
+                        ) : (
+                          <span>—</span>
+                        )}
+                      </td>
                       <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
                         <div>{formatMoney(h.costBasisHuf)}</div>
                         {h.currency !== 'HUF' && (
@@ -307,16 +317,6 @@ export default function AccountDetail() {
                             {formatMoney(h.marketValueCcy, h.currency)}
                           </div>
                         )}
-                        {isTreasury &&
-                          h.marketValueHuf != null &&
-                          h.quantity > 0 && (
-                            <div className="text-xs font-normal text-[var(--color-muted)]">
-                              {((h.marketValueHuf / h.quantity) * 100).toFixed(
-                                2,
-                              )}
-                              %
-                            </div>
-                          )}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">
                         {h.unrealizedPlHuf != null &&
