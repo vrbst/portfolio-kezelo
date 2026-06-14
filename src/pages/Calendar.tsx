@@ -13,28 +13,32 @@ const MONTHS = [
   'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
 ]
 
-/** Cash-flow sign per transaction type (inflow +, outflow −, 0 = skip). */
-const SIGN: Record<string, number> = {
-  deposit: 1,
-  sell: 1,
-  redemption: 1,
-  interest: 1,
-  dividend: 1,
-  buy: -1,
-  withdrawal: -1,
-  fee: -1,
-  tax: -1,
-  conversion: 0,
-  transfer: 0,
+/**
+ * Map a transaction type to a calendar category, or null to skip it. This is a
+ * CASH-FLOW view (the cash pocket's perspective): spending cash on a buy is
+ * money out (−), receiving cash from a sell / coupon / interest is money in (+).
+ * Currency conversions and internal transfers are cash-neutral, so skipped.
+ */
+const TX_CAT: Record<string, DayItem['cat'] | null> = {
+  deposit: 'in',
+  sell: 'in',
+  interest: 'in',
+  dividend: 'in',
+  redemption: 'maturity',
+  buy: 'out',
+  withdrawal: 'out',
+  fee: 'out',
+  tax: 'out',
+  conversion: null,
+  transfer: null,
 }
 
 interface DayItem {
   title: string
-  /** Signed HUF amount (+ inflow, − outflow); undefined for markers (TBSZ). */
+  /** HUF magnitude (≥0); the category decides sign/colour. Undefined = marker. */
   amountHuf?: number
   future: boolean
   tag: string
-  /** Category drives the dot colour. */
   cat: 'coupon' | 'maturity' | 'tbsz' | 'in' | 'out'
 }
 
@@ -80,18 +84,18 @@ export default function Calendar() {
     // Past transactions
     for (const t of transactions) {
       if (isInternalTransfer(t)) continue
-      const sign = SIGN[t.type] ?? 0
-      if (sign === 0) continue
+      const cat = TX_CAT[t.type] ?? null
+      if (!cat) continue
       const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
       if (raw === 0) continue
       const huf = t.currency === 'HUF' ? raw : raw * (fx[t.currency] ?? 0)
       const inst = t.instrumentKey ? instMap.get(t.instrumentKey) : undefined
       push(t.date, {
         title: inst?.name ?? txTypeLabel[t.type],
-        amountHuf: sign * huf,
+        amountHuf: huf,
         future: false,
         tag: txTypeLabel[t.type],
-        cat: sign > 0 ? 'in' : 'out',
+        cat,
       })
     }
 
@@ -220,14 +224,21 @@ export default function Calendar() {
             const items = byDay.get(key)
             const isToday = key === todayIso
             const isSel = key === selected
-            const net = items?.reduce((s, it) => s + (it.amountHuf ?? 0), 0) ?? 0
-            const hasAmount = items?.some((it) => it.amountHuf != null)
+            // Gross in/out shown separately — netting would hide a day where a
+            // deposit funds an equal purchase (both real cash moves, net ≈ 0).
+            let inflow = 0
+            let outflow = 0
+            for (const it of items ?? []) {
+              if (it.amountHuf == null) continue
+              if (it.cat === 'out') outflow += it.amountHuf
+              else inflow += it.amountHuf
+            }
             const cats = items ? [...new Set(items.map((it) => it.cat))] : []
             return (
               <button
                 key={i}
                 onClick={() => setSelected(key)}
-                className={`flex min-h-[3.6rem] flex-col rounded-lg border p-1.5 text-left transition sm:min-h-[4.5rem] ${
+                className={`flex min-h-[4rem] flex-col rounded-lg border p-1.5 text-left transition sm:min-h-[5rem] ${
                   isSel
                     ? 'border-[var(--color-brand)]/60 bg-[var(--color-brand)]/10'
                     : 'border-[var(--color-border)]/60 hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40'
@@ -242,23 +253,19 @@ export default function Calendar() {
                 >
                   {d}
                 </span>
-                <div className="mt-auto">
-                  {hasAmount && (
-                    <span
-                      className={`amt block truncate text-[11px] font-medium tabular-nums sm:text-xs ${
-                        net > 0
-                          ? 'text-[var(--color-positive)]'
-                          : net < 0
-                            ? 'text-[var(--color-negative)]'
-                            : 'text-[var(--color-muted)]'
-                      }`}
-                    >
-                      {net > 0 ? '+' : ''}
-                      {formatCompact(net)}
+                <div className="mt-auto space-y-0.5">
+                  {inflow > 0 && (
+                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-positive)] sm:text-xs">
+                      +{formatCompact(inflow)}
+                    </span>
+                  )}
+                  {outflow > 0 && (
+                    <span className="amt block truncate text-[11px] font-medium tabular-nums text-[var(--color-negative)] sm:text-xs">
+                      −{formatCompact(outflow)}
                     </span>
                   )}
                   {cats.length > 0 && (
-                    <span className="mt-0.5 flex gap-0.5">
+                    <span className="flex gap-0.5">
                       {cats.map((c) => (
                         <span
                           key={c}
@@ -278,11 +285,11 @@ export default function Calendar() {
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
           {(
             [
-              ['coupon', 'Kamat'],
-              ['maturity', 'Lejárat'],
+              ['in', 'Pénz be (befizetés, eladás, kamat, osztalék)'],
+              ['out', 'Pénz ki (vétel, kivét, díj, adó)'],
+              ['coupon', 'Várható kamat'],
+              ['maturity', 'Lejárat / beváltás'],
               ['tbsz', 'TBSZ mérföldkő'],
-              ['in', 'Bejövő tranzakció'],
-              ['out', 'Kimenő tranzakció'],
             ] as const
           ).map(([c, label]) => (
             <span key={c} className="flex items-center gap-1.5">
@@ -332,12 +339,12 @@ export default function Calendar() {
                     {it.amountHuf != null && (
                       <div
                         className={`amt shrink-0 text-sm font-semibold tabular-nums ${
-                          it.amountHuf >= 0
-                            ? 'text-[var(--color-positive)]'
-                            : 'text-[var(--color-negative)]'
+                          it.cat === 'out'
+                            ? 'text-[var(--color-negative)]'
+                            : 'text-[var(--color-positive)]'
                         }`}
                       >
-                        {it.amountHuf > 0 ? '+' : ''}
+                        {it.cat === 'out' ? '−' : '+'}
                         {formatMoney(it.amountHuf)}
                       </div>
                     )}
