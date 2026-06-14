@@ -383,6 +383,25 @@ function toHuf(amount: number, ccy: Currency, fx: Record<string, number>) {
   return rate ? amount * rate : amount // fall back to raw if rate unknown
 }
 
+/**
+ * HUF accrued interest paid on a treasury bond purchase (the bruttó − nettó part
+ * of a folyamatos-forgalmazás buy). Read from the Magyar Államkincstár export's
+ * "Accrued interest" column, kept on the transaction's raw payload — so existing
+ * imports work without re-importing. We book the CLEAN price as cost basis and
+ * net this prepaid accrued against the coupon that returns it; otherwise it would
+ * sit in the basis as a phantom unrealized loss until the next kamatfizetés.
+ */
+function purchasedAccruedHuf(t: Transaction): number {
+  const raw = t.raw as Record<string, unknown> | undefined
+  if (!raw) return 0
+  const v = raw._accruedInterest ?? raw['Accrued interest']
+  const n =
+    typeof v === 'number'
+      ? v
+      : Number(String(v ?? '').replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 interface FxPoint {
   date: string
   rate: number
@@ -533,13 +552,20 @@ export function computeAccountSummary(
         }
         const qty = t.quantity ?? 0
         const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
+        // A bond bought above par includes accrued interest paid (bruttó ár):
+        // book the CLEAN price as cost and net the prepaid accrued against the
+        // coupon that returns it.
+        const accruedPaid =
+          inst && BOND_TYPES.has(inst.type) ? purchasedAccruedHuf(t) : 0
+        const cleanSpend = Math.max(0, spend - accruedPaid)
         p.qty += qty
-        p.cost += spend
+        p.cost += cleanSpend
         // Lock the HUF cost at the FX actually paid on the purchase date.
-        p.costHuf += spend * histFxRate(history, ccy, t.date, fx)
-        p.costDateMs += spend * Date.parse(t.date)
+        p.costHuf += cleanSpend * histFxRate(history, ccy, t.date, fx)
+        p.costDateMs += cleanSpend * Date.parse(t.date)
         positions.set(t.instrumentKey, p)
-        addCash(ccy, -spend) // money left the cash pocket
+        addCash(ccy, -spend) // full bruttó left the cash pocket
+        if (accruedPaid > 0) interestHuf -= toHuf(accruedPaid, ccy, fx)
         break
       }
       case 'sell':
@@ -811,10 +837,15 @@ export function computeIncomeByYear(
           }
           const qty = t.quantity ?? 0
           const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
+          // Clean-price cost basis for bonds; net prepaid accrued vs the coupon.
+          const accruedPaid =
+            inst && BOND_TYPES.has(inst.type) ? purchasedAccruedHuf(t) : 0
+          const cleanSpend = Math.max(0, spend - accruedPaid)
           p.qty += qty
-          p.cost += spend
-          p.costHuf += spend * histFxRate(fxHistory, ccy, t.date, fx)
+          p.cost += cleanSpend
+          p.costHuf += cleanSpend * histFxRate(fxHistory, ccy, t.date, fx)
           positions.set(t.instrumentKey, p)
+          if (accruedPaid > 0) yr.interestHuf -= toHuf(accruedPaid, ccy, fx)
           break
         }
         case 'sell':
