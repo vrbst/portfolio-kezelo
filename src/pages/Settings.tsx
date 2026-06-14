@@ -11,12 +11,20 @@ import {
   CheckCircle2,
   AlertTriangle,
   Landmark,
+  Sparkles,
 } from 'lucide-react'
 import { usePortfolio } from '../lib/store'
 import { PageHeader, Card, Badge } from '../components/ui'
 import { formatDateTime, formatNumber } from '../lib/format'
 import { instrumentTypeLabel } from '../lib/labels'
 import { verifyAccess, type SyncConfig } from '../lib/sync'
+import {
+  AI_MODELS,
+  loadAiKey,
+  saveAiKey,
+  loadAiModel,
+  saveAiModel,
+} from '../lib/ai'
 import type { BondTerms, Instrument } from '../lib/model'
 
 const PRICED_TYPES = new Set(['etf', 'stock', 'fund'])
@@ -53,6 +61,8 @@ export default function Settings() {
 
         <SyncSettings />
       </div>
+
+      <AiSettings />
 
       <PriceSettings />
 
@@ -242,6 +252,120 @@ function SyncSettings() {
           {msg.text}
         </p>
       )}
+    </Card>
+  )
+}
+
+function AiSettings() {
+  const [key, setKey] = useState(loadAiKey())
+  const [model, setModel] = useState(loadAiModel())
+  const [saved, setSaved] = useState(false)
+
+  const connected = loadAiKey().length > 0
+
+  function save() {
+    saveAiKey(key.trim())
+    saveAiModel(model)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  function onModelChange(id: string) {
+    setModel(id)
+    saveAiModel(id) // persist immediately so it applies even without re-saving the key
+  }
+
+  const activeModel = AI_MODELS.find((m) => m.id === model)
+
+  return (
+    <Card className="mt-4 p-6">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">AI elemzés</h2>
+        </div>
+        {connected && <Badge tone="positive">beállítva</Badge>}
+      </div>
+      <p className="mb-4 text-xs text-[var(--color-muted)]">
+        Add meg a saját Claude API-kulcsodat az AI elemzéshez és a kérdezz
+        funkcióhoz az Áttekintés oldalon. A kulcs <strong>csak ezen az
+        eszközön</strong> tárolódik (mint a szinkron token), sosem kerül a
+        felhőbe. Kulcsot a{' '}
+        <a
+          href="https://console.anthropic.com/settings/keys"
+          target="_blank"
+          rel="noreferrer"
+          className="text-[var(--color-brand)] hover:underline"
+        >
+          console.anthropic.com
+        </a>{' '}
+        oldalon készíthetsz. Hívásonként csak aggregált pillanatkép megy el
+        (tranzakciók soha), így pár doll&aacute;r is sok lekérésre elég.
+      </p>
+
+      <input
+        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+        type="password"
+        placeholder="Claude API-kulcs (sk-ant-…)"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+      />
+
+      <div className="mt-3">
+        <span className="mb-1.5 block text-xs text-[var(--color-muted)]">
+          Modell
+        </span>
+        <div className="flex flex-col gap-2">
+          {AI_MODELS.map((m) => (
+            <label
+              key={m.id}
+              className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition ${
+                model === m.id
+                  ? 'border-[var(--color-brand)]/50 bg-[var(--color-brand)]/10'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface-2)]/40 hover:border-[var(--color-brand)]/30'
+              }`}
+            >
+              <input
+                type="radio"
+                name="ai-model"
+                value={m.id}
+                checked={model === m.id}
+                onChange={() => onModelChange(m.id)}
+                className="mt-0.5 h-4 w-4 accent-[var(--color-brand)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{m.label}</span>
+                <span className="block text-xs text-[var(--color-muted)]">
+                  {m.hint}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button className="btn-primary" onClick={save}>
+          Mentés
+        </button>
+        {connected && (
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              saveAiKey('')
+              setKey('')
+            }}
+          >
+            Kulcs törlése
+          </button>
+        )}
+        {saved && (
+          <span className="flex items-center gap-1.5 text-xs text-[var(--color-positive)]">
+            <CheckCircle2 className="h-4 w-4" />
+            Mentve · {activeModel?.label}
+          </span>
+        )}
+      </div>
     </Card>
   )
 }
