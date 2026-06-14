@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react'
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { accountReturn, isInternalTransfer } from '../lib/portfolio'
+import {
+  accountReturn,
+  isInternalTransfer,
+  type HoldingView,
+} from '../lib/portfolio'
 import {
   PageHeader,
   Card,
@@ -15,6 +20,7 @@ import TbszTimeline from '../components/TbszTimeline'
 import {
   formatMoney,
   formatNumber,
+  formatPercent,
   formatDate,
   eurEquivalent,
 } from '../lib/format'
@@ -318,14 +324,7 @@ export default function AccountDetail() {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {h.unrealizedPlHuf != null &&
-                        Math.abs(h.unrealizedPlHuf) > 0.5 ? (
-                          <Delta value={h.unrealizedPlHuf} className="text-xs" />
-                        ) : (
-                          <span className="text-[var(--color-muted)]">—</span>
-                        )}
-                      </td>
+                      <ReturnCell h={h} fx={fx} />
                     </tr>
                     )
                   })}
@@ -411,6 +410,121 @@ export default function AccountDetail() {
           </div>
         </Card>
       </div>
+    </div>
+  )
+}
+
+/**
+ * "Hozam" table cell: total P/L with its %, plus a hover bubble decomposing the
+ * gain into the instrument-currency (price) return and the FX effect.
+ *
+ * Decomposition (cost basis is locked at the historical purchase FX):
+ *   Total HUF      = marketValueHuf − costBasisHuf            (= unrealizedPlHuf)
+ *   Jegyzési deviza = marketValueCcy − costBasisCcy           (price only, no FX)
+ *   Devizahatás    = costBasisCcy × FX_now − costBasisHuf     (FX on the basis)
+ *   Total = (price return × FX_now) + Devizahatás
+ */
+function ReturnCell({
+  h,
+  fx,
+}: {
+  h: HoldingView
+  fx: Record<string, number>
+}) {
+  const [rect, setRect] = useState<DOMRect | null>(null)
+
+  const total = h.unrealizedPlHuf
+  const hasReturn = total != null && Math.abs(total) > 0.5
+  const totalPct =
+    h.costBasisHuf > 0 && total != null ? total / h.costBasisHuf : undefined
+
+  const isFx = h.currency !== 'HUF' && h.marketValueCcy != null
+  const ccyReturn = isFx ? h.marketValueCcy! - h.costBasisCcy : undefined
+  const ccyPct =
+    isFx && h.costBasisCcy > 0 && ccyReturn != null
+      ? ccyReturn / h.costBasisCcy
+      : undefined
+  const rateNow = h.currency === 'HUF' ? 1 : fx[h.currency] ?? 0
+  const fxEffect =
+    isFx && rateNow > 0 ? h.costBasisCcy * rateNow - h.costBasisHuf : undefined
+
+  return (
+    <td className="px-4 py-3 text-right tabular-nums">
+      {hasReturn ? (
+        <span
+          className="inline-flex cursor-help"
+          onMouseEnter={(e) => setRect(e.currentTarget.getBoundingClientRect())}
+          onMouseLeave={() => setRect(null)}
+        >
+          <Delta value={total} pct={totalPct} className="text-xs" />
+        </span>
+      ) : (
+        <span className="text-[var(--color-muted)]">—</span>
+      )}
+
+      {hasReturn &&
+        rect &&
+        createPortal(
+          <div
+            className="fixed z-50 w-64 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-left text-xs shadow-xl"
+            style={{
+              top: rect.bottom + 6,
+              right: Math.max(8, window.innerWidth - rect.right),
+            }}
+          >
+            <div className="mb-1.5 font-medium text-[var(--color-text)]">
+              Hozam összetétele
+            </div>
+            <TipRow
+              label="Teljes hozam"
+              value={formatMoney(total!, 'HUF', { sign: true })}
+              pct={totalPct}
+              sign={total!}
+            />
+            {isFx && ccyReturn != null && (
+              <TipRow
+                label={`Jegyzési deviza hozam (${h.currency})`}
+                value={formatMoney(ccyReturn, h.currency, { sign: true })}
+                pct={ccyPct}
+                sign={ccyReturn}
+              />
+            )}
+            {isFx && fxEffect != null && (
+              <TipRow
+                label="Devizahatás"
+                value={formatMoney(fxEffect, 'HUF', { sign: true })}
+                sign={fxEffect}
+              />
+            )}
+          </div>,
+          document.body,
+        )}
+    </td>
+  )
+}
+
+function TipRow({
+  label,
+  value,
+  pct,
+  sign,
+}: {
+  label: string
+  value: string
+  pct?: number
+  sign: number
+}) {
+  const color =
+    sign >= 0 ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]'
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <span className="text-[var(--color-muted)]">{label}</span>
+      <span className={`whitespace-nowrap tabular-nums ${color}`}>
+        <span className="amt">{value}</span>
+        {pct != null && (
+          <span className="ml-1 opacity-80">{formatPercent(pct)}</span>
+        )}
+      </span>
     </div>
   )
 }

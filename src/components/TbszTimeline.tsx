@@ -40,7 +40,7 @@ export default function TbszTimeline({
         </div>
         <div className="flex items-center gap-2">
           <Badge tone={s.hasSzocho ? 'warning' : 'neutral'}>
-            {s.hasSzocho ? 'szochoköteles (2025-től)' : 'szochomentes (2024-ig)'}
+            {s.hasSzocho ? 'szochoköteles' : 'szochomentes'}
           </Badge>
           <Badge tone={phaseTone[s.phase]}>{s.phaseLabel}</Badge>
         </div>

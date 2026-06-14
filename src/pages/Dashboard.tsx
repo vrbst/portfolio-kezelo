@@ -220,7 +220,11 @@ export default function Dashboard() {
         <StatCard
           label="Teljes hozam"
           value={formatMoney(summary.totalPlHuf, 'HUF', { sign: true })}
-          sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
+          sub={`ebből nem realizált: ${formatMoney(
+            summary.unrealizedPlHuf,
+            'HUF',
+            { sign: true },
+          )}`}
           deltaPct={summary.totalReturnPct}
           icon={<TrendingUp className="h-5 w-5" />}
           index={1}
@@ -233,8 +237,17 @@ export default function Dashboard() {
           index={2}
         />
         <StatCard
-          label="Kapott kamat"
-          value={formatMoney(summary.interestHuf)}
+          label="Realizált eredmény"
+          value={formatMoney(summary.totalPlHuf - summary.unrealizedPlHuf, 'HUF', {
+            sign: true,
+          })}
+          sub={
+            summary.interestHuf > 0.5
+              ? `ebből kamat: ${formatMoney(summary.interestHuf, 'HUF', {
+                  sign: true,
+                })}`
+              : undefined
+          }
           icon={<Coins className="h-5 w-5" />}
           index={3}
         />
