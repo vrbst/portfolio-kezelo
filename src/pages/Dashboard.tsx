@@ -48,6 +48,29 @@ import { CalendarClock, Landmark, Coins as CoinsIcon } from 'lucide-react'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#22d3ee', '#34d399', '#fbbf24', '#fb7185']
 
+type RangeKey = '1m' | '3m' | '6m' | '1y' | 'ytd' | 'max'
+
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: '1m', label: '1H' },
+  { key: '3m', label: '3H' },
+  { key: '6m', label: '6H' },
+  { key: '1y', label: '1É' },
+  { key: 'ytd', label: 'Idei' },
+  { key: 'max', label: 'Max' },
+]
+
+/** Earliest YYYY-MM-DD to keep for a range (null = everything). */
+function rangeCutoff(key: RangeKey, now = new Date()): string | null {
+  if (key === 'max') return null
+  const d = new Date(now)
+  if (key === 'ytd') return `${d.getFullYear()}-01-01`
+  const days = key === '1m' ? 30 : key === '3m' ? 90 : key === '6m' ? 180 : 365
+  d.setDate(d.getDate() - days)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts)
   const transactions = usePortfolio((s) => s.transactions)
@@ -75,6 +98,26 @@ export default function Dashboard() {
       ),
     [accounts, transactions, instruments, prices, fx, historyFile],
   )
+
+  const [range, setRange] = useState<RangeKey>('max')
+
+  // Which ranges actually contain ≥2 points (others are disabled, not silent).
+  const rangeAvail = useMemo(() => {
+    const map = {} as Record<RangeKey, boolean>
+    for (const r of RANGES) {
+      const cutoff = rangeCutoff(r.key)
+      map[r.key] =
+        !cutoff || valueSeries.filter((p) => p.date >= cutoff).length >= 2
+    }
+    return map
+  }, [valueSeries])
+
+  const rangedSeries = useMemo(() => {
+    const cutoff = rangeCutoff(range)
+    if (!cutoff) return valueSeries
+    const f = valueSeries.filter((p) => p.date >= cutoff)
+    return f.length >= 2 ? f : valueSeries
+  }, [valueSeries, range])
 
   const [allocMode, setAllocMode] = useState<'class' | 'currency' | 'account'>(
     'class',
@@ -199,15 +242,31 @@ export default function Dashboard() {
 
       {valueSeries.length > 1 && (
         <Card className="mt-6 p-6">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">Érték az időben</h2>
               <p className="text-sm text-[var(--color-muted)]">
                 Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)
               </p>
             </div>
+            <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  disabled={!rangeAvail[r.key]}
+                  className={`rounded-md px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-30 ${
+                    range === r.key
+                      ? 'bg-[var(--color-brand)]/20 text-[var(--color-text)]'
+                      : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <ValueChart data={valueSeries} />
+          <ValueChart data={rangedSeries} />
         </Card>
       )}
 
