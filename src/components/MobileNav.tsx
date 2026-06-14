@@ -5,12 +5,14 @@ import {
   Receipt,
   Upload,
   Settings as SettingsIcon,
+  CalendarDays,
 } from 'lucide-react'
 
 const links = [
   { to: '/', label: 'Kezdő', icon: LayoutDashboard, end: true },
   { to: '/accounts', label: 'Számlák', icon: Wallet, end: false },
   { to: '/income', label: 'Hozam', icon: Receipt, end: false },
+  { to: '/calendar', label: 'Naptár', icon: CalendarDays, end: false },
   { to: '/import', label: 'Import', icon: Upload, end: false },
   { to: '/settings', label: 'Beáll.', icon: SettingsIcon, end: false },
 ]

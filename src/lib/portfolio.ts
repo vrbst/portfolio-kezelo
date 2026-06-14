@@ -239,6 +239,81 @@ export function nextCouponDate(
   return toLocalDay(cur)
 }
 
+export interface Cashflow {
+  /** ISO day (YYYY-MM-DD). */
+  date: string
+  kind: 'coupon' | 'maturity'
+  title: string
+  /** Expected HUF inflow on that day. */
+  amountHuf: number
+  accountId?: string
+}
+
+/**
+ * Projected future bond cash inflows from today: every remaining coupon up to
+ * maturity, plus the redemption (face value) at maturity. Assumes the current
+ * face holding is kept to maturity. Used by the calendar view.
+ */
+export function futureBondCashflows(
+  summary: PortfolioSummary,
+  now: Date = new Date(),
+): Cashflow[] {
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const nowMs = today.getTime()
+  const out: Cashflow[] = []
+
+  for (const acc of summary.accounts) {
+    const accountId = acc.account.id
+    for (const h of acc.holdings) {
+      const inst = h.instrument
+      if (!inst || !BOND_TYPES.has(inst.type)) continue
+      const face = h.quantity
+      const bond = inst.bond
+      const matMs = parseDayMs(bond?.maturity ?? inst.maturity)
+
+      // Remaining coupons (fixed-rate bonds with series terms).
+      const first = parseDayMs(bond?.firstCouponDate)
+      if (Number.isFinite(first) && bond?.couponRate) {
+        const interval =
+          bond.couponIntervalMonths && bond.couponIntervalMonths > 0
+            ? bond.couponIntervalMonths
+            : 12
+        let cur = first
+        for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+          if (Number.isFinite(matMs) && cur > matMs) break
+          if (cur > nowMs) {
+            const iso = toLocalDay(cur)
+            const amt = couponAmountHuf(bond, face, iso)
+            if (amt && amt > 0)
+              out.push({
+                date: iso,
+                kind: 'coupon',
+                title: `${inst.name} — kamat`,
+                amountHuf: amt,
+                accountId,
+              })
+          }
+          cur = addMonths(cur, interval)
+        }
+      }
+
+      // Redemption at maturity (face value back).
+      if (Number.isFinite(matMs) && matMs > nowMs && face > 0) {
+        out.push({
+          date: toLocalDay(matMs),
+          kind: 'maturity',
+          title: `${inst.name} — lejárat`,
+          amountHuf: face,
+          accountId,
+        })
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.date.localeCompare(b.date))
+}
+
 /**
  * Current HUF value of a bond position (face = quantity), more accurate than par:
  *  - Discount T-bill (zero coupon): accretes linearly from the average purchase
