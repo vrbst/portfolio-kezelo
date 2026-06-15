@@ -456,7 +456,11 @@ export default function AccountDetail() {
                         {inst?.name ?? t.instrumentKey ?? '—'}
                       </td>
                       <td className="amt px-4 py-2.5 text-right tabular-nums">
-                        {t.quantity != null ? formatNumber(t.quantity, 4) : '—'}
+                        {t.quantity != null
+                          ? isTreasury
+                            ? formatMoney(t.quantity, 'HUF') // névérték Ft-ban, tizedes nélkül
+                            : formatNumber(t.quantity, 4)
+                          : '—'}
                       </td>
                       <td className="amt px-4 py-2.5 text-right tabular-nums">
                         {t.grossAmount != null
