@@ -27,30 +27,45 @@ export interface AlertConfig {
   idleCashHuf: number
   /** Surface upcoming-event alerts within this many days. */
   eventHorizonDays: number
+  /** Whether the "current-year TBSZ" check is active at all. */
+  tbszCheck: boolean
 }
 
 export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   idleCashHuf: 100_000,
   eventHorizonDays: 14,
+  tbszCheck: true,
 }
 
 const IDLE_KEY = 'pf-alert-idle-cash'
+const TBSZ_CHECK_KEY = 'pf-alert-tbsz-check'
 
-/** Per-device alert config (only the idle-cash threshold is user-tunable). */
+/** Per-device alert config (idle-cash threshold + which checks are enabled). */
 export function loadAlertConfig(): AlertConfig {
   let idleCashHuf = DEFAULT_ALERT_CONFIG.idleCashHuf
+  let tbszCheck = DEFAULT_ALERT_CONFIG.tbszCheck
   try {
     const v = Number(localStorage.getItem(IDLE_KEY))
     if (Number.isFinite(v) && v > 0) idleCashHuf = v
+    // Default ON: only disabled when explicitly stored as '0'.
+    tbszCheck = localStorage.getItem(TBSZ_CHECK_KEY) !== '0'
   } catch {
     /* ignore */
   }
-  return { ...DEFAULT_ALERT_CONFIG, idleCashHuf }
+  return { ...DEFAULT_ALERT_CONFIG, idleCashHuf, tbszCheck }
 }
 
 export function saveIdleCashThreshold(huf: number) {
   try {
     localStorage.setItem(IDLE_KEY, String(huf))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function saveTbszCheck(enabled: boolean) {
+  try {
+    localStorage.setItem(TBSZ_CHECK_KEY, enabled ? '1' : '0')
   } catch {
     /* ignore */
   }
@@ -71,13 +86,14 @@ export interface StatusCheck {
 
 export function computeStatusChecks(
   summary: PortfolioSummary,
+  config: AlertConfig = DEFAULT_ALERT_CONFIG,
   now: Date = new Date(),
 ): StatusCheck[] {
   const out: StatusCheck[] = []
 
-  // Only relevant once you actually use TBSZ.
+  // Current-year TBSZ check — only if enabled and you actually use TBSZ.
   const usesTbsz = summary.accounts.some((a) => a.account.kind === 'tbsz')
-  if (usesTbsz) {
+  if (config.tbszCheck && usesTbsz) {
     const year = now.getFullYear()
     const tbsz = summary.accounts.find(
       (a) => a.account.kind === 'tbsz' && a.account.tbszYear === year,
@@ -119,7 +135,7 @@ export function computeAlerts(
   }
 
   // 2) Failing status checks (e.g. missing current-year TBSZ) → alerts.
-  for (const c of computeStatusChecks(summary, now)) {
+  for (const c of computeStatusChecks(summary, config, now)) {
     if (!c.ok) {
       out.push({
         id: c.id,

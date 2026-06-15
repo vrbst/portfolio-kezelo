@@ -9,6 +9,7 @@ import { formatDate } from '../lib/format'
 export default function Alerts() {
   const summary = usePortfolioSummary()
   const active = useActiveAlerts()
+  const alertConfig = usePortfolio((s) => s.alertConfig)
   const alertState = usePortfolio((s) => s.alertState)
   const dismissAlert = usePortfolio((s) => s.dismissAlert)
   const restoreAlert = usePortfolio((s) => s.restoreAlert)
@@ -20,7 +21,7 @@ export default function Alerts() {
 
   // Passing status checks (e.g. current-year TBSZ present) — shown green here on
   // the Alerts page, but never on the Dashboard (which only surfaces problems).
-  const okChecks = computeStatusChecks(summary).filter((c) => c.ok)
+  const okChecks = computeStatusChecks(summary, alertConfig).filter((c) => c.ok)
 
   const activeById = new Map(active.map((a) => [a.id, a]))
   const nothing =

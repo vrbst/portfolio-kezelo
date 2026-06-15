@@ -30,6 +30,7 @@ import {
   computeAlerts,
   loadAlertConfig,
   saveIdleCashThreshold,
+  saveTbszCheck,
   reconcileAlertState,
   type Alert,
   type AlertState,
@@ -66,6 +67,7 @@ interface PortfolioState {
   dismissAlert: (alert: Alert) => Promise<void>
   restoreAlert: (id: string) => Promise<void>
   setIdleCashThreshold: (huf: number) => void
+  setTbszCheckEnabled: (enabled: boolean) => void
 
   /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
   privacy: boolean
@@ -451,6 +453,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   setIdleCashThreshold: (huf) => {
     saveIdleCashThreshold(huf)
     set((s) => ({ alertConfig: { ...s.alertConfig, idleCashHuf: huf } }))
+  },
+
+  setTbszCheckEnabled: (enabled) => {
+    saveTbszCheck(enabled)
+    set((s) => ({ alertConfig: { ...s.alertConfig, tbszCheck: enabled } }))
   },
 
   setSyncConfig: (config) => {

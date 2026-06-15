@@ -658,7 +658,9 @@ function Field({
 
 function AlertSettings() {
   const idleCashHuf = usePortfolio((s) => s.alertConfig.idleCashHuf)
+  const tbszCheck = usePortfolio((s) => s.alertConfig.tbszCheck)
   const setIdleCashThreshold = usePortfolio((s) => s.setIdleCashThreshold)
+  const setTbszCheckEnabled = usePortfolio((s) => s.setTbszCheckEnabled)
   const [draft, setDraft] = useState(String(idleCashHuf))
 
   function commit() {
@@ -673,6 +675,23 @@ function AlertSettings() {
         <Bell className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Figyelmeztetések</h2>
       </div>
+
+      <label className="mb-5 flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          checked={tbszCheck}
+          onChange={(e) => setTbszCheckEnabled(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand)]"
+        />
+        <span>
+          <span className="text-sm">Idei TBSZ-nyitás ellenőrzése</span>
+          <span className="mt-0.5 block text-xs text-[var(--color-muted)]">
+            Figyelmeztet, ha az idei gyűjtőévre még nincs TBSZ-ed (és zöld
+            „Rendben" jelzést ad, ha megvan). Kikapcsolva egyik sem jelenik meg.
+          </span>
+        </span>
+      </label>
+
       <div className="max-w-sm">
         <label className="flex flex-col gap-1">
           <span className="text-sm">Parlagon álló készpénz küszöbe</span>
