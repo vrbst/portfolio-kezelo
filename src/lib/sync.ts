@@ -3,6 +3,7 @@
 // The token is stored locally (per device) — never committed, never synced.
 
 import type { Account, Instrument, Transaction } from './model'
+import type { AlertState } from './alerts'
 
 const API = 'https://api.github.com'
 const CONFIG_KEY = 'portfolio.syncConfig'
@@ -22,6 +23,8 @@ export interface PortfolioSnapshot {
   instruments: Instrument[]
   transactions: Transaction[]
   manualPrices: Record<string, number>
+  /** Alert history (seen / dismissed), synced across devices. */
+  alertState?: AlertState
 }
 
 export function loadSyncConfig(): SyncConfig | null {

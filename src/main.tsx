@@ -9,6 +9,7 @@ import AccountDetail from './pages/AccountDetail'
 import Import from './pages/Import'
 import Income from './pages/Income'
 import Calendar from './pages/Calendar'
+import Alerts from './pages/Alerts'
 import Settings from './pages/Settings'
 
 const router = createHashRouter([
@@ -21,6 +22,7 @@ const router = createHashRouter([
       { path: 'accounts/:id', element: <AccountDetail /> },
       { path: 'income', element: <Income /> },
       { path: 'calendar', element: <Calendar /> },
+      { path: 'alerts', element: <Alerts /> },
       { path: 'import', element: <Import /> },
       { path: 'settings', element: <Settings /> },
     ],

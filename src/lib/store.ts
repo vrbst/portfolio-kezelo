@@ -26,6 +26,15 @@ import {
   type SyncConfig,
   type PortfolioSnapshot,
 } from './sync'
+import {
+  computeAlerts,
+  loadAlertConfig,
+  saveIdleCashThreshold,
+  reconcileAlertState,
+  type Alert,
+  type AlertState,
+  type AlertConfig,
+} from './alerts'
 
 interface PortfolioState {
   loaded: boolean
@@ -47,6 +56,16 @@ interface PortfolioState {
   /** ISO timestamp shown in the UI. */
   priceUpdatedAt?: string
   pricesLoading: boolean
+
+  /** Alert history (seen / dismissed), synced. Keyed by stable alert id. */
+  alertState: AlertState
+  /** Per-device alert config (idle-cash threshold). */
+  alertConfig: AlertConfig
+  /** Fold the current active alerts into the synced history (persists if changed). */
+  reconcileAlerts: (active: Alert[]) => void
+  dismissAlert: (alert: Alert) => Promise<void>
+  restoreAlert: (id: string) => Promise<void>
+  setIdleCashThreshold: (huf: number) => void
 
   /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
   privacy: boolean
@@ -141,6 +160,7 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     instruments: s.instruments,
     transactions: s.transactions,
     manualPrices: s.manualPrices,
+    alertState: s.alertState,
   }
 }
 
@@ -174,12 +194,15 @@ async function mergeSnapshot(
   const accounts = [...accById.values()]
 
   const manualPrices = { ...s.manualPrices, ...(snap.manualPrices ?? {}) }
+  // Alert history: remote wins per-id (mirrors the manualPrices / account merge).
+  const alertState = { ...s.alertState, ...(snap.alertState ?? {}) }
 
   await Promise.all([
     db.accounts.bulkPut(accounts),
     db.instruments.bulkPut(instruments),
     db.transactions.bulkPut(transactions),
     setMeta('manualPrices', manualPrices),
+    setMeta('alertState', alertState),
   ])
 
   set({
@@ -187,6 +210,7 @@ async function mergeSnapshot(
     instruments,
     transactions,
     manualPrices,
+    alertState,
     prices: buildPriceMap(s.priceFile, s.livePrices, manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   })
@@ -232,6 +256,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
+  alertState: {},
+  alertConfig: loadAlertConfig(),
   privacy: loadPrivacy(),
   togglePrivacy: () => {
     const v = !get().privacy
@@ -245,13 +271,14 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   syncError: undefined,
 
   load: async () => {
-    const [accounts, instruments, transactions, savedFx, manualPrices] =
+    const [accounts, instruments, transactions, savedFx, manualPrices, alertState] =
       await Promise.all([
         db.accounts.toArray(),
         db.instruments.toArray(),
         db.transactions.toArray(),
         getMeta<Record<string, number>>('fx'),
         getMeta<Record<string, number>>('manualPrices'),
+        getMeta<AlertState>('alertState'),
       ])
     const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) }
     set({
@@ -260,6 +287,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       transactions,
       fx,
       manualPrices: manualPrices ?? {},
+      alertState: alertState ?? {},
       loaded: true,
     })
     // Pull live prices in the background (non-blocking).
@@ -375,6 +403,56 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     scheduleAutoSync(set, get)
   },
 
+  reconcileAlerts: (active) => {
+    const { state, changed } = reconcileAlertState(
+      get().alertState,
+      active,
+      new Date().toISOString(),
+    )
+    if (!changed) return
+    void setMeta('alertState', state)
+    set({ alertState: state })
+    scheduleAutoSync(set, get)
+  },
+
+  dismissAlert: async (alert) => {
+    const now = new Date().toISOString()
+    const prev = get().alertState
+    const rec = prev[alert.id]
+    const alertState: AlertState = {
+      ...prev,
+      [alert.id]: {
+        status: 'dismissed',
+        firstSeenAt: rec?.firstSeenAt ?? now,
+        dismissedAt: now,
+        title: rec?.title ?? alert.title,
+        detail: rec?.detail ?? alert.detail,
+        severity: rec?.severity ?? alert.severity,
+      },
+    }
+    await setMeta('alertState', alertState)
+    set({ alertState })
+    scheduleAutoSync(set, get)
+  },
+
+  restoreAlert: async (id) => {
+    const prev = get().alertState
+    const rec = prev[id]
+    if (!rec) return
+    const alertState: AlertState = {
+      ...prev,
+      [id]: { ...rec, status: 'seen', dismissedAt: undefined },
+    }
+    await setMeta('alertState', alertState)
+    set({ alertState })
+    scheduleAutoSync(set, get)
+  },
+
+  setIdleCashThreshold: (huf) => {
+    saveIdleCashThreshold(huf)
+    set((s) => ({ alertConfig: { ...s.alertConfig, idleCashHuf: huf } }))
+  },
+
   setSyncConfig: (config) => {
     saveSyncConfig(config)
     set({ syncConfig: config })
@@ -432,6 +510,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       fx: {},
       livePrices: {},
       manualPrices: {},
+      alertState: {},
       priceFile: null,
       priceUpdatedAt: undefined,
     })
@@ -476,4 +555,11 @@ export function usePortfolioSummary(): PortfolioSummary {
       ),
     [accounts, transactions, instruments, prices, fx],
   )
+}
+
+/** Currently-active alerts derived from the live summary + tunable threshold. */
+export function useActiveAlerts(): Alert[] {
+  const summary = usePortfolioSummary()
+  const config = usePortfolio((s) => s.alertConfig)
+  return useMemo(() => computeAlerts(summary, config), [summary, config])
 }

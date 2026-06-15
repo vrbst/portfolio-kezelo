@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'motion/react'
+import { usePortfolio, useActiveAlerts } from '../lib/store'
+import { categorizeAlerts } from '../lib/alerts'
 import {
   LayoutDashboard,
   Wallet,
@@ -9,6 +11,7 @@ import {
   TrendingUp,
   Receipt,
   CalendarDays,
+  Bell,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react'
@@ -18,6 +21,7 @@ const links = [
   { to: '/accounts', label: 'Számlák', icon: Wallet, end: false },
   { to: '/income', label: 'Hozam', icon: Receipt, end: false },
   { to: '/calendar', label: 'Naptár', icon: CalendarDays, end: false },
+  { to: '/alerts', label: 'Figyelmeztetések', icon: Bell, end: false },
   { to: '/import', label: 'Importálás', icon: Upload, end: false },
   { to: '/settings', label: 'Beállítások', icon: SettingsIcon, end: false },
 ]
@@ -34,6 +38,9 @@ function loadCollapsed(): boolean {
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const active = useActiveAlerts()
+  const alertState = usePortfolio((s) => s.alertState)
+  const alertCount = categorizeAlerts(active, alertState).active.length
 
   function toggle() {
     setCollapsed((c) => {
@@ -98,7 +105,16 @@ export default function Sidebar() {
                   />
                 )}
                 <link.icon className="h-[18px] w-[18px] shrink-0" />
-                {!collapsed && link.label}
+                {!collapsed && <span className="flex-1">{link.label}</span>}
+                {link.to === '/alerts' &&
+                  alertCount > 0 &&
+                  (collapsed ? (
+                    <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--color-negative)]" />
+                  ) : (
+                    <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-negative)] px-1.5 text-[10px] font-semibold text-white">
+                      {alertCount}
+                    </span>
+                  ))}
               </div>
             )}
           </NavLink>
