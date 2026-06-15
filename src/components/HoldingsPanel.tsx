@@ -79,7 +79,10 @@ export default function HoldingsPanel() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {Math.abs(h.unrealizedPlHuf) > 0.5 ? (
+                    {/* Bonds: mark-to-market oscillates with the coupon cycle,
+                        so the unrealized figure is meaningless — same as the
+                        Államkincstár page, we hide it. */}
+                    {!isBond && Math.abs(h.unrealizedPlHuf) > 0.5 ? (
                       <Delta
                         value={h.unrealizedPlHuf}
                         pct={pct}

@@ -4,6 +4,7 @@
 
 import type {
   Account,
+  AccountKind,
   BondTerms,
   Currency,
   Instrument,
@@ -933,6 +934,16 @@ export interface ConsolidatedHolding {
   unrealizedPlHuf: number
   /** How many accounts hold this instrument. */
   accountCount: number
+  /** Account kind this instrument lives in (treasury bonds vs TBSZ ETFs). */
+  accountKind: AccountKind
+}
+
+// Group order in the consolidated view: Államkincstár first, then TBSZ.
+const HOLDING_KIND_ORDER: Record<AccountKind, number> = {
+  treasury: 0,
+  tbsz: 1,
+  regular: 2,
+  cash: 3,
 }
 
 /**
@@ -969,11 +980,18 @@ export function consolidatedHoldings(
           marketValueHuf: mv,
           unrealizedPlHuf: h.unrealizedPlHuf ?? 0,
           accountCount: 1,
+          accountKind: acc.account.kind,
         })
       }
     }
   }
-  return [...map.values()].sort((a, b) => b.marketValueHuf - a.marketValueHuf)
+  // Államkincstár assets on top, then TBSZ; within each group by value desc.
+  return [...map.values()].sort((a, b) => {
+    const ka = HOLDING_KIND_ORDER[a.accountKind] ?? 9
+    const kb = HOLDING_KIND_ORDER[b.accountKind] ?? 9
+    if (ka !== kb) return ka - kb
+    return b.marketValueHuf - a.marketValueHuf
+  })
 }
 
 export interface ValuePoint {
