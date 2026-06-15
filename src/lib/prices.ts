@@ -108,12 +108,16 @@ export async function fetchLivePrices(): Promise<Record<string, number>> {
   return out
 }
 
-/** Fresh EUR->HUF straight from the ECB via frankfurter.app. */
+/**
+ * Live EUR->HUF. Prefers Yahoo's intraday EURHUF=X (via the Worker), which
+ * actually moves through the day; falls back to frankfurter's ECB reference
+ * rate (once-daily, business days only) if Yahoo is unavailable.
+ */
 export async function fetchLiveFx(): Promise<Record<string, number>> {
+  const yahoo = await fetchYahooPrice('EURHUF=X')
+  if (yahoo != null) return { EUR: yahoo }
   try {
-    const res = await fetch(
-      'https://api.frankfurter.app/latest?from=EUR&to=HUF',
-    )
+    const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=HUF')
     if (!res.ok) return {}
     const data = (await res.json()) as { rates?: { HUF?: number } }
     return data.rates?.HUF ? { EUR: data.rates.HUF } : {}
