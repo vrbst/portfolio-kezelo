@@ -5,7 +5,7 @@
 // synced history (seen / dismissed) so the Alerts page can show which alerts are
 // active, which resolved on their own (fulfilled), and which you dismissed.
 
-import type { PortfolioSummary, CouponImportReminder } from './portfolio'
+import type { PortfolioSummary, BondImportReminder } from './portfolio'
 import { upcomingEvents } from './events'
 import { formatMoney, formatDate } from './format'
 
@@ -169,20 +169,31 @@ export function computeAlerts(
 }
 
 /**
- * Nudge to re-import when a coupon has (almost certainly) been paid — the
- * credit lands ~1 day before the nominal date — but isn't in the data yet.
+ * Nudge to re-import when a bond event has (almost certainly) paid — coupons,
+ * and maturity redemptions — but isn't in the data yet. The credit usually
+ * lands ~1 day before the nominal date.
  */
-export function couponImportAlerts(reminders: CouponImportReminder[]): Alert[] {
-  return reminders.map((r) => ({
-    id: `coupon-import:${r.instrumentKey}:${r.couponDate}`,
-    severity: 'high' as AlertSeverity,
-    title: `Kamatfizetés – ${r.name}`,
-    detail: `A ${formatDate(r.couponDate)} kamatot általában 1 nappal korábban fizetik${
-      r.amountHuf ? ` (~${formatMoney(r.amountHuf)})` : ''
-    }. Ha már megjött, importáld az adatokat a frissítéshez.`,
-    to: '/import',
-    actionLabel: 'Importálás',
-  }))
+export function bondImportAlerts(reminders: BondImportReminder[]): Alert[] {
+  return reminders.map((r) => {
+    const amount = r.amountHuf ? ` (~${formatMoney(r.amountHuf)})` : ''
+    return r.kind === 'maturity'
+      ? {
+          id: `maturity-import:${r.instrumentKey}:${r.date}`,
+          severity: 'high' as AlertSeverity,
+          title: `Lejárat – ${r.name}`,
+          detail: `A ${formatDate(r.date)} lejárt${amount}, de még szerepel a portfólióban. Importáld az adatokat a beváltás rögzítéséhez.`,
+          to: '/import',
+          actionLabel: 'Importálás',
+        }
+      : {
+          id: `coupon-import:${r.instrumentKey}:${r.date}`,
+          severity: 'high' as AlertSeverity,
+          title: `Kamatfizetés – ${r.name}`,
+          detail: `A ${formatDate(r.date)} kamatot általában 1 nappal korábban fizetik${amount}. Ha már megjött, importáld az adatokat a frissítéshez.`,
+          to: '/import',
+          actionLabel: 'Importálás',
+        }
+  })
 }
 
 // ---- Synced history (seen / dismissed) ------------------------------------

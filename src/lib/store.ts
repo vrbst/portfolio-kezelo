@@ -5,7 +5,7 @@ import type { Account, Instrument, Transaction } from './model'
 import type { ParsedImport } from './parsers'
 import {
   computePortfolio,
-  couponImportReminders,
+  bondImportReminders,
   type PortfolioSummary,
   type PriceMap,
 } from './portfolio'
@@ -29,7 +29,7 @@ import {
 } from './sync'
 import {
   computeAlerts,
-  couponImportAlerts,
+  bondImportAlerts,
   loadAlertConfig,
   saveIdleCashThreshold,
   saveTbszCheck,
@@ -179,6 +179,65 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     alertState: s.alertState,
     goals: s.goals,
   }
+}
+
+function unionById<T>(
+  base: T[] | undefined,
+  over: T[] | undefined,
+  keyOf: (x: T) => string,
+): T[] {
+  const m = new Map<string, T>()
+  for (const x of base ?? []) m.set(keyOf(x), x)
+  for (const x of over ?? []) m.set(keyOf(x), x)
+  return [...m.values()]
+}
+
+/**
+ * Union two snapshots, preferring LOCAL on per-item conflicts. Used when
+ * pushing: we must never drop the OTHER device's data (goals, txs…), but this
+ * device's own edits — the change that triggered the push — should win.
+ */
+function unionSnapshots(
+  remote: PortfolioSnapshot,
+  local: PortfolioSnapshot,
+): PortfolioSnapshot {
+  return {
+    version: 1,
+    exportedAt: local.exportedAt,
+    accounts: unionById(remote.accounts, local.accounts, (a) => a.id),
+    instruments: unionById(remote.instruments, local.instruments, (i) => i.key),
+    transactions: unionById(remote.transactions, local.transactions, (t) => t.id),
+    manualPrices: { ...(remote.manualPrices ?? {}), ...(local.manualPrices ?? {}) },
+    alertState: { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
+    goals: unionById(remote.goals, local.goals, (g) => g.id),
+  }
+}
+
+/** Overwrite local state + IndexedDB with a (already merged) snapshot. */
+async function applySnapshotLocal(
+  set: (partial: Partial<PortfolioState>) => void,
+  get: () => PortfolioState,
+  snap: PortfolioSnapshot,
+) {
+  await Promise.all([
+    db.accounts.bulkPut(snap.accounts),
+    db.instruments.bulkPut(snap.instruments),
+    db.transactions.bulkPut(snap.transactions),
+    setMeta('manualPrices', snap.manualPrices),
+    setMeta('alertState', snap.alertState ?? {}),
+    setMeta('goals', snap.goals ?? []),
+  ])
+  const s = get()
+  set({
+    accounts: snap.accounts,
+    instruments: snap.instruments,
+    transactions: snap.transactions,
+    manualPrices: snap.manualPrices,
+    alertState: snap.alertState ?? {},
+    goals: snap.goals ?? [],
+    prices: buildPriceMap(s.priceFile, s.livePrices, snap.manualPrices),
+    fx: { ...deriveFx(snap.transactions), ...s.fx },
+  })
 }
 
 /** Merge a remote snapshot into local state + IndexedDB. Returns # new txs. */
@@ -533,10 +592,16 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     if (!syncConfig) throw new Error('Nincs beállítva szinkron.')
     set({ syncing: true })
     try {
-      const snapshot = buildSnapshot(get())
-      // Use the remote sha if a file already exists (required for update).
+      // Merge with whatever is on the remote FIRST, so a push never overwrites
+      // another device's data (goals, txs…). Local wins on conflicts.
       const existing = await getRemoteSnapshot(syncConfig)
+      const local = buildSnapshot(get())
+      const snapshot = existing
+        ? unionSnapshots(existing.snapshot, local)
+        : local
       await putRemoteSnapshot(syncConfig, snapshot, existing?.sha)
+      // Reflect any remote-only items locally too.
+      if (existing) await applySnapshotLocal(set, get, snapshot)
       set({ lastSyncedAt: snapshot.exportedAt, syncError: undefined })
     } finally {
       set({ syncing: false })
@@ -647,7 +712,7 @@ export function useActiveAlerts(): Alert[] {
     () => [
       ...computeAlerts(summary, config),
       ...goalAlerts(goalProgress),
-      ...couponImportAlerts(couponImportReminders(summary, transactions)),
+      ...bondImportAlerts(bondImportReminders(summary, transactions)),
     ],
     [summary, config, transactions, goalProgress],
   )

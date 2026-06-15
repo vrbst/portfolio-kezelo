@@ -315,83 +315,120 @@ export function futureBondCashflows(
   return out.sort((a, b) => a.date.localeCompare(b.date))
 }
 
-export interface CouponImportReminder {
+export interface BondImportReminder {
+  kind: 'coupon' | 'maturity'
   instrumentKey: string
   name: string
   accountId?: string
-  /** Nominal coupon date (ISO day). Actual credit is ~earlyDays earlier. */
-  couponDate: string
+  /** Nominal event date (ISO day). Actual credit is ~earlyDays earlier. */
+  date: string
   amountHuf?: number
 }
 
 /**
- * Coupons whose payment has (almost certainly) already happened — the credit
- * lands ~1 day before the nominal date — but for which no `interest`
- * transaction has been imported yet. Used to nudge the user to re-import.
- * Only the most recent coupon per bond is considered, and only within a recent
- * lookback window so it doesn't nag about ancient history.
+ * Bond events that have (almost certainly) already paid out — the credit lands
+ * ~1 day before the nominal date — but for which no matching transaction has
+ * been imported yet. Nudges the user to re-import. Covers:
+ *  - coupons (no `interest` tx near the latest due coupon), and
+ *  - maturity (still holding the bond past maturity, no `redemption` tx).
+ * Only recent events count (lookback window) so it never nags about history.
  */
-export function couponImportReminders(
+export function bondImportReminders(
   summary: PortfolioSummary,
   transactions: Transaction[],
   now: Date = new Date(),
-  opts: { earlyDays?: number; lookbackDays?: number } = {},
-): CouponImportReminder[] {
+  opts: {
+    earlyDays?: number
+    lookbackDays?: number
+    maturityLookbackDays?: number
+  } = {},
+): BondImportReminder[] {
   const earlyDays = opts.earlyDays ?? 1
   const lookbackDays = opts.lookbackDays ?? 45
+  const maturityLookbackDays = opts.maturityLookbackDays ?? 90
+  const dayMs = 86_400_000
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
   const todayMs = today.getTime()
-  const lookbackMs = todayMs - lookbackDays * 86_400_000
-  const dayMs = 86_400_000
+  const lookbackMs = todayMs - lookbackDays * dayMs
+  const matLookbackMs = todayMs - maturityLookbackDays * dayMs
 
-  // Index imported interest dates per instrument for a fast "already got it?" test.
+  // Index imported dates per instrument for a fast "already got it?" test.
   const interestByInst = new Map<string, number[]>()
+  const redemptionByInst = new Map<string, number[]>()
   for (const t of transactions) {
-    if (t.type !== 'interest' || !t.instrumentKey) continue
+    if (!t.instrumentKey) continue
+    const target =
+      t.type === 'interest'
+        ? interestByInst
+        : t.type === 'redemption'
+          ? redemptionByInst
+          : null
+    if (!target) continue
     const ms = parseDayMs(t.date)
     if (!Number.isFinite(ms)) continue
-    const arr = interestByInst.get(t.instrumentKey) ?? []
+    const arr = target.get(t.instrumentKey) ?? []
     arr.push(ms)
-    interestByInst.set(t.instrumentKey, arr)
+    target.set(t.instrumentKey, arr)
   }
 
-  const out: CouponImportReminder[] = []
+  const out: BondImportReminder[] = []
   for (const acc of summary.accounts) {
     for (const h of acc.holdings) {
       const inst = h.instrument
       if (!inst || !BOND_TYPES.has(inst.type)) continue
       const bond = inst.bond
+      const matMs = parseDayMs(bond?.maturity ?? inst.maturity)
+
+      // --- Coupon (fixed-rate series with terms) ---
       const first = parseDayMs(bond?.firstCouponDate)
-      if (!Number.isFinite(first) || !bond?.couponRate) continue
-      const interval =
-        bond.couponIntervalMonths && bond.couponIntervalMonths > 0
-          ? bond.couponIntervalMonths
-          : 12
-      const matMs = parseDayMs(bond.maturity ?? inst.maturity)
-
-      // Latest coupon whose effective (early) pay date is on/before today.
-      let latest = NaN
-      let cur = first
-      for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
-        if (Number.isFinite(matMs) && cur > matMs) break
-        if (cur - earlyDays * dayMs <= todayMs) latest = cur
-        else break
-        cur = addMonths(cur, interval)
+      if (Number.isFinite(first) && bond?.couponRate) {
+        const interval =
+          bond.couponIntervalMonths && bond.couponIntervalMonths > 0
+            ? bond.couponIntervalMonths
+            : 12
+        let latest = NaN
+        let cur = first
+        for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+          if (Number.isFinite(matMs) && cur > matMs) break
+          if (cur - earlyDays * dayMs <= todayMs) latest = cur
+          else break
+          cur = addMonths(cur, interval)
+        }
+        if (Number.isFinite(latest) && latest >= lookbackMs) {
+          const interests = interestByInst.get(inst.key) ?? []
+          if (!interests.some((ms) => Math.abs(ms - latest) <= 7 * dayMs)) {
+            out.push({
+              kind: 'coupon',
+              instrumentKey: inst.key,
+              name: inst.name,
+              accountId: acc.account.id,
+              date: toLocalDay(latest),
+              amountHuf: couponAmountHuf(bond, h.quantity, toLocalDay(latest)),
+            })
+          }
+        }
       }
-      if (!Number.isFinite(latest) || latest < lookbackMs) continue
 
-      // Imported already if an interest tx sits within ±7 days of the coupon.
-      const interests = interestByInst.get(inst.key) ?? []
-      if (interests.some((ms) => Math.abs(ms - latest) <= 7 * dayMs)) continue
-
-      out.push({
-        instrumentKey: inst.key,
-        name: inst.name,
-        accountId: acc.account.id,
-        couponDate: toLocalDay(latest),
-        amountHuf: couponAmountHuf(bond, h.quantity, toLocalDay(latest)),
-      })
+      // --- Maturity (still holding it past maturity, no redemption imported) ---
+      if (
+        Number.isFinite(matMs) &&
+        matMs - earlyDays * dayMs <= todayMs &&
+        matMs >= matLookbackMs &&
+        h.quantity > 0
+      ) {
+        const reds = redemptionByInst.get(inst.key) ?? []
+        if (!reds.some((ms) => Math.abs(ms - matMs) <= 14 * dayMs)) {
+          out.push({
+            kind: 'maturity',
+            instrumentKey: inst.key,
+            name: inst.name,
+            accountId: acc.account.id,
+            date: toLocalDay(matMs),
+            amountHuf: h.quantity,
+          })
+        }
+      }
     }
   }
   return out
