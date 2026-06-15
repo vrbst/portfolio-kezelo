@@ -6,6 +6,7 @@ import {
   Settings as SettingsIcon,
   CalendarDays,
   Bell,
+  Sparkles,
 } from 'lucide-react'
 import { usePortfolio, useActiveAlerts } from '../lib/store'
 import { categorizeAlerts } from '../lib/alerts'
@@ -16,6 +17,7 @@ const links = [
   { to: '/income', label: 'Hozam', icon: Receipt, end: false },
   { to: '/calendar', label: 'Naptár', icon: CalendarDays, end: false },
   { to: '/alerts', label: 'Teendők', icon: Bell, end: false },
+  { to: '/ai', label: 'AI', icon: Sparkles, end: false },
   { to: '/settings', label: 'Beáll.', icon: SettingsIcon, end: false },
 ]
 

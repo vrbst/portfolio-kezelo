@@ -26,7 +26,6 @@ import {
 } from '../lib/portfolio'
 import { upcomingEvents, type EventKind } from '../lib/events'
 import ValueChart from '../components/ValueChart'
-import AiPanel from '../components/AiPanel'
 import HoldingsPanel from '../components/HoldingsPanel'
 import AlertsPanel from '../components/AlertsPanel'
 import {
@@ -403,8 +402,6 @@ export default function Dashboard() {
       </div>
 
       <HoldingsPanel />
-
-      <AiPanel />
 
       {events.length > 0 && (
         <Card className="mt-6 p-6">

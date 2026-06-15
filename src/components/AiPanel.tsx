@@ -117,18 +117,14 @@ export default function AiPanel() {
   }
 
   return (
-    <Card className="mt-6 p-6">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-[var(--color-brand)]" />
-          <h2 className="text-lg font-semibold">AI elemzés</h2>
-        </div>
-        {apiKey && (
+    <Card className="p-6">
+      {apiKey && (
+        <div className="mb-3 flex justify-end">
           <span className="text-xs text-[var(--color-muted)]">
             {modelLabel(model)}
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {!apiKey ? (
         <p className="text-sm text-[var(--color-muted)]">

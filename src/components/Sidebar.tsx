@@ -12,6 +12,7 @@ import {
   Receipt,
   CalendarDays,
   Bell,
+  Sparkles,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ const links = [
   { to: '/income', label: 'Hozam', icon: Receipt, end: false },
   { to: '/calendar', label: 'Naptár', icon: CalendarDays, end: false },
   { to: '/alerts', label: 'Figyelmeztetések', icon: Bell, end: false },
+  { to: '/ai', label: 'AI elemzés', icon: Sparkles, end: false },
   { to: '/import', label: 'Importálás', icon: Upload, end: false },
   { to: '/settings', label: 'Beállítások', icon: SettingsIcon, end: false },
 ]
