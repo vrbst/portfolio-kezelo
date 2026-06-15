@@ -4,6 +4,7 @@
 
 import type { Account, Instrument, Transaction } from './model'
 import type { AlertState } from './alerts'
+import type { Goal } from './goals'
 
 const API = 'https://api.github.com'
 const CONFIG_KEY = 'portfolio.syncConfig'
@@ -25,6 +26,8 @@ export interface PortfolioSnapshot {
   manualPrices: Record<string, number>
   /** Alert history (seen / dismissed), synced across devices. */
   alertState?: AlertState
+  /** Fixed savings goals (DCA), synced across devices. */
+  goals?: Goal[]
 }
 
 export function loadSyncConfig(): SyncConfig | null {

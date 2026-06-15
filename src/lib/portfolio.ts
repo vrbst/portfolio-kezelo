@@ -378,7 +378,7 @@ export function accountReturn(s: AccountSummary): number | undefined {
  *  - HUF stays as is.
  *  - other currencies use `fx[ccy]` (units of HUF per 1 unit of ccy).
  */
-function toHuf(amount: number, ccy: Currency, fx: Record<string, number>) {
+export function toHuf(amount: number, ccy: Currency, fx: Record<string, number>) {
   if (ccy === 'HUF') return amount
   const rate = fx[ccy]
   return rate ? amount * rate : amount // fall back to raw if rate unknown

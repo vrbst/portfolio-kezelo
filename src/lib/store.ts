@@ -36,6 +36,12 @@ import {
   type AlertState,
   type AlertConfig,
 } from './alerts'
+import {
+  computeGoalProgress,
+  goalAlerts,
+  type Goal,
+  type GoalProgress,
+} from './goals'
 
 interface PortfolioState {
   loaded: boolean
@@ -68,6 +74,12 @@ interface PortfolioState {
   restoreAlert: (id: string) => Promise<void>
   setIdleCashThreshold: (huf: number) => void
   setTbszCheckEnabled: (enabled: boolean) => void
+
+  /** Fixed savings goals (DCA), synced. */
+  goals: Goal[]
+  addGoal: (goal: Omit<Goal, 'id' | 'createdAt'>) => Promise<void>
+  updateGoal: (id: string, patch: Partial<Goal>) => Promise<void>
+  removeGoal: (id: string) => Promise<void>
 
   /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
   privacy: boolean
@@ -163,6 +175,7 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     transactions: s.transactions,
     manualPrices: s.manualPrices,
     alertState: s.alertState,
+    goals: s.goals,
   }
 }
 
@@ -198,6 +211,10 @@ async function mergeSnapshot(
   const manualPrices = { ...s.manualPrices, ...(snap.manualPrices ?? {}) }
   // Alert history: remote wins per-id (mirrors the manualPrices / account merge).
   const alertState = { ...s.alertState, ...(snap.alertState ?? {}) }
+  // Goals: merge by id, remote wins (same policy as accounts/instruments).
+  const goalById = new Map(s.goals.map((g) => [g.id, g]))
+  for (const g of snap.goals ?? []) goalById.set(g.id, g)
+  const goals = [...goalById.values()]
 
   await Promise.all([
     db.accounts.bulkPut(accounts),
@@ -205,6 +222,7 @@ async function mergeSnapshot(
     db.transactions.bulkPut(transactions),
     setMeta('manualPrices', manualPrices),
     setMeta('alertState', alertState),
+    setMeta('goals', goals),
   ])
 
   set({
@@ -213,6 +231,7 @@ async function mergeSnapshot(
     transactions,
     manualPrices,
     alertState,
+    goals,
     prices: buildPriceMap(s.priceFile, s.livePrices, manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   })
@@ -260,6 +279,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   pricesLoading: false,
   alertState: {},
   alertConfig: loadAlertConfig(),
+  goals: [],
   privacy: loadPrivacy(),
   togglePrivacy: () => {
     const v = !get().privacy
@@ -273,15 +293,23 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   syncError: undefined,
 
   load: async () => {
-    const [accounts, instruments, transactions, savedFx, manualPrices, alertState] =
-      await Promise.all([
-        db.accounts.toArray(),
-        db.instruments.toArray(),
-        db.transactions.toArray(),
-        getMeta<Record<string, number>>('fx'),
-        getMeta<Record<string, number>>('manualPrices'),
-        getMeta<AlertState>('alertState'),
-      ])
+    const [
+      accounts,
+      instruments,
+      transactions,
+      savedFx,
+      manualPrices,
+      alertState,
+      goals,
+    ] = await Promise.all([
+      db.accounts.toArray(),
+      db.instruments.toArray(),
+      db.transactions.toArray(),
+      getMeta<Record<string, number>>('fx'),
+      getMeta<Record<string, number>>('manualPrices'),
+      getMeta<AlertState>('alertState'),
+      getMeta<Goal[]>('goals'),
+    ])
     const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) }
     set({
       accounts,
@@ -290,6 +318,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       fx,
       manualPrices: manualPrices ?? {},
       alertState: alertState ?? {},
+      goals: goals ?? [],
       loaded: true,
     })
     // Pull live prices in the background (non-blocking).
@@ -460,6 +489,32 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set((s) => ({ alertConfig: { ...s.alertConfig, tbszCheck: enabled } }))
   },
 
+  addGoal: async (goal) => {
+    const newGoal: Goal = {
+      ...goal,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    }
+    const goals = [...get().goals, newGoal]
+    await setMeta('goals', goals)
+    set({ goals })
+    scheduleAutoSync(set, get)
+  },
+
+  updateGoal: async (id, patch) => {
+    const goals = get().goals.map((g) => (g.id === id ? { ...g, ...patch } : g))
+    await setMeta('goals', goals)
+    set({ goals })
+    scheduleAutoSync(set, get)
+  },
+
+  removeGoal: async (id) => {
+    const goals = get().goals.filter((g) => g.id !== id)
+    await setMeta('goals', goals)
+    set({ goals })
+    scheduleAutoSync(set, get)
+  },
+
   setSyncConfig: (config) => {
     saveSyncConfig(config)
     set({ syncConfig: config })
@@ -518,6 +573,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       livePrices: {},
       manualPrices: {},
       alertState: {},
+      goals: [],
       priceFile: null,
       priceUpdatedAt: undefined,
     })
@@ -564,9 +620,28 @@ export function usePortfolioSummary(): PortfolioSummary {
   )
 }
 
-/** Currently-active alerts derived from the live summary + tunable threshold. */
+/** Progress of each savings goal in its current period. */
+export function useGoalProgress(): GoalProgress[] {
+  const goals = usePortfolio((s) => s.goals)
+  const transactions = usePortfolio((s) => s.transactions)
+  const instruments = usePortfolio((s) => s.instruments)
+  const fx = usePortfolio((s) => s.fx)
+  return useMemo(
+    () => computeGoalProgress(goals, transactions, instruments, fx),
+    [goals, transactions, instruments, fx],
+  )
+}
+
+/**
+ * Currently-active alerts: rule-based (idle cash, TBSZ, events) plus one per
+ * unmet savings goal.
+ */
 export function useActiveAlerts(): Alert[] {
   const summary = usePortfolioSummary()
   const config = usePortfolio((s) => s.alertConfig)
-  return useMemo(() => computeAlerts(summary, config), [summary, config])
+  const goalProgress = useGoalProgress()
+  return useMemo(
+    () => [...computeAlerts(summary, config), ...goalAlerts(goalProgress)],
+    [summary, config, goalProgress],
+  )
 }
