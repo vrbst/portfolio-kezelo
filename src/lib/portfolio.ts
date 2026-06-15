@@ -121,19 +121,31 @@ function toLocalDay(ms: number): string {
   return `${d.getFullYear()}-${m}-${day}`
 }
 
+/** A 15:00-s elszámolási vágás (helyi idő): eddig az aznapi, utána a következő. */
+const BOND_CUTOFF_HOUR = 15
+
 /**
- * Az állampapírt MINDIG a következő (el)számolási napra értékeljük, local-midnight
- * granularitással. Hétfő–csütörtök → másnap; péntek/szombat/vasárnap → következő
- * hétfő (a MobilKincstár is a következő hétfőt használja hétvégén).
+ * Az állampapír (el)számolási napja, local-midnight granularitással.
+ *  - Hétköznap 15:00 ELŐTT: az aznapi nappal számolunk.
+ *  - Hétköznap 15:00 UTÁN: a következő elszámolási nap (Hét–Csüt → másnap,
+ *    Péntek → következő hétfő).
+ *  - Hétvégén (Szo/Vas) bármikor: a következő hétfő (a MobilKincstár is így).
  */
 function bondValuationMs(ms: number): number {
+  const hour = new Date(ms).getHours()
   const d = new Date(ms)
   d.setHours(0, 0, 0, 0) // local midnight
   const day = d.getDay() // 0 = Vas, 1 = Hét, ... 5 = Pén, 6 = Szo
-  if (day === 5) d.setDate(d.getDate() + 3) // Pén → Hét
-  else if (day === 6) d.setDate(d.getDate() + 2) // Szo → Hét
-  else if (day === 0) d.setDate(d.getDate() + 1) // Vas → Hét
-  else d.setDate(d.getDate() + 1) // Hét–Csüt → másnap
+
+  if (day === 6) {
+    d.setDate(d.getDate() + 2) // Szo → Hét
+  } else if (day === 0) {
+    d.setDate(d.getDate() + 1) // Vas → Hét
+  } else if (hour >= BOND_CUTOFF_HOUR) {
+    // 15:00 után előrelépünk a következő elszámolási napra.
+    d.setDate(d.getDate() + (day === 5 ? 3 : 1)) // Pén → Hét, egyébként másnap
+  }
+  // Hétköznap 15:00 előtt: marad az aznapi.
   return d.getTime()
 }
 
@@ -606,7 +618,7 @@ export function computeAccountSummary(
     .sort((a, b) => a.date.localeCompare(b.date))
   const history = fxHistory ?? buildFxHistory(txs)
   const nowMs = now.getTime()
-  const bondNowMs = bondValuationMs(nowMs) // mindig másnap; Pén/Szo/Vas → köv. hétfő
+  const bondNowMs = bondValuationMs(nowMs) // 15:00 után másnap; hétvégén köv. hétfő
 
   // ---- Holdings (avg-cost) + realized P/L ----
   // `cost` is the avg-cost basis in the instrument's own currency; `costHuf` is
