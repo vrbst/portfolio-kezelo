@@ -490,6 +490,17 @@ export function accountReturn(s: AccountSummary): number | undefined {
   if (s.account.kind === 'cash') return undefined
   if (isEmptyAccount(s)) return undefined
   if (s.capitalBasisHuf <= 0) return undefined
+  if (s.account.kind === 'treasury') {
+    // Fixed-rate bond mark-to-market oscillates with the coupon cycle and bakes
+    // in a 1% early-redemption fee you won't pay if held to maturity, so it
+    // understates the real return. Use the economic result instead: coupons
+    // received + realized P&L + the discount T-bills' accretion (they pay no
+    // coupon, so their mark-to-market IS their yield).
+    const tbillUnrealized = s.holdings
+      .filter((h) => h.instrument?.type === 'tbill')
+      .reduce((sum, h) => sum + (h.unrealizedPlHuf ?? 0), 0)
+    return (s.interestHuf + s.realizedPlHuf + tbillUnrealized) / s.capitalBasisHuf
+  }
   return (s.totalValueHuf - s.capitalBasisHuf) / s.capitalBasisHuf
 }
 
