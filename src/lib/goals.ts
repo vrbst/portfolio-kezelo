@@ -29,6 +29,13 @@ export const PERIOD_LABEL: Record<GoalPeriod, string> = {
   12: 'Éves',
 }
 
+/**
+ * Tolerance below the target that still counts as met — so rounding / FX drift
+ * doesn't leave a goal a few hundred Ft "short" (e.g. 39 235 Ft meets a 40 000
+ * Ft goal). 0.05 = the invested amount only needs to reach 95% of the target.
+ */
+export const GOAL_TOLERANCE = 0.05
+
 const MONTHS = [
   'január', 'február', 'március', 'április', 'május', 'június',
   'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
@@ -117,8 +124,8 @@ export function computeGoalProgress(
       targetHuf: target,
       remainingHuf: Math.max(0, target - invested),
       ratio: target > 0 ? invested / target : 0,
-      // 0.5 Ft slack so rounding never leaves a goal "1 Ft short".
-      done: invested + 0.5 >= target,
+      // Met once the invested amount reaches (1 − tolerance) × target.
+      done: invested >= target * (1 - GOAL_TOLERANCE),
     }
   })
 }

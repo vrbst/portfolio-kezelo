@@ -767,7 +767,7 @@ function GoalsSettings() {
       {progress.length > 0 && (
         <div className="mb-5 space-y-3">
           {progress.map((p) => {
-            const pct = Math.min(100, Math.round(p.ratio * 100))
+            const pct = p.done ? 100 : Math.min(100, Math.round(p.ratio * 100))
             return (
               <div
                 key={p.goal.id}
