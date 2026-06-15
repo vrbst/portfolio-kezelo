@@ -5,9 +5,9 @@
 // synced history (seen / dismissed) so the Alerts page can show which alerts are
 // active, which resolved on their own (fulfilled), and which you dismissed.
 
-import type { PortfolioSummary } from './portfolio'
+import type { PortfolioSummary, CouponImportReminder } from './portfolio'
 import { upcomingEvents } from './events'
-import { formatMoney } from './format'
+import { formatMoney, formatDate } from './format'
 
 export type AlertSeverity = 'high' | 'medium' | 'info'
 
@@ -166,6 +166,23 @@ export function computeAlerts(
   }
 
   return out
+}
+
+/**
+ * Nudge to re-import when a coupon has (almost certainly) been paid — the
+ * credit lands ~1 day before the nominal date — but isn't in the data yet.
+ */
+export function couponImportAlerts(reminders: CouponImportReminder[]): Alert[] {
+  return reminders.map((r) => ({
+    id: `coupon-import:${r.instrumentKey}:${r.couponDate}`,
+    severity: 'high' as AlertSeverity,
+    title: `Kamatfizetés – ${r.name}`,
+    detail: `A ${formatDate(r.couponDate)} kamatot általában 1 nappal korábban fizetik${
+      r.amountHuf ? ` (~${formatMoney(r.amountHuf)})` : ''
+    }. Ha már megjött, importáld az adatokat a frissítéshez.`,
+    to: '/import',
+    actionLabel: 'Importálás',
+  }))
 }
 
 // ---- Synced history (seen / dismissed) ------------------------------------

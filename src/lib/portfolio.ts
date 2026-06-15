@@ -315,6 +315,88 @@ export function futureBondCashflows(
   return out.sort((a, b) => a.date.localeCompare(b.date))
 }
 
+export interface CouponImportReminder {
+  instrumentKey: string
+  name: string
+  accountId?: string
+  /** Nominal coupon date (ISO day). Actual credit is ~earlyDays earlier. */
+  couponDate: string
+  amountHuf?: number
+}
+
+/**
+ * Coupons whose payment has (almost certainly) already happened — the credit
+ * lands ~1 day before the nominal date — but for which no `interest`
+ * transaction has been imported yet. Used to nudge the user to re-import.
+ * Only the most recent coupon per bond is considered, and only within a recent
+ * lookback window so it doesn't nag about ancient history.
+ */
+export function couponImportReminders(
+  summary: PortfolioSummary,
+  transactions: Transaction[],
+  now: Date = new Date(),
+  opts: { earlyDays?: number; lookbackDays?: number } = {},
+): CouponImportReminder[] {
+  const earlyDays = opts.earlyDays ?? 1
+  const lookbackDays = opts.lookbackDays ?? 45
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const todayMs = today.getTime()
+  const lookbackMs = todayMs - lookbackDays * 86_400_000
+  const dayMs = 86_400_000
+
+  // Index imported interest dates per instrument for a fast "already got it?" test.
+  const interestByInst = new Map<string, number[]>()
+  for (const t of transactions) {
+    if (t.type !== 'interest' || !t.instrumentKey) continue
+    const ms = parseDayMs(t.date)
+    if (!Number.isFinite(ms)) continue
+    const arr = interestByInst.get(t.instrumentKey) ?? []
+    arr.push(ms)
+    interestByInst.set(t.instrumentKey, arr)
+  }
+
+  const out: CouponImportReminder[] = []
+  for (const acc of summary.accounts) {
+    for (const h of acc.holdings) {
+      const inst = h.instrument
+      if (!inst || !BOND_TYPES.has(inst.type)) continue
+      const bond = inst.bond
+      const first = parseDayMs(bond?.firstCouponDate)
+      if (!Number.isFinite(first) || !bond?.couponRate) continue
+      const interval =
+        bond.couponIntervalMonths && bond.couponIntervalMonths > 0
+          ? bond.couponIntervalMonths
+          : 12
+      const matMs = parseDayMs(bond.maturity ?? inst.maturity)
+
+      // Latest coupon whose effective (early) pay date is on/before today.
+      let latest = NaN
+      let cur = first
+      for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+        if (Number.isFinite(matMs) && cur > matMs) break
+        if (cur - earlyDays * dayMs <= todayMs) latest = cur
+        else break
+        cur = addMonths(cur, interval)
+      }
+      if (!Number.isFinite(latest) || latest < lookbackMs) continue
+
+      // Imported already if an interest tx sits within ±7 days of the coupon.
+      const interests = interestByInst.get(inst.key) ?? []
+      if (interests.some((ms) => Math.abs(ms - latest) <= 7 * dayMs)) continue
+
+      out.push({
+        instrumentKey: inst.key,
+        name: inst.name,
+        accountId: acc.account.id,
+        couponDate: toLocalDay(latest),
+        amountHuf: couponAmountHuf(bond, h.quantity, toLocalDay(latest)),
+      })
+    }
+  }
+  return out
+}
+
 /**
  * Current HUF value of a bond position (face = quantity), more accurate than par:
  *  - Discount T-bill (zero coupon): accretes linearly from the average purchase

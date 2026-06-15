@@ -1,16 +1,23 @@
 import { Link } from 'react-router-dom'
 import { BellRing, CheckCircle2, EyeOff, ShieldCheck, ArrowRight } from 'lucide-react'
-import { usePortfolio, useActiveAlerts, usePortfolioSummary } from '../lib/store'
+import {
+  usePortfolio,
+  useActiveAlerts,
+  usePortfolioSummary,
+  useGoalProgress,
+} from '../lib/store'
 import { categorizeAlerts, computeStatusChecks } from '../lib/alerts'
+import { PERIOD_LABEL } from '../lib/goals'
 import { PageHeader, Card, EmptyState } from '../components/ui'
 import { AlertRow } from '../components/AlertsPanel'
-import { formatDate } from '../lib/format'
+import { formatDate, formatMoney } from '../lib/format'
 
 export default function Alerts() {
   const summary = usePortfolioSummary()
   const active = useActiveAlerts()
   const alertConfig = usePortfolio((s) => s.alertConfig)
   const alertState = usePortfolio((s) => s.alertState)
+  const goalProgress = useGoalProgress()
   const dismissAlert = usePortfolio((s) => s.dismissAlert)
   const restoreAlert = usePortfolio((s) => s.restoreAlert)
   const {
@@ -19,15 +26,36 @@ export default function Alerts() {
     dismissed,
   } = categorizeAlerts(active, alertState)
 
-  // Passing status checks (e.g. current-year TBSZ present) — shown green here on
-  // the Alerts page, but never on the Dashboard (which only surfaces problems).
-  const okChecks = computeStatusChecks(summary, alertConfig).filter((c) => c.ok)
+  // "Rendben" = current good states, shown green here (never on the Dashboard):
+  // passing status checks (e.g. current-year TBSZ) + every met savings goal.
+  // Met goals belong here regardless of whether they were ever an active alert,
+  // which is why a goal completed before it could fire still shows up.
+  const rendben = [
+    ...computeStatusChecks(summary, alertConfig)
+      .filter((c) => c.ok)
+      .map((c) => ({ id: c.id, label: c.label, detail: c.detail, to: c.to })),
+    ...goalProgress
+      .filter((g) => g.done)
+      .map((g) => ({
+        id: `goal-ok:${g.goal.id}`,
+        label: `Cél – ${g.instrumentName} (${PERIOD_LABEL[
+          g.goal.periodMonths
+        ].toLowerCase()})`,
+        detail: `${g.periodLabel}: ${formatMoney(g.investedHuf)} / ${formatMoney(
+          g.targetHuf,
+        )} ✓`,
+        to: '/settings' as string | undefined,
+      })),
+  ]
+
+  // Goal alerts live in "Rendben" once met, so keep them out of the history.
+  const fulfilledShown = fulfilled.filter((r) => !r.id.startsWith('goal:'))
 
   const activeById = new Map(active.map((a) => [a.id, a]))
   const nothing =
     visibleActive.length === 0 &&
-    okChecks.length === 0 &&
-    fulfilled.length === 0 &&
+    rendben.length === 0 &&
+    fulfilledShown.length === 0 &&
     dismissed.length === 0
 
   return (
@@ -73,17 +101,17 @@ export default function Alerts() {
             )}
           </section>
 
-          {okChecks.length > 0 && (
+          {rendben.length > 0 && (
             <section>
               <div className="mb-3 flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-[var(--color-positive)]" />
                 <h2 className="text-lg font-semibold">Rendben</h2>
                 <span className="text-sm text-[var(--color-muted)]">
-                  ({okChecks.length})
+                  ({rendben.length})
                 </span>
               </div>
               <div className="space-y-2">
-                {okChecks.map((c) => (
+                {rendben.map((c) => (
                   <div
                     key={c.id}
                     className="flex items-start gap-3 rounded-xl border border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5 p-3"
@@ -111,17 +139,17 @@ export default function Alerts() {
             </section>
           )}
 
-          {fulfilled.length > 0 && (
+          {fulfilledShown.length > 0 && (
             <section>
               <div className="mb-3 flex items-center gap-2">
                 <CheckCircle2 className="h-5 w-5 text-[var(--color-positive)]" />
                 <h2 className="text-lg font-semibold">Teljesült</h2>
                 <span className="text-sm text-[var(--color-muted)]">
-                  ({fulfilled.length})
+                  ({fulfilledShown.length})
                 </span>
               </div>
               <div className="space-y-2">
-                {fulfilled.map((r) => (
+                {fulfilledShown.map((r) => (
                   <AlertRow
                     key={r.id}
                     severity={r.severity}

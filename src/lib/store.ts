@@ -5,6 +5,7 @@ import type { Account, Instrument, Transaction } from './model'
 import type { ParsedImport } from './parsers'
 import {
   computePortfolio,
+  couponImportReminders,
   type PortfolioSummary,
   type PriceMap,
 } from './portfolio'
@@ -28,6 +29,7 @@ import {
 } from './sync'
 import {
   computeAlerts,
+  couponImportAlerts,
   loadAlertConfig,
   saveIdleCashThreshold,
   saveTbszCheck,
@@ -633,15 +635,20 @@ export function useGoalProgress(): GoalProgress[] {
 }
 
 /**
- * Currently-active alerts: rule-based (idle cash, TBSZ, events) plus one per
- * unmet savings goal.
+ * Currently-active alerts: rule-based (idle cash, TBSZ, events), one per unmet
+ * savings goal, plus coupon-import nudges.
  */
 export function useActiveAlerts(): Alert[] {
   const summary = usePortfolioSummary()
   const config = usePortfolio((s) => s.alertConfig)
+  const transactions = usePortfolio((s) => s.transactions)
   const goalProgress = useGoalProgress()
   return useMemo(
-    () => [...computeAlerts(summary, config), ...goalAlerts(goalProgress)],
-    [summary, config, goalProgress],
+    () => [
+      ...computeAlerts(summary, config),
+      ...goalAlerts(goalProgress),
+      ...couponImportAlerts(couponImportReminders(summary, transactions)),
+    ],
+    [summary, config, transactions, goalProgress],
   )
 }
