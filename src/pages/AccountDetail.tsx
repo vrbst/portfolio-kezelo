@@ -354,6 +354,36 @@ export default function AccountDetail() {
                     )
                   })}
                 </tbody>
+                {isTreasury && accSummary.holdings.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-[var(--color-border)] font-semibold">
+                      <td className="px-4 py-3">Összesen</td>
+                      <td className="amt px-4 py-3 text-right tabular-nums">
+                        {formatNumber(
+                          accSummary.holdings.reduce((s, h) => s + h.quantity, 0),
+                          0,
+                        )}
+                      </td>
+                      <td />
+                      <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                        {formatMoney(
+                          accSummary.holdings.reduce(
+                            (s, h) => s + h.costBasisHuf,
+                            0,
+                          ),
+                        )}
+                      </td>
+                      <td className="amt px-4 py-3 text-right tabular-nums">
+                        {formatMoney(
+                          accSummary.holdings.reduce(
+                            (s, h) => s + (h.marketValueHuf ?? 0),
+                            0,
+                          ),
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </Card>
