@@ -1,6 +1,8 @@
 // Live price + FX loading for the browser.
-//  - ETF prices come from public/prices.json (written by scripts/fetch-prices.mjs,
-//    refreshed by a GitHub Action). Keyed by ISIN (== instrument.key).
+//  - Live ETF/ETP prices come straight from Yahoo via a CORS Worker proxy
+//    (fetchLivePrices), refreshed every few minutes while the app is open.
+//  - public/prices.json (written by scripts/fetch-prices.mjs, refreshed by a
+//    GitHub Action) is the snapshot fallback for first paint / when live fails.
 //  - EUR/HUF is refreshed live from frankfurter.app (CORS-friendly, no key).
 
 export interface PriceEntry {
@@ -51,6 +53,59 @@ export async function loadHistoryFile(): Promise<HistoryFile | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * CORS Worker proxy (host allow-list includes query1.finance.yahoo.com and
+ * api.frankfurter.app). Lets the browser read Yahoo quotes, which otherwise
+ * block cross-origin requests. Usage: `${PROXY}?url=<encoded target>`.
+ */
+const PROXY = 'https://cold-truth-4d27.vrbst405.workers.dev/'
+const proxied = (target: string) => `${PROXY}?url=${encodeURIComponent(target)}`
+
+// instrument.key (ISIN) -> Yahoo symbol for the live intraday quote.
+// VWCE.DE is the primary XETRA listing; WBIT trades on Stuttgart (.SG).
+const LIVE_SYMBOLS: Record<string, string> = {
+  IE00BK5BQT80: 'VWCE.DE',
+  GB00BJYDH287: 'GB00BJYDH287.SG',
+}
+
+async function fetchYahooPrice(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch(
+      proxied(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+          symbol,
+        )}?range=1d&interval=1d`,
+      ),
+      { cache: 'no-store' },
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      chart?: { result?: { meta?: { regularMarketPrice?: number } }[] }
+    }
+    const p = data?.chart?.result?.[0]?.meta?.regularMarketPrice
+    return typeof p === 'number' && p > 0 ? p : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Live ETF/ETP prices via the CORS Worker → Yahoo. Returns instrument key
+ * (ISIN) -> price in the instrument's own currency. Failed symbols are omitted,
+ * so callers keep the committed-snapshot value as a fallback.
+ */
+export async function fetchLivePrices(): Promise<Record<string, number>> {
+  const results = await Promise.all(
+    Object.entries(LIVE_SYMBOLS).map(async ([isin, symbol]) => {
+      const price = await fetchYahooPrice(symbol)
+      return price == null ? null : ([isin, price] as const)
+    }),
+  )
+  const out: Record<string, number> = {}
+  for (const r of results) if (r) out[r[0]] = r[1]
+  return out
 }
 
 /** Fresh EUR->HUF straight from the ECB via frankfurter.app. */

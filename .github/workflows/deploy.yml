@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch: {}
+  # Az "Árfolyamok frissítése" workflow GITHUB_TOKEN-nel commitol, ami magától
+  # NEM indít push-deployt — ezért a befejezése után közvetlenül futtatjuk.
+  workflow_run:
+    workflows: ['Árfolyamok frissítése']
+    types: [completed]
 
 permissions:
   contents: read
@@ -16,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # workflow_run esetén csak sikeres árfrissítés után deployoljunk.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

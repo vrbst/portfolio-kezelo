@@ -12,6 +12,7 @@ import {
   loadPriceFile,
   loadHistoryFile,
   fetchLiveFx,
+  fetchLivePrices,
   type PriceFile,
   type HistoryFile,
 } from './prices'
@@ -39,6 +40,8 @@ interface PortfolioState {
   priceFile: PriceFile | null
   /** Daily price/FX history for the value chart (from public/history.json). */
   historyFile: HistoryFile | null
+  /** Live quotes (Worker→Yahoo): instrument key -> price (instrument ccy). */
+  livePrices: Record<string, number>
   /** User overrides: instrument key -> price (instrument ccy). */
   manualPrices: Record<string, number>
   /** ISO timestamp shown in the UI. */
@@ -110,9 +113,13 @@ function deriveFx(txs: Transaction[]): Record<string, number> {
   return fx
 }
 
-/** Merge committed snapshot prices with user overrides (overrides win). */
+/**
+ * Layer prices by freshness: committed snapshot < live quotes < user overrides
+ * (later wins). Live fills in fresh intraday values; manual always trumps.
+ */
 function buildPriceMap(
   file: PriceFile | null,
+  live: Record<string, number>,
   manual: Record<string, number>,
 ): PriceMap {
   const map: PriceMap = new Map()
@@ -121,6 +128,7 @@ function buildPriceMap(
       if (typeof entry?.price === 'number') map.set(key, entry.price)
     }
   }
+  for (const [key, price] of Object.entries(live)) map.set(key, price)
   for (const [key, price] of Object.entries(manual)) map.set(key, price)
   return map
 }
@@ -179,7 +187,7 @@ async function mergeSnapshot(
     instruments,
     transactions,
     manualPrices,
-    prices: buildPriceMap(s.priceFile, manualPrices),
+    prices: buildPriceMap(s.priceFile, s.livePrices, manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   })
   return added
@@ -220,6 +228,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   fx: {},
   priceFile: null,
   historyFile: null,
+  livePrices: {},
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
@@ -324,23 +333,31 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   refreshPrices: async () => {
     set({ pricesLoading: true })
-    const [file, history, liveFx] = await Promise.all([
+    const [file, history, liveFx, livePrices] = await Promise.all([
       loadPriceFile(),
       loadHistoryFile(),
       fetchLiveFx(),
+      fetchLivePrices(),
     ])
     set((s) => {
       const priceFile = file ?? s.priceFile
-      const prices = buildPriceMap(priceFile, s.manualPrices)
+      // Keep the last good live quote for any symbol that failed this round.
+      const live = { ...s.livePrices, ...livePrices }
+      const prices = buildPriceMap(priceFile, live, s.manualPrices)
       // Live FX wins, then snapshot FX, then whatever we had (derived).
       const fx = { ...s.fx, ...(priceFile?.fx ?? {}), ...liveFx }
       void setMeta('fx', fx)
+      const gotLive = Object.keys(livePrices).length > 0
       return {
         priceFile,
         historyFile: history ?? s.historyFile,
+        livePrices: live,
         prices,
         fx,
-        priceUpdatedAt: priceFile?.updatedAt,
+        // Live quote → "now"; otherwise fall back to the snapshot's timestamp.
+        priceUpdatedAt: gotLive
+          ? new Date().toISOString()
+          : (priceFile?.updatedAt ?? s.priceUpdatedAt),
         pricesLoading: false,
       }
     })
@@ -353,7 +370,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     await setMeta('manualPrices', manualPrices)
     set((s) => ({
       manualPrices,
-      prices: buildPriceMap(s.priceFile, manualPrices),
+      prices: buildPriceMap(s.priceFile, s.livePrices, manualPrices),
     }))
     scheduleAutoSync(set, get)
   },
@@ -413,6 +430,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       transactions: [],
       prices: new Map(),
       fx: {},
+      livePrices: {},
       manualPrices: {},
       priceFile: null,
       priceUpdatedAt: undefined,
