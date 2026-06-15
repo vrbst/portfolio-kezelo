@@ -73,6 +73,9 @@ export default function AccountDetail() {
   const isCashHub = account.kind === 'cash'
   const empty = isEmptyAccount(accSummary)
   const ret = accountReturn(accSummary)
+  // Treasury: bonds' quantity = face value (névérték), so summing gives the
+  // total nominal you get back at the maturities.
+  const totalFaceHuf = accSummary.holdings.reduce((s, h) => s + h.quantity, 0)
   // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
   // not the HUF-denominated treasury bonds.
   const eur = (huf: number, opts?: { sign?: boolean }) =>
@@ -167,42 +170,51 @@ export default function AccountDetail() {
               index={3}
             />
           </>
+        ) : isTreasury ? (
+          // Bonds' mark-to-market return oscillates with the coupon cycle and
+          // bakes in the 1% early-redemption fee, so we don't show a "Hozam"
+          // here. The meaningful figures: total face value, coupons received,
+          // and the capital invested.
+          <>
+            <StatCard
+              label="Összes névérték"
+              value={formatMoney(totalFaceHuf)}
+              index={1}
+            />
+            <StatCard
+              label="Kapott kamat"
+              value={formatMoney(accSummary.interestHuf)}
+              index={2}
+            />
+            <StatCard
+              label="Befektetett tőke"
+              value={formatMoney(accSummary.capitalBasisHuf)}
+              index={3}
+            />
+          </>
         ) : (
           <>
-            {isTreasury ? (
-              // A bond's mark-to-market return oscillates with the coupon cycle
-              // (drops to ~−1% right after each kamatfizetés, then rebuilds), so
-              // showing it as "Hozam" is misleading. The real return is the
-              // accumulated coupons (Kapott kamat).
-              <StatCard
-                label="Befektetett tőke"
-                value={formatMoney(accSummary.capitalBasisHuf)}
-                index={1}
-              />
-            ) : (
-              <StatCard
-                label="Hozam"
-                value={
-                  empty
-                    ? 'üres'
-                    : formatMoney(
-                        accSummary.totalValueHuf - accSummary.capitalBasisHuf,
-                        'HUF',
-                        { sign: true },
-                      )
-                }
-                sub={
-                  empty
-                    ? 'a tőkét kiutaltad'
-                    : eur(
-                        accSummary.totalValueHuf - accSummary.capitalBasisHuf,
-                        { sign: true },
-                      )
-                }
-                deltaPct={empty ? undefined : ret}
-                index={1}
-              />
-            )}
+            <StatCard
+              label="Hozam"
+              value={
+                empty
+                  ? 'üres'
+                  : formatMoney(
+                      accSummary.totalValueHuf - accSummary.capitalBasisHuf,
+                      'HUF',
+                      { sign: true },
+                    )
+              }
+              sub={
+                empty
+                  ? 'a tőkét kiutaltad'
+                  : eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
+                      sign: true,
+                    })
+              }
+              deltaPct={empty ? undefined : ret}
+              index={1}
+            />
             <StatCard
               label="Készpénz"
               value={formatMoney(accSummary.cashValueHuf)}
@@ -210,15 +222,9 @@ export default function AccountDetail() {
               index={2}
             />
             <StatCard
-              label={isTreasury ? 'Kapott kamat' : 'Befektetett tőke'}
-              value={formatMoney(
-                isTreasury
-                  ? accSummary.interestHuf
-                  : accSummary.capitalBasisHuf,
-              )}
-              sub={
-                isTreasury ? undefined : eur(accSummary.capitalBasisHuf)
-              }
+              label="Befektetett tőke"
+              value={formatMoney(accSummary.capitalBasisHuf)}
+              sub={eur(accSummary.capitalBasisHuf)}
               index={3}
             />
           </>
