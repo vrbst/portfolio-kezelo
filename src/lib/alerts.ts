@@ -56,6 +56,46 @@ export function saveIdleCashThreshold(huf: number) {
   }
 }
 
+/**
+ * Binary status checks: each is either OK (green "Rendben" on the Alerts page)
+ * or failing (a red alert). Single source of truth so the two views can't drift.
+ * Currently: "is there a TBSZ for the current gyűjtőév?".
+ */
+export interface StatusCheck {
+  id: string
+  ok: boolean
+  label: string
+  detail?: string
+  to?: string
+}
+
+export function computeStatusChecks(
+  summary: PortfolioSummary,
+  now: Date = new Date(),
+): StatusCheck[] {
+  const out: StatusCheck[] = []
+
+  // Only relevant once you actually use TBSZ.
+  const usesTbsz = summary.accounts.some((a) => a.account.kind === 'tbsz')
+  if (usesTbsz) {
+    const year = now.getFullYear()
+    const tbsz = summary.accounts.find(
+      (a) => a.account.kind === 'tbsz' && a.account.tbszYear === year,
+    )
+    out.push({
+      id: `tbsz-current:${year}`,
+      ok: !!tbsz,
+      label: tbsz ? `Idei (${year}) TBSZ megnyitva` : `Nincs ${year}-os TBSZ`,
+      detail: tbsz
+        ? tbsz.account.name
+        : `Az idei befizetésekhez nyiss egy ${year}-ös gyűjtőévűt.`,
+      to: tbsz ? `/accounts/${tbsz.account.id}` : undefined,
+    })
+  }
+
+  return out
+}
+
 /** Currently-active alerts, derived from the live portfolio summary. */
 export function computeAlerts(
   summary: PortfolioSummary,
@@ -78,19 +118,17 @@ export function computeAlerts(
     }
   }
 
-  // 2) No TBSZ opened for the current year (only nudge if you already use TBSZ).
-  const year = now.getFullYear()
-  const usesTbsz = summary.accounts.some((a) => a.account.kind === 'tbsz')
-  const hasCurrentTbsz = summary.accounts.some(
-    (a) => a.account.kind === 'tbsz' && a.account.tbszYear === year,
-  )
-  if (usesTbsz && !hasCurrentTbsz) {
-    out.push({
-      id: `no-tbsz:${year}`,
-      severity: 'info',
-      title: `Nincs ${year}-os TBSZ`,
-      detail: `Idén még nem nyitottál TBSZ-t. Az idei befizetésekhez nyiss egy ${year}-ös gyűjtőévűt.`,
-    })
+  // 2) Failing status checks (e.g. missing current-year TBSZ) → alerts.
+  for (const c of computeStatusChecks(summary, now)) {
+    if (!c.ok) {
+      out.push({
+        id: c.id,
+        severity: 'info',
+        title: c.label,
+        detail: c.detail,
+        to: c.to,
+      })
+    }
   }
 
   // 3) Upcoming events (coupon / maturity / TBSZ milestone) within the horizon.

@@ -1,11 +1,13 @@
-import { BellRing, CheckCircle2, EyeOff } from 'lucide-react'
-import { usePortfolio, useActiveAlerts } from '../lib/store'
-import { categorizeAlerts } from '../lib/alerts'
+import { Link } from 'react-router-dom'
+import { BellRing, CheckCircle2, EyeOff, ShieldCheck, ArrowRight } from 'lucide-react'
+import { usePortfolio, useActiveAlerts, usePortfolioSummary } from '../lib/store'
+import { categorizeAlerts, computeStatusChecks } from '../lib/alerts'
 import { PageHeader, Card, EmptyState } from '../components/ui'
 import { AlertRow } from '../components/AlertsPanel'
 import { formatDate } from '../lib/format'
 
 export default function Alerts() {
+  const summary = usePortfolioSummary()
   const active = useActiveAlerts()
   const alertState = usePortfolio((s) => s.alertState)
   const dismissAlert = usePortfolio((s) => s.dismissAlert)
@@ -16,9 +18,16 @@ export default function Alerts() {
     dismissed,
   } = categorizeAlerts(active, alertState)
 
+  // Passing status checks (e.g. current-year TBSZ present) — shown green here on
+  // the Alerts page, but never on the Dashboard (which only surfaces problems).
+  const okChecks = computeStatusChecks(summary).filter((c) => c.ok)
+
   const activeById = new Map(active.map((a) => [a.id, a]))
   const nothing =
-    visibleActive.length === 0 && fulfilled.length === 0 && dismissed.length === 0
+    visibleActive.length === 0 &&
+    okChecks.length === 0 &&
+    fulfilled.length === 0 &&
+    dismissed.length === 0
 
   return (
     <div>
@@ -62,6 +71,44 @@ export default function Alerts() {
               </div>
             )}
           </section>
+
+          {okChecks.length > 0 && (
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-[var(--color-positive)]" />
+                <h2 className="text-lg font-semibold">Rendben</h2>
+                <span className="text-sm text-[var(--color-muted)]">
+                  ({okChecks.length})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {okChecks.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-start gap-3 rounded-xl border border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5 p-3"
+                  >
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-positive)]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{c.label}</div>
+                      {c.detail && (
+                        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                          {c.detail}
+                        </div>
+                      )}
+                      {c.to && (
+                        <Link
+                          to={c.to}
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[var(--color-brand)] hover:underline"
+                        >
+                          Megnézem <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {fulfilled.length > 0 && (
             <section>
