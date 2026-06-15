@@ -6,6 +6,7 @@ import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
   accountReturn,
   isInternalTransfer,
+  isEmptyAccount,
   type HoldingView,
 } from '../lib/portfolio'
 import {
@@ -70,6 +71,7 @@ export default function AccountDetail() {
 
   const isTreasury = account.provider === 'allamkincstar'
   const isCashHub = account.kind === 'cash'
+  const empty = isEmptyAccount(accSummary)
   const ret = accountReturn(accSummary)
   // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
   // not the HUF-denominated treasury bonds.
@@ -180,15 +182,24 @@ export default function AccountDetail() {
             ) : (
               <StatCard
                 label="Hozam"
-                value={formatMoney(
-                  accSummary.totalValueHuf - accSummary.capitalBasisHuf,
-                  'HUF',
-                  { sign: true },
-                )}
-                sub={eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
-                  sign: true,
-                })}
-                deltaPct={ret}
+                value={
+                  empty
+                    ? 'üres'
+                    : formatMoney(
+                        accSummary.totalValueHuf - accSummary.capitalBasisHuf,
+                        'HUF',
+                        { sign: true },
+                      )
+                }
+                sub={
+                  empty
+                    ? 'a tőkét kiutaltad'
+                    : eur(
+                        accSummary.totalValueHuf - accSummary.capitalBasisHuf,
+                        { sign: true },
+                      )
+                }
+                deltaPct={empty ? undefined : ret}
                 index={1}
               />
             )}

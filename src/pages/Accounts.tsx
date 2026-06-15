@@ -5,7 +5,11 @@ import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
 import { formatMoney, eurEquivalent } from '../lib/format'
 import { accountKindLabel } from '../lib/labels'
-import { accountReturn, type AccountSummary } from '../lib/portfolio'
+import {
+  accountReturn,
+  isEmptyAccount,
+  type AccountSummary,
+} from '../lib/portfolio'
 import { tbszStatus } from '../lib/tbsz'
 
 export default function Accounts() {
@@ -83,6 +87,7 @@ function Section({
       <div className="grid gap-3 sm:grid-cols-2">
         {items.map((a, i) => {
           const ret = accountReturn(a)
+          const empty = isEmptyAccount(a)
           const tbsz =
             a.account.kind === 'tbsz' && a.account.tbszYear
               ? tbszStatus(a.account.tbszYear)
@@ -129,7 +134,11 @@ function Section({
                         </div>
                       )}
                     </div>
-                    {ret != null && <Delta pct={ret} className="text-sm" />}
+                    {empty ? (
+                      <Badge tone="neutral">üres</Badge>
+                    ) : (
+                      ret != null && <Delta pct={ret} className="text-sm" />
+                    )}
                   </div>
 
                   {tbsz && (

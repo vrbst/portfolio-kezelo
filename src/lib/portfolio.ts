@@ -488,8 +488,18 @@ export function isInternalTransfer(t: Transaction): boolean {
  */
 export function accountReturn(s: AccountSummary): number | undefined {
   if (s.account.kind === 'cash') return undefined
+  if (isEmptyAccount(s)) return undefined
   if (s.capitalBasisHuf <= 0) return undefined
   return (s.totalValueHuf - s.capitalBasisHuf) / s.capitalBasisHuf
+}
+
+/**
+ * A fully-emptied account: no holdings and no cash. Its capital flowed out (e.g.
+ * sold and transferred elsewhere), so a per-account return is meaningless — the
+ * UI shows "üres" instead of a misleading −100%.
+ */
+export function isEmptyAccount(s: AccountSummary): boolean {
+  return s.holdings.length === 0 && Math.abs(s.totalValueHuf) < 1
 }
 
 /**

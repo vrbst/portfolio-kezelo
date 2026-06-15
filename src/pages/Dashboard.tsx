@@ -20,6 +20,7 @@ import {
 import { usePortfolio, usePortfolioSummary } from '../lib/store'
 import {
   accountReturn,
+  isEmptyAccount,
   buildValueSeries,
   allocationByClass,
   allocationByCurrency,
@@ -390,8 +391,12 @@ export default function Dashboard() {
                     <div className="amt font-semibold tabular-nums">
                       {formatMoney(a.totalValueHuf)}
                     </div>
-                    {accountReturn(a) != null && (
-                      <Delta pct={accountReturn(a)} className="text-xs" />
+                    {isEmptyAccount(a) ? (
+                      <Badge tone="neutral">üres</Badge>
+                    ) : (
+                      accountReturn(a) != null && (
+                        <Delta pct={accountReturn(a)} className="text-xs" />
+                      )
                     )}
                   </div>
                 </div>
