@@ -29,6 +29,7 @@ import { upcomingEvents, type EventKind } from '../lib/events'
 import ValueChart from '../components/ValueChart'
 import HoldingsPanel from '../components/HoldingsPanel'
 import AlertsPanel from '../components/AlertsPanel'
+import LivePricesPanel from '../components/LivePricesPanel'
 import {
   PageHeader,
   StatCard,
@@ -232,7 +233,6 @@ export default function Dashboard() {
         <StatCard
           label="Befektetett tőke"
           value={formatMoney(summary.netDepositedHuf)}
-          sub={eurEquivalent(summary.netDepositedHuf, eurHuf)}
           icon={<PiggyBank className="h-5 w-5" />}
           index={2}
         />
@@ -252,6 +252,8 @@ export default function Dashboard() {
           index={3}
         />
       </div>
+
+      <LivePricesPanel />
 
       {valueSeries.length > 1 && (
         <Card className="mt-6 p-6">

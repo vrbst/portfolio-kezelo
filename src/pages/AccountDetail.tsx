@@ -346,6 +346,15 @@ export default function AccountDetail() {
                             {formatMoney(h.costBasisCcy, h.currency)}
                           </div>
                         )}
+                        {!isTreasury && h.quantity > 0 && (
+                          <div className="mt-1 text-xs opacity-70">
+                            átlagár: {formatMoney(h.avgCost, h.currency, {
+                              decimals: h.currency === 'HUF' ? 0 : 2,
+                            })}
+                            {h.currency !== 'HUF' &&
+                              ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium tabular-nums">
                         <div className="amt">{formatMoney(h.marketValueHuf)}</div>
@@ -512,6 +521,11 @@ function ReturnCell({
   const rateNow = h.currency === 'HUF' ? 1 : fx[h.currency] ?? 0
   const fxEffect =
     isFx && rateNow > 0 ? h.costBasisCcy * rateNow - h.costBasisHuf : undefined
+  // FX contribution as a share of the HUF cost basis, so total% ≈ price% + FX%.
+  const fxPct =
+    fxEffect != null && h.costBasisHuf > 0
+      ? fxEffect / h.costBasisHuf
+      : undefined
 
   return (
     <td className="px-4 py-3 text-right tabular-nums">
@@ -558,6 +572,7 @@ function ReturnCell({
               <TipRow
                 label="Devizahatás"
                 value={formatMoney(fxEffect, 'HUF', { sign: true })}
+                pct={fxPct}
                 sign={fxEffect}
               />
             )}
