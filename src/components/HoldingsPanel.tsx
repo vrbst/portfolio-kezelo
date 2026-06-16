@@ -18,7 +18,7 @@ export default function HoldingsPanel() {
   if (rows.length === 0) return null
 
   return (
-    <Card className="mt-6 overflow-hidden">
+    <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 p-6 pb-3">
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 text-[var(--color-brand)]" />

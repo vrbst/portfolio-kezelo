@@ -58,7 +58,7 @@ export default function App() {
     <div className="flex min-h-screen">
       <Sidebar />
       <main className="flex-1 min-w-0">
-        <div className="mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8">
+        <div className="mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8 2xl:max-w-[1600px]">
           {loaded && <AlertsBanner />}
           {!loaded ? (
             <div className="flex h-[60vh] items-center justify-center text-[var(--color-muted)]">

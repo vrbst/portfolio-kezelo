@@ -67,7 +67,7 @@ export default function ValueChart({ data }: { data: ValuePoint[] }) {
   const max = chartData[chartData.length - 1]?.ts ?? 0
   const ticks = monthTicks(min, max)
   return (
-    <div className="h-72 w-full">
+    <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart
           data={chartData}
