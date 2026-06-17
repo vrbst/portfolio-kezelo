@@ -1,14 +1,14 @@
-import { useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Pencil, Check, X } from 'lucide-react'
-import { usePortfolio, usePortfolioSummary } from '../lib/store'
+import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, Pencil, Check, X } from "lucide-react";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import {
   accountReturn,
   isInternalTransfer,
   isEmptyAccount,
   type HoldingView,
-} from '../lib/portfolio'
+} from "../lib/portfolio";
 import {
   PageHeader,
   Card,
@@ -16,30 +16,34 @@ import {
   Badge,
   Delta,
   EmptyState,
-} from '../components/ui'
-import TbszTimeline from '../components/TbszTimeline'
+} from "../components/ui";
+import TbszTimeline from "../components/TbszTimeline";
 import {
   formatMoney,
   formatNumber,
   formatPercent,
   formatDate,
   eurEquivalent,
-} from '../lib/format'
-import { accountKindLabel, txTypeLabel, instrumentTypeLabel } from '../lib/labels'
-import type { AccountKind } from '../lib/model'
+} from "../lib/format";
+import {
+  accountKindLabel,
+  txTypeLabel,
+  instrumentTypeLabel,
+} from "../lib/labels";
+import type { AccountKind } from "../lib/model";
 
 export default function AccountDetail() {
-  const { id } = useParams()
-  const accounts = usePortfolio((s) => s.accounts)
-  const transactions = usePortfolio((s) => s.transactions)
-  const summary = usePortfolioSummary()
-  const updateAccount = usePortfolio((s) => s.updateAccount)
-  const eurHuf = usePortfolio((s) => s.fx['EUR'])
-  const fx = usePortfolio((s) => s.fx)
-  const priceFile = usePortfolio((s) => s.priceFile)
+  const { id } = useParams();
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const summary = usePortfolioSummary();
+  const updateAccount = usePortfolio((s) => s.updateAccount);
+  const eurHuf = usePortfolio((s) => s.fx["EUR"]);
+  const fx = usePortfolio((s) => s.fx);
+  const priceFile = usePortfolio((s) => s.priceFile);
 
-  const account = accounts.find((a) => a.id === id)
-  const accSummary = summary.accounts.find((a) => a.account.id === id)
+  const account = accounts.find((a) => a.id === id);
+  const accSummary = summary.accounts.find((a) => a.account.id === id);
 
   const accTxs = useMemo(
     () =>
@@ -47,13 +51,13 @@ export default function AccountDetail() {
         .filter((t) => t.accountId === id)
         .sort((a, b) => b.date.localeCompare(a.date)),
     [transactions, id],
-  )
+  );
 
-  const [editing, setEditing] = useState(false)
-  const [kind, setKind] = useState<AccountKind>(account?.kind ?? 'regular')
+  const [editing, setEditing] = useState(false);
+  const [kind, setKind] = useState<AccountKind>(account?.kind ?? "regular");
   const [year, setYear] = useState<string>(
-    account?.tbszYear ? String(account.tbszYear) : '',
-  )
+    account?.tbszYear ? String(account.tbszYear) : "",
+  );
 
   if (!account || !accSummary) {
     return (
@@ -66,27 +70,27 @@ export default function AccountDetail() {
           </Link>
         }
       />
-    )
+    );
   }
 
-  const isTreasury = account.provider === 'allamkincstar'
-  const isCashHub = account.kind === 'cash'
-  const empty = isEmptyAccount(accSummary)
-  const ret = accountReturn(accSummary)
+  const isTreasury = account.provider === "allamkincstar";
+  const isCashHub = account.kind === "cash";
+  const empty = isEmptyAccount(accSummary);
+  const ret = accountReturn(accSummary);
   // Treasury: bonds' quantity = face value (névérték), so summing gives the
   // total nominal you get back at the maturities.
-  const totalFaceHuf = accSummary.holdings.reduce((s, h) => s + h.quantity, 0)
+  const totalFaceHuf = accSummary.holdings.reduce((s, h) => s + h.quantity, 0);
   // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
   // not the HUF-denominated treasury bonds.
   const eur = (huf: number, opts?: { sign?: boolean }) =>
-    isTreasury ? undefined : eurEquivalent(huf, eurHuf, opts)
+    isTreasury ? undefined : eurEquivalent(huf, eurHuf, opts);
 
   async function saveEdit() {
     await updateAccount(account!.id, {
       kind,
-      tbszYear: kind === 'tbsz' && year ? Number(year) : undefined,
-    })
-    setEditing(false)
+      tbszYear: kind === "tbsz" && year ? Number(year) : undefined,
+    });
+    setEditing(false);
   }
 
   return (
@@ -114,7 +118,7 @@ export default function AccountDetail() {
                 <option value="treasury">Államkincstár</option>
                 <option value="cash">Pénzszámla</option>
               </select>
-              {kind === 'tbsz' && (
+              {kind === "tbsz" && (
                 <input
                   type="number"
                   placeholder="Év (pl. 2025)"
@@ -141,7 +145,11 @@ export default function AccountDetail() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${
+          isTreasury ? "lg:grid-cols-5" : "lg:grid-cols-4"
+        }`}
+      >
         <StatCard
           label="Teljes érték"
           value={formatMoney(accSummary.totalValueHuf)}
@@ -191,6 +199,11 @@ export default function AccountDetail() {
               value={formatMoney(accSummary.capitalBasisHuf)}
               index={3}
             />
+            <StatCard
+              label="Készpénz"
+              value={formatMoney(accSummary.cashValueHuf)}
+              index={4}
+            />
           </>
         ) : (
           <>
@@ -198,16 +211,16 @@ export default function AccountDetail() {
               label="Hozam"
               value={
                 empty
-                  ? 'üres'
+                  ? "üres"
                   : formatMoney(
                       accSummary.totalValueHuf - accSummary.capitalBasisHuf,
-                      'HUF',
+                      "HUF",
                       { sign: true },
                     )
               }
               sub={
                 empty
-                  ? 'a tőkét kiutaltad'
+                  ? "a tőkét kiutaltad"
                   : eur(accSummary.totalValueHuf - accSummary.capitalBasisHuf, {
                       sign: true,
                     })
@@ -231,7 +244,7 @@ export default function AccountDetail() {
         )}
       </div>
 
-      {account.kind === 'tbsz' && account.tbszYear && (
+      {account.kind === "tbsz" && account.tbszYear && (
         <div className="mt-6">
           <TbszTimeline year={account.tbszYear} />
         </div>
@@ -240,7 +253,7 @@ export default function AccountDetail() {
       {/* Holdings */}
       <div className="mt-6">
         <h2 className="mb-3 text-lg font-semibold">
-          {isTreasury ? 'Értékpapírok' : 'Pozíciók'}
+          {isTreasury ? "Értékpapírok" : "Pozíciók"}
         </h2>
         {accSummary.holdings.length === 0 ? (
           <Card className="p-6 text-sm text-[var(--color-muted)]">
@@ -254,7 +267,7 @@ export default function AccountDetail() {
                   <tr className="border-b border-[var(--color-border)]">
                     <th className="px-4 py-3 font-medium">Eszköz</th>
                     <th className="px-4 py-3 text-right font-medium">
-                      {isTreasury ? 'Névérték' : 'Mennyiség'}
+                      {isTreasury ? "Névérték" : "Mennyiség"}
                     </th>
                     <th className="px-4 py-3 text-right font-medium">
                       Árfolyam
@@ -264,109 +277,119 @@ export default function AccountDetail() {
                     </th>
                     <th className="px-4 py-3 text-right font-medium">Érték</th>
                     {!isTreasury && (
-                      <th className="px-4 py-3 text-right font-medium">Hozam</th>
+                      <th className="px-4 py-3 text-right font-medium">
+                        Hozam
+                      </th>
                     )}
                   </tr>
                 </thead>
                 <tbody>
                   {accSummary.holdings.map((h) => {
-                    const priceName = priceFile?.prices[h.instrumentKey]?.name
+                    const priceName = priceFile?.prices[h.instrumentKey]?.name;
                     const unitHuf =
-                      h.currentPrice != null && h.currency !== 'HUF'
+                      h.currentPrice != null && h.currency !== "HUF"
                         ? h.currentPrice * (fx[h.currency] ?? 0)
-                        : undefined
+                        : undefined;
                     return (
-                    <tr
-                      key={h.instrumentKey}
-                      className="border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-medium">
-                          {h.instrument?.name ?? h.instrumentKey}
-                        </div>
-                        {priceName && priceName !== h.instrument?.name && (
-                          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                            {priceName}
+                      <tr
+                        key={h.instrumentKey}
+                        className="border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40"
+                      >
+                        <td className="px-4 py-3">
+                          <div className="font-medium">
+                            {h.instrument?.name ?? h.instrumentKey}
                           </div>
-                        )}
-                        <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-                          {h.instrument && (
-                            <Badge tone="neutral">
-                              {instrumentTypeLabel[h.instrument.type]}
-                            </Badge>
-                          )}
-                          {h.instrument?.maturity && (
-                            <span>
-                              lejárat: {formatDate(h.instrument.maturity)}
-                            </span>
-                          )}
-                          {h.instrument?.isin && <span>{h.instrument.isin}</span>}
-                        </div>
-                        {h.bondNeedsData && (
-                          <Link
-                            to="/settings"
-                            className="mt-1 inline-block"
-                            title="Add meg a sorozat adatait a pontos értékhez"
-                          >
-                            <Badge tone="warning">
-                              névértéken — sorozat-adat hiányzik
-                            </Badge>
-                          </Link>
-                        )}
-                      </td>
-                      <td className="amt px-4 py-3 text-right tabular-nums">
-                        {formatNumber(h.quantity, isTreasury ? 0 : 4)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                        {h.currentPrice != null && h.currency !== 'HUF' ? (
-                          <>
-                            <div className="amt text-[var(--color-text)]">
-                              {formatMoney(h.currentPrice, h.currency)}
+                          {priceName && priceName !== h.instrument?.name && (
+                            <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                              {priceName}
                             </div>
-                            {unitHuf != null && (
-                              <div className="amt text-xs opacity-70">
-                                ≈ {formatMoney(unitHuf)}
-                              </div>
+                          )}
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+                            {h.instrument && (
+                              <Badge tone="neutral">
+                                {instrumentTypeLabel[h.instrument.type]}
+                              </Badge>
                             )}
-                          </>
-                        ) : isTreasury &&
-                          h.marketValueHuf != null &&
-                          h.quantity > 0 ? (
-                          <div>
-                            {((h.marketValueHuf / h.quantity) * 100).toFixed(2)}%
+                            {h.instrument?.maturity && (
+                              <span>
+                                lejárat: {formatDate(h.instrument.maturity)}
+                              </span>
+                            )}
+                            {h.instrument?.isin && (
+                              <span>{h.instrument.isin}</span>
+                            )}
                           </div>
-                        ) : (
-                          <span>—</span>
-                        )}
-                      </td>
-                      <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                        <div>{formatMoney(h.costBasisHuf)}</div>
-                        {h.currency !== 'HUF' && (
-                          <div className="text-xs opacity-70">
-                            {formatMoney(h.costBasisCcy, h.currency)}
+                          {h.bondNeedsData && (
+                            <Link
+                              to="/settings"
+                              className="mt-1 inline-block"
+                              title="Add meg a sorozat adatait a pontos értékhez"
+                            >
+                              <Badge tone="warning">
+                                névértéken — sorozat-adat hiányzik
+                              </Badge>
+                            </Link>
+                          )}
+                        </td>
+                        <td className="amt px-4 py-3 text-right tabular-nums">
+                          {formatNumber(h.quantity, isTreasury ? 0 : 4)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                          {h.currentPrice != null && h.currency !== "HUF" ? (
+                            <>
+                              <div className="amt text-[var(--color-text)]">
+                                {formatMoney(h.currentPrice, h.currency)}
+                              </div>
+                              {unitHuf != null && (
+                                <div className="amt text-xs opacity-70">
+                                  ≈ {formatMoney(unitHuf)}
+                                </div>
+                              )}
+                            </>
+                          ) : isTreasury &&
+                            h.marketValueHuf != null &&
+                            h.quantity > 0 ? (
+                            <div>
+                              {((h.marketValueHuf / h.quantity) * 100).toFixed(
+                                2,
+                              )}
+                              %
+                            </div>
+                          ) : (
+                            <span>—</span>
+                          )}
+                        </td>
+                        <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                          <div>{formatMoney(h.costBasisHuf)}</div>
+                          {h.currency !== "HUF" && (
+                            <div className="text-xs opacity-70">
+                              {formatMoney(h.costBasisCcy, h.currency)}
+                            </div>
+                          )}
+                          {!isTreasury && h.quantity > 0 && (
+                            <div className="mt-1 text-xs opacity-70">
+                              átlagár:{" "}
+                              {formatMoney(h.avgCost, h.currency, {
+                                decimals: h.currency === "HUF" ? 0 : 2,
+                              })}
+                              {h.currency !== "HUF" &&
+                                ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium tabular-nums">
+                          <div className="amt">
+                            {formatMoney(h.marketValueHuf)}
                           </div>
-                        )}
-                        {!isTreasury && h.quantity > 0 && (
-                          <div className="mt-1 text-xs opacity-70">
-                            átlagár: {formatMoney(h.avgCost, h.currency, {
-                              decimals: h.currency === 'HUF' ? 0 : 2,
-                            })}
-                            {h.currency !== 'HUF' &&
-                              ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium tabular-nums">
-                        <div className="amt">{formatMoney(h.marketValueHuf)}</div>
-                        {h.currency !== 'HUF' && h.marketValueCcy != null && (
-                          <div className="amt text-xs font-normal text-[var(--color-muted)]">
-                            {formatMoney(h.marketValueCcy, h.currency)}
-                          </div>
-                        )}
-                      </td>
-                      {!isTreasury && <ReturnCell h={h} fx={fx} />}
-                    </tr>
-                    )
+                          {h.currency !== "HUF" && h.marketValueCcy != null && (
+                            <div className="amt text-xs font-normal text-[var(--color-muted)]">
+                              {formatMoney(h.marketValueCcy, h.currency)}
+                            </div>
+                          )}
+                        </td>
+                        {!isTreasury && <ReturnCell h={h} fx={fx} />}
+                      </tr>
+                    );
                   })}
                 </tbody>
                 {isTreasury && accSummary.holdings.length > 0 && (
@@ -375,7 +398,10 @@ export default function AccountDetail() {
                       <td className="px-4 py-3">Összesen</td>
                       <td className="amt px-4 py-3 text-right tabular-nums">
                         {formatNumber(
-                          accSummary.holdings.reduce((s, h) => s + h.quantity, 0),
+                          accSummary.holdings.reduce(
+                            (s, h) => s + h.quantity,
+                            0,
+                          ),
                           0,
                         )}
                       </td>
@@ -435,7 +461,9 @@ export default function AccountDetail() {
                   <th className="px-4 py-3 font-medium">Dátum</th>
                   <th className="px-4 py-3 font-medium">Típus</th>
                   <th className="px-4 py-3 font-medium">Eszköz</th>
-                  <th className="px-4 py-3 text-right font-medium">Mennyiség</th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Mennyiség
+                  </th>
                   <th className="px-4 py-3 text-right font-medium">Összeg</th>
                 </tr>
               </thead>
@@ -443,7 +471,7 @@ export default function AccountDetail() {
                 {accTxs.map((t) => {
                   const inst = accSummary.holdings.find(
                     (h) => h.instrumentKey === t.instrumentKey,
-                  )?.instrument
+                  )?.instrument;
                   return (
                     <tr
                       key={t.id}
@@ -455,29 +483,29 @@ export default function AccountDetail() {
                       <td className="px-4 py-2.5">
                         <Badge tone="neutral">
                           {isInternalTransfer(t)
-                            ? t.type === 'deposit'
-                              ? 'Transzfer be'
-                              : 'Transzfer ki'
+                            ? t.type === "deposit"
+                              ? "Transzfer be"
+                              : "Transzfer ki"
                             : txTypeLabel[t.type]}
                         </Badge>
                       </td>
                       <td className="px-4 py-2.5 text-[var(--color-muted)]">
-                        {inst?.name ?? t.instrumentKey ?? '—'}
+                        {inst?.name ?? t.instrumentKey ?? "—"}
                       </td>
                       <td className="amt px-4 py-2.5 text-right tabular-nums">
                         {t.quantity != null
                           ? isTreasury
-                            ? formatMoney(t.quantity, 'HUF') // névérték Ft-ban, tizedes nélkül
+                            ? formatMoney(t.quantity, "HUF") // névérték Ft-ban, tizedes nélkül
                             : formatNumber(t.quantity, 4)
-                          : '—'}
+                          : "—"}
                       </td>
                       <td className="amt px-4 py-2.5 text-right tabular-nums">
                         {t.grossAmount != null
                           ? formatMoney(t.grossAmount, t.currency)
-                          : '—'}
+                          : "—"}
                       </td>
                     </tr>
-                  )
+                  );
                 })}
               </tbody>
             </table>
@@ -485,7 +513,7 @@ export default function AccountDetail() {
         </Card>
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -498,34 +526,28 @@ export default function AccountDetail() {
  *   Devizahatás    = costBasisCcy × FX_now − costBasisHuf     (FX on the basis)
  *   Total = (price return × FX_now) + Devizahatás
  */
-function ReturnCell({
-  h,
-  fx,
-}: {
-  h: HoldingView
-  fx: Record<string, number>
-}) {
-  const [rect, setRect] = useState<DOMRect | null>(null)
+function ReturnCell({ h, fx }: { h: HoldingView; fx: Record<string, number> }) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
 
-  const total = h.unrealizedPlHuf
-  const hasReturn = total != null && Math.abs(total) > 0.5
+  const total = h.unrealizedPlHuf;
+  const hasReturn = total != null && Math.abs(total) > 0.5;
   const totalPct =
-    h.costBasisHuf > 0 && total != null ? total / h.costBasisHuf : undefined
+    h.costBasisHuf > 0 && total != null ? total / h.costBasisHuf : undefined;
 
-  const isFx = h.currency !== 'HUF' && h.marketValueCcy != null
-  const ccyReturn = isFx ? h.marketValueCcy! - h.costBasisCcy : undefined
+  const isFx = h.currency !== "HUF" && h.marketValueCcy != null;
+  const ccyReturn = isFx ? h.marketValueCcy! - h.costBasisCcy : undefined;
   const ccyPct =
     isFx && h.costBasisCcy > 0 && ccyReturn != null
       ? ccyReturn / h.costBasisCcy
-      : undefined
-  const rateNow = h.currency === 'HUF' ? 1 : fx[h.currency] ?? 0
+      : undefined;
+  const rateNow = h.currency === "HUF" ? 1 : (fx[h.currency] ?? 0);
   const fxEffect =
-    isFx && rateNow > 0 ? h.costBasisCcy * rateNow - h.costBasisHuf : undefined
+    isFx && rateNow > 0 ? h.costBasisCcy * rateNow - h.costBasisHuf : undefined;
   // FX contribution as a share of the HUF cost basis, so total% ≈ price% + FX%.
   const fxPct =
     fxEffect != null && h.costBasisHuf > 0
       ? fxEffect / h.costBasisHuf
-      : undefined
+      : undefined;
 
   return (
     <td className="px-4 py-3 text-right tabular-nums">
@@ -556,7 +578,7 @@ function ReturnCell({
             </div>
             <TipRow
               label="Teljes hozam"
-              value={formatMoney(total!, 'HUF', { sign: true })}
+              value={formatMoney(total!, "HUF", { sign: true })}
               pct={totalPct}
               sign={total!}
             />
@@ -571,7 +593,7 @@ function ReturnCell({
             {isFx && fxEffect != null && (
               <TipRow
                 label="Devizahatás"
-                value={formatMoney(fxEffect, 'HUF', { sign: true })}
+                value={formatMoney(fxEffect, "HUF", { sign: true })}
                 pct={fxPct}
                 sign={fxEffect}
               />
@@ -580,7 +602,7 @@ function ReturnCell({
           document.body,
         )}
     </td>
-  )
+  );
 }
 
 function TipRow({
@@ -589,13 +611,13 @@ function TipRow({
   pct,
   sign,
 }: {
-  label: string
-  value: string
-  pct?: number
-  sign: number
+  label: string;
+  value: string;
+  pct?: number;
+  sign: number;
 }) {
   const color =
-    sign >= 0 ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]'
+    sign >= 0 ? "text-[var(--color-positive)]" : "text-[var(--color-negative)]";
   return (
     <div className="flex items-center justify-between gap-3 py-0.5">
       <span className="text-[var(--color-muted)]">{label}</span>
@@ -606,5 +628,5 @@ function TipRow({
         )}
       </span>
     </div>
-  )
+  );
 }
