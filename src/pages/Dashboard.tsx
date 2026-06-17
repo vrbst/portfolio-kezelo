@@ -430,7 +430,8 @@ export default function Dashboard() {
                 <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
                 <h2 className="text-lg font-semibold">Közelgő események</h2>
               </div>
-              <div className="space-y-2">
+              {/* ~4 elem látszik egyszerre, a többi görgethető */}
+              <div className="max-h-[17rem] space-y-2 overflow-y-auto pr-1">
                 {events.map((e, i) => {
                   const Icon = EVENT_ICON[e.kind];
                   const inner = (
