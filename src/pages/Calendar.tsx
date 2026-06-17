@@ -235,13 +235,13 @@ export default function Calendar() {
       year === today.getFullYear() && m === today.getMonth();
     return (
       <div
-        className={`rounded-xl border p-3 ${
+        className={`rounded-xl border p-2 ${
           isCurrentMonth
             ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/30"
             : "border-[var(--color-border)]/60"
         }`}
       >
-        <div className="mb-2 text-sm font-semibold capitalize">{MONTHS[m]}</div>
+        <div className="mb-1 text-xs font-semibold capitalize">{MONTHS[m]}</div>
         <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-[var(--color-muted)]">
           {WEEKDAYS.map((w, wi) => (
             <div key={wi} className="py-0.5">
@@ -263,7 +263,7 @@ export default function Calendar() {
             // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid.
             const diam =
               gross > 0 && maxGross > 0
-                ? 10 + 18 * Math.sqrt(gross / maxGross)
+                ? 6 + 13 * Math.sqrt(gross / maxGross)
                 : 0;
             const tol = gross * 0.05;
             const color =
@@ -280,7 +280,7 @@ export default function Calendar() {
                 key={i}
                 onClick={() => setSelected(key)}
                 title={title}
-                className={`relative flex aspect-square items-center justify-center rounded-md border text-[10px] transition ${
+                className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${
                   isSel
                     ? "border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40"
                     : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40"
@@ -310,7 +310,7 @@ export default function Calendar() {
                 {diam === 0 && agg?.hasMarker && (
                   <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <span
-                      className="h-2.5 w-2.5 rounded-full border-2"
+                      className="h-2 w-2 rounded-full border-2"
                       style={{ borderColor: CAT_COLOR.tbsz }}
                     />
                   </span>
@@ -371,7 +371,7 @@ export default function Calendar() {
         )}
 
         {/* 12 months at once */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
           {MONTHS.map((_, m) => (
             <MonthGrid key={m} m={m} />
           ))}
