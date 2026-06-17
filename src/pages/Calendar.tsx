@@ -1,23 +1,27 @@
-import { useMemo, useState } from 'react'
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  CalendarDays,
-} from 'lucide-react'
-import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { futureBondCashflows, isInternalTransfer } from '../lib/portfolio'
-import { tbszStatus } from '../lib/tbsz'
-import { PageHeader, Card, Badge } from '../components/ui'
-import { formatMoney, formatCompact, formatDate } from '../lib/format'
-import { txTypeLabel } from '../lib/labels'
+import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { futureBondCashflows, isInternalTransfer } from "../lib/portfolio";
+import { tbszStatus } from "../lib/tbsz";
+import { PageHeader, Card, Badge } from "../components/ui";
+import { formatMoney, formatCompact, formatDate } from "../lib/format";
+import { txTypeLabel } from "../lib/labels";
 
-const WEEKDAYS = ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V']
+const WEEKDAYS = ["H", "K", "Sz", "Cs", "P", "Sz", "V"];
 const MONTHS = [
-  'január', 'február', 'március', 'április', 'május', 'június',
-  'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
-]
+  "január",
+  "február",
+  "március",
+  "április",
+  "május",
+  "június",
+  "július",
+  "augusztus",
+  "szeptember",
+  "október",
+  "november",
+  "december",
+];
 
 /**
  * Map a transaction type to a calendar category, or null to skip it. This is an
@@ -27,47 +31,48 @@ const MONTHS = [
  * conversions and internal transfers are funding moves, not events, so skipped —
  * otherwise a deposit that funds a same-day purchase would show a spurious +.
  */
-const TX_CAT: Record<string, DayItem['cat'] | null> = {
-  sell: 'in',
-  interest: 'in',
-  dividend: 'in',
-  redemption: 'maturity',
-  buy: 'out',
-  fee: 'out',
-  tax: 'out',
+const TX_CAT: Record<string, DayItem["cat"] | null> = {
+  sell: "in",
+  interest: "in",
+  dividend: "in",
+  redemption: "maturity",
+  buy: "out",
+  fee: "out",
+  tax: "out",
   deposit: null,
   withdrawal: null,
   conversion: null,
   transfer: null,
-}
+};
 
 interface DayItem {
-  title: string
+  title: string;
   /** HUF magnitude (≥0); the category decides sign/colour. Undefined = marker. */
-  amountHuf?: number
-  future: boolean
-  tag: string
-  cat: 'coupon' | 'maturity' | 'tbsz' | 'in' | 'out'
+  amountHuf?: number;
+  future: boolean;
+  tag: string;
+  cat: "coupon" | "maturity" | "tbsz" | "in" | "out";
   /** Set for asset buys/sells (instrument key) so same-asset round-trips net. */
-  tradeKey?: string
+  tradeKey?: string;
 }
 
-const CAT_COLOR: Record<DayItem['cat'], string> = {
-  coupon: '#22d3ee',
-  maturity: '#6366f1',
-  tbsz: '#fbbf24',
-  in: '#34d399',
-  out: '#fb7185',
-}
+const CAT_COLOR: Record<DayItem["cat"], string> = {
+  coupon: "#22d3ee",
+  maturity: "#6366f1",
+  tbsz: "#fbbf24",
+  in: "#34d399",
+  out: "#fb7185",
+};
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const isoDay = (y: number, m0: number, d: number) => `${y}-${pad(m0 + 1)}-${pad(d)}`
+const pad = (n: number) => String(n).padStart(2, "0");
+const isoDay = (y: number, m0: number, d: number) =>
+  `${y}-${pad(m0 + 1)}-${pad(d)}`;
 
 interface DayAgg {
-  inflow: number
-  outflow: number
+  inflow: number;
+  outflow: number;
   /** A day has an amountless marker (e.g. a TBSZ milestone). */
-  hasMarker: boolean
+  hasMarker: boolean;
 }
 
 /**
@@ -76,70 +81,75 @@ interface DayAgg {
  * both legs. Income/costs are never washed.
  */
 function dayAggregate(items: DayItem[]): DayAgg {
-  const tradeNet = new Map<string, number>()
-  let inflow = 0
-  let outflow = 0
-  let hasMarker = false
+  const tradeNet = new Map<string, number>();
+  let inflow = 0;
+  let outflow = 0;
+  let hasMarker = false;
   for (const it of items) {
     if (it.amountHuf == null) {
-      if (it.cat === 'tbsz') hasMarker = true
-      continue
+      if (it.cat === "tbsz") hasMarker = true;
+      continue;
     }
-    const signed = it.cat === 'out' ? -it.amountHuf : it.amountHuf
+    const signed = it.cat === "out" ? -it.amountHuf : it.amountHuf;
     if (it.tradeKey)
-      tradeNet.set(it.tradeKey, (tradeNet.get(it.tradeKey) ?? 0) + signed)
-    else if (signed >= 0) inflow += signed
-    else outflow += -signed
+      tradeNet.set(it.tradeKey, (tradeNet.get(it.tradeKey) ?? 0) + signed);
+    else if (signed >= 0) inflow += signed;
+    else outflow += -signed;
   }
   for (const v of tradeNet.values()) {
-    if (v > 0) inflow += v
-    else outflow += -v
+    if (v > 0) inflow += v;
+    else outflow += -v;
   }
-  return { inflow, outflow, hasMarker }
+  return { inflow, outflow, hasMarker };
 }
 
 export default function Calendar() {
-  const accounts = usePortfolio((s) => s.accounts)
-  const transactions = usePortfolio((s) => s.transactions)
-  const instruments = usePortfolio((s) => s.instruments)
-  const fx = usePortfolio((s) => s.fx)
-  const privacy = usePortfolio((s) => s.privacy)
-  const summary = usePortfolioSummary()
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
+  const privacy = usePortfolio((s) => s.privacy);
+  const summary = usePortfolioSummary();
 
-  const today = new Date()
-  const todayIso = isoDay(today.getFullYear(), today.getMonth(), today.getDate())
+  const today = new Date();
+  const todayIso = isoDay(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
 
-  const [view, setView] = useState({ y: today.getFullYear(), m: today.getMonth() })
-  const [selected, setSelected] = useState<string | null>(todayIso)
+  // Fixed annual view: the whole year at once, navigable by year.
+  const [year, setYear] = useState(today.getFullYear());
+  const [selected, setSelected] = useState<string | null>(todayIso);
 
   const instMap = useMemo(
     () => new Map(instruments.map((i) => [i.key, i])),
     [instruments],
-  )
+  );
 
   // Build a per-day item map across past transactions + future cash-flows + TBSZ.
   const byDay = useMemo(() => {
-    const map = new Map<string, DayItem[]>()
+    const map = new Map<string, DayItem[]>();
     const push = (date: string, item: DayItem) => {
-      const key = date.slice(0, 10)
-      const arr = map.get(key)
-      if (arr) arr.push(item)
-      else map.set(key, [item])
-    }
+      const key = date.slice(0, 10);
+      const arr = map.get(key);
+      if (arr) arr.push(item);
+      else map.set(key, [item]);
+    };
 
     // Past transactions. Skip mirror/internal entries: the treasury export
     // duplicates every bond settlement's cash side as a `pénzszámla kifizetés`
     // (flagged internal), and Lightyear marks own-account transfers IT-. Counting
     // them would double the day's flow (e.g. a 6,2M buy showing as −12,4M).
     for (const t of transactions) {
-      if (t.internal || isInternalTransfer(t)) continue
-      const cat = TX_CAT[t.type] ?? null
-      if (!cat) continue
-      const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0)
-      if (raw === 0) continue
-      const huf = t.currency === 'HUF' ? raw : raw * (fx[t.currency] ?? 0)
-      const inst = t.instrumentKey ? instMap.get(t.instrumentKey) : undefined
-      const isTrade = t.type === 'buy' || t.type === 'sell'
+      if (t.internal || isInternalTransfer(t)) continue;
+      const cat = TX_CAT[t.type] ?? null;
+      if (!cat) continue;
+      const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+      if (raw === 0) continue;
+      const huf = t.currency === "HUF" ? raw : raw * (fx[t.currency] ?? 0);
+      const inst = t.instrumentKey ? instMap.get(t.instrumentKey) : undefined;
+      const isTrade = t.type === "buy" || t.type === "sell";
       push(t.date, {
         title: inst?.name ?? txTypeLabel[t.type],
         amountHuf: huf,
@@ -147,7 +157,7 @@ export default function Calendar() {
         tag: txTypeLabel[t.type],
         cat,
         tradeKey: isTrade ? t.instrumentKey : undefined,
-      })
+      });
     }
 
     // Future bond cash-flows (coupons + redemptions)
@@ -156,238 +166,238 @@ export default function Calendar() {
         title: cf.title,
         amountHuf: cf.amountHuf,
         future: true,
-        tag: cf.kind === 'coupon' ? 'kamat' : 'lejárat',
+        tag: cf.kind === "coupon" ? "kamat" : "lejárat",
         cat: cf.kind,
-      })
+      });
     }
 
     // TBSZ milestones (markers, no cash amount)
     for (const a of accounts) {
-      if (a.kind !== 'tbsz' || !a.tbszYear) continue
-      const st = tbszStatus(a.tbszYear, today)
+      if (a.kind !== "tbsz" || !a.tbszYear) continue;
+      const st = tbszStatus(a.tbszYear, today);
       for (const ms of st.milestones) {
         push(ms.date, {
           title: `TBSZ ${a.tbszYear} — ${ms.label}`,
           future: !ms.done,
-          tag: 'TBSZ',
-          cat: 'tbsz',
-        })
+          tag: "TBSZ",
+          cat: "tbsz",
+        });
       }
     }
 
-    return map
-  }, [transactions, instMap, fx, summary, accounts, today])
+    return map;
+  }, [transactions, instMap, fx, summary, accounts, today]);
 
-  // Month grid cells (Monday-first weeks).
-  const cells = useMemo(() => {
-    const first = new Date(view.y, view.m, 1)
-    const lead = (first.getDay() + 6) % 7 // Monday = 0
-    const daysInMonth = new Date(view.y, view.m + 1, 0).getDate()
-    const out: (number | null)[] = []
-    for (let i = 0; i < lead; i++) out.push(null)
-    for (let d = 1; d <= daysInMonth; d++) out.push(d)
-    while (out.length % 7 !== 0) out.push(null)
-    return out
-  }, [view])
-
-  // Largest day's gross flow this month — normalises the bubble sizes.
+  // Largest single-day gross flow across the WHOLE year — normalises bubble
+  // sizes so they're comparable from month to month.
   const maxGross = useMemo(() => {
-    let mx = 0
-    const days = new Date(view.y, view.m + 1, 0).getDate()
-    for (let d = 1; d <= days; d++) {
-      const items = byDay.get(isoDay(view.y, view.m, d))
-      if (!items) continue
-      const { inflow, outflow } = dayAggregate(items)
-      mx = Math.max(mx, inflow + outflow)
+    let mx = 0;
+    for (let m = 0; m < 12; m++) {
+      const days = new Date(year, m + 1, 0).getDate();
+      for (let d = 1; d <= days; d++) {
+        const items = byDay.get(isoDay(year, m, d));
+        if (!items) continue;
+        const { inflow, outflow } = dayAggregate(items);
+        mx = Math.max(mx, inflow + outflow);
+      }
     }
-    return mx
-  }, [byDay, view])
+    return mx;
+  }, [byDay, year]);
 
-  // This month's expected (future) inflow total.
-  const monthExpected = useMemo(() => {
-    let sum = 0
-    for (let d = 1; d <= 31; d++) {
-      const items = byDay.get(isoDay(view.y, view.m, d))
-      if (!items) continue
-      for (const it of items)
-        if (it.future && it.amountHuf != null) sum += it.amountHuf
+  // This year's expected (future) inflow total.
+  const yearExpected = useMemo(() => {
+    let sum = 0;
+    for (let m = 0; m < 12; m++) {
+      const days = new Date(year, m + 1, 0).getDate();
+      for (let d = 1; d <= days; d++) {
+        const items = byDay.get(isoDay(year, m, d));
+        if (!items) continue;
+        for (const it of items)
+          if (it.future && it.amountHuf != null) sum += it.amountHuf;
+      }
     }
-    return sum
-  }, [byDay, view])
+    return sum;
+  }, [byDay, year]);
 
-  const move = (delta: number) => {
-    const d = new Date(view.y, view.m + delta, 1)
-    setView({ y: d.getFullYear(), m: d.getMonth() })
-  }
+  const selectedItems = selected ? (byDay.get(selected) ?? []) : [];
 
-  const selectedItems = selected ? byDay.get(selected) ?? [] : []
-
-  return (
-    <div>
-      <PageHeader
-        title="Naptár"
-        subtitle="Befektetési mozgások és várható kifizetések napokra bontva (a saját pénz be-/kiutalása nélkül)."
-      />
-
-      <Card className="p-5 sm:p-6">
-        {/* Month nav */}
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-[var(--color-brand)]" />
-            <h2 className="text-lg font-semibold">
-              {view.y}. {MONTHS[view.m]}
-            </h2>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              className="btn-ghost px-2 py-1.5"
-              onClick={() => move(-12)}
-              title="Előző év"
-            >
-              <ChevronsLeft className="h-4 w-4" />
-            </button>
-            <button
-              className="btn-ghost px-2 py-1.5"
-              onClick={() => move(-1)}
-              title="Előző hónap"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              className="btn-ghost px-3 py-1.5 text-xs"
-              onClick={() => setView({ y: today.getFullYear(), m: today.getMonth() })}
-            >
-              Ma
-            </button>
-            <button
-              className="btn-ghost px-2 py-1.5"
-              onClick={() => move(1)}
-              title="Következő hónap"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <button
-              className="btn-ghost px-2 py-1.5"
-              onClick={() => move(12)}
-              title="Következő év"
-            >
-              <ChevronsRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {monthExpected > 0 && (
-          <p className="mb-3 text-sm text-[var(--color-muted)]">
-            Várható bevétel ebben a hónapban:{' '}
-            <span className="amt font-semibold text-[var(--color-positive)]">
-              {formatMoney(monthExpected)}
-            </span>
-          </p>
-        )}
-
-        {/* Weekday header */}
-        <div className="grid grid-cols-7 gap-1 text-center text-xs text-[var(--color-muted)]">
-          {WEEKDAYS.map((w) => (
-            <div key={w} className="py-1 font-medium">
+  // One compact month grid. Bubbles reuse the day-aggregate logic but are
+  // smaller and label-less (the number would not fit) — click for the detail.
+  function MonthGrid({ m }: { m: number }) {
+    const first = new Date(year, m, 1);
+    const lead = (first.getDay() + 6) % 7; // Monday = 0
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < lead; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    const isCurrentMonth =
+      year === today.getFullYear() && m === today.getMonth();
+    return (
+      <div
+        className={`rounded-xl border p-3 ${
+          isCurrentMonth
+            ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/30"
+            : "border-[var(--color-border)]/60"
+        }`}
+      >
+        <div className="mb-2 text-sm font-semibold capitalize">{MONTHS[m]}</div>
+        <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-[var(--color-muted)]">
+          {WEEKDAYS.map((w, wi) => (
+            <div key={wi} className="py-0.5">
               {w}
             </div>
           ))}
         </div>
-
-        {/* Day grid */}
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-0.5">
           {cells.map((d, i) => {
-            if (d == null) return <div key={i} />
-            const key = isoDay(view.y, view.m, d)
-            const items = byDay.get(key)
-            const isToday = key === todayIso
-            const isSel = key === selected
-            const isFuture = key > todayIso
-            const agg = items ? dayAggregate(items) : null
-            const gross = agg ? agg.inflow + agg.outflow : 0
-            const net = agg ? agg.inflow - agg.outflow : 0
-            // Area ∝ amount → diameter ∝ √. Direction sets the colour; a roughly
-            // balanced day (a rebalance) is neutral brand.
+            if (d == null) return <div key={i} />;
+            const key = isoDay(year, m, d);
+            const items = byDay.get(key);
+            const isToday = key === todayIso;
+            const isSel = key === selected;
+            const isFuture = key > todayIso;
+            const agg = items ? dayAggregate(items) : null;
+            const gross = agg ? agg.inflow + agg.outflow : 0;
+            const net = agg ? agg.inflow - agg.outflow : 0;
+            // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid.
             const diam =
-              gross > 0 && maxGross > 0 ? 22 + 32 * Math.sqrt(gross / maxGross) : 0
-            const tol = gross * 0.05
+              gross > 0 && maxGross > 0
+                ? 10 + 18 * Math.sqrt(gross / maxGross)
+                : 0;
+            const tol = gross * 0.05;
             const color =
-              net > tol ? '#34d399' : net < -tol ? '#fb7185' : '#6366f1'
-            const label =
-              Math.abs(net) > tol
-                ? `${net > 0 ? '+' : '−'}${formatCompact(Math.abs(net))}`
-                : gross > 0
-                  ? formatCompact(gross)
-                  : ''
-            const parts: string[] = []
-            if (agg && agg.inflow > 0.5) parts.push(`Be +${formatCompact(agg.inflow)}`)
-            if (agg && agg.outflow > 0.5) parts.push(`Ki −${formatCompact(agg.outflow)}`)
-            const title = !privacy && parts.length ? parts.join(' · ') : undefined
+              net > tol ? "#34d399" : net < -tol ? "#fb7185" : "#6366f1";
+            const parts: string[] = [];
+            if (agg && agg.inflow > 0.5)
+              parts.push(`Be +${formatCompact(agg.inflow)}`);
+            if (agg && agg.outflow > 0.5)
+              parts.push(`Ki −${formatCompact(agg.outflow)}`);
+            const title =
+              !privacy && parts.length ? parts.join(" · ") : undefined;
             return (
               <button
                 key={i}
                 onClick={() => setSelected(key)}
                 title={title}
-                className={`relative flex min-h-[4.5rem] items-start rounded-lg border p-1.5 transition sm:min-h-[5.5rem] ${
+                className={`relative flex aspect-square items-center justify-center rounded-md border text-[10px] transition ${
                   isSel
-                    ? 'border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40'
-                    : 'border-[var(--color-border)]/60 hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40'
+                    ? "border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40"
+                    : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40"
                 }`}
               >
                 <span
-                  className={`relative z-10 text-xs tabular-nums ${
+                  className={`relative z-10 tabular-nums ${
                     isToday
-                      ? 'grid h-5 w-5 place-items-center rounded-full bg-[var(--color-brand)] font-semibold text-white'
-                      : 'text-[var(--color-muted)]'
+                      ? "grid h-4 w-4 place-items-center rounded-full bg-[var(--color-brand)] text-[9px] font-semibold text-white"
+                      : "text-[var(--color-muted)]"
                   }`}
                 >
                   {d}
                 </span>
-
                 {diam > 0 && (
                   <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <span
-                      className="flex items-center justify-center rounded-full"
+                      className="rounded-full"
                       style={{
                         width: diam,
                         height: diam,
-                        background: `${color}${isFuture ? '70' : 'e6'}`,
+                        background: `${color}${isFuture ? "70" : "cc"}`,
                       }}
-                    >
-                      {diam >= 28 && label && (
-                        <span className="amt whitespace-nowrap px-0.5 text-[10px] font-semibold leading-none tabular-nums text-white sm:text-[11px]">
-                          {label}
-                        </span>
-                      )}
-                    </span>
+                    />
                   </span>
                 )}
-
                 {diam === 0 && agg?.hasMarker && (
                   <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <span
-                      className="h-3.5 w-3.5 rounded-full border-2"
+                      className="h-2.5 w-2.5 rounded-full border-2"
                       style={{ borderColor: CAT_COLOR.tbsz }}
                     />
                   </span>
                 )}
               </button>
-            )
+            );
           })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title="Naptár"
+        subtitle="Befektetési mozgások és várható kifizetések az egész évre (a saját pénz be-/kiutalása nélkül)."
+      />
+
+      <Card className="p-5 sm:p-6">
+        {/* Year nav */}
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">{year}</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              className="btn-ghost px-2 py-1.5"
+              onClick={() => setYear((y) => y - 1)}
+              title="Előző év"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              className="btn-ghost px-3 py-1.5 text-xs"
+              onClick={() => setYear(today.getFullYear())}
+            >
+              Idei
+            </button>
+            <button
+              className="btn-ghost px-2 py-1.5"
+              onClick={() => setYear((y) => y + 1)}
+              title="Következő év"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {yearExpected > 0 && (
+          <p className="mb-3 text-sm text-[var(--color-muted)]">
+            Várható bevétel ebben az évben:{" "}
+            <span className="amt font-semibold text-[var(--color-positive)]">
+              {formatMoney(yearExpected)}
+            </span>
+          </p>
+        )}
+
+        {/* 12 months at once */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {MONTHS.map((_, m) => (
+            <MonthGrid key={m} m={m} />
+          ))}
         </div>
 
         {/* Legend */}
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
           <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full" style={{ background: '#34d399' }} />
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: "#34d399" }}
+            />
             Pénz be
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full" style={{ background: '#fb7185' }} />
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: "#fb7185" }}
+            />
             Pénz ki
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-3 w-3 rounded-full" style={{ background: '#6366f1' }} />
+            <span
+              className="h-3 w-3 rounded-full"
+              style={{ background: "#6366f1" }}
+            />
             Átrendezés (be ≈ ki)
           </span>
           <span className="flex items-center gap-1.5">
@@ -404,9 +414,7 @@ export default function Calendar() {
       {/* Selected day detail */}
       {selected && (
         <Card className="mt-4 p-5 sm:p-6">
-          <h3 className="mb-3 text-sm font-semibold">
-            {formatDate(selected)}
-          </h3>
+          <h3 className="mb-3 text-sm font-semibold">{formatDate(selected)}</h3>
           {selectedItems.length === 0 ? (
             <p className="text-sm text-[var(--color-muted)]">
               Nincs tétel ezen a napon.
@@ -437,12 +445,12 @@ export default function Calendar() {
                     {it.amountHuf != null && (
                       <div
                         className={`amt shrink-0 text-sm font-semibold tabular-nums ${
-                          it.cat === 'out'
-                            ? 'text-[var(--color-negative)]'
-                            : 'text-[var(--color-positive)]'
+                          it.cat === "out"
+                            ? "text-[var(--color-negative)]"
+                            : "text-[var(--color-positive)]"
                         }`}
                       >
-                        {it.cat === 'out' ? '−' : '+'}
+                        {it.cat === "out" ? "−" : "+"}
                         {formatMoney(it.amountHuf)}
                       </div>
                     )}
@@ -453,5 +461,5 @@ export default function Calendar() {
         </Card>
       )}
     </div>
-  )
+  );
 }
