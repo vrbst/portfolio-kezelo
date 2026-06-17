@@ -292,66 +292,61 @@ export default function Dashboard() {
             </Card>
           )}
 
-          <HoldingsPanel />
-
-          {events.length > 0 && (
-            <Card className="p-5">
-              <div className="mb-4 flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
-                <h2 className="text-lg font-semibold">Közelgő események</h2>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                {events.map((e, i) => {
-                  const Icon = EVENT_ICON[e.kind];
-                  const inner = (
-                    <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
-                        <Icon className="h-[18px] w-[18px]" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">
-                          {e.title}
-                        </div>
-                        <div className="text-xs text-[var(--color-muted)]">
-                          {formatDate(e.date)} ·{" "}
-                          {e.daysUntil === 0
-                            ? "ma"
-                            : `${e.daysUntil} nap múlva`}
-                          {e.detail ? ` · ${e.detail}` : ""}
-                        </div>
+          {/* Számláim — közvetlenül az Eszközeim fölött */}
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Számláim</h2>
+              <Link
+                to="/accounts"
+                className="inline-flex items-center gap-1 text-sm text-[var(--color-brand)] hover:underline"
+              >
+                Összes <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+              {summary.accounts.map((a) => (
+                <Link key={a.account.id} to={`/accounts/${a.account.id}`}>
+                  <div className="card-hover flex items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium">
+                          {a.account.name}
+                        </span>
+                        <Badge tone="neutral">
+                          {accountKindLabel(a.account)}
+                        </Badge>
                       </div>
-                      {e.amountHuf != null && (
-                        <div className="amt text-right text-sm font-semibold tabular-nums">
-                          {e.kind === "coupon" ? "+" : ""}
-                          {formatMoney(e.amountHuf)}
-                        </div>
+                      <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                        {a.holdings.length} pozíció · készpénz{" "}
+                        <Amt>{formatMoney(a.cashValueHuf)}</Amt>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="amt font-semibold tabular-nums">
+                        {formatMoney(a.totalValueHuf)}
+                      </div>
+                      {isEmptyAccount(a) ? (
+                        <Badge tone="neutral">üres</Badge>
+                      ) : (
+                        accountReturn(a) != null && (
+                          <Delta pct={accountReturn(a)} className="text-xs" />
+                        )
                       )}
                     </div>
-                  );
-                  return e.accountId ? (
-                    <Link
-                      key={i}
-                      to={`/accounts/${e.accountId}`}
-                      className="block card-hover rounded-xl"
-                    >
-                      {inner}
-                    </Link>
-                  ) : (
-                    <div key={i}>{inner}</div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </Card>
+
+          <HoldingsPanel />
         </div>
 
-        {/* Jobb oldalsáv: számláim → élő árfolyamok → allokáció (order) */}
+        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események */}
         <div className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0">
-          <div className="order-2">
-            <LivePricesPanel />
-          </div>
+          <LivePricesPanel />
           {/* Allocation donut */}
-          <Card className="order-3 p-5">
+          <Card className="p-5">
             <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
             <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
               {(
@@ -428,52 +423,56 @@ export default function Dashboard() {
             </div>
           </Card>
 
-          {/* Accounts breakdown */}
-          <Card className="order-1 p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Számláim</h2>
-              <Link
-                to="/accounts"
-                className="inline-flex items-center gap-1 text-sm text-[var(--color-brand)] hover:underline"
-              >
-                Összes <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-            <div className="space-y-3">
-              {summary.accounts.map((a) => (
-                <Link key={a.account.id} to={`/accounts/${a.account.id}`}>
-                  <div className="card-hover flex items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">
-                          {a.account.name}
-                        </span>
-                        <Badge tone="neutral">
-                          {accountKindLabel(a.account)}
-                        </Badge>
+          {/* Közelgő események — a jobb oszlop alján */}
+          {events.length > 0 && (
+            <Card className="p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
+                <h2 className="text-lg font-semibold">Közelgő események</h2>
+              </div>
+              <div className="space-y-2">
+                {events.map((e, i) => {
+                  const Icon = EVENT_ICON[e.kind];
+                  const inner = (
+                    <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
+                        <Icon className="h-[18px] w-[18px]" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          {e.title}
+                        </div>
+                        <div className="text-xs text-[var(--color-muted)]">
+                          {formatDate(e.date)} ·{" "}
+                          {e.daysUntil === 0
+                            ? "ma"
+                            : `${e.daysUntil} nap múlva`}
+                          {e.detail ? ` · ${e.detail}` : ""}
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                        {a.holdings.length} pozíció · készpénz{" "}
-                        <Amt>{formatMoney(a.cashValueHuf)}</Amt>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="amt font-semibold tabular-nums">
-                        {formatMoney(a.totalValueHuf)}
-                      </div>
-                      {isEmptyAccount(a) ? (
-                        <Badge tone="neutral">üres</Badge>
-                      ) : (
-                        accountReturn(a) != null && (
-                          <Delta pct={accountReturn(a)} className="text-xs" />
-                        )
+                      {e.amountHuf != null && (
+                        <div className="amt text-right text-sm font-semibold tabular-nums">
+                          {e.kind === "coupon" ? "+" : ""}
+                          {formatMoney(e.amountHuf)}
+                        </div>
                       )}
                     </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </Card>
+                  );
+                  return e.accountId ? (
+                    <Link
+                      key={i}
+                      to={`/accounts/${e.accountId}`}
+                      className="block card-hover rounded-xl"
+                    >
+                      {inner}
+                    </Link>
+                  ) : (
+                    <div key={i}>{inner}</div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
     </div>
