@@ -214,55 +214,53 @@ export default function Dashboard() {
 
       <AlertsPanel />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Teljes érték"
-          value={formatMoney(summary.totalValueHuf)}
-          sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
-          icon={<Wallet className="h-5 w-5" />}
-          index={0}
-          accent
-        />
-        <StatCard
-          label="Teljes hozam"
-          value={formatMoney(summary.totalPlHuf, "HUF", { sign: true })}
-          sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
-          deltaPct={summary.totalReturnPct}
-          icon={<TrendingUp className="h-5 w-5" />}
-          index={1}
-        />
-        <StatCard
-          label="Befektetett tőke"
-          value={formatMoney(summary.netDepositedHuf)}
-          icon={<PiggyBank className="h-5 w-5" />}
-          index={2}
-        />
-        <StatCard
-          label="Realizált eredmény"
-          value={formatMoney(
-            summary.totalPlHuf - summary.unrealizedPlHuf,
-            "HUF",
-            {
-              sign: true,
-            },
-          )}
-          sub={
-            summary.interestHuf > 0.5
-              ? `ebből kamat: ${formatMoney(summary.interestHuf, "HUF", {
-                  sign: true,
-                })}`
-              : undefined
-          }
-          icon={<Coins className="h-5 w-5" />}
-          index={3}
-        />
-      </div>
-
-      <LivePricesPanel />
-
       <div className="mt-4 flex flex-col gap-4 xl:flex-row">
-        {/* Bal fő-oszlop: grafikon + eszközeim */}
+        {/* Bal fő-oszlop: kártyák + grafikon + eszközeim */}
         <div className="min-w-0 flex-1 space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+            <StatCard
+              label="Teljes érték"
+              value={formatMoney(summary.totalValueHuf)}
+              sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
+              icon={<Wallet className="h-5 w-5" />}
+              index={0}
+              accent
+            />
+            <StatCard
+              label="Teljes hozam"
+              value={formatMoney(summary.totalPlHuf, "HUF", { sign: true })}
+              sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
+              deltaPct={summary.totalReturnPct}
+              icon={<TrendingUp className="h-5 w-5" />}
+              index={1}
+            />
+            <StatCard
+              label="Befektetett tőke"
+              value={formatMoney(summary.netDepositedHuf)}
+              icon={<PiggyBank className="h-5 w-5" />}
+              index={2}
+            />
+            <StatCard
+              label="Realizált eredmény"
+              value={formatMoney(
+                summary.totalPlHuf - summary.unrealizedPlHuf,
+                "HUF",
+                {
+                  sign: true,
+                },
+              )}
+              sub={
+                summary.interestHuf > 0.5
+                  ? `ebből kamat: ${formatMoney(summary.interestHuf, "HUF", {
+                      sign: true,
+                    })}`
+                  : undefined
+              }
+              icon={<Coins className="h-5 w-5" />}
+              index={3}
+            />
+          </div>
+
           {valueSeries.length > 1 && (
             <Card className="p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -347,10 +345,13 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Jobb oldalsáv: allokáció + számlák */}
-        <div className="w-full space-y-4 xl:w-[400px] xl:shrink-0">
+        {/* Jobb oldalsáv: számláim → élő árfolyamok → allokáció (order) */}
+        <div className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0">
+          <div className="order-2">
+            <LivePricesPanel />
+          </div>
           {/* Allocation donut */}
-          <Card className="p-5">
+          <Card className="order-3 p-5">
             <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
             <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
               {(
@@ -428,7 +429,7 @@ export default function Dashboard() {
           </Card>
 
           {/* Accounts breakdown */}
-          <Card className="p-5">
+          <Card className="order-1 p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Számláim</h2>
               <Link
