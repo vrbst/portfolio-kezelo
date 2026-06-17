@@ -431,8 +431,8 @@ export default function AccountDetail() {
         )}
       </div>
 
-      {/* Cash by currency */}
-      {Object.keys(accSummary.cash).length > 0 && (
+      {/* Cash by currency — treasury esetén a készpénz már fent van az 5. kártyán */}
+      {!isTreasury && Object.keys(accSummary.cash).length > 0 && (
         <div className="mt-6">
           <h2 className="mb-3 text-lg font-semibold">Készpénz egyenleg</h2>
           <div className="flex flex-wrap gap-3">
