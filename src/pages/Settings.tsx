@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from "react";
 import {
   Trash2,
   Database,
@@ -15,31 +15,31 @@ import {
   Bell,
   Target,
   Plus,
-} from 'lucide-react'
-import { usePortfolio, useGoalProgress } from '../lib/store'
-import { PageHeader, Card, Badge } from '../components/ui'
-import { formatDateTime, formatNumber, formatMoney } from '../lib/format'
-import { instrumentTypeLabel } from '../lib/labels'
-import { PERIOD_LABEL, type GoalPeriod } from '../lib/goals'
-import { verifyAccess, type SyncConfig } from '../lib/sync'
+} from "lucide-react";
+import { usePortfolio, useGoalProgress } from "../lib/store";
+import { PageHeader, Card, Badge } from "../components/ui";
+import { formatDateTime, formatNumber, formatMoney } from "../lib/format";
+import { instrumentTypeLabel } from "../lib/labels";
+import { PERIOD_LABEL, type GoalPeriod } from "../lib/goals";
+import { verifyAccess, type SyncConfig } from "../lib/sync";
 import {
   AI_MODELS,
   loadAiKey,
   saveAiKey,
   loadAiModel,
   saveAiModel,
-} from '../lib/ai'
-import type { BondTerms, Instrument } from '../lib/model'
+} from "../lib/ai";
+import type { BondTerms, Instrument } from "../lib/model";
 
-const PRICED_TYPES = new Set(['etf', 'stock', 'fund'])
-const BOND_TYPES = new Set(['gov_bond', 'tbill'])
+const PRICED_TYPES = new Set(["etf", "stock", "fund"]);
+const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 export default function Settings() {
-  const accounts = usePortfolio((s) => s.accounts)
-  const transactions = usePortfolio((s) => s.transactions)
-  const instruments = usePortfolio((s) => s.instruments)
-  const clearAll = usePortfolio((s) => s.clearAll)
-  const [confirming, setConfirming] = useState(false)
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const clearAll = usePortfolio((s) => s.clearAll);
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <div>
@@ -89,8 +89,8 @@ export default function Settings() {
             <button
               className="btn bg-[var(--color-negative)] text-white hover:brightness-110"
               onClick={async () => {
-                await clearAll()
-                setConfirming(false)
+                await clearAll();
+                setConfirming(false);
               }}
             >
               Igen, töröljem mindet
@@ -109,58 +109,58 @@ export default function Settings() {
         )}
       </Card>
     </div>
-  )
+  );
 }
 
 function SyncSettings() {
-  const syncConfig = usePortfolio((s) => s.syncConfig)
-  const setSyncConfig = usePortfolio((s) => s.setSyncConfig)
-  const pushToCloud = usePortfolio((s) => s.pushToCloud)
-  const pullFromCloud = usePortfolio((s) => s.pullFromCloud)
-  const syncing = usePortfolio((s) => s.syncing)
-  const lastSyncedAt = usePortfolio((s) => s.lastSyncedAt)
-  const autoSync = usePortfolio((s) => s.autoSync)
-  const setAutoSync = usePortfolio((s) => s.setAutoSync)
-  const syncError = usePortfolio((s) => s.syncError)
+  const syncConfig = usePortfolio((s) => s.syncConfig);
+  const setSyncConfig = usePortfolio((s) => s.setSyncConfig);
+  const pushToCloud = usePortfolio((s) => s.pushToCloud);
+  const pullFromCloud = usePortfolio((s) => s.pullFromCloud);
+  const syncing = usePortfolio((s) => s.syncing);
+  const lastSyncedAt = usePortfolio((s) => s.lastSyncedAt);
+  const autoSync = usePortfolio((s) => s.autoSync);
+  const setAutoSync = usePortfolio((s) => s.setAutoSync);
+  const syncError = usePortfolio((s) => s.syncError);
 
   const [form, setForm] = useState<SyncConfig>(
-    syncConfig ?? { token: '', owner: '', repo: '', path: 'data.json' },
-  )
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+    syncConfig ?? { token: "", owner: "", repo: "", path: "data.json" },
+  );
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const connected = !!syncConfig
+  const connected = !!syncConfig;
 
   const update = (patch: Partial<SyncConfig>) =>
-    setForm((f) => ({ ...f, ...patch }))
+    setForm((f) => ({ ...f, ...patch }));
 
   async function connect() {
-    setMsg(null)
+    setMsg(null);
     try {
-      const full = await verifyAccess(form)
-      setSyncConfig({ ...form, path: form.path || 'data.json' })
-      setMsg({ ok: true, text: `Kapcsolódva: ${full}` })
+      const full = await verifyAccess(form);
+      setSyncConfig({ ...form, path: form.path || "data.json" });
+      setMsg({ ok: true, text: `Kapcsolódva: ${full}` });
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message })
+      setMsg({ ok: false, text: (e as Error).message });
     }
   }
 
   async function doPush() {
-    setMsg(null)
+    setMsg(null);
     try {
-      await pushToCloud()
-      setMsg({ ok: true, text: 'Feltöltve a privát repóba.' })
+      await pushToCloud();
+      setMsg({ ok: true, text: "Feltöltve a privát repóba." });
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message })
+      setMsg({ ok: false, text: (e as Error).message });
     }
   }
 
   async function doPull() {
-    setMsg(null)
+    setMsg(null);
     try {
-      const { added } = await pullFromCloud()
-      setMsg({ ok: true, text: `Letöltve. ${added} új tranzakció.` })
+      const { added } = await pullFromCloud();
+      setMsg({ ok: true, text: `Letöltve. ${added} új tranzakció.` });
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message })
+      setMsg({ ok: false, text: (e as Error).message });
     }
   }
 
@@ -209,12 +209,20 @@ function SyncSettings() {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button className="btn-ghost" onClick={connect} disabled={syncing}>
-          {connected ? 'Újrakapcsolódás' : 'Kapcsolódás'}
+          {connected ? "Újrakapcsolódás" : "Kapcsolódás"}
         </button>
-        <button className="btn-primary" onClick={doPush} disabled={!connected || syncing}>
+        <button
+          className="btn-primary"
+          onClick={doPush}
+          disabled={!connected || syncing}
+        >
           <CloudUpload className="h-4 w-4" /> Feltöltés
         </button>
-        <button className="btn-ghost" onClick={doPull} disabled={!connected || syncing}>
+        <button
+          className="btn-ghost"
+          onClick={doPull}
+          disabled={!connected || syncing}
+        >
           <CloudDownload className="h-4 w-4" /> Letöltés
         </button>
         {syncing && (
@@ -237,7 +245,7 @@ function SyncSettings() {
       {lastSyncedAt && (
         <p className="mt-2 text-xs text-[var(--color-muted)]">
           Utolsó szinkron: {formatDateTime(lastSyncedAt)}
-          {autoSync && connected ? ' · auto' : ''}
+          {autoSync && connected ? " · auto" : ""}
         </p>
       )}
       {syncError && (
@@ -249,7 +257,9 @@ function SyncSettings() {
       {msg && (
         <p
           className={`mt-2 flex items-center gap-1.5 text-xs ${
-            msg.ok ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]'
+            msg.ok
+              ? "text-[var(--color-positive)]"
+              : "text-[var(--color-negative)]"
           }`}
         >
           {msg.ok ? (
@@ -261,29 +271,29 @@ function SyncSettings() {
         </p>
       )}
     </Card>
-  )
+  );
 }
 
 function AiSettings() {
-  const [key, setKey] = useState(loadAiKey())
-  const [model, setModel] = useState(loadAiModel())
-  const [saved, setSaved] = useState(false)
+  const [key, setKey] = useState(loadAiKey());
+  const [model, setModel] = useState(loadAiModel());
+  const [saved, setSaved] = useState(false);
 
-  const connected = loadAiKey().length > 0
+  const connected = loadAiKey().length > 0;
 
   function save() {
-    saveAiKey(key.trim())
-    saveAiModel(model)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    saveAiKey(key.trim());
+    saveAiModel(model);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   }
 
   function onModelChange(id: string) {
-    setModel(id)
-    saveAiModel(id) // persist immediately so it applies even without re-saving the key
+    setModel(id);
+    saveAiModel(id); // persist immediately so it applies even without re-saving the key
   }
 
-  const activeModel = AI_MODELS.find((m) => m.id === model)
+  const activeModel = AI_MODELS.find((m) => m.id === model);
 
   return (
     <Card className="mt-4 p-6">
@@ -296,9 +306,9 @@ function AiSettings() {
       </div>
       <p className="mb-4 text-xs text-[var(--color-muted)]">
         Add meg a saját Claude API-kulcsodat az AI elemzéshez és a kérdezz
-        funkcióhoz az Áttekintés oldalon. A kulcs <strong>csak ezen az
-        eszközön</strong> tárolódik (mint a szinkron token), sosem kerül a
-        felhőbe. Kulcsot a{' '}
+        funkcióhoz az Áttekintés oldalon. A kulcs{" "}
+        <strong>csak ezen az eszközön</strong> tárolódik (mint a szinkron
+        token), sosem kerül a felhőbe. Kulcsot a{" "}
         <a
           href="https://console.anthropic.com/settings/keys"
           target="_blank"
@@ -306,7 +316,7 @@ function AiSettings() {
           className="text-[var(--color-brand)] hover:underline"
         >
           console.anthropic.com
-        </a>{' '}
+        </a>{" "}
         oldalon készíthetsz. Hívásonként csak aggregált pillanatkép megy el
         (tranzakciók soha), így pár doll&aacute;r is sok lekérésre elég.
       </p>
@@ -329,8 +339,8 @@ function AiSettings() {
               key={m.id}
               className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition ${
                 model === m.id
-                  ? 'border-[var(--color-brand)]/50 bg-[var(--color-brand)]/10'
-                  : 'border-[var(--color-border)] bg-[var(--color-surface-2)]/40 hover:border-[var(--color-brand)]/30'
+                  ? "border-[var(--color-brand)]/50 bg-[var(--color-brand)]/10"
+                  : "border-[var(--color-border)] bg-[var(--color-surface-2)]/40 hover:border-[var(--color-brand)]/30"
               }`}
             >
               <input
@@ -360,8 +370,8 @@ function AiSettings() {
           <button
             className="btn-ghost"
             onClick={() => {
-              saveAiKey('')
-              setKey('')
+              saveAiKey("");
+              setKey("");
             }}
           >
             Kulcs törlése
@@ -375,20 +385,18 @@ function AiSettings() {
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function PriceSettings() {
-  const instruments = usePortfolio((s) => s.instruments)
-  const priceFile = usePortfolio((s) => s.priceFile)
-  const manualPrices = usePortfolio((s) => s.manualPrices)
-  const setManualPrice = usePortfolio((s) => s.setManualPrice)
-  const refreshPrices = usePortfolio((s) => s.refreshPrices)
-  const pricesLoading = usePortfolio((s) => s.pricesLoading)
-  const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt)
-  const eurHuf = usePortfolio((s) => s.fx['EUR'])
+  const instruments = usePortfolio((s) => s.instruments);
+  const priceFile = usePortfolio((s) => s.priceFile);
+  const refreshPrices = usePortfolio((s) => s.refreshPrices);
+  const pricesLoading = usePortfolio((s) => s.pricesLoading);
+  const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
+  const eurHuf = usePortfolio((s) => s.fx["EUR"]);
 
-  const priced = instruments.filter((i) => PRICED_TYPES.has(i.type))
+  const priced = instruments.filter((i) => PRICED_TYPES.has(i.type));
 
   return (
     <Card className="mt-4 p-6">
@@ -403,16 +411,15 @@ function PriceSettings() {
           disabled={pricesLoading}
         >
           <RefreshCw
-            className={`h-4 w-4 ${pricesLoading ? 'animate-spin' : ''}`}
+            className={`h-4 w-4 ${pricesLoading ? "animate-spin" : ""}`}
           />
           Frissítés
         </button>
       </div>
       <p className="mb-4 text-xs text-[var(--color-muted)]">
         Automatikus forrás: Yahoo Finance (ETF) + frankfurter.app (EUR/HUF
-        {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ''}).
-        {priceUpdatedAt && ` Frissítve: ${formatDateTime(priceUpdatedAt)}.`} A
-        kézi érték felülírja az automatikusat.
+        {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ""}).
+        {priceUpdatedAt && ` Frissítve: ${formatDateTime(priceUpdatedAt)}.`}
       </p>
 
       {priced.length === 0 ? (
@@ -422,73 +429,67 @@ function PriceSettings() {
       ) : (
         <div className="space-y-2">
           {priced.map((inst) => {
-            const auto = priceFile?.prices[inst.key]
-            const manual = manualPrices[inst.key]
+            const auto = priceFile?.prices[inst.key];
             return (
               <div
                 key={inst.key}
-                className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 font-medium">
                     {inst.ticker || inst.name}
-                    <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
+                    <Badge tone="neutral">
+                      {instrumentTypeLabel[inst.type]}
+                    </Badge>
                   </div>
-                  <div className="text-xs text-[var(--color-muted)]">
-                    {auto
-                      ? `Auto: ${formatNumber(auto.price, 2)} ${auto.currency}${
-                          auto.symbol ? ` · ${auto.symbol}` : ''
-                        }`
-                      : 'Nincs automatikus ár'}
-                  </div>
+                  {auto?.symbol && (
+                    <div className="text-xs text-[var(--color-muted)]">
+                      {auto.symbol}
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    defaultValue={manual ?? ''}
-                    placeholder={auto ? String(auto.price) : 'Ár'}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim()
-                      setManualPrice(inst.key, v === '' ? null : Number(v))
-                    }}
-                    className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-right text-sm"
-                  />
-                  <span className="text-xs text-[var(--color-muted)]">
-                    {inst.currency}
-                  </span>
-                  {manual != null && (
-                    <Badge tone="warning">kézi</Badge>
+                <div className="text-right">
+                  {auto ? (
+                    <div className="amt font-semibold tabular-nums">
+                      {formatNumber(auto.price, 2)}{" "}
+                      <span className="text-xs font-normal text-[var(--color-muted)]">
+                        {auto.currency}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-[var(--color-muted)]">
+                      Nincs automatikus ár
+                    </span>
                   )}
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 const INTERVALS = [
-  { months: 12, label: 'éves' },
-  { months: 6, label: 'féléves' },
-  { months: 3, label: 'negyedéves' },
-  { months: 1, label: 'havi' },
-]
+  { months: 12, label: "éves" },
+  { months: 6, label: "féléves" },
+  { months: 3, label: "negyedéves" },
+  { months: 1, label: "havi" },
+];
 
 const inputCls =
-  'rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm'
+  "rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm";
 
 function BondSeriesSettings() {
-  const instruments = usePortfolio((s) => s.instruments)
-  const updateInstrument = usePortfolio((s) => s.updateInstrument)
+  const instruments = usePortfolio((s) => s.instruments);
+  const updateInstrument = usePortfolio((s) => s.updateInstrument);
 
-  const bonds = instruments.filter((i) => BOND_TYPES.has(i.type))
-  if (bonds.length === 0) return null
+  const bonds = instruments.filter((i) => BOND_TYPES.has(i.type));
+  if (bonds.length === 0) return null;
 
   const setBond = (inst: Instrument, patch: Partial<BondTerms>) =>
-    updateInstrument(inst.key, { bond: { ...inst.bond, ...patch } })
+    updateInstrument(inst.key, { bond: { ...inst.bond, ...patch } });
 
   return (
     <Card className="mt-4 p-6">
@@ -502,17 +503,17 @@ function BondSeriesSettings() {
         felhalmozott kamatot a kupon-ütemterv szerint. Az érték a lejárat előtti
         eladási költséggel csökkentve jelenik meg (alapból a névérték 1%-a),
         vagyis a most realizálható összeg. Hétvégén a következő hétfői nappal
-        számolunk (mint a MobilKincstár). Az első (tört) kamat összegét kézzel is
-        megadhatod (a MÁK-érték), mert a tört periódus nem számolható forintra
-        pontosan. A diszkont kincstárjegyek automatikusan a vételár → névérték
-        akkrécióval értékelődnek.
+        számolunk (mint a MobilKincstár). Az első (tört) kamat összegét kézzel
+        is megadhatod (a MÁK-érték), mert a tört periódus nem számolható
+        forintra pontosan. A diszkont kincstárjegyek automatikusan a vételár →
+        névérték akkrécióval értékelődnek.
       </p>
 
       <div className="space-y-3">
         {bonds.map((inst) => {
-          const isTbill = inst.type === 'tbill'
-          const b = inst.bond ?? {}
-          const missing = !isTbill && b.couponRate == null
+          const isTbill = inst.type === "tbill";
+          const b = inst.bond ?? {};
+          const missing = !isTbill && b.couponRate == null;
           return (
             <div
               key={inst.key}
@@ -522,19 +523,16 @@ function BondSeriesSettings() {
                 <span className="font-medium">{inst.name}</span>
                 <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
                 {missing && <Badge tone="warning">hiányzó adat</Badge>}
-                {!isTbill && !missing && (
-                  <Badge tone="positive">megadva</Badge>
-                )}
+                {!isTbill && !missing && <Badge tone="positive">megadva</Badge>}
                 <span className="text-xs text-[var(--color-muted)]">
-                  lejárat:{' '}
-                  {(b.maturity ?? inst.maturity)?.slice(0, 10) ?? '—'}
+                  lejárat: {(b.maturity ?? inst.maturity)?.slice(0, 10) ?? "—"}
                 </span>
               </div>
 
               {isTbill ? (
                 <p className="text-xs text-[var(--color-muted)]">
                   Diszkont kincstárjegy — automatikus akkréció a lejáratig (
-                  {inst.maturity?.slice(0, 10) ?? 'ismeretlen lejárat'}).
+                  {inst.maturity?.slice(0, 10) ?? "ismeretlen lejárat"}).
                 </p>
               ) : (
                 <div className="flex flex-wrap items-end gap-3">
@@ -542,7 +540,7 @@ function BondSeriesSettings() {
                     <input
                       type="date"
                       className={inputCls}
-                      value={(b.maturity ?? inst.maturity)?.slice(0, 10) ?? ''}
+                      value={(b.maturity ?? inst.maturity)?.slice(0, 10) ?? ""}
                       onChange={(e) =>
                         setBond(inst, { maturity: e.target.value || undefined })
                       }
@@ -552,9 +550,11 @@ function BondSeriesSettings() {
                     <input
                       type="date"
                       className={inputCls}
-                      value={b.issueDate?.slice(0, 10) ?? ''}
+                      value={b.issueDate?.slice(0, 10) ?? ""}
                       onChange={(e) =>
-                        setBond(inst, { issueDate: e.target.value || undefined })
+                        setBond(inst, {
+                          issueDate: e.target.value || undefined,
+                        })
                       }
                     />
                   </Field>
@@ -564,14 +564,14 @@ function BondSeriesSettings() {
                       step="any"
                       className={`${inputCls} w-24 text-right`}
                       defaultValue={
-                        b.couponRate != null ? b.couponRate * 100 : ''
+                        b.couponRate != null ? b.couponRate * 100 : ""
                       }
                       placeholder="pl. 7.04"
                       onBlur={(e) => {
-                        const v = e.target.value.trim()
+                        const v = e.target.value.trim();
                         setBond(inst, {
-                          couponRate: v === '' ? undefined : Number(v) / 100,
-                        })
+                          couponRate: v === "" ? undefined : Number(v) / 100,
+                        });
                       }}
                     />
                   </Field>
@@ -596,7 +596,7 @@ function BondSeriesSettings() {
                     <input
                       type="date"
                       className={inputCls}
-                      value={b.firstCouponDate?.slice(0, 10) ?? ''}
+                      value={b.firstCouponDate?.slice(0, 10) ?? ""}
                       onChange={(e) =>
                         setBond(inst, {
                           firstCouponDate: e.target.value || undefined,
@@ -610,14 +610,14 @@ function BondSeriesSettings() {
                       step="any"
                       className={`${inputCls} w-24 text-right`}
                       defaultValue={
-                        b.saleCostPct != null ? b.saleCostPct * 100 : ''
+                        b.saleCostPct != null ? b.saleCostPct * 100 : ""
                       }
                       placeholder="1"
                       onBlur={(e) => {
-                        const v = e.target.value.trim()
+                        const v = e.target.value.trim();
                         setBond(inst, {
-                          saleCostPct: v === '' ? undefined : Number(v) / 100,
-                        })
+                          saleCostPct: v === "" ? undefined : Number(v) / 100,
+                        });
                       }}
                     />
                   </Field>
@@ -626,52 +626,52 @@ function BondSeriesSettings() {
                       type="number"
                       step="any"
                       className={`${inputCls} w-32 text-right`}
-                      defaultValue={b.firstCouponHuf ?? ''}
+                      defaultValue={b.firstCouponHuf ?? ""}
                       placeholder="becsült"
                       onBlur={(e) => {
-                        const v = e.target.value.trim()
+                        const v = e.target.value.trim();
                         setBond(inst, {
-                          firstCouponHuf: v === '' ? undefined : Number(v),
-                        })
+                          firstCouponHuf: v === "" ? undefined : Number(v),
+                        });
                       }}
                     />
                   </Field>
                 </div>
               )}
             </div>
-          )
+          );
         })}
       </div>
     </Card>
-  )
+  );
 }
 
 function Field({
   label,
   children,
 }: {
-  label: string
-  children: React.ReactNode
+  label: string;
+  children: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs text-[var(--color-muted)]">{label}</span>
       {children}
     </label>
-  )
+  );
 }
 
 function AlertSettings() {
-  const idleCashHuf = usePortfolio((s) => s.alertConfig.idleCashHuf)
-  const tbszCheck = usePortfolio((s) => s.alertConfig.tbszCheck)
-  const setIdleCashThreshold = usePortfolio((s) => s.setIdleCashThreshold)
-  const setTbszCheckEnabled = usePortfolio((s) => s.setTbszCheckEnabled)
-  const [draft, setDraft] = useState(String(idleCashHuf))
+  const idleCashHuf = usePortfolio((s) => s.alertConfig.idleCashHuf);
+  const tbszCheck = usePortfolio((s) => s.alertConfig.tbszCheck);
+  const setIdleCashThreshold = usePortfolio((s) => s.setIdleCashThreshold);
+  const setTbszCheckEnabled = usePortfolio((s) => s.setTbszCheckEnabled);
+  const [draft, setDraft] = useState(String(idleCashHuf));
 
   function commit() {
-    const v = Number(draft.replace(/\s/g, ''))
-    if (Number.isFinite(v) && v > 0) setIdleCashThreshold(v)
-    else setDraft(String(idleCashHuf))
+    const v = Number(draft.replace(/\s/g, ""));
+    if (Number.isFinite(v) && v > 0) setIdleCashThreshold(v);
+    else setDraft(String(idleCashHuf));
   }
 
   return (
@@ -711,7 +711,7 @@ function AlertSettings() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commit}
-              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm tabular-nums"
             />
             <span className="text-sm text-[var(--color-muted)]">Ft</span>
@@ -723,34 +723,34 @@ function AlertSettings() {
         eszközödön egységes. A küszöb eszközönként állítható.
       </p>
     </Card>
-  )
+  );
 }
 
-const PERIODS: GoalPeriod[] = [1, 3, 6, 12]
+const PERIODS: GoalPeriod[] = [1, 3, 6, 12];
 
 function GoalsSettings() {
-  const instruments = usePortfolio((s) => s.instruments)
-  const addGoal = usePortfolio((s) => s.addGoal)
-  const removeGoal = usePortfolio((s) => s.removeGoal)
-  const progress = useGoalProgress()
+  const instruments = usePortfolio((s) => s.instruments);
+  const addGoal = usePortfolio((s) => s.addGoal);
+  const removeGoal = usePortfolio((s) => s.removeGoal);
+  const progress = useGoalProgress();
 
-  const investable = instruments.filter((i) => i.type !== 'cash')
-  const [instrumentKey, setInstrumentKey] = useState('')
-  const [periodMonths, setPeriodMonths] = useState<GoalPeriod>(1)
-  const [amount, setAmount] = useState('')
+  const investable = instruments.filter((i) => i.type !== "cash");
+  const [instrumentKey, setInstrumentKey] = useState("");
+  const [periodMonths, setPeriodMonths] = useState<GoalPeriod>(1);
+  const [amount, setAmount] = useState("");
 
-  const key = instrumentKey || investable[0]?.key || ''
-  const amountNum = Number(amount.replace(/\s/g, ''))
-  const canAdd = key && Number.isFinite(amountNum) && amountNum > 0
+  const key = instrumentKey || investable[0]?.key || "";
+  const amountNum = Number(amount.replace(/\s/g, ""));
+  const canAdd = key && Number.isFinite(amountNum) && amountNum > 0;
 
   function submit() {
-    if (!canAdd) return
-    addGoal({ instrumentKey: key, periodMonths, amountHuf: amountNum })
-    setAmount('')
+    if (!canAdd) return;
+    addGoal({ instrumentKey: key, periodMonths, amountHuf: amountNum });
+    setAmount("");
   }
 
   const fieldClass =
-    'rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm'
+    "rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm";
 
   return (
     <Card className="mt-4 p-6">
@@ -760,14 +760,14 @@ function GoalsSettings() {
       </div>
       <p className="mb-4 text-sm text-[var(--color-muted)]">
         Rendszeres (DCA) cél egy eszközre. Az app figyelmeztet, ha az adott
-        időszakban még nincs meg. A hónap utolsó munkanapi vétele már a következő
-        időszakba számít.
+        időszakban még nincs meg. A hónap utolsó munkanapi vétele már a
+        következő időszakba számít.
       </p>
 
       {progress.length > 0 && (
         <div className="mb-5 space-y-3">
           {progress.map((p) => {
-            const pct = p.done ? 100 : Math.min(100, Math.round(p.ratio * 100))
+            const pct = p.done ? 100 : Math.min(100, Math.round(p.ratio * 100));
             return (
               <div
                 key={p.goal.id}
@@ -800,8 +800,8 @@ function GoalsSettings() {
                   <div
                     className={`h-full rounded-full ${
                       p.done
-                        ? 'bg-[var(--color-positive)]'
-                        : 'bg-[var(--color-brand)]'
+                        ? "bg-[var(--color-positive)]"
+                        : "bg-[var(--color-brand)]"
                     }`}
                     style={{ width: `${pct}%` }}
                   />
@@ -812,12 +812,12 @@ function GoalsSettings() {
                   </span>
                   <span className="text-[var(--color-muted)]">
                     {p.done
-                      ? 'Teljesítve ✓'
+                      ? "Teljesítve ✓"
                       : `még ${formatMoney(p.remainingHuf)}`}
                   </span>
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       )}
@@ -859,14 +859,16 @@ function GoalsSettings() {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-[var(--color-muted)]">Összeg (Ft)</span>
+            <span className="text-xs text-[var(--color-muted)]">
+              Összeg (Ft)
+            </span>
             <input
               type="number"
               min={0}
               step={10000}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
               placeholder="100000"
               className={`${fieldClass} w-36 tabular-nums`}
             />
@@ -881,7 +883,7 @@ function GoalsSettings() {
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function Row({ label, value }: { label: string; value: number }) {
@@ -890,5 +892,5 @@ function Row({ label, value }: { label: string; value: number }) {
       <dt className="text-[var(--color-muted)]">{label}</dt>
       <dd className="font-semibold tabular-nums">{value}</dd>
     </div>
-  )
+  );
 }
