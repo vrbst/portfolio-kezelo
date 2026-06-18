@@ -305,8 +305,12 @@ export default function Dashboard() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
               {summary.accounts.map((a) => (
-                <Link key={a.account.id} to={`/accounts/${a.account.id}`}>
-                  <div className="card-hover flex items-center gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+                <Link
+                  key={a.account.id}
+                  to={`/accounts/${a.account.id}`}
+                  className="block min-w-0"
+                >
+                  <div className="card-hover flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">
