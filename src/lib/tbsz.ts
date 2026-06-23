@@ -53,7 +53,7 @@ export interface TbszStatus {
 
 /** A "mi lenne, ha most eladnám" forgatókönyv egy adózási szakaszra. */
 export interface TbszExitScenario {
-  key: "now" | "three" | "five";
+  key: "early" | "three" | "five";
   label: string;
   /** Teljes adókulcs a hozamra ebben a forgatókönyvben (0–0.28). */
   taxRate: number;
@@ -61,15 +61,17 @@ export interface TbszExitScenario {
   taxHuf: number;
   /** Nettó, kézhez kapott érték (HUF) = bruttó − adó. */
   netHuf: number;
-  /** Megtakarított adó a "most"-hoz képest (HUF). */
+  /** Megtakarított adó a mostani szakaszhoz képest (csak jövőbeli szakaszra > 0). */
   savedVsNowHuf: number;
+  /** A mostani szakaszhoz képest: már elmúlt / épp ez van / még jön. */
+  state: "past" | "current" | "future";
 }
 
 /**
- * Net (after-tax) exit value of a TBSZ if sold/closed now, plus what it would
- * be if held to the next milestones — all on the CURRENT gain, so it answers
- * "mi lenne, ha most eladnám, és mennyit nyerek a kivárással?". Only the gain
- * (value − capital placed) is taxed; a non-positive gain is never taxed.
+ * Net (after-tax) exit value of a TBSZ across ALL three tax tiers (before 3y,
+ * 3–5y, after 5y), each on the CURRENT gain. The tier you're in is `current`
+ * ("ha most eladnád"), earlier tiers are `past` (greyed out), later ones are
+ * `future` with the tax you'd save by waiting. Only a positive gain is taxed.
  */
 export function tbszExitScenarios(
   status: TbszStatus,
@@ -77,35 +79,43 @@ export function tbszExitScenarios(
   gainHuf: number,
 ): TbszExitScenario[] {
   const taxableGain = Math.max(0, gainHuf);
-  const reducedRate = 0.1 + (status.hasSzocho ? 0.08 : 0); // 3–5 év közötti kulcs
+  const rateByKey = {
+    early: 0.15 + (status.hasSzocho ? 0.13 : 0), // gyűjtő / 3 év előtt
+    three: 0.1 + (status.hasSzocho ? 0.08 : 0), // 3–5 év között
+    five: 0, // 5 év után — adómentes
+  } as const;
+  const labelByKey = {
+    early: "3 éves lekötés előtt",
+    three: "3–5 év között (kedvezményes)",
+    five: "5 év után — adómentes",
+  } as const;
 
-  const mk = (
-    key: TbszExitScenario["key"],
-    label: string,
-    rate: number,
-  ): TbszExitScenario => {
-    const taxHuf = taxableGain * rate;
+  // Which tier the account is in right now decides "current".
+  const currentKey =
+    status.phase === "matured"
+      ? "five"
+      : status.phase === "reduced"
+        ? "three"
+        : "early";
+
+  const order = ["early", "three", "five"] as const;
+  const curIdx = order.indexOf(currentKey);
+  const currentTax = taxableGain * rateByKey[currentKey];
+
+  return order.map((key, i) => {
+    const taxHuf = taxableGain * rateByKey[key];
+    const state: TbszExitScenario["state"] =
+      i < curIdx ? "past" : i === curIdx ? "current" : "future";
     return {
       key,
-      label,
-      taxRate: rate,
+      label: labelByKey[key],
+      taxRate: rateByKey[key],
       taxHuf,
       netHuf: grossValueHuf - taxHuf,
-      savedVsNowHuf: 0,
+      savedVsNowHuf: state === "future" ? currentTax - taxHuf : 0,
+      state,
     };
-  };
-
-  const out: TbszExitScenario[] = [
-    mk("now", "Ha most kiveszed", status.taxRate),
-  ];
-  const threeReached = status.phase === "reduced" || status.phase === "matured";
-  const fiveReached = status.phase === "matured";
-  if (!threeReached) out.push(mk("three", "3 éves lekötés után", reducedRate));
-  if (!fiveReached) out.push(mk("five", "5 éves lejáratkor (adómentes)", 0));
-
-  const nowTax = out[0].taxHuf;
-  for (const s of out) s.savedVsNowHuf = nowTax - s.taxHuf;
-  return out;
+  });
 }
 
 /** End of the given calendar year (31 Dec, last moment). */

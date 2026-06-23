@@ -62,14 +62,24 @@ export default function TbszExitValue({
             <li
               key={s.key}
               className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 ${
-                s.key === "now"
-                  ? "border-[var(--color-border)] bg-[var(--color-surface-2)]/40"
-                  : "border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5"
+                s.state === "current"
+                  ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/40"
+                  : s.state === "past"
+                    ? "border-[var(--color-border)]/50 opacity-50"
+                    : "border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5"
               }`}
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 font-medium">
-                  {s.label}
+                  <span
+                    className={
+                      s.state === "past" ? "text-[var(--color-muted)]" : ""
+                    }
+                  >
+                    {s.label}
+                  </span>
+                  {s.state === "current" && <Badge tone="brand">most</Badge>}
+                  {s.state === "past" && <Badge tone="neutral">lejárt</Badge>}
                   <Badge tone={s.taxRate === 0 ? "positive" : "neutral"}>
                     {s.taxRate === 0 ? "adómentes" : `${pct(s.taxRate)} adó`}
                   </Badge>
