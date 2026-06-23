@@ -475,11 +475,22 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   refreshPrices: async () => {
     set({ pricesLoading: true });
+    // Price every held ETF / stock / fund. Symbols are resolved from the ISIN
+    // (manual override > curated > Yahoo search), so a newly bought ETF gets a
+    // live price automatically — no per-instrument wiring needed.
+    const tickerTypes = new Set(["etf", "stock", "fund"]);
+    const targets = get()
+      .instruments.filter((i) => tickerTypes.has(i.type))
+      .map((i) => ({
+        key: i.key,
+        isin: i.isin ?? i.key,
+        currency: i.currency,
+      }));
     const [file, history, liveFx, livePrices] = await Promise.all([
       loadPriceFile(),
       loadHistoryFile(),
       fetchLiveFx(),
-      fetchLivePrices(),
+      fetchLivePrices(targets),
     ]);
     set((s) => {
       const priceFile = file ?? s.priceFile;

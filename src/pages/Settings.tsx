@@ -22,6 +22,7 @@ import { formatDateTime, formatNumber, formatMoney } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
 import { PERIOD_LABEL, type GoalPeriod } from "../lib/goals";
 import { verifyAccess, type SyncConfig } from "../lib/sync";
+import { loadSymbolOverrides, saveSymbolOverride } from "../lib/prices";
 import {
   AI_MODELS,
   loadAiKey,
@@ -391,6 +392,8 @@ function AiSettings() {
 function PriceSettings() {
   const instruments = usePortfolio((s) => s.instruments);
   const priceFile = usePortfolio((s) => s.priceFile);
+  const prices = usePortfolio((s) => s.prices);
+  const livePrices = usePortfolio((s) => s.livePrices);
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const pricesLoading = usePortfolio((s) => s.pricesLoading);
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
@@ -417,8 +420,10 @@ function PriceSettings() {
         </button>
       </div>
       <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Automatikus forrás: Yahoo Finance (ETF) + frankfurter.app (EUR/HUF
-        {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ""}).
+        Automatikus forrás: Yahoo Finance (a szimbólumot az ISIN-ből keresi meg)
+        + frankfurter.app (EUR/HUF
+        {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ""}). Ha egy papírnál rossz
+        listát talál, a szimbólumot kézzel felülírhatod alább.
         {priceUpdatedAt && ` Frissítve: ${formatDateTime(priceUpdatedAt)}.`}
       </p>
 
@@ -428,46 +433,87 @@ function PriceSettings() {
         </p>
       ) : (
         <div className="space-y-2">
-          {priced.map((inst) => {
-            const auto = priceFile?.prices[inst.key];
-            return (
-              <div
-                key={inst.key}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 font-medium">
-                    {inst.ticker || inst.name}
-                    <Badge tone="neutral">
-                      {instrumentTypeLabel[inst.type]}
-                    </Badge>
-                  </div>
-                  {auto?.symbol && (
-                    <div className="text-xs text-[var(--color-muted)]">
-                      {auto.symbol}
-                    </div>
-                  )}
-                </div>
-                <div className="text-right">
-                  {auto ? (
-                    <div className="amt font-semibold tabular-nums">
-                      {formatNumber(auto.price, 2)}{" "}
-                      <span className="text-xs font-normal text-[var(--color-muted)]">
-                        {auto.currency}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-[var(--color-muted)]">
-                      Nincs automatikus ár
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {priced.map((inst) => (
+            <PriceRow
+              key={inst.key}
+              inst={inst}
+              price={prices.get(inst.key)}
+              currency={priceFile?.prices[inst.key]?.currency ?? inst.currency}
+              isLive={inst.key in livePrices}
+              autoSymbol={priceFile?.prices[inst.key]?.symbol}
+              onChanged={() => refreshPrices()}
+            />
+          ))}
         </div>
       )}
     </Card>
+  );
+}
+
+function PriceRow({
+  inst,
+  price,
+  currency,
+  isLive,
+  autoSymbol,
+  onChanged,
+}: {
+  inst: Instrument;
+  price?: number;
+  currency: string;
+  isLive: boolean;
+  autoSymbol?: string;
+  onChanged: () => void;
+}) {
+  const isinKey = inst.isin ?? inst.key;
+  const [sym, setSym] = useState(() => loadSymbolOverrides()[isinKey] ?? "");
+
+  const save = () => {
+    saveSymbolOverride(isinKey, sym);
+    onChanged();
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 font-medium">
+          {inst.ticker || inst.name}
+          <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
+          {isLive && (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]"
+              title="Élő árfolyam"
+            />
+          )}
+        </div>
+        <label className="mt-1.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+          szimbólum:
+          <input
+            value={sym}
+            onChange={(e) => setSym(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            placeholder={autoSymbol ?? "auto (ISIN alapján)"}
+            title="Yahoo szimbólum kézi felülírása. Üresen hagyva automatikus."
+            className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-xs"
+          />
+        </label>
+      </div>
+      <div className="text-right">
+        {price != null ? (
+          <div className="amt font-semibold tabular-nums">
+            {formatNumber(price, 2)}{" "}
+            <span className="text-xs font-normal text-[var(--color-muted)]">
+              {currency}
+            </span>
+          </div>
+        ) : (
+          <span className="text-xs text-[var(--color-muted)]">
+            Nincs ár még
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
