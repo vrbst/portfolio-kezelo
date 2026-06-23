@@ -84,8 +84,13 @@ export default function TbszExitValue({
                   )}
                 </div>
               </div>
-              <div className="amt text-right text-lg font-semibold tabular-nums">
-                {formatMoney(s.netHuf)}
+              <div className="text-right">
+                <div className="amt text-lg font-semibold tabular-nums">
+                  {formatMoney(s.netHuf)}
+                </div>
+                <div className="amt text-xs tabular-nums text-[var(--color-positive)]">
+                  profit: +{formatMoney(gainHuf - s.taxHuf)}
+                </div>
               </div>
             </li>
           ))}
