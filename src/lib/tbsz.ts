@@ -19,138 +19,195 @@
 // Sources: NAV (A tartós befektetésből származó jövedelem szochokötelezettsége).
 // ---------------------------------------------------------------------------
 
-export type TbszPhase = 'collecting' | 'locked' | 'reduced' | 'matured'
+export type TbszPhase = "collecting" | "locked" | "reduced" | "matured";
 
 export interface TbszMilestone {
-  key: 'deposit' | 'three' | 'five'
+  key: "deposit" | "three" | "five";
   /** ISO date (end of the calendar year). */
-  date: string
-  label: string
-  hint: string
-  done: boolean
+  date: string;
+  label: string;
+  hint: string;
+  done: boolean;
 }
 
 export interface TbszStatus {
-  year: number
-  phase: TbszPhase
-  phaseLabel: string
+  year: number;
+  phase: TbszPhase;
+  phaseLabel: string;
   /** Personal income tax (szja) on the gain if broken now (0–0.15). */
-  szjaRate: number
+  szjaRate: number;
   /** Social-contribution tax (szocho) on the gain if broken now (0–0.13). */
-  szochoRate: number
+  szochoRate: number;
   /** Total tax burden if broken now = szja + szocho (0–0.28). */
-  taxRate: number
-  taxLabel: string
+  taxRate: number;
+  taxLabel: string;
   /** Szocho applies to contracts opened from 2025 (collection year ≥ 2025). */
-  hasSzocho: boolean
-  milestones: TbszMilestone[]
+  hasSzocho: boolean;
+  milestones: TbszMilestone[];
   /** Next milestone not yet reached, if any. */
-  next?: TbszMilestone
-  daysToNext?: number
+  next?: TbszMilestone;
+  daysToNext?: number;
   /** 0–1 progress from the opening year to the 5-year maturity. */
-  progress: number
+  progress: number;
+}
+
+/** A "mi lenne, ha most eladnám" forgatókönyv egy adózási szakaszra. */
+export interface TbszExitScenario {
+  key: "now" | "three" | "five";
+  label: string;
+  /** Teljes adókulcs a hozamra ebben a forgatókönyvben (0–0.28). */
+  taxRate: number;
+  /** Levonandó adó (HUF) a jelenlegi hozamra vetítve. */
+  taxHuf: number;
+  /** Nettó, kézhez kapott érték (HUF) = bruttó − adó. */
+  netHuf: number;
+  /** Megtakarított adó a "most"-hoz képest (HUF). */
+  savedVsNowHuf: number;
+}
+
+/**
+ * Net (after-tax) exit value of a TBSZ if sold/closed now, plus what it would
+ * be if held to the next milestones — all on the CURRENT gain, so it answers
+ * "mi lenne, ha most eladnám, és mennyit nyerek a kivárással?". Only the gain
+ * (value − capital placed) is taxed; a non-positive gain is never taxed.
+ */
+export function tbszExitScenarios(
+  status: TbszStatus,
+  grossValueHuf: number,
+  gainHuf: number,
+): TbszExitScenario[] {
+  const taxableGain = Math.max(0, gainHuf);
+  const reducedRate = 0.1 + (status.hasSzocho ? 0.08 : 0); // 3–5 év közötti kulcs
+
+  const mk = (
+    key: TbszExitScenario["key"],
+    label: string,
+    rate: number,
+  ): TbszExitScenario => {
+    const taxHuf = taxableGain * rate;
+    return {
+      key,
+      label,
+      taxRate: rate,
+      taxHuf,
+      netHuf: grossValueHuf - taxHuf,
+      savedVsNowHuf: 0,
+    };
+  };
+
+  const out: TbszExitScenario[] = [
+    mk("now", "Ha most kiveszed", status.taxRate),
+  ];
+  const threeReached = status.phase === "reduced" || status.phase === "matured";
+  const fiveReached = status.phase === "matured";
+  if (!threeReached) out.push(mk("three", "3 éves lekötés után", reducedRate));
+  if (!fiveReached) out.push(mk("five", "5 éves lejáratkor (adómentes)", 0));
+
+  const nowTax = out[0].taxHuf;
+  for (const s of out) s.savedVsNowHuf = nowTax - s.taxHuf;
+  return out;
 }
 
 /** End of the given calendar year (31 Dec, last moment). */
 function yearEnd(year: number): Date {
-  return new Date(year, 11, 31, 23, 59, 59)
+  return new Date(year, 11, 31, 23, 59, 59);
 }
 
 function daysBetween(from: Date, to: Date): number {
-  return Math.ceil((to.getTime() - from.getTime()) / 86_400_000)
+  return Math.ceil((to.getTime() - from.getTime()) / 86_400_000);
 }
 
-const pct = (n: number) => `${Math.round(n * 100)}%`
+const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 export function tbszStatus(year: number, now: Date = new Date()): TbszStatus {
   // Szocho on the szja-taxable TBSZ gain applies only to contracts concluded
   // after 2024-12-31 (collection year 2025+). Older accounts stay szocho-free.
-  const hasSzocho = year >= 2025
-  const earlySzocho = hasSzocho ? 0.13 : 0 // break before the 3-year milestone
-  const reducedSzocho = hasSzocho ? 0.08 : 0 // 3–5 year window
+  const hasSzocho = year >= 2025;
+  const earlySzocho = hasSzocho ? 0.13 : 0; // break before the 3-year milestone
+  const reducedSzocho = hasSzocho ? 0.08 : 0; // 3–5 year window
 
-  const depositEnd = yearEnd(year)
-  const threeEnd = yearEnd(year + 3)
-  const fiveEnd = yearEnd(year + 5)
+  const depositEnd = yearEnd(year);
+  const threeEnd = yearEnd(year + 3);
+  const fiveEnd = yearEnd(year + 5);
 
   // Milestone hint reflects the rate that applies *after* the 3-year turn.
   const threeHint = hasSzocho
-    ? 'Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.'
-    : 'Innentől a hozam adója 10%-ra csökken (szja, szocho nélkül). Részkivét lehetséges.'
+    ? "Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges."
+    : "Innentől a hozam adója 10%-ra csökken (szja, szocho nélkül). Részkivét lehetséges.";
 
   const milestones: TbszMilestone[] = [
     {
-      key: 'deposit',
+      key: "deposit",
       date: depositEnd.toISOString(),
-      label: 'Gyűjtőév vége',
-      hint: 'Utolsó nap, amikor befizethetsz erre a TBSZ-re.',
+      label: "Gyűjtőév vége",
+      hint: "Utolsó nap, amikor befizethetsz erre a TBSZ-re.",
       done: now > depositEnd,
     },
     {
-      key: 'three',
+      key: "three",
       date: threeEnd.toISOString(),
-      label: '3 éves lekötés',
+      label: "3 éves lekötés",
       hint: threeHint,
       done: now > threeEnd,
     },
     {
-      key: 'five',
+      key: "five",
       date: fiveEnd.toISOString(),
-      label: '5 éves lejárat',
-      hint: 'A teljes hozam adómentes — sem szja, sem szocho.',
+      label: "5 éves lejárat",
+      hint: "A teljes hozam adómentes — sem szja, sem szocho.",
       done: now > fiveEnd,
     },
-  ]
+  ];
 
-  let phase: TbszPhase
-  let phaseLabel: string
-  let szjaRate: number
-  let szochoRate: number
+  let phase: TbszPhase;
+  let phaseLabel: string;
+  let szjaRate: number;
+  let szochoRate: number;
   if (now <= depositEnd) {
-    phase = 'collecting'
-    phaseLabel = 'Gyűjtési időszak'
-    szjaRate = 0.15
-    szochoRate = earlySzocho
+    phase = "collecting";
+    phaseLabel = "Gyűjtési időszak";
+    szjaRate = 0.15;
+    szochoRate = earlySzocho;
   } else if (now <= threeEnd) {
-    phase = 'locked'
-    phaseLabel = 'Lekötés (3 év előtt)'
-    szjaRate = 0.15
-    szochoRate = earlySzocho
+    phase = "locked";
+    phaseLabel = "Lekötés (3 év előtt)";
+    szjaRate = 0.15;
+    szochoRate = earlySzocho;
   } else if (now <= fiveEnd) {
-    phase = 'reduced'
-    phaseLabel = 'Kedvezményes szakasz'
-    szjaRate = 0.1
-    szochoRate = reducedSzocho
+    phase = "reduced";
+    phaseLabel = "Kedvezményes szakasz";
+    szjaRate = 0.1;
+    szochoRate = reducedSzocho;
   } else {
-    phase = 'matured'
-    phaseLabel = 'Lejárt — adómentes'
-    szjaRate = 0
-    szochoRate = 0
+    phase = "matured";
+    phaseLabel = "Lejárt — adómentes";
+    szjaRate = 0;
+    szochoRate = 0;
   }
 
-  const taxRate = szjaRate + szochoRate
+  const taxRate = szjaRate + szochoRate;
 
-  let taxLabel: string
-  if (phase === 'matured') {
-    taxLabel = 'A hozam teljesen adómentes (0% szja, 0% szocho).'
+  let taxLabel: string;
+  if (phase === "matured") {
+    taxLabel = "A hozam teljesen adómentes (0% szja, 0% szocho).";
   } else {
     const breakdown = hasSzocho
       ? `${pct(taxRate)} (${pct(szjaRate)} szja + ${pct(szochoRate)} szocho)`
-      : `${pct(szjaRate)} szja (szocho nélkül)`
+      : `${pct(szjaRate)} szja (szocho nélkül)`;
     taxLabel =
-      phase === 'collecting'
+      phase === "collecting"
         ? `Megszakításkor ${breakdown} a hozamra. A gyűjtőévben még befizethetsz.`
-        : phase === 'reduced'
+        : phase === "reduced"
           ? `Kivétkor ${breakdown} a hozamra.`
-          : `Megszakításkor ${breakdown} a hozamra.`
+          : `Megszakításkor ${breakdown} a hozamra.`;
   }
 
-  const next = milestones.find((m) => !m.done)
-  const daysToNext = next ? daysBetween(now, new Date(next.date)) : undefined
+  const next = milestones.find((m) => !m.done);
+  const daysToNext = next ? daysBetween(now, new Date(next.date)) : undefined;
 
-  const start = new Date(year, 0, 1).getTime()
-  const span = fiveEnd.getTime() - start
-  const progress = Math.max(0, Math.min(1, (now.getTime() - start) / span))
+  const start = new Date(year, 0, 1).getTime();
+  const span = fiveEnd.getTime() - start;
+  const progress = Math.max(0, Math.min(1, (now.getTime() - start) / span));
 
   return {
     year,
@@ -165,5 +222,5 @@ export function tbszStatus(year: number, now: Date = new Date()): TbszStatus {
     next,
     daysToNext,
     progress,
-  }
+  };
 }

@@ -18,6 +18,7 @@ import {
   EmptyState,
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
+import TbszExitValue from "../components/TbszExitValue";
 import {
   formatMoney,
   formatNumber,
@@ -245,8 +246,13 @@ export default function AccountDetail() {
       </div>
 
       {account.kind === "tbsz" && account.tbszYear && (
-        <div className="mt-6">
+        <div className="mt-6 space-y-6">
           <TbszTimeline year={account.tbszYear} />
+          <TbszExitValue
+            year={account.tbszYear}
+            grossValueHuf={accSummary.totalValueHuf}
+            gainHuf={accSummary.totalValueHuf - accSummary.capitalBasisHuf}
+          />
         </div>
       )}
 
