@@ -333,6 +333,69 @@ export function futureBondCashflows(
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+export interface CashflowMonth {
+  /** YYYY-MM. */
+  key: string;
+  couponHuf: number;
+  maturityHuf: number;
+  totalHuf: number;
+  items: Cashflow[];
+}
+
+export interface CashflowForecast {
+  months: CashflowMonth[];
+  couponHuf: number;
+  maturityHuf: number;
+  totalHuf: number;
+}
+
+/**
+ * Rolling forward forecast of bond inflows: every coupon + maturity redemption
+ * from today through `months` ahead, bucketed by calendar month. Answers "mennyi
+ * pénz jön be és mikor?" with a per-month breakdown and totals.
+ */
+export function bondCashflowForecast(
+  summary: PortfolioSummary,
+  now: Date = new Date(),
+  months = 12,
+): CashflowForecast {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const horizonMs = new Date(
+    start.getFullYear(),
+    start.getMonth() + months,
+    start.getDate(),
+  ).getTime();
+
+  const byKey = new Map<string, CashflowMonth>();
+  for (const cf of futureBondCashflows(summary, now)) {
+    const ms = parseDayMs(cf.date);
+    if (!Number.isFinite(ms) || ms > horizonMs) continue;
+    const key = cf.date.slice(0, 7);
+    let b = byKey.get(key);
+    if (!b) {
+      b = { key, couponHuf: 0, maturityHuf: 0, totalHuf: 0, items: [] };
+      byKey.set(key, b);
+    }
+    if (cf.kind === "coupon") b.couponHuf += cf.amountHuf;
+    else b.maturityHuf += cf.amountHuf;
+    b.totalHuf += cf.amountHuf;
+    b.items.push(cf);
+  }
+
+  const monthsOut = [...byKey.values()].sort((a, b) =>
+    a.key.localeCompare(b.key),
+  );
+  const couponHuf = monthsOut.reduce((s, b) => s + b.couponHuf, 0);
+  const maturityHuf = monthsOut.reduce((s, b) => s + b.maturityHuf, 0);
+  return {
+    months: monthsOut,
+    couponHuf,
+    maturityHuf,
+    totalHuf: couponHuf + maturityHuf,
+  };
+}
+
 export interface BondImportReminder {
   kind: "coupon" | "maturity";
   instrumentKey: string;

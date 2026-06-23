@@ -4,6 +4,7 @@ import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { futureBondCashflows, isInternalTransfer } from "../lib/portfolio";
 import { tbszStatus } from "../lib/tbsz";
 import { PageHeader, Card, Badge } from "../components/ui";
+import CashflowForecast from "../components/CashflowForecast";
 import { formatMoney, formatCompact, formatDate } from "../lib/format";
 import { txTypeLabel } from "../lib/labels";
 
@@ -410,6 +411,9 @@ export default function Calendar() {
           <span>A kör mérete az összeggel arányos · halványabb = várható.</span>
         </div>
       </Card>
+
+      {/* Forward 12-month cashflow forecast (coupons + maturities) */}
+      <CashflowForecast />
 
       {/* Selected day detail */}
       {selected && (
