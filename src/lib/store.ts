@@ -77,6 +77,8 @@ interface PortfolioState {
 
   /** Fixed savings goals (DCA), synced. */
   goals: Goal[];
+  /** Ids of deleted goals (tombstones) so a delete survives a sync merge. */
+  deletedGoalIds: string[];
   addGoal: (goal: Omit<Goal, "id" | "createdAt">) => Promise<void>;
   updateGoal: (id: string, patch: Partial<Goal>) => Promise<void>;
   removeGoal: (id: string) => Promise<void>;
@@ -172,6 +174,7 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     transactions: s.transactions,
     alertState: s.alertState,
     goals: s.goals,
+    deletedGoalIds: s.deletedGoalIds,
   };
 }
 
@@ -195,6 +198,13 @@ function unionSnapshots(
   remote: PortfolioSnapshot,
   local: PortfolioSnapshot,
 ): PortfolioSnapshot {
+  const deletedGoalIds = [
+    ...new Set([
+      ...(remote.deletedGoalIds ?? []),
+      ...(local.deletedGoalIds ?? []),
+    ]),
+  ];
+  const deleted = new Set(deletedGoalIds);
   return {
     version: 1,
     exportedAt: local.exportedAt,
@@ -206,7 +216,11 @@ function unionSnapshots(
       (t) => t.id,
     ),
     alertState: { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
-    goals: unionById(remote.goals, local.goals, (g) => g.id),
+    // Drop any goal a tombstone marks deleted, so a delete is never re-added.
+    goals: unionById(remote.goals, local.goals, (g) => g.id).filter(
+      (g) => !deleted.has(g.id),
+    ),
+    deletedGoalIds,
   };
 }
 
@@ -216,12 +230,14 @@ async function applySnapshotLocal(
   get: () => PortfolioState,
   snap: PortfolioSnapshot,
 ) {
+  const deletedGoalIds = snap.deletedGoalIds ?? [];
   await Promise.all([
     db.accounts.bulkPut(snap.accounts),
     db.instruments.bulkPut(snap.instruments),
     db.transactions.bulkPut(snap.transactions),
     setMeta("alertState", snap.alertState ?? {}),
     setMeta("goals", snap.goals ?? []),
+    setMeta("deletedGoalIds", deletedGoalIds),
   ]);
   const s = get();
   set({
@@ -230,6 +246,7 @@ async function applySnapshotLocal(
     transactions: snap.transactions,
     alertState: snap.alertState ?? {},
     goals: snap.goals ?? [],
+    deletedGoalIds,
     prices: buildPriceMap(s.priceFile, s.livePrices),
     fx: { ...deriveFx(snap.transactions), ...s.fx },
   });
@@ -266,10 +283,15 @@ async function mergeSnapshot(
 
   // Alert history: remote wins per-id (mirrors the account merge).
   const alertState = { ...s.alertState, ...(snap.alertState ?? {}) };
-  // Goals: merge by id, remote wins (same policy as accounts/instruments).
+  // Goals: merge by id, remote wins — then drop anything a tombstone (from
+  // either device) marks deleted, so a delete propagates instead of bouncing back.
+  const deletedGoalIds = [
+    ...new Set([...s.deletedGoalIds, ...(snap.deletedGoalIds ?? [])]),
+  ];
+  const deleted = new Set(deletedGoalIds);
   const goalById = new Map(s.goals.map((g) => [g.id, g]));
   for (const g of snap.goals ?? []) goalById.set(g.id, g);
-  const goals = [...goalById.values()];
+  const goals = [...goalById.values()].filter((g) => !deleted.has(g.id));
 
   await Promise.all([
     db.accounts.bulkPut(accounts),
@@ -277,6 +299,7 @@ async function mergeSnapshot(
     db.transactions.bulkPut(transactions),
     setMeta("alertState", alertState),
     setMeta("goals", goals),
+    setMeta("deletedGoalIds", deletedGoalIds),
   ]);
 
   set({
@@ -285,6 +308,7 @@ async function mergeSnapshot(
     transactions,
     alertState,
     goals,
+    deletedGoalIds,
     prices: buildPriceMap(s.priceFile, s.livePrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   });
@@ -332,6 +356,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   alertState: {},
   alertConfig: loadAlertConfig(),
   goals: [],
+  deletedGoalIds: [],
   privacy: loadPrivacy(),
   togglePrivacy: () => {
     const v = !get().privacy;
@@ -345,15 +370,23 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   syncError: undefined,
 
   load: async () => {
-    const [accounts, instruments, transactions, savedFx, alertState, goals] =
-      await Promise.all([
-        db.accounts.toArray(),
-        db.instruments.toArray(),
-        db.transactions.toArray(),
-        getMeta<Record<string, number>>("fx"),
-        getMeta<AlertState>("alertState"),
-        getMeta<Goal[]>("goals"),
-      ]);
+    const [
+      accounts,
+      instruments,
+      transactions,
+      savedFx,
+      alertState,
+      goals,
+      deletedGoalIds,
+    ] = await Promise.all([
+      db.accounts.toArray(),
+      db.instruments.toArray(),
+      db.transactions.toArray(),
+      getMeta<Record<string, number>>("fx"),
+      getMeta<AlertState>("alertState"),
+      getMeta<Goal[]>("goals"),
+      getMeta<string[]>("deletedGoalIds"),
+    ]);
     // Manual price overrides were removed — drop any value left from older
     // versions so it can never override the automatic price again.
     void db.meta.delete("manualPrices");
@@ -365,6 +398,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       fx,
       alertState: alertState ?? {},
       goals: goals ?? [],
+      deletedGoalIds: deletedGoalIds ?? [],
       loaded: true,
     });
     // Pull live prices in the background (non-blocking).
@@ -544,8 +578,13 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   removeGoal: async (id) => {
     const goals = get().goals.filter((g) => g.id !== id);
-    await setMeta("goals", goals);
-    set({ goals });
+    // Record a tombstone so the sync merge can't re-add it from the cloud copy.
+    const deletedGoalIds = [...new Set([...get().deletedGoalIds, id])];
+    await Promise.all([
+      setMeta("goals", goals),
+      setMeta("deletedGoalIds", deletedGoalIds),
+    ]);
+    set({ goals, deletedGoalIds });
     scheduleAutoSync(set, get);
   },
 
@@ -613,6 +652,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       livePrices: {},
       alertState: {},
       goals: [],
+      deletedGoalIds: [],
       priceFile: null,
       priceUpdatedAt: undefined,
     });

@@ -27,6 +27,12 @@ export interface PortfolioSnapshot {
   alertState?: AlertState;
   /** Fixed savings goals (DCA), synced across devices. */
   goals?: Goal[];
+  /**
+   * Tombstones: ids of goals deleted on any device. Without these a delete is
+   * silently undone, because the merge only ever unions goals — the other
+   * copy (local or remote) would re-add the just-removed goal.
+   */
+  deletedGoalIds?: string[];
 }
 
 export function loadSyncConfig(): SyncConfig | null {

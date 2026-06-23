@@ -29,7 +29,7 @@ import {
   loadAiModel,
   saveAiModel,
 } from "../lib/ai";
-import type { BondTerms, Instrument } from "../lib/model";
+import type { BondTerms, Instrument, InstrumentType } from "../lib/model";
 
 const PRICED_TYPES = new Set(["etf", "stock", "fund"]);
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
@@ -735,17 +735,39 @@ function GoalsSettings() {
   const progress = useGoalProgress();
 
   const investable = instruments.filter((i) => i.type !== "cash");
-  const [instrumentKey, setInstrumentKey] = useState("");
+  // Distinct types present → "buy any instrument of this type" category goals
+  // (e.g. DKJ, where each issuance is a different series/ISIN).
+  const categoryTypes = [...new Set(investable.map((i) => i.type))];
+  const [target, setTarget] = useState("");
   const [periodMonths, setPeriodMonths] = useState<GoalPeriod>(1);
   const [amount, setAmount] = useState("");
 
-  const key = instrumentKey || investable[0]?.key || "";
+  // Target is encoded as `type:<t>` (category) or `key:<isin>` (specific), so
+  // the two kinds never collide in the single <select>.
+  const defaultTarget = categoryTypes[0]
+    ? `type:${categoryTypes[0]}`
+    : investable[0]
+      ? `key:${investable[0].key}`
+      : "";
+  const sel = target || defaultTarget;
   const amountNum = Number(amount.replace(/\s/g, ""));
-  const canAdd = key && Number.isFinite(amountNum) && amountNum > 0;
+  const canAdd = !!sel && Number.isFinite(amountNum) && amountNum > 0;
 
   function submit() {
     if (!canAdd) return;
-    addGoal({ instrumentKey: key, periodMonths, amountHuf: amountNum });
+    if (sel.startsWith("type:")) {
+      addGoal({
+        instrumentType: sel.slice(5) as InstrumentType,
+        periodMonths,
+        amountHuf: amountNum,
+      });
+    } else {
+      addGoal({
+        instrumentKey: sel.slice(4),
+        periodMonths,
+        amountHuf: amountNum,
+      });
+    }
     setAmount("");
   }
 
@@ -759,9 +781,10 @@ function GoalsSettings() {
         <h2 className="text-lg font-semibold">Megtakarítási célok</h2>
       </div>
       <p className="mb-4 text-sm text-[var(--color-muted)]">
-        Rendszeres (DCA) cél egy eszközre. Az app figyelmeztet, ha az adott
-        időszakban még nincs meg. A hónap utolsó munkanapi vétele már a
-        következő időszakba számít.
+        Rendszeres (DCA) cél egy konkrét eszközre vagy egy egész kategóriára
+        (pl. „DKJ – összes", így nem kell minden új sorozatot külön kijelölni).
+        Az app figyelmeztet, ha az adott időszakban még nincs meg. A hónap
+        utolsó munkanapi vétele már a következő időszakba számít.
       </p>
 
       {progress.length > 0 && (
@@ -831,15 +854,26 @@ function GoalsSettings() {
           <label className="flex flex-col gap-1">
             <span className="text-xs text-[var(--color-muted)]">Eszköz</span>
             <select
-              value={key}
-              onChange={(e) => setInstrumentKey(e.target.value)}
+              value={sel}
+              onChange={(e) => setTarget(e.target.value)}
               className={fieldClass}
             >
-              {investable.map((i) => (
-                <option key={i.key} value={i.key}>
-                  {i.name}
-                </option>
-              ))}
+              {categoryTypes.length > 0 && (
+                <optgroup label="Kategória – minden ilyen eszköz">
+                  {categoryTypes.map((t) => (
+                    <option key={t} value={`type:${t}`}>
+                      {instrumentTypeLabel[t]} (összes)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Konkrét eszköz">
+                {investable.map((i) => (
+                  <option key={i.key} value={`key:${i.key}`}>
+                    {i.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </label>
           <label className="flex flex-col gap-1">
