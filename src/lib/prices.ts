@@ -186,37 +186,123 @@ export interface LivePriceTarget {
  * listing never reports a wrong-currency number; override/curated are trusted.
  * Failed/unresolved targets are omitted, so callers keep the snapshot fallback.
  */
+interface ResolvedSymbol {
+  symbol: string;
+  /** Override/curated symbols are trusted; auto-resolved ones need a currency check. */
+  trusted: boolean;
+}
+
+/** Resolve a target's Yahoo symbol: override > curated > Yahoo ISIN search. */
+async function resolveSymbol(
+  t: LivePriceTarget,
+  overrides: Record<string, string>,
+): Promise<ResolvedSymbol | null> {
+  const trusted =
+    overrides[t.isin] ??
+    overrides[t.key] ??
+    CURATED_SYMBOLS[t.isin] ??
+    CURATED_SYMBOLS[t.key];
+  if (trusted) return { symbol: trusted, trusted: true };
+  let symbol = resolvedCache.get(t.isin);
+  if (symbol === undefined) {
+    symbol = await searchYahooSymbol(t.isin);
+    resolvedCache.set(t.isin, symbol);
+  }
+  return symbol ? { symbol, trusted: false } : null;
+}
+
 export async function fetchLivePrices(
   targets: LivePriceTarget[],
 ): Promise<Record<string, number>> {
   const overrides = loadSymbolOverrides();
   const results = await Promise.all(
     targets.map(async (t) => {
-      const trusted =
-        overrides[t.isin] ??
-        overrides[t.key] ??
-        CURATED_SYMBOLS[t.isin] ??
-        CURATED_SYMBOLS[t.key];
-      if (trusted) {
-        const price = await fetchYahooPrice(trusted);
-        return price == null ? null : ([t.key, price] as const);
-      }
-
-      let symbol = resolvedCache.get(t.isin);
-      if (symbol === undefined) {
-        symbol = await searchYahooSymbol(t.isin);
-        resolvedCache.set(t.isin, symbol);
-      }
-      if (!symbol) return null;
-      const quote = await fetchYahooQuote(symbol);
+      const r = await resolveSymbol(t, overrides);
+      if (!r) return null;
+      const quote = await fetchYahooQuote(r.symbol);
       if (!quote) return null;
-      if (quote.currency && quote.currency !== t.currency) return null; // wrong listing
+      // An auto-resolved listing in the wrong currency is rejected.
+      if (!r.trusted && quote.currency && quote.currency !== t.currency)
+        return null;
       return [t.key, quote.price] as const;
     }),
   );
   const out: Record<string, number> = {};
   for (const r of results) if (r) out[r[0]] = r[1];
   return out;
+}
+
+/** Daily close history for one symbol (range like "2y"); ascending [day, close]. */
+async function fetchYahooHistory(
+  symbol: string,
+  range: string,
+): Promise<{ series: [string, number][]; currency?: string } | null> {
+  try {
+    const res = await fetch(
+      proxied(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
+          symbol,
+        )}?range=${range}&interval=1d`,
+      ),
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      chart?: {
+        result?: {
+          timestamp?: number[];
+          meta?: { currency?: string };
+          indicators?: { quote?: { close?: (number | null)[] }[] };
+        }[];
+      };
+    };
+    const r = data?.chart?.result?.[0];
+    const ts = r?.timestamp;
+    const close = r?.indicators?.quote?.[0]?.close;
+    if (!ts || !close) return null;
+    const series: [string, number][] = [];
+    for (let i = 0; i < ts.length; i++) {
+      const c = close[i];
+      if (typeof c !== "number" || c <= 0) continue;
+      const day = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+      series.push([day, c]);
+    }
+    return series.length ? { series, currency: r?.meta?.currency } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Live daily history for the value chart: every held security's close series
+ * (resolved like the live price) plus the EUR/HUF series, so a newly bought ETF
+ * gets a full chart history without the build-time script knowing about it.
+ * Same currency guard as live prices for auto-resolved listings.
+ */
+export async function fetchLiveHistory(
+  targets: LivePriceTarget[],
+  range = "5y",
+): Promise<HistoryFile> {
+  const overrides = loadSymbolOverrides();
+  const prices: Record<string, [string, number][]> = {};
+  const fx: Record<string, [string, number][]> = {};
+
+  const [, ...rest] = await Promise.all([
+    fetchYahooHistory("EURHUF=X", range).then((h) => {
+      if (h?.series.length) fx["EUR"] = h.series;
+    }),
+    ...targets.map(async (t) => {
+      const r = await resolveSymbol(t, overrides);
+      if (!r) return;
+      const h = await fetchYahooHistory(r.symbol, range);
+      if (!h) return;
+      if (!r.trusted && h.currency && h.currency !== t.currency) return;
+      prices[t.key] = h.series;
+    }),
+  ]);
+  void rest;
+
+  return { updatedAt: new Date().toISOString(), prices, fx };
 }
 
 /**

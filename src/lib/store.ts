@@ -14,6 +14,7 @@ import {
   loadHistoryFile,
   fetchLiveFx,
   fetchLivePrices,
+  fetchLiveHistory,
   type PriceFile,
   type HistoryFile,
 } from "./prices";
@@ -96,6 +97,8 @@ interface PortfolioState {
   updateInstrument: (key: string, patch: Partial<Instrument>) => Promise<void>;
   setPrices: (prices: PriceMap, fx?: Record<string, number>) => void;
   refreshPrices: () => Promise<void>;
+  /** Load committed + live daily history for the value chart (held ETFs). */
+  refreshHistory: () => Promise<void>;
   clearAll: () => Promise<void>;
 
   // ---- Cross-device sync (private GitHub repo) ----
@@ -486,9 +489,10 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
         isin: i.isin ?? i.key,
         currency: i.currency,
       }));
-    const [file, history, liveFx, livePrices] = await Promise.all([
+    // History is owned by refreshHistory (runs once on startup), so the 5-minute
+    // price poll never clobbers the live-fetched chart series.
+    const [file, liveFx, livePrices] = await Promise.all([
       loadPriceFile(),
-      loadHistoryFile(),
       fetchLiveFx(),
       fetchLivePrices(targets),
     ]);
@@ -503,7 +507,6 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       const gotLive = Object.keys(livePrices).length > 0;
       return {
         priceFile,
-        historyFile: history ?? s.historyFile,
         livePrices: live,
         prices,
         fx,
@@ -513,6 +516,33 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
           : (priceFile?.updatedAt ?? s.priceUpdatedAt),
         pricesLoading: false,
       };
+    });
+  },
+
+  refreshHistory: async () => {
+    // Committed snapshot first (instant first paint), then live Yahoo history
+    // for every held ETF/stock/fund — merged so a newly bought ETF gets a full
+    // chart series the build-time script never knew about.
+    const committed = (await loadHistoryFile()) ?? get().historyFile;
+    if (committed) set({ historyFile: committed });
+
+    const tickerTypes = new Set(["etf", "stock", "fund"]);
+    const targets = get()
+      .instruments.filter((i) => tickerTypes.has(i.type))
+      .map((i) => ({
+        key: i.key,
+        isin: i.isin ?? i.key,
+        currency: i.currency,
+      }));
+    if (targets.length === 0) return;
+
+    const live = await fetchLiveHistory(targets);
+    set({
+      historyFile: {
+        updatedAt: live.updatedAt ?? committed?.updatedAt,
+        prices: { ...(committed?.prices ?? {}), ...live.prices },
+        fx: { ...(committed?.fx ?? {}), ...live.fx },
+      },
     });
   },
 

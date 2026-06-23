@@ -18,16 +18,21 @@ export default function App() {
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const reconcileAlerts = usePortfolio((s) => s.reconcileAlerts);
   const startupSync = usePortfolio((s) => s.startupSync);
+  const refreshHistory = usePortfolio((s) => s.refreshHistory);
   const activeAlerts = useActiveAlerts();
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Once local data is loaded, pull from the cloud if it has a newer copy.
+  // Once local data is loaded, pull from the cloud if it has a newer copy, and
+  // fetch the daily chart history for every held security.
   useEffect(() => {
-    if (loaded) void startupSync();
-  }, [loaded, startupSync]);
+    if (loaded) {
+      void startupSync();
+      void refreshHistory();
+    }
+  }, [loaded, startupSync, refreshHistory]);
 
   // Fold the current active alerts into the synced history (seen / fulfilled).
   useEffect(() => {
