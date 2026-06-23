@@ -110,6 +110,8 @@ interface PortfolioState {
   setAutoSync: (enabled: boolean) => void;
   pushToCloud: () => Promise<void>;
   pullFromCloud: () => Promise<{ added: number }>;
+  /** On startup: pull automatically if the cloud copy is newer than ours. */
+  startupSync: () => Promise<void>;
 
   instrumentMap: () => Map<string, Instrument>;
   summary: () => PortfolioSummary;
@@ -300,6 +302,9 @@ async function mergeSnapshot(
     setMeta("alertState", alertState),
     setMeta("goals", goals),
     setMeta("deletedGoalIds", deletedGoalIds),
+    // Remember the remote version we now reflect, so startupSync can tell
+    // whether a later cloud copy is genuinely newer.
+    setMeta("lastPulledAt", snap.exportedAt),
   ]);
 
   set({
@@ -614,6 +619,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       await putRemoteSnapshot(syncConfig, snapshot, existing?.sha);
       // Reflect any remote-only items locally too.
       if (existing) await applySnapshotLocal(set, get, snapshot);
+      // Local now matches what we wrote to the cloud — record that version.
+      await setMeta("lastPulledAt", snapshot.exportedAt);
       set({ lastSyncedAt: snapshot.exportedAt, syncError: undefined });
     } finally {
       set({ syncing: false });
@@ -630,6 +637,32 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       const added = await mergeSnapshot(set, get, remote.snapshot);
       set({ lastSyncedAt: new Date().toISOString() });
       return { added };
+    } finally {
+      set({ syncing: false });
+    }
+  },
+
+  startupSync: async () => {
+    const { syncConfig } = get();
+    if (!syncConfig) return; // not "logged in" to the cloud on this device
+    try {
+      const remote = await getRemoteSnapshot(syncConfig);
+      if (!remote) return;
+      const remoteAt = remote.snapshot.exportedAt;
+      const lastPulledAt = await getMeta<string>("lastPulledAt");
+      // Only merge when the cloud copy is strictly newer than the version we
+      // already reflect. If it isn't, our local copy is up to date OR holds
+      // not-yet-pushed edits — either way we must not pull an older state over it.
+      if (lastPulledAt && remoteAt && remoteAt <= lastPulledAt) {
+        set({ lastSyncedAt: lastPulledAt });
+        return;
+      }
+      set({ syncing: true });
+      await mergeSnapshot(set, get, remote.snapshot);
+      set({ lastSyncedAt: remoteAt ?? new Date().toISOString() });
+    } catch (e) {
+      // Offline / token issues must never block app startup.
+      set({ syncError: e instanceof Error ? e.message : String(e) });
     } finally {
       set({ syncing: false });
     }

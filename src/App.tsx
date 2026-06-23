@@ -1,58 +1,67 @@
-import { useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'motion/react'
-import Sidebar from './components/Sidebar'
-import MobileNav from './components/MobileNav'
-import InstallPrompt from './components/InstallPrompt'
-import AlertsBanner from './components/AlertsBanner'
-import { usePortfolio, useActiveAlerts } from './lib/store'
+import { useEffect } from "react";
+import { Outlet, useLocation } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
+import Sidebar from "./components/Sidebar";
+import MobileNav from "./components/MobileNav";
+import InstallPrompt from "./components/InstallPrompt";
+import AlertsBanner from "./components/AlertsBanner";
+import { usePortfolio, useActiveAlerts } from "./lib/store";
 
 /** Re-fetch live prices at most this often when refreshing on tab focus. */
-const REFRESH_MS = 5 * 60 * 1000
+const REFRESH_MS = 5 * 60 * 1000;
 
 export default function App() {
-  const location = useLocation()
-  const load = usePortfolio((s) => s.load)
-  const loaded = usePortfolio((s) => s.loaded)
-  const privacy = usePortfolio((s) => s.privacy)
-  const refreshPrices = usePortfolio((s) => s.refreshPrices)
-  const reconcileAlerts = usePortfolio((s) => s.reconcileAlerts)
-  const activeAlerts = useActiveAlerts()
+  const location = useLocation();
+  const load = usePortfolio((s) => s.load);
+  const loaded = usePortfolio((s) => s.loaded);
+  const privacy = usePortfolio((s) => s.privacy);
+  const refreshPrices = usePortfolio((s) => s.refreshPrices);
+  const reconcileAlerts = usePortfolio((s) => s.reconcileAlerts);
+  const startupSync = usePortfolio((s) => s.startupSync);
+  const activeAlerts = useActiveAlerts();
 
   useEffect(() => {
-    load()
-  }, [load])
+    load();
+  }, [load]);
+
+  // Once local data is loaded, pull from the cloud if it has a newer copy.
+  useEffect(() => {
+    if (loaded) void startupSync();
+  }, [loaded, startupSync]);
 
   // Fold the current active alerts into the synced history (seen / fulfilled).
   useEffect(() => {
-    if (loaded) reconcileAlerts(activeAlerts)
-  }, [loaded, activeAlerts, reconcileAlerts])
+    if (loaded) reconcileAlerts(activeAlerts);
+  }, [loaded, activeAlerts, reconcileAlerts]);
 
   // Keep prices fresh: poll every 5 minutes, and whenever the user returns to
   // the tab (but not more often than REFRESH_MS, to avoid a focus storm).
   useEffect(() => {
-    let last = Date.now()
+    let last = Date.now();
     const refresh = () => {
-      last = Date.now()
-      void refreshPrices()
-    }
-    const id = setInterval(refresh, REFRESH_MS)
+      last = Date.now();
+      void refreshPrices();
+    };
+    const id = setInterval(refresh, REFRESH_MS);
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() - last > REFRESH_MS)
-        refresh()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onVisible)
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - last > REFRESH_MS
+      )
+        refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
-      clearInterval(id)
-      document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('focus', onVisible)
-    }
-  }, [refreshPrices])
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshPrices]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('privacy-on', privacy)
-  }, [privacy])
+    document.documentElement.classList.toggle("privacy-on", privacy);
+  }, [privacy]);
 
   return (
     <div className="flex min-h-screen">
@@ -82,5 +91,5 @@ export default function App() {
       <MobileNav />
       <InstallPrompt />
     </div>
-  )
+  );
 }
