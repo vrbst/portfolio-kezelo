@@ -1,40 +1,66 @@
-import { useRef, useState } from 'react'
-import { motion } from 'motion/react'
-import { UploadCloud, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { parseFiles, type ParsedImport } from '../lib/parsers'
-import { usePortfolio } from '../lib/store'
-import { PageHeader, Card, Badge } from '../components/ui'
-import { formatDate } from '../lib/format'
+import { useMemo, useRef, useState } from "react";
+import { motion } from "motion/react";
+import {
+  UploadCloud,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { parseFiles, type ParsedImport } from "../lib/parsers";
+import { usePortfolio } from "../lib/store";
+import { PageHeader, Card, Badge } from "../components/ui";
+import { formatDate } from "../lib/format";
 
 export default function Import() {
-  const navigate = useNavigate()
-  const importParsed = usePortfolio((s) => s.importParsed)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [dragging, setDragging] = useState(false)
-  const [parsing, setParsing] = useState(false)
-  const [preview, setPreview] = useState<ParsedImport | null>(null)
+  const navigate = useNavigate();
+  const importParsed = usePortfolio((s) => s.importParsed);
+  const transactions = usePortfolio((s) => s.transactions);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [preview, setPreview] = useState<ParsedImport | null>(null);
   const [done, setDone] = useState<{ added: number; skipped: number } | null>(
     null,
-  )
+  );
+
+  // Mirror the dedup rule of importParsed: a parsed transaction is "existing"
+  // when its id is already in the store, otherwise it will be imported.
+  const existingIds = useMemo(
+    () => new Set(transactions.map((t) => t.id)),
+    [transactions],
+  );
+  const isExisting = (id: string) => existingIds.has(id);
+  const newCount = preview
+    ? preview.transactions.filter((t) => !isExisting(t.id)).length
+    : 0;
+  const existingCount = preview ? preview.transactions.length - newCount : 0;
+
+  // New transactions first, so the rows that will actually be imported are the
+  // ones visible in the (truncated) preview table.
+  const previewRows = preview
+    ? [...preview.transactions].sort(
+        (a, b) => Number(isExisting(a.id)) - Number(isExisting(b.id)),
+      )
+    : [];
 
   async function handleFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return
-    setParsing(true)
-    setDone(null)
+    if (!fileList || fileList.length === 0) return;
+    setParsing(true);
+    setDone(null);
     try {
-      const parsed = await parseFiles(Array.from(fileList))
-      setPreview(parsed)
+      const parsed = await parseFiles(Array.from(fileList));
+      setPreview(parsed);
     } finally {
-      setParsing(false)
+      setParsing(false);
     }
   }
 
   async function confirmImport() {
-    if (!preview) return
-    const res = await importParsed(preview)
-    setDone(res)
-    setPreview(null)
+    if (!preview) return;
+    const res = await importParsed(preview);
+    setDone(res);
+    setPreview(null);
   }
 
   return (
@@ -46,28 +72,30 @@ export default function Import() {
 
       <motion.div
         onDragOver={(e) => {
-          e.preventDefault()
-          setDragging(true)
+          e.preventDefault();
+          setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
-          e.preventDefault()
-          setDragging(false)
-          handleFiles(e.dataTransfer.files)
+          e.preventDefault();
+          setDragging(false);
+          handleFiles(e.dataTransfer.files);
         }}
         onClick={() => inputRef.current?.click()}
         animate={{ scale: dragging ? 1.01 : 1 }}
         className={`card flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-16 text-center transition-colors ${
           dragging
-            ? 'border-[var(--color-brand)] bg-[var(--color-brand)]/5'
-            : 'border-[var(--color-border)]'
+            ? "border-[var(--color-brand)] bg-[var(--color-brand)]/5"
+            : "border-[var(--color-border)]"
         }`}
       >
         <div className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-[var(--color-brand)]/20 to-[var(--color-brand-2)]/20">
           <UploadCloud className="h-7 w-7 text-[var(--color-brand)]" />
         </div>
         <div className="text-lg font-medium">
-          {parsing ? 'Feldolgozás…' : 'Húzd ide a fájlokat, vagy kattints a tallózáshoz'}
+          {parsing
+            ? "Feldolgozás…"
+            : "Húzd ide a fájlokat, vagy kattints a tallózáshoz"}
         </div>
         <div className="text-sm text-[var(--color-muted)]">
           Támogatott: Lightyear CSV, Magyar Államkincstár XLS/XLSX
@@ -94,10 +122,12 @@ export default function Import() {
               <div className="font-medium">Sikeres importálás</div>
               <div className="text-sm text-[var(--color-muted)]">
                 {done.added} új tranzakció hozzáadva
-                {done.skipped > 0 && `, ${done.skipped} már létezett (kihagyva)`}.
+                {done.skipped > 0 &&
+                  `, ${done.skipped} már létezett (kihagyva)`}
+                .
               </div>
             </div>
-            <button className="btn-primary" onClick={() => navigate('/')}>
+            <button className="btn-primary" onClick={() => navigate("/")}>
               Áttekintés megnyitása
             </button>
           </Card>
@@ -113,26 +143,45 @@ export default function Import() {
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold">Előnézet</h2>
             <Badge tone="brand">{preview.accounts.length} számla</Badge>
-            <Badge tone="brand">{preview.transactions.length} tranzakció</Badge>
+            <Badge tone="positive">{newCount} új tranzakció</Badge>
+            {existingCount > 0 && (
+              <Badge tone="neutral">{existingCount} már meglévő</Badge>
+            )}
             <Badge tone="brand">{preview.instruments.length} értékpapír</Badge>
           </div>
 
+          {newCount === 0 && (
+            <Card className="flex items-center gap-3 p-4">
+              <CheckCircle2 className="h-5 w-5 text-[var(--color-positive)]" />
+              <div className="text-sm text-[var(--color-muted)]">
+                Minden tranzakció már szerepel az adataidban — nincs új
+                importálandó.
+              </div>
+            </Card>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             {preview.accounts.map((a) => {
-              const count = preview.transactions.filter(
+              const txs = preview.transactions.filter(
                 (t) => t.accountId === a.id,
-              ).length
+              );
+              const accNew = txs.filter((t) => !isExisting(t.id)).length;
+              const accExisting = txs.length - accNew;
               return (
                 <Card key={a.id} className="flex items-center gap-3 p-4">
                   <FileSpreadsheet className="h-5 w-5 text-[var(--color-brand)]" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{a.name}</div>
                     <div className="text-xs text-[var(--color-muted)]">
-                      {count} tranzakció · {a.provider}
+                      <span className="text-[var(--color-positive)]">
+                        {accNew} új
+                      </span>
+                      {accExisting > 0 && ` · ${accExisting} meglévő`} ·{" "}
+                      {a.provider}
                     </div>
                   </div>
                 </Card>
-              )
+              );
             })}
           </div>
 
@@ -154,12 +203,13 @@ export default function Import() {
 
           <Card className="overflow-hidden">
             <div className="border-b border-[var(--color-border)] px-4 py-3 text-sm font-medium">
-              Első tranzakciók
+              Tranzakciók (új elöl)
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-[var(--color-muted)]">
                   <tr className="border-b border-[var(--color-border)]">
+                    <th className="px-4 py-2 font-medium">Státusz</th>
                     <th className="px-4 py-2 font-medium">Dátum</th>
                     <th className="px-4 py-2 font-medium">Típus</th>
                     <th className="px-4 py-2 font-medium">Eszköz</th>
@@ -167,37 +217,60 @@ export default function Import() {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.transactions.slice(0, 10).map((t) => (
-                    <tr
-                      key={t.id}
-                      className="border-b border-[var(--color-border)]/50 last:border-0"
-                    >
-                      <td className="px-4 py-2">{formatDate(t.date)}</td>
-                      <td className="px-4 py-2">{t.type}</td>
-                      <td className="px-4 py-2 text-[var(--color-muted)]">
-                        {t.instrumentKey ?? '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
-                        {t.grossAmount?.toLocaleString('hu-HU') ?? '—'}{' '}
-                        {t.currency}
-                      </td>
-                    </tr>
-                  ))}
+                  {previewRows.slice(0, 12).map((t) => {
+                    const existing = isExisting(t.id);
+                    return (
+                      <tr
+                        key={t.id}
+                        className={`border-b border-[var(--color-border)]/50 last:border-0 ${
+                          existing ? "opacity-50" : ""
+                        }`}
+                      >
+                        <td className="px-4 py-2">
+                          {existing ? (
+                            <Badge tone="neutral">Meglévő</Badge>
+                          ) : (
+                            <Badge tone="positive">Új</Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">{formatDate(t.date)}</td>
+                        <td className="px-4 py-2">{t.type}</td>
+                        <td className="px-4 py-2 text-[var(--color-muted)]">
+                          {t.instrumentKey ?? "—"}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {t.grossAmount?.toLocaleString("hu-HU") ?? "—"}{" "}
+                          {t.currency}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+            {preview.transactions.length > 12 && (
+              <div className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]">
+                …és további {preview.transactions.length - 12} tranzakció.
+              </div>
+            )}
           </Card>
 
           <div className="flex justify-end gap-3">
             <button className="btn-ghost" onClick={() => setPreview(null)}>
               Mégse
             </button>
-            <button className="btn-primary" onClick={confirmImport}>
-              Importálás megerősítése
+            <button
+              className="btn-primary"
+              onClick={confirmImport}
+              disabled={newCount === 0}
+            >
+              {newCount > 0
+                ? `${newCount} új tranzakció importálása`
+                : "Nincs új importálandó"}
             </button>
           </div>
         </motion.div>
       )}
     </div>
-  )
+  );
 }
