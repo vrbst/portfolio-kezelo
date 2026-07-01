@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
-import { motion } from 'motion/react'
-import { usePortfolio, useActiveAlerts } from '../lib/store'
-import { categorizeAlerts } from '../lib/alerts'
+import { useState } from "react";
+import { NavLink } from "react-router-dom";
+import { motion } from "motion/react";
+import { usePortfolio, useActiveAlerts } from "../lib/store";
+import { categorizeAlerts } from "../lib/alerts";
 import {
   LayoutDashboard,
   Wallet,
@@ -11,60 +11,62 @@ import {
   TrendingUp,
   Receipt,
   CalendarDays,
+  LineChart,
   Bell,
   Sparkles,
   ChevronsLeft,
   ChevronsRight,
-} from 'lucide-react'
+} from "lucide-react";
 
 const links = [
-  { to: '/', label: 'Áttekintés', icon: LayoutDashboard, end: true },
-  { to: '/accounts', label: 'Számlák', icon: Wallet, end: false },
-  { to: '/income', label: 'Hozam', icon: Receipt, end: false },
-  { to: '/calendar', label: 'Naptár', icon: CalendarDays, end: false },
-  { to: '/alerts', label: 'Figyelmeztetések', icon: Bell, end: false },
-  { to: '/ai', label: 'AI elemzés', icon: Sparkles, end: false },
-  { to: '/import', label: 'Importálás', icon: Upload, end: false },
-  { to: '/settings', label: 'Beállítások', icon: SettingsIcon, end: false },
-]
+  { to: "/", label: "Áttekintés", icon: LayoutDashboard, end: true },
+  { to: "/accounts", label: "Számlák", icon: Wallet, end: false },
+  { to: "/income", label: "Hozam", icon: Receipt, end: false },
+  { to: "/calendar", label: "Naptár", icon: CalendarDays, end: false },
+  { to: "/forecast", label: "Előrejelzés", icon: LineChart, end: false },
+  { to: "/alerts", label: "Figyelmeztetések", icon: Bell, end: false },
+  { to: "/ai", label: "AI elemzés", icon: Sparkles, end: false },
+  { to: "/import", label: "Importálás", icon: Upload, end: false },
+  { to: "/settings", label: "Beállítások", icon: SettingsIcon, end: false },
+];
 
-const KEY = 'pf-sidebar-collapsed'
+const KEY = "pf-sidebar-collapsed";
 
 function loadCollapsed(): boolean {
   try {
-    return localStorage.getItem(KEY) === '1'
+    return localStorage.getItem(KEY) === "1";
   } catch {
-    return false
+    return false;
   }
 }
 
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(loadCollapsed)
-  const active = useActiveAlerts()
-  const alertState = usePortfolio((s) => s.alertState)
-  const alertCount = categorizeAlerts(active, alertState).active.length
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const active = useActiveAlerts();
+  const alertState = usePortfolio((s) => s.alertState);
+  const alertCount = categorizeAlerts(active, alertState).active.length;
 
   function toggle() {
     setCollapsed((c) => {
-      const v = !c
+      const v = !c;
       try {
-        localStorage.setItem(KEY, v ? '1' : '0')
+        localStorage.setItem(KEY, v ? "1" : "0");
       } catch {
         /* ignore */
       }
-      return v
-    })
+      return v;
+    });
   }
 
   return (
     <aside
       className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-soft)]/60 py-6 backdrop-blur-xl transition-[width] duration-200 md:flex ${
-        collapsed ? 'w-[4.5rem] px-2' : 'w-64 px-4'
+        collapsed ? "w-[4.5rem] px-2" : "w-64 px-4"
       }`}
     >
       <div
         className={`mb-8 flex items-center gap-3 ${
-          collapsed ? 'justify-center' : 'px-2'
+          collapsed ? "justify-center" : "px-2"
         }`}
       >
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-brand-2)] shadow-[var(--shadow-glow)]">
@@ -92,23 +94,23 @@ export default function Sidebar() {
             {({ isActive }) => (
               <div
                 className={`relative flex items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-colors ${
-                  collapsed ? 'justify-center px-0' : 'px-3'
+                  collapsed ? "justify-center px-0" : "px-3"
                 } ${
                   isActive
-                    ? 'text-white'
-                    : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                    ? "text-white"
+                    : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="nav-active"
                     className="absolute inset-0 -z-10 rounded-xl border border-[var(--color-brand)]/40 bg-[var(--color-brand)]/15"
-                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
                   />
                 )}
                 <link.icon className="h-[18px] w-[18px] shrink-0" />
                 {!collapsed && <span className="flex-1">{link.label}</span>}
-                {link.to === '/alerts' &&
+                {link.to === "/alerts" &&
                   alertCount > 0 &&
                   (collapsed ? (
                     <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--color-negative)]" />
@@ -126,9 +128,9 @@ export default function Sidebar() {
       <div className="mt-auto flex flex-col gap-3">
         <button
           onClick={toggle}
-          title={collapsed ? 'Menü kibontása' : 'Menü összecsukása'}
+          title={collapsed ? "Menü kibontása" : "Menü összecsukása"}
           className={`flex items-center gap-2 rounded-xl border border-[var(--color-border)] py-2 text-sm text-[var(--color-muted)] transition hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] ${
-            collapsed ? 'justify-center px-0' : 'px-3'
+            collapsed ? "justify-center px-0" : "px-3"
           }`}
         >
           {collapsed ? (
@@ -147,5 +149,5 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
-  )
+  );
 }
