@@ -20,7 +20,7 @@ import {
   allocationByCurrency,
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
-import ValueChart from "../components/ValueChart";
+import ValueChart, { type ChartMode } from "../components/ValueChart";
 import HoldingsPanel from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
@@ -104,6 +104,7 @@ export default function Dashboard() {
   );
 
   const [range, setRange] = useState<RangeKey>("max");
+  const [chartMode, setChartMode] = useState<ChartMode>("value");
 
   // Which ranges actually contain ≥2 points (others are disabled, not silent).
   const rangeAvail = useMemo(() => {
@@ -265,30 +266,57 @@ export default function Dashboard() {
             <Card className="p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">Érték az időben</h2>
+                  <h2 className="text-lg font-semibold">
+                    {chartMode === "profit"
+                      ? "Hozam az időben"
+                      : "Érték az időben"}
+                  </h2>
                   <p className="text-sm text-[var(--color-muted)]">
-                    Portfólió érték (kitöltött) vs. befektetett tőke
-                    (szaggatott)
+                    {chartMode === "profit"
+                      ? "Napi hozam (érték − befektetett tőke)"
+                      : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)"}
                   </p>
                 </div>
-                <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
-                  {RANGES.map((r) => (
-                    <button
-                      key={r.key}
-                      onClick={() => setRange(r.key)}
-                      disabled={!rangeAvail[r.key]}
-                      className={`rounded-md px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-30 ${
-                        range === r.key
-                          ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
-                          : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+                    {(
+                      [
+                        { key: "value", label: "Érték" },
+                        { key: "profit", label: "Hozam" },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.key}
+                        onClick={() => setChartMode(m.key)}
+                        className={`rounded-md px-2.5 py-1 transition ${
+                          chartMode === m.key
+                            ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                            : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+                    {RANGES.map((r) => (
+                      <button
+                        key={r.key}
+                        onClick={() => setRange(r.key)}
+                        disabled={!rangeAvail[r.key]}
+                        className={`rounded-md px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-30 ${
+                          range === r.key
+                            ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                            : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <ValueChart data={rangedSeries} />
+              <ValueChart data={rangedSeries} mode={chartMode} />
             </Card>
           )}
 
