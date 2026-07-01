@@ -18,6 +18,7 @@ import {
   type ForecastSettings,
   type PlannedExpense,
   type ScenarioKey,
+  type ReinvestTarget,
 } from "../lib/forecast";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
@@ -39,6 +40,20 @@ const SCEN_META: { key: ScenarioKey; label: string }[] = [
   { key: "real", label: "Reális" },
   { key: "opt", label: "Optimista" },
 ];
+
+const REINVEST_OPTIONS: { value: ReinvestTarget; label: string }[] = [
+  { value: "growth", label: "Növekedési eszköz (pl. VWCE)" },
+  { value: "bond", label: "Új állampapír (fix hozam)" },
+  { value: "cash", label: "Készpénz (nem fialtatom)" },
+];
+
+function reinvestContextLabel(t: ReinvestTarget, bondRate: number): string {
+  if (t === "growth")
+    return "növekedési eszközbe (pl. VWCE, a scenario-hozammal)";
+  if (t === "bond")
+    return `új állampapírba, ${(bondRate * 100).toFixed(1)}% éves hozammal`;
+  return "készpénzben marad (nem fialódik, kiadásokra elérhető)";
+}
 
 function newId(): string {
   try {
@@ -77,7 +92,8 @@ export default function Forecast() {
         {
           annualReturn: settings.annualReturn,
           monthlySavingHuf: monthlySaving,
-          reinvestBonds: settings.reinvestBonds,
+          reinvestTarget: settings.reinvestTarget,
+          reinvestBondRate: settings.reinvestBondRate,
           months: settings.months,
         },
         settings.expenses,
@@ -115,7 +131,7 @@ export default function Forecast() {
       `Jelenlegi összérték: ${huf(result.startValueHuf)} Ft`,
       `Felismert havi rendszeres megtakarítás: ${huf(monthlySaving)} Ft`,
       `Feltételezett éves hozam — pesszimista ${(ret.pess * 100).toFixed(1)}%, reális ${(ret.real * 100).toFixed(1)}%, optimista ${(ret.opt * 100).toFixed(1)}%`,
-      `Kötvény-kamatok újrabefektetése: ${settings.reinvestBonds ? "igen (növekedési eszközbe)" : "nem (készpénzben marad)"}`,
+      `Kötvény-kamatok és lejáró tőke iránya: ${reinvestContextLabel(settings.reinvestTarget, settings.reinvestBondRate)}`,
       `Horizont: ${Math.round(settings.months / 12)} év`,
       `Kötvény-cashflow a horizonton: kamat ${huf(result.couponHuf)} Ft, lejáró tőke ${huf(result.maturityHuf)} Ft`,
       `Betervezett kiadások: ${exp} (összesen ${huf(result.expenseHuf)} Ft)`,
@@ -305,17 +321,50 @@ export default function Forecast() {
             ))}
           </div>
 
-          <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-[var(--color-brand)]"
-              checked={settings.reinvestBonds}
+          <div className="mt-4">
+            <p className="mb-1.5 text-xs font-medium text-[var(--color-muted)]">
+              Kötvény-kamatok és lejáró tőke ide kerül
+            </p>
+            <select
+              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-2 text-sm"
+              value={settings.reinvestTarget}
               onChange={(e) =>
-                setSettings((s) => ({ ...s, reinvestBonds: e.target.checked }))
+                setSettings((s) => ({
+                  ...s,
+                  reinvestTarget: e.target.value as ReinvestTarget,
+                }))
               }
-            />
-            Kötvény-kamatok és lejáró tőke újrabefektetése
-          </label>
+            >
+              {REINVEST_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {settings.reinvestTarget === "bond" && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-sm text-[var(--color-muted)]">
+                  Állampapír hozam
+                </span>
+                <input
+                  type="number"
+                  step="0.5"
+                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  value={+(settings.reinvestBondRate * 100).toFixed(1)}
+                  onChange={(e) => {
+                    const p = Number(e.target.value);
+                    setSettings((s) => ({
+                      ...s,
+                      reinvestBondRate: Number.isFinite(p) ? p / 100 : 0,
+                    }));
+                  }}
+                />
+                <span className="text-sm text-[var(--color-muted)]">
+                  % / év
+                </span>
+              </div>
+            )}
+          </div>
 
           <div className="mt-4">
             <p className="mb-1.5 text-xs font-medium text-[var(--color-muted)]">
@@ -493,10 +542,11 @@ export default function Forecast() {
         </div>
         <p className="mt-3 text-xs text-[var(--color-muted)]">
           A kötvények a horizonton belül {huf(result.couponHuf)} Ft kamatot és{" "}
-          {huf(result.maturityHuf)} Ft lejáró tőkét hoznak
-          {settings.reinvestBonds
-            ? ", amit újrabefektetve görgetünk tovább"
-            : ""}
+          {huf(result.maturityHuf)} Ft lejáró tőkét hoznak — ez ide kerül:{" "}
+          {reinvestContextLabel(
+            settings.reinvestTarget,
+            settings.reinvestBondRate,
+          )}
           .
         </p>
       </Card>

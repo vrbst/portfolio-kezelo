@@ -150,13 +150,24 @@ export interface PlannedExpense {
   note?: string;
 }
 
+/**
+ * Where bond coupons + matured principal flow:
+ *  • growth — into the growth assets (e.g. VWCE), compounding at the scenario
+ *    return. This is the "bent hagyom és VWCE-be teszem" case.
+ *  • bond   — rolled into new bonds at a fixed assumed rate.
+ *  • cash   — kept as idle cash (no yield), available for planned expenses.
+ */
+export type ReinvestTarget = "growth" | "bond" | "cash";
+
 export interface ForecastAssumptions {
   /** Annual expected return for growth assets per scenario (fraction, e.g. 0.06). */
   annualReturn: Record<ScenarioKey, number>;
   /** Recurring monthly saving added to growth assets (HUF). */
   monthlySavingHuf: number;
-  /** Reinvest bond coupons + matured principal into growth assets? */
-  reinvestBonds: boolean;
+  /** Where bond coupons + matured principal are reinvested. */
+  reinvestTarget: ReinvestTarget;
+  /** Annual rate for the "bond" reinvest target (fraction). */
+  reinvestBondRate: number;
   /** Horizon length in months. */
   months: number;
 }
@@ -287,20 +298,26 @@ export function projectForecast(
     expenseHuf += e.amountHuf;
   }
 
-  // Per-scenario compounding pots (growth + un-reinvested cash). Bond carry that
-  // hasn't matured yet is scenario-independent.
+  // Per-scenario pots: `growth` compounds at the scenario return; `side` holds
+  // reinvested bond proceeds routed away from growth (bonds → fixed rate, cash →
+  // idle). Bond carry not yet matured is scenario-independent.
   const growth: Record<ScenarioKey, number> = {
     pess: growth0,
     real: growth0,
     opt: growth0,
   };
-  const cash: Record<ScenarioKey, number> = { pess: 0, real: 0, opt: 0 };
+  const side: Record<ScenarioKey, number> = { pess: 0, real: 0, opt: 0 };
   let bondRemaining = bondValue0;
   const rMonthly: Record<ScenarioKey, number> = {
     pess: monthlyRate(assumptions.annualReturn.pess),
     real: monthlyRate(assumptions.annualReturn.real),
     opt: monthlyRate(assumptions.annualReturn.opt),
   };
+  const toGrowth = assumptions.reinvestTarget === "growth";
+  const sideMonthly =
+    assumptions.reinvestTarget === "bond"
+      ? monthlyRate(assumptions.reinvestBondRate)
+      : 0; // "cash" sits idle
 
   const points: ForecastPoint[] = [];
   let contributed = summary.netDepositedHuf;
@@ -313,38 +330,38 @@ export function projectForecast(
       // 1) compound one month
       for (const s of SCENARIOS) {
         growth[s] *= 1 + rMonthly[s];
-        // un-reinvested cash sits idle (no assumed yield)
+        side[s] *= 1 + sideMonthly;
       }
       // 2) recurring savings → growth
       for (const s of SCENARIOS) growth[s] += assumptions.monthlySavingHuf;
       contributed += assumptions.monthlySavingHuf;
 
-      // 3) bond coupons (income)
+      // 3) bond coupons (income) → growth or side pot
       const coup = couponByMonth.get(key) ?? 0;
       if (coup) {
         for (const s of SCENARIOS) {
-          if (assumptions.reinvestBonds) growth[s] += coup;
-          else cash[s] += coup;
+          if (toGrowth) growth[s] += coup;
+          else side[s] += coup;
         }
       }
-      // 4) maturities: release carry, credit face
+      // 4) maturities: release carry, credit face → growth or side pot
       const mats = maturityByMonth.get(key);
       if (mats) {
         for (const m of mats) {
           bondRemaining -= m.carry;
           for (const s of SCENARIOS) {
-            if (assumptions.reinvestBonds) growth[s] += m.face;
-            else cash[s] += m.face;
+            if (toGrowth) growth[s] += m.face;
+            else side[s] += m.face;
           }
         }
       }
-      // 5) planned expenses (cash first, then growth)
+      // 5) planned expenses (side pot first, then growth)
       const exp = expenseByMonth.get(key) ?? 0;
       if (exp) {
         for (const s of SCENARIOS) {
-          const fromCash = Math.min(cash[s], exp);
-          cash[s] -= fromCash;
-          growth[s] -= exp - fromCash;
+          const fromSide = Math.min(side[s], exp);
+          side[s] -= fromSide;
+          growth[s] -= exp - fromSide;
         }
         contributed -= exp;
       }
@@ -353,9 +370,9 @@ export function projectForecast(
     points.push({
       month: key,
       ts: ms,
-      pess: growth.pess + cash.pess + bondRemaining,
-      real: growth.real + cash.real + bondRemaining,
-      opt: growth.opt + cash.opt + bondRemaining,
+      pess: growth.pess + side.pess + bondRemaining,
+      real: growth.real + side.real + bondRemaining,
+      opt: growth.opt + side.opt + bondRemaining,
       contributed,
     });
   }
@@ -399,7 +416,10 @@ export interface ForecastSettings {
   /** null → use the auto-detected recurring saving. */
   monthlySavingOverride: number | null;
   annualReturn: Record<ScenarioKey, number>;
-  reinvestBonds: boolean;
+  /** Where bond coupons + matured principal are reinvested. */
+  reinvestTarget: ReinvestTarget;
+  /** Annual rate for the "bond" reinvest target (fraction). */
+  reinvestBondRate: number;
   months: number;
   expenses: PlannedExpense[];
 }
@@ -407,7 +427,8 @@ export interface ForecastSettings {
 export const DEFAULT_SETTINGS: ForecastSettings = {
   monthlySavingOverride: null,
   annualReturn: { pess: 0.03, real: 0.06, opt: 0.09 },
-  reinvestBonds: true,
+  reinvestTarget: "growth",
+  reinvestBondRate: 0.06,
   months: 120,
   expenses: [],
 };
@@ -416,10 +437,16 @@ export function loadForecastSettings(): ForecastSettings {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<ForecastSettings>;
+    const parsed = JSON.parse(raw) as Partial<ForecastSettings> & {
+      reinvestBonds?: boolean; // legacy boolean → target
+    };
+    const reinvestTarget: ReinvestTarget =
+      parsed.reinvestTarget ??
+      (parsed.reinvestBonds === false ? "cash" : "growth");
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      reinvestTarget,
       annualReturn: {
         ...DEFAULT_SETTINGS.annualReturn,
         ...(parsed.annualReturn ?? {}),
