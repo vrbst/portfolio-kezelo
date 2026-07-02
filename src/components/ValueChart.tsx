@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   AreaChart,
   Area,
@@ -74,12 +75,18 @@ export default function ValueChart({
   // the Y-axis amounts and the tooltip value at the formatter level instead.
   const privacy = usePortfolio((s) => s.privacy);
   // Real time axis: x is the timestamp so points are spaced by actual elapsed
-  // time (not evenly per sample) and month ticks land correctly.
-  const chartData = data.map((d) => ({
-    ...d,
-    ts: new Date(d.date).getTime(),
-    profit: d.value - d.invested,
-  }));
+  // time (not evenly per sample) and month ticks land correctly. Memoised so
+  // unrelated re-renders don't hand Recharts a fresh array (full re-diff +
+  // retriggered animations).
+  const chartData = useMemo(
+    () =>
+      data.map((d) => ({
+        ...d,
+        ts: new Date(d.date).getTime(),
+        profit: d.value - d.invested,
+      })),
+    [data],
+  );
   const min = chartData[0]?.ts ?? 0;
   const max = chartData[chartData.length - 1]?.ts ?? 0;
   const ticks = monthTicks(min, max);

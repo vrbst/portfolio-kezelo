@@ -160,13 +160,21 @@ export default function Forecast() {
     }
   }
 
+  // Draft strings for the numeric inputs: while typing we show the raw text
+  // (no re-formatting → no caret jumps), and an empty field doesn't commit 0.
+  const [savingDraft, setSavingDraft] = useState<string | null>(null);
+  const [rateDraft, setRateDraft] = useState<Partial<Record<string, string>>>(
+    {},
+  );
+
   // --- expense editor -------------------------------------------------------
   const [expDate, setExpDate] = useState("");
   const [expAmount, setExpAmount] = useState("");
   const [expNote, setExpNote] = useState("");
 
   function addExpense() {
-    const amount = Number(expAmount.replace(/\s/g, ""));
+    // Accept "1 500 000" and a comma decimal ("1,5") too.
+    const amount = Number(expAmount.replace(/\s/g, "").replace(",", "."));
     if (!expDate || !Number.isFinite(amount) || amount <= 0) return;
     const e: PlannedExpense = {
       id: newId(),
@@ -243,14 +251,16 @@ export default function Forecast() {
                 type="text"
                 inputMode="numeric"
                 className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
-                value={huf(monthlySaving)}
+                value={savingDraft ?? huf(monthlySaving)}
+                onFocus={() => setSavingDraft(String(monthlySaving))}
                 onChange={(e) => {
+                  setSavingDraft(e.target.value);
                   const n = Number(e.target.value.replace(/\D/g, ""));
-                  setSettings((s) => ({
-                    ...s,
-                    monthlySavingOverride: Number.isFinite(n) ? n : 0,
-                  }));
+                  if (e.target.value.trim() !== "" && Number.isFinite(n)) {
+                    setSettings((s) => ({ ...s, monthlySavingOverride: n }));
+                  }
                 }}
+                onBlur={() => setSavingDraft(null)}
               />
               <span className="text-sm text-[var(--color-muted)]">Ft / hó</span>
               {overriding && (
@@ -302,17 +312,26 @@ export default function Forecast() {
                   type="number"
                   step="0.5"
                   className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-                  value={+(settings.annualReturn[sc.key] * 100).toFixed(1)}
+                  value={
+                    rateDraft[sc.key] ??
+                    String(+(settings.annualReturn[sc.key] * 100).toFixed(1))
+                  }
                   onChange={(e) => {
-                    const p = Number(e.target.value);
-                    setSettings((s) => ({
-                      ...s,
-                      annualReturn: {
-                        ...s.annualReturn,
-                        [sc.key]: Number.isFinite(p) ? p / 100 : 0,
-                      },
-                    }));
+                    const v = e.target.value;
+                    setRateDraft((d) => ({ ...d, [sc.key]: v }));
+                    const p = Number(v.replace(",", "."));
+                    // Only commit parseable, non-empty input — clearing the
+                    // field must not zero the scenario rate.
+                    if (v.trim() !== "" && Number.isFinite(p)) {
+                      setSettings((s) => ({
+                        ...s,
+                        annualReturn: { ...s.annualReturn, [sc.key]: p / 100 },
+                      }));
+                    }
                   }}
+                  onBlur={() =>
+                    setRateDraft((d) => ({ ...d, [sc.key]: undefined }))
+                  }
                 />
                 <span className="text-sm text-[var(--color-muted)]">
                   % / év

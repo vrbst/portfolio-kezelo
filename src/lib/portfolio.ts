@@ -83,6 +83,12 @@ export interface PortfolioSummary {
   totalPlHuf: number;
   /** total P/L as a fraction of net deposited. */
   totalReturnPct: number;
+  /**
+   * Non-HUF currencies held (position or cash) with no known FX rate — those
+   * amounts are valued at 1 HUF/unit, so the UI must warn instead of showing
+   * silently absurd totals.
+   */
+  missingFxCcys: string[];
 }
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
@@ -647,20 +653,22 @@ export function buildFxHistory(txs: Transaction[]): FxHistory {
 
   const map: FxHistory = new Map();
   for (const legs of groups.values()) {
+    // A conversion is a 2-leg pair (HUF + one foreign leg). Reference-less
+    // legs fall back to a per-day group key, so two unrelated same-day
+    // conversions could merge into one group — that pairing is ambiguous and
+    // would yield wrong rates, so skip anything that isn't a clean pair.
+    if (legs.length !== 2) continue;
     const hufLeg = legs.find((l) => (l.currency || "HUF") === "HUF");
-    const hufAbs = Math.abs(hufLeg?.grossAmount ?? hufLeg?.netAmount ?? 0);
-    if (!hufAbs) continue;
-    for (const leg of legs) {
-      const ccy = leg.currency;
-      if (!ccy || ccy === "HUF") continue;
-      const foreignAbs = Math.abs(leg.grossAmount ?? leg.netAmount ?? 0);
-      if (!foreignAbs) continue;
-      const rate = hufAbs / foreignAbs; // effective, fee-inclusive
-      if (rate <= 1) continue;
-      const arr = map.get(ccy) ?? [];
-      arr.push({ date: leg.date, rate });
-      map.set(ccy, arr);
-    }
+    const foreign = legs.find((l) => l.currency && l.currency !== "HUF");
+    if (!hufLeg || !foreign) continue;
+    const hufAbs = Math.abs(hufLeg.grossAmount ?? hufLeg.netAmount ?? 0);
+    const foreignAbs = Math.abs(foreign.grossAmount ?? foreign.netAmount ?? 0);
+    if (!hufAbs || !foreignAbs) continue;
+    const rate = hufAbs / foreignAbs; // effective, fee-inclusive
+    if (rate <= 1) continue;
+    const arr = map.get(foreign.currency) ?? [];
+    arr.push({ date: foreign.date, rate });
+    map.set(foreign.currency, arr);
   }
   for (const arr of map.values())
     arr.sort((a, b) => a.date.localeCompare(b.date));
@@ -668,7 +676,7 @@ export function buildFxHistory(txs: Transaction[]): FxHistory {
 }
 
 /** Rate in effect at `date`: the latest conversion on/before it (else nearest). */
-function histFxRate(
+export function histFxRate(
   history: FxHistory | undefined,
   ccy: Currency,
   date: string,
@@ -790,7 +798,14 @@ export function computeAccountSummary(
           const costOut = p.cost * soldFrac;
           const realized = proceeds - costOut;
           p.realized += realized;
-          realizedPlHuf += toHuf(realized, p.ccy, fx);
+          // HUF realized = proceeds at the sell-date FX minus the HUF basis
+          // fixed at purchase — the same convention as computeIncomeByYear, so
+          // the dashboard and the yearly income view show the same number.
+          const proceedsHuf =
+            p.ccy === "HUF"
+              ? proceeds
+              : proceeds * histFxRate(history, p.ccy, t.date, fx);
+          realizedPlHuf += proceedsHuf - p.costHuf * soldFrac;
           p.qty -= qty;
           p.cost -= costOut;
           p.costHuf -= p.costHuf * soldFrac;
@@ -962,6 +977,20 @@ export function computePortfolio(
   const totalValueHuf = holdingsValueHuf + cashValueHuf;
   const totalPlHuf = totalValueHuf - netDepositedHuf;
 
+  // Currencies valued at the 1 HUF/unit fallback because no rate is known.
+  const missingFxCcys = [
+    ...new Set(
+      summaries.flatMap((s) => [
+        ...s.holdings
+          .filter((h) => h.currency !== "HUF" && !fx[h.currency])
+          .map((h) => h.currency),
+        ...Object.entries(s.cash)
+          .filter(([c, amt]) => c !== "HUF" && Math.abs(amt) > 1e-6 && !fx[c])
+          .map(([c]) => c),
+      ]),
+    ),
+  ];
+
   return {
     accounts: summaries,
     totalValueHuf,
@@ -974,6 +1003,7 @@ export function computePortfolio(
     interestHuf,
     totalPlHuf,
     totalReturnPct: netDepositedHuf > 0 ? totalPlHuf / netDepositedHuf : 0,
+    missingFxCcys,
   };
 }
 
@@ -1028,7 +1058,10 @@ export function computeIncomeByYear(
     for (const t of accTxs) {
       if (t.internal) continue;
       const ccy = t.currency || "HUF";
-      const year = Number(t.date.slice(0, 4));
+      // Local year, not a string prefix: an imported "Jan 1 local midnight"
+      // date serialises as Dec 31 23:00 UTC, and slice(0,4) would put it in
+      // the previous year.
+      const year = new Date(t.date).getFullYear();
       if (!Number.isFinite(year)) continue;
       const yr = ensure(year);
       if (t.fee) yr.feesHuf += toHuf(t.fee, ccy, fx);
@@ -1448,6 +1481,10 @@ function solveXirr(flows: { t: number; amt: number }[]): number | undefined {
   if (!hasPos || !hasNeg) return undefined;
   const npv = (r: number) =>
     flows.reduce((s, f) => s + f.amt / Math.pow(1 + r, f.t), 0);
+  // Relative NPV tolerance: an absolute one is scale-dependent (never fires
+  // for 1e7+ HUF portfolios). The rate bracket (−99.99%…+10000%) is assumed to
+  // contain the root; outside it we return undefined rather than extrapolate.
+  const tol = 1e-8 * flows.reduce((s, f) => s + Math.abs(f.amt), 0);
   let lo = -0.9999;
   let hi = 100;
   let flo = npv(lo);
@@ -1455,7 +1492,7 @@ function solveXirr(flows: { t: number; amt: number }[]): number | undefined {
   for (let i = 0; i < 200; i++) {
     const mid = (lo + hi) / 2;
     const fm = npv(mid);
-    if (Math.abs(fm) < 1e-4) return mid;
+    if (Math.abs(fm) < tol || hi - lo < 1e-10) return mid;
     if (flo * fm < 0) hi = mid;
     else {
       lo = mid;

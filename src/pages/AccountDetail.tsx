@@ -94,6 +94,14 @@ export default function AccountDetail() {
     setEditing(false);
   }
 
+  // Cancel must reseed the draft from the account — otherwise a reopened
+  // editor shows (and a Mentés silently saves) the discarded values.
+  function cancelEdit() {
+    setKind(account!.kind);
+    setYear(account!.tbszYear ? String(account!.tbszYear) : "");
+    setEditing(false);
+  }
+
   return (
     <div>
       <Link
@@ -131,7 +139,7 @@ export default function AccountDetail() {
               <button className="btn-primary" onClick={saveEdit}>
                 <Check className="h-4 w-4" /> Mentés
               </button>
-              <button className="btn-ghost" onClick={() => setEditing(false)}>
+              <button className="btn-ghost" onClick={cancelEdit}>
                 <X className="h-4 w-4" />
               </button>
             </div>

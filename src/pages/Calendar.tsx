@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
-import { futureBondCashflows, isInternalTransfer } from "../lib/portfolio";
+import {
+  buildFxHistory,
+  futureBondCashflows,
+  histFxRate,
+  isInternalTransfer,
+} from "../lib/portfolio";
 import { tbszStatus } from "../lib/tbsz";
 import { PageHeader, Card, Badge } from "../components/ui";
 import CashflowForecast from "../components/CashflowForecast";
@@ -112,7 +117,9 @@ export default function Calendar() {
   const privacy = usePortfolio((s) => s.privacy);
   const summary = usePortfolioSummary();
 
-  const today = new Date();
+  // Stable for the component's lifetime: a fresh Date per render would defeat
+  // every useMemo below (full-year rescan on each click).
+  const [today] = useState(() => new Date());
   const todayIso = isoDay(
     today.getFullYear(),
     today.getMonth(),
@@ -128,11 +135,20 @@ export default function Calendar() {
     [instruments],
   );
 
+  // Historical conversion rates, so past foreign-currency flows are sized at
+  // the rate of their day instead of today's.
+  const fxHistory = useMemo(() => buildFxHistory(transactions), [transactions]);
+
   // Build a per-day item map across past transactions + future cash-flows + TBSZ.
   const byDay = useMemo(() => {
     const map = new Map<string, DayItem[]>();
     const push = (date: string, item: DayItem) => {
-      const key = date.slice(0, 10);
+      // Local day, not a string prefix — imported dates serialise as UTC and
+      // can sit one day behind their local calendar day.
+      const d = new Date(date);
+      const key = Number.isNaN(d.getTime())
+        ? date.slice(0, 10)
+        : isoDay(d.getFullYear(), d.getMonth(), d.getDate());
       const arr = map.get(key);
       if (arr) arr.push(item);
       else map.set(key, [item]);
@@ -148,7 +164,10 @@ export default function Calendar() {
       if (!cat) continue;
       const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
       if (raw === 0) continue;
-      const huf = t.currency === "HUF" ? raw : raw * (fx[t.currency] ?? 0);
+      const huf =
+        t.currency === "HUF"
+          ? raw
+          : raw * histFxRate(fxHistory, t.currency, t.date, fx);
       const inst = t.instrumentKey ? instMap.get(t.instrumentKey) : undefined;
       const isTrade = t.type === "buy" || t.type === "sell";
       push(t.date, {
@@ -187,7 +206,7 @@ export default function Calendar() {
     }
 
     return map;
-  }, [transactions, instMap, fx, summary, accounts, today]);
+  }, [transactions, instMap, fx, fxHistory, summary, accounts, today]);
 
   // Largest single-day gross flow across the WHOLE year — normalises bubble
   // sizes so they're comparable from month to month.
@@ -221,108 +240,6 @@ export default function Calendar() {
   }, [byDay, year]);
 
   const selectedItems = selected ? (byDay.get(selected) ?? []) : [];
-
-  // One compact month grid. Bubbles reuse the day-aggregate logic but are
-  // smaller and label-less (the number would not fit) — click for the detail.
-  function MonthGrid({ m }: { m: number }) {
-    const first = new Date(year, m, 1);
-    const lead = (first.getDay() + 6) % 7; // Monday = 0
-    const daysInMonth = new Date(year, m + 1, 0).getDate();
-    const cells: (number | null)[] = [];
-    for (let i = 0; i < lead; i++) cells.push(null);
-    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-    while (cells.length % 7 !== 0) cells.push(null);
-    const isCurrentMonth =
-      year === today.getFullYear() && m === today.getMonth();
-    return (
-      <div
-        className={`rounded-xl border p-2 ${
-          isCurrentMonth
-            ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/30"
-            : "border-[var(--color-border)]/60"
-        }`}
-      >
-        <div className="mb-1 text-xs font-semibold capitalize">{MONTHS[m]}</div>
-        <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-[var(--color-muted)]">
-          {WEEKDAYS.map((w, wi) => (
-            <div key={wi} className="py-0.5">
-              {w}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-0.5">
-          {cells.map((d, i) => {
-            if (d == null) return <div key={i} />;
-            const key = isoDay(year, m, d);
-            const items = byDay.get(key);
-            const isToday = key === todayIso;
-            const isSel = key === selected;
-            const isFuture = key > todayIso;
-            const agg = items ? dayAggregate(items) : null;
-            const gross = agg ? agg.inflow + agg.outflow : 0;
-            const net = agg ? agg.inflow - agg.outflow : 0;
-            // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid.
-            const diam =
-              gross > 0 && maxGross > 0
-                ? 6 + 13 * Math.sqrt(gross / maxGross)
-                : 0;
-            const tol = gross * 0.05;
-            const color =
-              net > tol ? "#34d399" : net < -tol ? "#fb7185" : "#6366f1";
-            const parts: string[] = [];
-            if (agg && agg.inflow > 0.5)
-              parts.push(`Be +${formatCompact(agg.inflow)}`);
-            if (agg && agg.outflow > 0.5)
-              parts.push(`Ki −${formatCompact(agg.outflow)}`);
-            const title =
-              !privacy && parts.length ? parts.join(" · ") : undefined;
-            return (
-              <button
-                key={i}
-                onClick={() => setSelected(key)}
-                title={title}
-                className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${
-                  isSel
-                    ? "border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40"
-                    : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40"
-                }`}
-              >
-                <span
-                  className={`relative z-10 tabular-nums ${
-                    isToday
-                      ? "grid h-4 w-4 place-items-center rounded-full bg-[var(--color-brand)] text-[9px] font-semibold text-white"
-                      : "text-[var(--color-muted)]"
-                  }`}
-                >
-                  {d}
-                </span>
-                {diam > 0 && (
-                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <span
-                      className="rounded-full"
-                      style={{
-                        width: diam,
-                        height: diam,
-                        background: `${color}${isFuture ? "70" : "cc"}`,
-                      }}
-                    />
-                  </span>
-                )}
-                {diam === 0 && agg?.hasMarker && (
-                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <span
-                      className="h-2 w-2 rounded-full border-2"
-                      style={{ borderColor: CAT_COLOR.tbsz }}
-                    />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -374,7 +291,17 @@ export default function Calendar() {
         {/* 12 months at once */}
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
           {MONTHS.map((_, m) => (
-            <MonthGrid key={m} m={m} />
+            <MonthGrid
+              key={m}
+              m={m}
+              year={year}
+              todayIso={todayIso}
+              byDay={byDay}
+              maxGross={maxGross}
+              selected={selected}
+              onSelect={setSelected}
+              privacy={privacy}
+            />
           ))}
         </div>
 
@@ -464,6 +391,127 @@ export default function Calendar() {
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+// One compact month grid. Bubbles reuse the day-aggregate logic but are
+// smaller and label-less (the number would not fit) — click for the detail.
+// Top-level component (not nested in Calendar), so its identity is stable and
+// React doesn't remount all 12 grids on every parent render.
+function MonthGrid({
+  m,
+  year,
+  todayIso,
+  byDay,
+  maxGross,
+  selected,
+  onSelect,
+  privacy,
+}: {
+  m: number;
+  year: number;
+  todayIso: string;
+  byDay: Map<string, DayItem[]>;
+  maxGross: number;
+  selected: string | null;
+  onSelect: (key: string) => void;
+  privacy: boolean;
+}) {
+  const first = new Date(year, m, 1);
+  const lead = (first.getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, m + 1, 0).getDate();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const isCurrentMonth = todayIso.startsWith(isoDay(year, m, 1).slice(0, 7));
+  return (
+    <div
+      className={`rounded-xl border p-2 ${
+        isCurrentMonth
+          ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/30"
+          : "border-[var(--color-border)]/60"
+      }`}
+    >
+      <div className="mb-1 text-xs font-semibold capitalize">{MONTHS[m]}</div>
+      <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-[var(--color-muted)]">
+        {WEEKDAYS.map((w, wi) => (
+          <div key={wi} className="py-0.5">
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((d, i) => {
+          if (d == null) return <div key={i} />;
+          const key = isoDay(year, m, d);
+          const items = byDay.get(key);
+          const isToday = key === todayIso;
+          const isSel = key === selected;
+          const isFuture = key > todayIso;
+          const agg = items ? dayAggregate(items) : null;
+          const gross = agg ? agg.inflow + agg.outflow : 0;
+          const net = agg ? agg.inflow - agg.outflow : 0;
+          // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid.
+          const diam =
+            gross > 0 && maxGross > 0
+              ? 6 + 13 * Math.sqrt(gross / maxGross)
+              : 0;
+          const tol = gross * 0.05;
+          const color =
+            net > tol ? "#34d399" : net < -tol ? "#fb7185" : "#6366f1";
+          const parts: string[] = [];
+          if (agg && agg.inflow > 0.5)
+            parts.push(`Be +${formatCompact(agg.inflow)}`);
+          if (agg && agg.outflow > 0.5)
+            parts.push(`Ki −${formatCompact(agg.outflow)}`);
+          const title =
+            !privacy && parts.length ? parts.join(" · ") : undefined;
+          return (
+            <button
+              key={i}
+              onClick={() => onSelect(key)}
+              title={title}
+              className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${
+                isSel
+                  ? "border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40"
+                  : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40"
+              }`}
+            >
+              <span
+                className={`relative z-10 tabular-nums ${
+                  isToday
+                    ? "grid h-4 w-4 place-items-center rounded-full bg-[var(--color-brand)] text-[9px] font-semibold text-white"
+                    : "text-[var(--color-muted)]"
+                }`}
+              >
+                {d}
+              </span>
+              {diam > 0 && (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span
+                    className="rounded-full"
+                    style={{
+                      width: diam,
+                      height: diam,
+                      background: `${color}${isFuture ? "70" : "cc"}`,
+                    }}
+                  />
+                </span>
+              )}
+              {diam === 0 && agg?.hasMarker && (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span
+                    className="h-2 w-2 rounded-full border-2"
+                    style={{ borderColor: CAT_COLOR.tbsz }}
+                  />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

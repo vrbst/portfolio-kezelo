@@ -23,6 +23,7 @@ export default function Import() {
   const [done, setDone] = useState<{ added: number; skipped: number } | null>(
     null,
   );
+  const [parseError, setParseError] = useState<string | null>(null);
 
   // Mirror the dedup rule of importParsed: a parsed transaction is "existing"
   // when its id is already in the store, otherwise it will be imported.
@@ -48,11 +49,19 @@ export default function Import() {
     if (!fileList || fileList.length === 0) return;
     setParsing(true);
     setDone(null);
+    setParseError(null);
     try {
       const parsed = await parseFiles(Array.from(fileList));
       setPreview(parsed);
+    } catch (e) {
+      // parseFiles guards per-file, so this is unexpected — but it must show
+      // up as a message, not as a silent return to the idle state.
+      setParseError(e instanceof Error ? e.message : String(e));
     } finally {
       setParsing(false);
+      // Reset the input so picking the SAME file again re-fires onChange
+      // (e.g. after a cancelled preview or a re-export with the same name).
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -109,6 +118,18 @@ export default function Import() {
           onChange={(e) => handleFiles(e.target.files)}
         />
       </motion.div>
+
+      {parseError && (
+        <Card className="mt-6 flex items-center gap-3 p-5">
+          <AlertTriangle className="h-6 w-6 shrink-0 text-[var(--color-negative)]" />
+          <div className="flex-1">
+            <div className="font-medium">Nem sikerült feldolgozni</div>
+            <div className="text-sm text-[var(--color-muted)]">
+              {parseError}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {done && (
         <motion.div

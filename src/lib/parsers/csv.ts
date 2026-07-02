@@ -82,8 +82,15 @@ export function num(value: string | undefined | null): number | undefined {
       cleaned = cleaned.replace(/,/g, "");
     }
   } else if (lastComma > -1) {
-    // Only commas: treat as decimal if it looks like one (≤2 trailing digits).
-    cleaned = cleaned.replace(",", ".");
+    // Only commas: a single comma NOT followed by exactly 3 digits is a
+    // decimal separator ("1,5", "0,123456"); otherwise the commas are
+    // thousands grouping ("1,234", "1,234,567") and are dropped.
+    const single = cleaned.indexOf(",") === lastComma;
+    const trailing = cleaned.length - lastComma - 1;
+    cleaned =
+      single && trailing !== 3
+        ? cleaned.replace(",", ".")
+        : cleaned.replace(/,/g, "");
   }
   const n = Number(cleaned);
   return Number.isNaN(n) ? undefined : n;

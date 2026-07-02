@@ -464,7 +464,8 @@ export default function Dashboard() {
               </div>
               {/* ~4 elem látszik egyszerre, a többi görgethető */}
               <div className="max-h-[17rem] space-y-2 overflow-y-auto pr-1">
-                {events.map((e, i) => {
+                {events.map((e) => {
+                  const key = `${e.date}:${e.kind}:${e.title}`;
                   const Icon = EVENT_ICON[e.kind];
                   const inner = (
                     <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
@@ -493,14 +494,14 @@ export default function Dashboard() {
                   );
                   return e.accountId ? (
                     <Link
-                      key={i}
+                      key={key}
                       to={`/accounts/${e.accountId}`}
                       className="block card-hover rounded-xl"
                     >
                       {inner}
                     </Link>
                   ) : (
-                    <div key={i}>{inner}</div>
+                    <div key={key}>{inner}</div>
                   );
                 })}
               </div>

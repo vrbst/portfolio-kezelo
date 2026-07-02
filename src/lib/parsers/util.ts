@@ -32,8 +32,14 @@ export function parseHuDate(s: string): string {
   return new Date(Number(y), Number(mo) - 1, Number(da)).toISOString();
 }
 
+const isoDay = (y: number, m: number, d: number) =>
+  `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
 /**
- * Derive a maturity date from a Hungarian security name.
+ * Derive a maturity date from a Hungarian security name. Returns a plain
+ * local calendar date (YYYY-MM-DD) — a toISOString here would shift the day
+ * back in UTC and every string-prefix consumer (calendar, events) with it.
+ * (Not a hashId input, so the format is free to be the correct one.)
  *  - "Diszkont Kincstárjegy D260527" -> 2026-05-27
  *  - "Fix Magyar Állampapír 2031/Q1" -> 2031-03-31 (end of quarter, approx)
  */
@@ -41,17 +47,14 @@ export function maturityFromName(name: string): string | undefined {
   const disc = name.match(/D(\d{2})(\d{2})(\d{2})/);
   if (disc) {
     const [, yy, mm, dd] = disc;
-    return new Date(
-      2000 + Number(yy),
-      Number(mm) - 1,
-      Number(dd),
-    ).toISOString();
+    return isoDay(2000 + Number(yy), Number(mm), Number(dd));
   }
   const fix = name.match(/(\d{4})\/Q([1-4])/);
   if (fix) {
     const [, yyyy, q] = fix;
     const endMonth = Number(q) * 3; // Q1->3, Q4->12
-    return new Date(Number(yyyy), endMonth, 0).toISOString(); // day 0 = last day of prev month
+    const d = new Date(Number(yyyy), endMonth, 0); // day 0 = last day of prev month
+    return isoDay(d.getFullYear(), d.getMonth() + 1, d.getDate());
   }
   return undefined;
 }

@@ -88,6 +88,14 @@ export function parseTreasury(
     const securitiesName = String(r["Securities"] ?? "").trim();
     const isCashLine = !securitiesName || securitiesName === CASH;
     const date = parseHuDate(String(r["Value date"] ?? ""));
+    // An unparseable date would flow through as a raw string, breaking the
+    // chronological ordering every consumer relies on — skip the row loudly.
+    if (!/^\d{4}-\d{2}-\d{2}/.test(date)) {
+      out.warnings.push(
+        `${fileName}: értelmezhetetlen dátum „${String(r["Value date"] ?? "")}" — a sor kimaradt.`,
+      );
+      continue;
+    }
     const amount = num(String(r["Amount"] ?? ""));
     const faceValue = num(String(r["Face value"] ?? ""));
     const txId = String(r["Transaction ID"] ?? "").trim();

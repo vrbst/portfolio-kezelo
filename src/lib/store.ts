@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { create } from "zustand";
 import { db, getMeta, setMeta } from "./db";
 import type { Account, Instrument, Transaction } from "./model";
@@ -264,6 +263,7 @@ async function mergeSnapshot(
   set: (partial: Partial<PortfolioState>) => void,
   get: () => PortfolioState,
   snap: PortfolioSnapshot,
+  sha?: string,
 ): Promise<number> {
   const s = get();
 
@@ -308,8 +308,8 @@ async function mergeSnapshot(
     setMeta("goals", goals),
     setMeta("deletedGoalIds", deletedGoalIds),
     // Remember the remote version we now reflect, so startupSync can tell
-    // whether a later cloud copy is genuinely newer.
-    setMeta("lastPulledAt", snap.exportedAt),
+    // whether a later cloud copy is genuinely different.
+    ...(sha ? [setMeta("lastPulledSha", sha)] : []),
   ]);
 
   set({
@@ -324,6 +324,9 @@ async function mergeSnapshot(
   });
   return added;
 }
+
+// True once a live FX fetch succeeded this session — see refreshPrices.
+let liveFxThisSession = false;
 
 // Debounced background auto-push: coalesces a burst of imports/edits into one
 // upload a couple of seconds after the last change.
@@ -503,8 +506,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // Keep the last good live quote for any symbol that failed this round.
       const live = { ...s.livePrices, ...livePrices };
       const prices = buildPriceMap(priceFile, live);
-      // Live FX wins, then snapshot FX, then whatever we had (derived).
-      const fx = { ...s.fx, ...(priceFile?.fx ?? {}), ...liveFx };
+      // Live FX wins. Until the first live success the committed prices.json
+      // beats the saved/derived rates; afterwards the session's live rates are
+      // fresher than the (hours-old) file, so a failed round must not let the
+      // file roll them back.
+      if (Object.keys(liveFx).length > 0) liveFxThisSession = true;
+      const fileFx = priceFile?.fx ?? {};
+      const fx = liveFxThisSession
+        ? { ...fileFx, ...s.fx, ...liveFx }
+        : { ...s.fx, ...fileFx, ...liveFx };
       void setMeta("fx", fx);
       const gotLive = Object.keys(livePrices).length > 0;
       return {
@@ -653,18 +663,43 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({ syncing: true });
     try {
       // Merge with whatever is on the remote FIRST, so a push never overwrites
-      // another device's data (goals, txs…). Local wins on conflicts.
-      const existing = await getRemoteSnapshot(syncConfig);
-      const local = buildSnapshot(get());
-      const snapshot = existing
-        ? unionSnapshots(existing.snapshot, local)
-        : local;
-      await putRemoteSnapshot(syncConfig, snapshot, existing?.sha);
-      // Reflect any remote-only items locally too.
-      if (existing) await applySnapshotLocal(set, get, snapshot);
-      // Local now matches what we wrote to the cloud — record that version.
-      await setMeta("lastPulledAt", snapshot.exportedAt);
-      set({ lastSyncedAt: snapshot.exportedAt, syncError: undefined });
+      // another device's data (goals, txs…). Local wins on conflicts. A sha
+      // conflict (another device pushed between our GET and PUT) is retried
+      // with a fresh GET + merge instead of surfacing as an error.
+      const pushed = await (async () => {
+        for (let attempt = 0; ; attempt++) {
+          const existing = await getRemoteSnapshot(syncConfig);
+          const local = buildSnapshot(get());
+          const snapshot = existing
+            ? unionSnapshots(existing.snapshot, local)
+            : local;
+          try {
+            const sha = await putRemoteSnapshot(
+              syncConfig,
+              snapshot,
+              existing?.sha,
+            );
+            return { snapshot, sha, hadRemote: existing != null };
+          } catch (e) {
+            const conflict =
+              e instanceof Error && /HTTP 409/.test(e.message) && attempt < 2;
+            if (!conflict) throw e;
+          }
+        }
+      })();
+      // Reflect any remote-only items locally too — but union with the CURRENT
+      // state first, so an edit made while the upload was in flight is kept
+      // (it goes up with the next auto-push) instead of being reverted.
+      if (pushed.hadRemote) {
+        await applySnapshotLocal(
+          set,
+          get,
+          unionSnapshots(pushed.snapshot, buildSnapshot(get())),
+        );
+      }
+      // Local now reflects what we wrote to the cloud — record that version.
+      await setMeta("lastPulledSha", pushed.sha);
+      set({ lastSyncedAt: pushed.snapshot.exportedAt, syncError: undefined });
     } finally {
       set({ syncing: false });
     }
@@ -677,7 +712,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     try {
       const remote = await getRemoteSnapshot(syncConfig);
       if (!remote) return { added: 0 };
-      const added = await mergeSnapshot(set, get, remote.snapshot);
+      const added = await mergeSnapshot(set, get, remote.snapshot, remote.sha);
       set({ lastSyncedAt: new Date().toISOString() });
       return { added };
     } finally {
@@ -692,16 +727,16 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       const remote = await getRemoteSnapshot(syncConfig);
       if (!remote) return;
       const remoteAt = remote.snapshot.exportedAt;
-      const lastPulledAt = await getMeta<string>("lastPulledAt");
-      // Only merge when the cloud copy is strictly newer than the version we
-      // already reflect. If it isn't, our local copy is up to date OR holds
-      // not-yet-pushed edits — either way we must not pull an older state over it.
-      if (lastPulledAt && remoteAt && remoteAt <= lastPulledAt) {
-        set({ lastSyncedAt: lastPulledAt });
+      // Only merge when the cloud copy differs from the version we already
+      // reflect. Content (sha) comparison, not timestamps — device clocks can
+      // disagree, and exportedAt is the OTHER device's wall clock.
+      const lastPulledSha = await getMeta<string>("lastPulledSha");
+      if (lastPulledSha && remote.sha === lastPulledSha) {
+        set({ lastSyncedAt: remoteAt });
         return;
       }
       set({ syncing: true });
-      await mergeSnapshot(set, get, remote.snapshot);
+      await mergeSnapshot(set, get, remote.snapshot, remote.sha);
       set({ lastSyncedAt: remoteAt ?? new Date().toISOString() });
     } catch (e) {
       // Offline / token issues must never block app startup.
@@ -749,31 +784,53 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 }));
 
 /**
- * Memoised portfolio summary for components.
- *
- * IMPORTANT: never select `s.summary()` directly — it returns a fresh object on
- * every call, which makes Zustand re-render in an infinite loop. Select the raw
- * slices (each a stable reference) and derive with useMemo instead.
+ * Shared, identity-keyed memo: every component that calls usePortfolioSummary
+ * gets the SAME computed object, and computePortfolio runs once per state
+ * change instead of once per consuming component (~8× on the dashboard).
+ * The store's slices are replaced immutably, so reference equality is a
+ * correct staleness check. The stable reference also keeps Zustand happy
+ * (no fresh object per render → no re-render loop).
  */
+function sharedMemo<A extends readonly unknown[], R>(
+  compute: (...deps: A) => R,
+): (...deps: A) => R {
+  let cache: { deps: A; value: R } | null = null;
+  return (...deps: A) => {
+    if (cache && cache.deps.every((d, i) => d === deps[i])) return cache.value;
+    const value = compute(...deps);
+    cache = { deps, value };
+    return value;
+  };
+}
+
+const cachedSummary = sharedMemo(
+  (
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    prices: Map<string, number>,
+    fx: Record<string, number>,
+  ) =>
+    computePortfolio(
+      accounts,
+      transactions,
+      new Map(instruments.map((i) => [i.key, i])),
+      prices,
+      fx,
+    ),
+);
+
+/** Memoised portfolio summary for components (shared across all consumers). */
 export function usePortfolioSummary(): PortfolioSummary {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
-
-  return useMemo(
-    () =>
-      computePortfolio(
-        accounts,
-        transactions,
-        new Map(instruments.map((i) => [i.key, i])),
-        prices,
-        fx,
-      ),
-    [accounts, transactions, instruments, prices, fx],
-  );
+  return cachedSummary(accounts, transactions, instruments, prices, fx);
 }
+
+const cachedGoalProgress = sharedMemo(computeGoalProgress);
 
 /** Progress of each savings goal in its current period. */
 export function useGoalProgress(): GoalProgress[] {
@@ -781,27 +838,30 @@ export function useGoalProgress(): GoalProgress[] {
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
   const fx = usePortfolio((s) => s.fx);
-  return useMemo(
-    () => computeGoalProgress(goals, transactions, instruments, fx),
-    [goals, transactions, instruments, fx],
-  );
+  return cachedGoalProgress(goals, transactions, instruments, fx);
 }
 
 /**
  * Currently-active alerts: rule-based (idle cash, TBSZ, events), one per unmet
  * savings goal, plus coupon-import nudges.
  */
+const cachedAlerts = sharedMemo(
+  (
+    summary: PortfolioSummary,
+    config: Parameters<typeof computeAlerts>[1],
+    transactions: Transaction[],
+    goalProgress: GoalProgress[],
+  ) => [
+    ...computeAlerts(summary, config),
+    ...goalAlerts(goalProgress),
+    ...bondImportAlerts(bondImportReminders(summary, transactions)),
+  ],
+);
+
 export function useActiveAlerts(): Alert[] {
   const summary = usePortfolioSummary();
   const config = usePortfolio((s) => s.alertConfig);
   const transactions = usePortfolio((s) => s.transactions);
   const goalProgress = useGoalProgress();
-  return useMemo(
-    () => [
-      ...computeAlerts(summary, config),
-      ...goalAlerts(goalProgress),
-      ...bondImportAlerts(bondImportReminders(summary, transactions)),
-    ],
-    [summary, config, transactions, goalProgress],
-  );
+  return cachedAlerts(summary, config, transactions, goalProgress);
 }

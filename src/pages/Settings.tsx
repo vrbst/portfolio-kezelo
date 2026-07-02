@@ -605,12 +605,17 @@ function BondSeriesSettings() {
                     />
                   </Field>
                   <Field label="Éves kamat %">
+                    {/* key: uncontrolled input — remount when the stored value
+                        changes (e.g. cloud pull), else it shows stale text */}
                     <input
+                      key={`cr:${b.couponRate ?? ""}`}
                       type="number"
                       step="any"
                       className={`${inputCls} w-24 text-right`}
                       defaultValue={
-                        b.couponRate != null ? b.couponRate * 100 : ""
+                        b.couponRate != null
+                          ? +(b.couponRate * 100).toFixed(4)
+                          : ""
                       }
                       placeholder="pl. 7.04"
                       onBlur={(e) => {
@@ -652,11 +657,14 @@ function BondSeriesSettings() {
                   </Field>
                   <Field label="Eladási költség %">
                     <input
+                      key={`sc:${b.saleCostPct ?? ""}`}
                       type="number"
                       step="any"
                       className={`${inputCls} w-24 text-right`}
                       defaultValue={
-                        b.saleCostPct != null ? b.saleCostPct * 100 : ""
+                        b.saleCostPct != null
+                          ? +(b.saleCostPct * 100).toFixed(4)
+                          : ""
                       }
                       placeholder="1"
                       onBlur={(e) => {
@@ -669,6 +677,7 @@ function BondSeriesSettings() {
                   </Field>
                   <Field label="Első kamat (Ft)">
                     <input
+                      key={`fc:${b.firstCouponHuf ?? ""}`}
                       type="number"
                       step="any"
                       className={`${inputCls} w-32 text-right`}

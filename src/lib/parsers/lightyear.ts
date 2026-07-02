@@ -93,6 +93,14 @@ export function parseLightyear(fileName: string, text: string): ParsedImport {
     }
 
     const date = parseDmyDateTime(r["Date"] || "");
+    // An unparseable date would flow through as a raw string, breaking the
+    // chronological ordering every consumer relies on — skip the row loudly.
+    if (!/^\d{4}-\d{2}-\d{2}/.test(date)) {
+      out.warnings.push(
+        `${fileName}: értelmezhetetlen dátum „${r["Date"] || ""}" — a sor kimaradt.`,
+      );
+      continue;
+    }
     const ccy = (r["CCY"] || "HUF").trim() || "HUF";
     const instrument =
       type === "buy" || type === "sell"

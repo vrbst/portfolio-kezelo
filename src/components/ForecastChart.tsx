@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   ComposedChart,
   Area,
@@ -52,10 +53,14 @@ function yearTicks(points: ForecastPoint[], maxLabels = 8): number[] {
  */
 export default function ForecastChart({ points }: { points: ForecastPoint[] }) {
   const privacy = usePortfolio((s) => s.privacy);
-  const data = points.map((p) => ({
-    ...p,
-    band: [p.pess, p.opt] as [number, number],
-  }));
+  const data = useMemo(
+    () =>
+      points.map((p) => ({
+        ...p,
+        band: [p.pess, p.opt] as [number, number],
+      })),
+    [points],
+  );
   const min = data[0]?.ts ?? 0;
   const max = data[data.length - 1]?.ts ?? 0;
   const ticks = yearTicks(points);

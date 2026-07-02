@@ -120,6 +120,18 @@ export function computeAlerts(
 ): Alert[] {
   const out: Alert[] = [];
 
+  // 0) Unknown FX rate — the affected amounts are shown at 1 HUF/unit, so the
+  // totals are wrong until a rate arrives. Loud, because it is silent otherwise.
+  if (summary.missingFxCcys.length > 0) {
+    out.push({
+      id: `missing-fx:${[...summary.missingFxCcys].sort().join(",")}`,
+      severity: "high",
+      title: `Hiányzó árfolyam: ${summary.missingFxCcys.join(", ")}`,
+      detail:
+        "Ezekhez a devizákhoz még nincs ismert árfolyam, így az érintett tételek forintértéke pontatlan. Általában az első sikeres árfrissítés megoldja.",
+    });
+  }
+
   // 1) Idle cash above the threshold, per account.
   for (const acc of summary.accounts) {
     if (acc.cashValueHuf > config.idleCashHuf) {
@@ -178,7 +190,9 @@ export function computeAlerts(
           ? "holnap"
           : `${e.daysUntil} nap múlva`;
     out.push({
-      id: `event:${e.date}:${e.kind}:${e.accountId ?? ""}`,
+      // Title is part of the id: two series maturing on the same day in the
+      // same account must not collapse into (and get dismissed as) one alert.
+      id: `event:${e.date}:${e.kind}:${e.accountId ?? ""}:${e.title}`,
       severity: e.daysUntil <= 3 ? "high" : "medium",
       title: e.title,
       detail: e.detail ? `${when} · ${e.detail}` : when,

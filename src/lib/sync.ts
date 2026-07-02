@@ -113,19 +113,58 @@ export async function verifyAccess(config: SyncConfig): Promise<string> {
   return data.full_name;
 }
 
+/**
+ * Minimal shape/version gate so a corrupt or newer-versioned cloud file can't
+ * poison local state (the merge writes straight into IndexedDB).
+ */
+function validateSnapshot(x: unknown): PortfolioSnapshot {
+  const s = x as Partial<PortfolioSnapshot> | null;
+  if (!s || typeof s !== "object")
+    throw new Error("Sérült felhő-mentés: nem objektum.");
+  if (typeof s.version === "number" && s.version > 1)
+    throw new Error(
+      "A felhő-mentés újabb app-verzióval készült — frissítsd az appot ezen az eszközön.",
+    );
+  if (
+    !Array.isArray(s.accounts) ||
+    !Array.isArray(s.instruments) ||
+    !Array.isArray(s.transactions)
+  )
+    throw new Error("Sérült felhő-mentés: hiányzó listák.");
+  for (const t of s.transactions as unknown as Array<Record<string, unknown>>) {
+    if (
+      !t ||
+      typeof t.id !== "string" ||
+      typeof t.accountId !== "string" ||
+      typeof t.date !== "string"
+    )
+      throw new Error("Sérült felhő-mentés: hibás tranzakció-bejegyzés.");
+  }
+  return s as PortfolioSnapshot;
+}
+
 /** Read the snapshot file. Returns null if it doesn't exist yet. */
 export async function getRemoteSnapshot(
   config: SyncConfig,
 ): Promise<{ snapshot: PortfolioSnapshot; sha: string } | null> {
   const ref = config.branch ? `?ref=${config.branch}` : "";
-  const res = await ghFetch(
-    config,
-    `/repos/${config.owner}/${config.repo}/contents/${config.path}${ref}`,
-  );
+  const contentsPath = `/repos/${config.owner}/${config.repo}/contents/${config.path}${ref}`;
+  const res = await ghFetch(config, contentsPath);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Letöltés sikertelen: HTTP ${res.status}`);
   const data = (await res.json()) as { content: string; sha: string };
-  const snapshot = JSON.parse(fromBase64(data.content)) as PortfolioSnapshot;
+  let text: string;
+  if (data.content) {
+    text = fromBase64(data.content);
+  } else {
+    // Files over ~1 MB come back with empty content — refetch the raw blob.
+    const raw = await ghFetch(config, contentsPath, {
+      headers: { Accept: "application/vnd.github.raw+json" },
+    });
+    if (!raw.ok) throw new Error(`Letöltés sikertelen: HTTP ${raw.status}`);
+    text = await raw.text();
+  }
+  const snapshot = validateSnapshot(JSON.parse(text));
   return { snapshot, sha: data.sha };
 }
 
