@@ -54,8 +54,8 @@ export default function CashflowForecast() {
           </span>
         </div>
         <div className="text-sm text-[var(--color-muted)] tabular-nums">
-          kamat {formatMoney(fc.couponHuf)} · lejárat{" "}
-          {formatMoney(fc.maturityHuf)}
+          kamat <span className="amt">{formatMoney(fc.couponHuf)}</span> ·
+          lejárat <span className="amt">{formatMoney(fc.maturityHuf)}</span>
         </div>
       </div>
 

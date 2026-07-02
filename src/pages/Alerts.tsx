@@ -1,30 +1,36 @@
-import { Link } from 'react-router-dom'
-import { BellRing, CheckCircle2, EyeOff, ShieldCheck, ArrowRight } from 'lucide-react'
+import { Link } from "react-router-dom";
+import {
+  BellRing,
+  CheckCircle2,
+  EyeOff,
+  ShieldCheck,
+  ArrowRight,
+} from "lucide-react";
 import {
   usePortfolio,
   useActiveAlerts,
   usePortfolioSummary,
   useGoalProgress,
-} from '../lib/store'
-import { categorizeAlerts, computeStatusChecks } from '../lib/alerts'
-import { PERIOD_LABEL } from '../lib/goals'
-import { PageHeader, Card, EmptyState } from '../components/ui'
-import { AlertRow } from '../components/AlertsPanel'
-import { formatDate, formatMoney } from '../lib/format'
+} from "../lib/store";
+import { categorizeAlerts, computeStatusChecks } from "../lib/alerts";
+import { PERIOD_LABEL } from "../lib/goals";
+import { PageHeader, Card, EmptyState } from "../components/ui";
+import { AlertRow } from "../components/AlertsPanel";
+import { formatDate, formatMoney } from "../lib/format";
 
 export default function Alerts() {
-  const summary = usePortfolioSummary()
-  const active = useActiveAlerts()
-  const alertConfig = usePortfolio((s) => s.alertConfig)
-  const alertState = usePortfolio((s) => s.alertState)
-  const goalProgress = useGoalProgress()
-  const dismissAlert = usePortfolio((s) => s.dismissAlert)
-  const restoreAlert = usePortfolio((s) => s.restoreAlert)
+  const summary = usePortfolioSummary();
+  const active = useActiveAlerts();
+  const alertConfig = usePortfolio((s) => s.alertConfig);
+  const alertState = usePortfolio((s) => s.alertState);
+  const goalProgress = useGoalProgress();
+  const dismissAlert = usePortfolio((s) => s.dismissAlert);
+  const restoreAlert = usePortfolio((s) => s.restoreAlert);
   const {
     active: visibleActive,
     fulfilled,
     dismissed,
-  } = categorizeAlerts(active, alertState)
+  } = categorizeAlerts(active, alertState);
 
   // "Rendben" = current good states, shown green here (never on the Dashboard):
   // passing status checks (e.g. current-year TBSZ) + every met savings goal.
@@ -44,19 +50,19 @@ export default function Alerts() {
         detail: `${g.periodLabel}: ${formatMoney(g.investedHuf)} / ${formatMoney(
           g.targetHuf,
         )} ✓`,
-        to: '/settings' as string | undefined,
+        to: "/settings" as string | undefined,
       })),
-  ]
+  ];
 
   // Goal alerts live in "Rendben" once met, so keep them out of the history.
-  const fulfilledShown = fulfilled.filter((r) => !r.id.startsWith('goal:'))
+  const fulfilledShown = fulfilled.filter((r) => !r.id.startsWith("goal:"));
 
-  const activeById = new Map(active.map((a) => [a.id, a]))
+  const activeById = new Map(active.map((a) => [a.id, a]));
   const nothing =
     visibleActive.length === 0 &&
     rendben.length === 0 &&
     fulfilledShown.length === 0 &&
-    dismissed.length === 0
+    dismissed.length === 0;
 
   return (
     <div>
@@ -120,7 +126,7 @@ export default function Alerts() {
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">{c.label}</div>
                       {c.detail && (
-                        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                        <div className="amt mt-0.5 text-xs text-[var(--color-muted)]">
                           {c.detail}
                         </div>
                       )}
@@ -173,7 +179,7 @@ export default function Alerts() {
               </div>
               <div className="space-y-2">
                 {dismissed.map((r) => {
-                  const stillActive = activeById.has(r.id)
+                  const stillActive = activeById.has(r.id);
                   return (
                     <AlertRow
                       key={r.id}
@@ -187,7 +193,7 @@ export default function Alerts() {
                       muted
                       onRestore={() => restoreAlert(r.id)}
                     />
-                  )
+                  );
                 })}
               </div>
             </section>
@@ -195,5 +201,5 @@ export default function Alerts() {
         </div>
       )}
     </div>
-  )
+  );
 }

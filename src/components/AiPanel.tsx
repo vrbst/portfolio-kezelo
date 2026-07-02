@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Sparkles, Send, RefreshCw } from 'lucide-react'
-import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { computeReturns } from '../lib/portfolio'
-import { Card } from './ui'
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Sparkles, Send, RefreshCw } from "lucide-react";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { computeReturns } from "../lib/portfolio";
+import { Card } from "./ui";
 import {
   loadAiKey,
   loadAiModel,
@@ -11,24 +11,24 @@ import {
   buildAiPortfolioContext,
   callClaude,
   ANALYSIS_PROMPT,
-} from '../lib/ai'
+} from "../lib/ai";
 
-const CACHE = 'pf-ai-analysis'
+const CACHE = "pf-ai-analysis";
 
-type Cached = { text: string; at: string }
+type Cached = { text: string; at: string };
 
 function loadCache(): Cached | null {
   try {
-    const raw = localStorage.getItem(CACHE)
-    return raw ? (JSON.parse(raw) as Cached) : null
+    const raw = localStorage.getItem(CACHE);
+    return raw ? (JSON.parse(raw) as Cached) : null;
   } catch {
-    return null
+    return null;
   }
 }
 
 function saveCache(c: Cached) {
   try {
-    localStorage.setItem(CACHE, JSON.stringify(c))
+    localStorage.setItem(CACHE, JSON.stringify(c));
   } catch {
     /* ignore */
   }
@@ -40,17 +40,17 @@ function saveCache(c: Cached) {
  * localStorage; without it we just point the user to Settings.
  */
 export default function AiPanel() {
-  const summary = usePortfolioSummary()
-  const accounts = usePortfolio((s) => s.accounts)
-  const transactions = usePortfolio((s) => s.transactions)
-  const instruments = usePortfolio((s) => s.instruments)
-  const prices = usePortfolio((s) => s.prices)
-  const fx = usePortfolio((s) => s.fx)
-  const historyFile = usePortfolio((s) => s.historyFile)
-  const privacy = usePortfolio((s) => s.privacy)
+  const summary = usePortfolioSummary();
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
+  const fx = usePortfolio((s) => s.fx);
+  const historyFile = usePortfolio((s) => s.historyFile);
+  const privacy = usePortfolio((s) => s.privacy);
 
-  const apiKey = loadAiKey()
-  const model = loadAiModel()
+  const apiKey = loadAiKey();
+  const model = loadAiModel();
 
   const context = useMemo(() => {
     const returns = computeReturns(
@@ -60,22 +60,22 @@ export default function AiPanel() {
       prices,
       fx,
       historyFile,
-    )
-    return buildAiPortfolioContext(summary, fx, returns)
-  }, [summary, accounts, transactions, instruments, prices, fx, historyFile])
+    );
+    return buildAiPortfolioContext(summary, fx, returns);
+  }, [summary, accounts, transactions, instruments, prices, fx, historyFile]);
 
-  const [analysis, setAnalysis] = useState<Cached | null>(loadCache)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [analysis, setAnalysis] = useState<Cached | null>(loadCache);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [question, setQuestion] = useState('')
-  const [answer, setAnswer] = useState<string | null>(null)
-  const [qLoading, setQLoading] = useState(false)
-  const [qError, setQError] = useState<string | null>(null)
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [qLoading, setQLoading] = useState(false);
+  const [qError, setQError] = useState<string | null>(null);
 
   async function runAnalysis() {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
       const text = await callClaude({
         key: apiKey,
@@ -83,23 +83,23 @@ export default function AiPanel() {
         prompt: ANALYSIS_PROMPT,
         model,
         maxTokens: 700,
-      })
-      const c = { text, at: new Date().toISOString() }
-      setAnalysis(c)
-      saveCache(c)
+      });
+      const c = { text, at: new Date().toISOString() };
+      setAnalysis(c);
+      saveCache(c);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   async function ask() {
-    const q = question.trim()
-    if (!q) return
-    setQLoading(true)
-    setQError(null)
-    setAnswer(null)
+    const q = question.trim();
+    if (!q) return;
+    setQLoading(true);
+    setQError(null);
+    setAnswer(null);
     try {
       const text = await callClaude({
         key: apiKey,
@@ -107,12 +107,12 @@ export default function AiPanel() {
         prompt: q,
         model,
         maxTokens: 600,
-      })
-      setAnswer(text)
+      });
+      setAnswer(text);
     } catch (e) {
-      setQError((e as Error).message)
+      setQError((e as Error).message);
     } finally {
-      setQLoading(false)
+      setQLoading(false);
     }
   }
 
@@ -128,7 +128,7 @@ export default function AiPanel() {
 
       {!apiKey ? (
         <p className="text-sm text-[var(--color-muted)]">
-          Az AI funkciókhoz add meg a saját Claude API-kulcsodat a{' '}
+          Az AI funkciókhoz add meg a saját Claude API-kulcsodat a{" "}
           <Link
             to="/settings"
             className="text-[var(--color-brand)] hover:underline"
@@ -156,7 +156,7 @@ export default function AiPanel() {
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              {analysis ? 'Új elemzés' : 'Elemzés indítása'}
+              {analysis ? "Új elemzés" : "Elemzés indítása"}
             </button>
             {analysis && (
               <span className="text-xs text-[var(--color-muted)]">
@@ -172,7 +172,7 @@ export default function AiPanel() {
           {analysis && (
             <div
               className={`amt mt-4 whitespace-pre-wrap rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 text-sm leading-relaxed ${
-                privacy ? 'select-none' : ''
+                privacy ? "select-none" : ""
               }`}
             >
               {analysis.text}
@@ -190,7 +190,7 @@ export default function AiPanel() {
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !qLoading) ask()
+                  if (e.key === "Enter" && !qLoading) ask();
                 }}
               />
               <button
@@ -216,7 +216,7 @@ export default function AiPanel() {
             {answer && (
               <div
                 className={`amt mt-3 whitespace-pre-wrap rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 text-sm leading-relaxed ${
-                  privacy ? 'select-none' : ''
+                  privacy ? "select-none" : ""
                 }`}
               >
                 {answer}
@@ -226,16 +226,16 @@ export default function AiPanel() {
         </>
       )}
     </Card>
-  )
+  );
 }
 
 function formatWhen(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return new Intl.DateTimeFormat('hu-HU', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(d)
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("hu-HU", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
 }

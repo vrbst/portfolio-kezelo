@@ -175,12 +175,17 @@ function fixedBondAccrued(
   const first = parseDayMs(bond?.firstCouponDate);
   const issue = parseDayMs(bond?.issueDate);
 
+  // Accrual stops at maturity: a matured-but-not-yet-redeemed bond must not
+  // keep growing phantom interest until the redemption is imported.
+  const matMs = parseDayMs(bond?.maturity);
+  if (Number.isFinite(matMs) && nowMs > matMs) nowMs = matMs;
+
   let anchorMs: number;
   if (Number.isFinite(first) && nowMs >= first) {
     let cur = first;
-    for (;;) {
+    for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
       const next = addMonths(cur, interval);
-      if (next > nowMs) break;
+      if (!Number.isFinite(next) || next > nowMs) break;
       cur = next;
     }
     anchorMs = cur;

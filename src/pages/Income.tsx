@@ -1,41 +1,34 @@
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { Coins, TrendingUp, Landmark, Receipt, Banknote } from 'lucide-react'
-import { usePortfolio } from '../lib/store'
-import { computeIncomeByYear, computeReturns } from '../lib/portfolio'
-import { PageHeader, Card, StatCard, EmptyState } from '../components/ui'
-import { formatMoney, formatPercent } from '../lib/format'
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Coins, TrendingUp, Landmark, Receipt, Banknote } from "lucide-react";
+import { usePortfolio } from "../lib/store";
+import { computeIncomeByYear, computeReturns } from "../lib/portfolio";
+import { PageHeader, Card, StatCard, EmptyState } from "../components/ui";
+import { formatMoney, formatPercent } from "../lib/format";
 
 export default function Income() {
-  const accounts = usePortfolio((s) => s.accounts)
-  const transactions = usePortfolio((s) => s.transactions)
-  const instruments = usePortfolio((s) => s.instruments)
-  const prices = usePortfolio((s) => s.prices)
-  const fx = usePortfolio((s) => s.fx)
-  const historyFile = usePortfolio((s) => s.historyFile)
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
+  const fx = usePortfolio((s) => s.fx);
+  const historyFile = usePortfolio((s) => s.historyFile);
 
   const instMap = useMemo(
     () => new Map(instruments.map((i) => [i.key, i])),
     [instruments],
-  )
+  );
 
   const years = useMemo(
     () => computeIncomeByYear(accounts, transactions, instMap, fx),
     [accounts, transactions, instMap, fx],
-  )
+  );
 
   const returns = useMemo(
     () =>
-      computeReturns(
-        accounts,
-        transactions,
-        instMap,
-        prices,
-        fx,
-        historyFile,
-      ),
+      computeReturns(accounts, transactions, instMap, prices, fx, historyFile),
     [accounts, transactions, instMap, prices, fx, historyFile],
-  )
+  );
 
   const total = useMemo(
     () =>
@@ -56,7 +49,7 @@ export default function Income() {
         },
       ),
     [years],
-  )
+  );
 
   if (transactions.length === 0) {
     return (
@@ -72,7 +65,7 @@ export default function Income() {
           }
         />
       </div>
-    )
+    );
   }
 
   const net =
@@ -80,7 +73,7 @@ export default function Income() {
     total.interestHuf +
     total.dividendHuf -
     total.feesHuf -
-    total.taxHuf
+    total.taxHuf;
 
   return (
     <div>
@@ -121,7 +114,7 @@ export default function Income() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Realizált eredmény"
-          value={formatMoney(total.realizedPlHuf, 'HUF', { sign: true })}
+          value={formatMoney(total.realizedPlHuf, "HUF", { sign: true })}
           icon={<TrendingUp className="h-5 w-5" />}
           index={0}
           accent
@@ -152,7 +145,7 @@ export default function Income() {
           Nettó pénzbeáramlás (realizált + kamat + osztalék − díj − adó)
         </span>
         <span className="amt ml-auto text-lg font-semibold tabular-nums">
-          {formatMoney(net, 'HUF', { sign: true })}
+          {formatMoney(net, "HUF", { sign: true })}
         </span>
       </div>
 
@@ -179,11 +172,11 @@ export default function Income() {
                   <td
                     className={`amt px-4 py-3 text-right tabular-nums ${
                       y.realizedPlHuf < 0
-                        ? 'text-[var(--color-negative)]'
-                        : 'text-[var(--color-positive)]'
+                        ? "text-[var(--color-negative)]"
+                        : "text-[var(--color-positive)]"
                     }`}
                   >
-                    {formatMoney(y.realizedPlHuf, 'HUF', { sign: true })}
+                    {formatMoney(y.realizedPlHuf, "HUF", { sign: true })}
                   </td>
                   <td className="amt px-4 py-3 text-right tabular-nums">
                     {formatMoney(y.interestHuf)}
@@ -207,15 +200,14 @@ export default function Income() {
       <p className="mt-4 text-xs leading-relaxed text-[var(--color-muted)]">
         Az XIRR (pénzsúlyozott) a saját pénzed évesített hozama; a TWR
         (idősúlyozott) a befektetések teljesítménye a befizetések időzítésétől
-        függetlenül. Friss portfóliónál az évesítés még zajos lehet.
-        {' '}
-        A realizált eredmény átlagos bekerülési áron, a vételkori árfolyamon
-        számol. A díjak tájékoztató jellegűek (a vétel díja a bekerülésben is
-        benne van). A lakossági állampapír kamata és a TBSZ a lekötési időszak
-        alatt adómentes.
+        függetlenül. Friss portfóliónál az évesítés még zajos lehet. A realizált
+        eredmény átlagos bekerülési áron, a vételkori árfolyamon számol. A díjak
+        tájékoztató jellegűek (a vétel díja a bekerülésben is benne van). A
+        lakossági állampapír kamata és a TBSZ a lekötési időszak alatt
+        adómentes.
       </p>
     </div>
-  )
+  );
 }
 
 function Metric({
@@ -224,22 +216,22 @@ function Metric({
   sub,
   hint,
 }: {
-  label: string
-  pct?: number
-  sub?: string
-  hint?: string
+  label: string;
+  pct?: number;
+  sub?: string;
+  hint?: string;
 }) {
   const color =
     pct == null
-      ? 'text-[var(--color-muted)]'
+      ? "text-[var(--color-muted)]"
       : pct >= 0
-        ? 'text-[var(--color-positive)]'
-        : 'text-[var(--color-negative)]'
+        ? "text-[var(--color-positive)]"
+        : "text-[var(--color-negative)]";
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
       <div className="text-xs text-[var(--color-muted)]">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>
-        {pct == null ? '—' : formatPercent(pct)}
+        {pct == null ? "—" : formatPercent(pct)}
       </div>
       {sub && (
         <div className="mt-0.5 text-xs text-[var(--color-muted)]">{sub}</div>
@@ -250,5 +242,5 @@ function Metric({
         </div>
       )}
     </div>
-  )
+  );
 }

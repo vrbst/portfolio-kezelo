@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
-import { Download, X } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { Download, X } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-const DISMISS_KEY = 'portfolio.installDismissed'
+const DISMISS_KEY = "portfolio.installDismissed";
 
 /**
  * Install banner shown when the browser reports the app is installable
@@ -14,37 +14,39 @@ const DISMISS_KEY = 'portfolio.installDismissed'
  * there the user installs via Share → Add to Home Screen.
  */
 export default function InstallPrompt() {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
+  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(
+    null,
+  );
   const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(DISMISS_KEY) === '1',
-  )
+    () => localStorage.getItem(DISMISS_KEY) === "1",
+  );
 
   useEffect(() => {
     const onPrompt = (e: Event) => {
-      e.preventDefault()
-      setDeferred(e as BeforeInstallPromptEvent)
-    }
-    const onInstalled = () => setDeferred(null)
-    window.addEventListener('beforeinstallprompt', onPrompt)
-    window.addEventListener('appinstalled', onInstalled)
+      e.preventDefault();
+      setDeferred(e as BeforeInstallPromptEvent);
+    };
+    const onInstalled = () => setDeferred(null);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt)
-      window.removeEventListener('appinstalled', onInstalled)
-    }
-  }, [])
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
 
-  if (!deferred || dismissed) return null
+  if (!deferred || dismissed) return null;
 
   const dismiss = () => {
-    setDismissed(true)
-    localStorage.setItem(DISMISS_KEY, '1')
-  }
+    setDismissed(true);
+    localStorage.setItem(DISMISS_KEY, "1");
+  };
 
   const install = async () => {
-    await deferred.prompt()
-    await deferred.userChoice
-    setDeferred(null)
-  }
+    await deferred.prompt();
+    await deferred.userChoice;
+    setDeferred(null);
+  };
 
   return (
     <div className="fixed inset-x-0 bottom-16 z-50 flex justify-center px-4 md:bottom-0 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -70,5 +72,5 @@ export default function InstallPrompt() {
         </button>
       </div>
     </div>
-  )
+  );
 }

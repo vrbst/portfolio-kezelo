@@ -1,11 +1,11 @@
-import { Layers } from 'lucide-react'
-import { usePortfolioSummary } from '../lib/store'
-import { consolidatedHoldings } from '../lib/portfolio'
-import { Card, Badge, Delta } from './ui'
-import { formatMoney, formatNumber } from '../lib/format'
-import { instrumentTypeLabel } from '../lib/labels'
+import { Layers } from "lucide-react";
+import { usePortfolioSummary } from "../lib/store";
+import { consolidatedHoldings } from "../lib/portfolio";
+import { Card, Badge, Delta } from "./ui";
+import { formatMoney, formatNumber } from "../lib/format";
+import { instrumentTypeLabel } from "../lib/labels";
 
-const BOND_TYPES = new Set(['gov_bond', 'tbill'])
+const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 /**
  * Consolidated holdings: every instrument aggregated across all accounts, so the
@@ -13,9 +13,9 @@ const BOND_TYPES = new Set(['gov_bond', 'tbill'])
  * privacy mode (.amt); percentages stay readable.
  */
 export default function HoldingsPanel() {
-  const summary = usePortfolioSummary()
-  const rows = consolidatedHoldings(summary)
-  if (rows.length === 0) return null
+  const summary = usePortfolioSummary();
+  const rows = consolidatedHoldings(summary);
+  if (rows.length === 0) return null;
 
   return (
     <Card className="overflow-hidden">
@@ -35,18 +35,20 @@ export default function HoldingsPanel() {
               <th className="px-4 py-3 font-medium">Eszköz</th>
               <th className="px-4 py-3 text-right font-medium">Mennyiség</th>
               <th className="px-4 py-3 text-right font-medium">Érték</th>
-              <th className="px-4 py-3 text-right font-medium">Nem realizált</th>
+              <th className="px-4 py-3 text-right font-medium">
+                Nem realizált
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((h) => {
               const isBond = h.instrument
                 ? BOND_TYPES.has(h.instrument.type)
-                : false
+                : false;
               const pct =
                 h.costBasisHuf > 0
                   ? h.unrealizedPlHuf / h.costBasisHuf
-                  : undefined
+                  : undefined;
               return (
                 <tr
                   key={h.instrumentKey}
@@ -72,7 +74,7 @@ export default function HoldingsPanel() {
                   </td>
                   <td className="px-4 py-3 text-right font-medium tabular-nums">
                     <div className="amt">{formatMoney(h.marketValueHuf)}</div>
-                    {h.currency !== 'HUF' && h.marketValueCcy != null && (
+                    {h.currency !== "HUF" && h.marketValueCcy != null && (
                       <div className="amt text-xs font-normal text-[var(--color-muted)]">
                         {formatMoney(h.marketValueCcy, h.currency)}
                       </div>
@@ -93,11 +95,11 @@ export default function HoldingsPanel() {
                     )}
                   </td>
                 </tr>
-              )
+              );
             })}
           </tbody>
         </table>
       </div>
     </Card>
-  )
+  );
 }

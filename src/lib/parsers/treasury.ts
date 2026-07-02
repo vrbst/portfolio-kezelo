@@ -1,14 +1,14 @@
-import * as XLSX from 'xlsx'
+import * as XLSX from "xlsx";
 import type {
   Account,
   Instrument,
   InstrumentType,
   Transaction,
   TxType,
-} from '../model'
-import { num } from './csv'
-import { hashId, slug, parseHuDate, maturityFromName } from './util'
-import { emptyParsed, type ParsedImport } from './types'
+} from "../model";
+import { num } from "./csv";
+import { hashId, slug, parseHuDate, maturityFromName } from "./util";
+import { emptyParsed, type ParsedImport } from "./types";
 
 // Magyar Államkincstár "transaction" export (.xls).
 // Columns: Account number, Account type, Transaction type, Transaction ID,
@@ -16,98 +16,102 @@ import { emptyParsed, type ParsedImport } from './types'
 //   Distribution channel, Nominal interest, Net buying price, Accrued interest,
 //   Gross purchase price, Net interest, Amount of income tax, Gross interest
 
-const CASH = 'MAGYAR FORINT'
+const CASH = "MAGYAR FORINT";
 
 // Maps the Hungarian "Transaction type" to our normalised type.
 const TYPE_MAP: Record<string, TxType> = {
-  vétel: 'buy',
-  eladás: 'sell',
-  beváltás: 'redemption',
-  'tőketörlesztés': 'redemption',
-  'esedékesség fizetés': 'interest',
-  'kamatfizetés': 'interest',
-  'pénzszámla befizetés': 'deposit',
-  'pénzszámla kifizetés': 'withdrawal',
-  'utalás érkeztetés': 'deposit',
-  'utalás indítás': 'withdrawal',
-  'bankkártyás fizetés': 'deposit',
-}
+  vétel: "buy",
+  eladás: "sell",
+  beváltás: "redemption",
+  tőketörlesztés: "redemption",
+  "esedékesség fizetés": "interest",
+  kamatfizetés: "interest",
+  "pénzszámla befizetés": "deposit",
+  "pénzszámla kifizetés": "withdrawal",
+  "utalás érkeztetés": "deposit",
+  "utalás indítás": "withdrawal",
+  "bankkártyás fizetés": "deposit",
+};
 
 // "Pénzszámla be-/kifizetés" are internal mirror entries: they duplicate the
 // cash side of bond settlements and bank transfers. Marked internal so they
 // show in history but never affect cash / P&L. Verified reconstruction:
 //   Utalás érkeztetés + Bankkártya − Utalás indítás − Vétel + Eladás + kamat = 0
-const INTERNAL_TYPES = new Set(['pénzszámla befizetés', 'pénzszámla kifizetés'])
+const INTERNAL_TYPES = new Set([
+  "pénzszámla befizetés",
+  "pénzszámla kifizetés",
+]);
 
 function classifySecurity(name: string): InstrumentType {
-  if (/diszkont kincstárjegy/i.test(name)) return 'tbill'
-  return 'gov_bond'
+  if (/diszkont kincstárjegy/i.test(name)) return "tbill";
+  return "gov_bond";
 }
 
 export function parseTreasury(
   fileName: string,
   data: ArrayBuffer,
 ): ParsedImport {
-  const out = emptyParsed(fileName)
-  const wb = XLSX.read(data, { type: 'array', cellDates: true })
-  const ws = wb.Sheets[wb.SheetNames[0]]
+  const out = emptyParsed(fileName);
+  const wb = XLSX.read(data, { type: "array", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
-    defval: '',
-  })
+    defval: "",
+  });
   if (rows.length === 0) {
-    out.warnings.push(`${fileName}: üres munkalap.`)
-    return out
+    out.warnings.push(`${fileName}: üres munkalap.`);
+    return out;
   }
 
-  const accountNo = String(rows[0]['Account number'] ?? '').trim()
+  const accountNo = String(rows[0]["Account number"] ?? "").trim();
   const account: Account = {
     id: accountNo ? `mak-${slug(accountNo)}` : `mak-${slug(fileName)}`,
-    name: `Államkincstár${accountNo ? ` (${accountNo})` : ''}`,
-    provider: 'allamkincstar',
-    kind: 'treasury',
-    currency: 'HUF',
+    name: `Államkincstár${accountNo ? ` (${accountNo})` : ""}`,
+    provider: "allamkincstar",
+    kind: "treasury",
+    currency: "HUF",
     externalRef: accountNo || undefined,
-  }
-  out.accounts.push(account)
+  };
+  out.accounts.push(account);
 
-  const instruments = new Map<string, Instrument>()
+  const instruments = new Map<string, Instrument>();
 
   for (const r of rows) {
-    const rawType = String(r['Transaction type'] ?? '').trim()
-    const type = TYPE_MAP[rawType.toLowerCase()]
+    const rawType = String(r["Transaction type"] ?? "").trim();
+    const type = TYPE_MAP[rawType.toLowerCase()];
     if (!type) {
-      out.warnings.push(`${fileName}: ismeretlen tranzakciótípus „${rawType}".`)
-      continue
+      out.warnings.push(
+        `${fileName}: ismeretlen tranzakciótípus „${rawType}".`,
+      );
+      continue;
     }
 
-    const securitiesName = String(r['Securities'] ?? '').trim()
-    const isCashLine = !securitiesName || securitiesName === CASH
-    const date = parseHuDate(String(r['Value date'] ?? ''))
-    const amount = num(String(r['Amount'] ?? ''))
-    const faceValue = num(String(r['Face value'] ?? ''))
-    const txId = String(r['Transaction ID'] ?? '').trim()
+    const securitiesName = String(r["Securities"] ?? "").trim();
+    const isCashLine = !securitiesName || securitiesName === CASH;
+    const date = parseHuDate(String(r["Value date"] ?? ""));
+    const amount = num(String(r["Amount"] ?? ""));
+    const faceValue = num(String(r["Face value"] ?? ""));
+    const txId = String(r["Transaction ID"] ?? "").trim();
 
-    let instrument: Instrument | undefined
+    let instrument: Instrument | undefined;
     if (!isCashLine) {
-      const key = slug(securitiesName)
-      instrument = instruments.get(key)
+      const key = slug(securitiesName);
+      instrument = instruments.get(key);
       if (!instrument) {
         instrument = {
           key,
           name: securitiesName,
           type: classifySecurity(securitiesName),
-          currency: 'HUF',
+          currency: "HUF",
           maturity: maturityFromName(securitiesName),
           faceValue: 1,
-        }
-        instruments.set(key, instrument)
+        };
+        instruments.set(key, instrument);
       }
     }
 
     // Sign convention for net cash: inflows positive, outflows negative.
-    const outflow = type === 'buy' || type === 'withdrawal'
-    const netAmount =
-      amount == null ? undefined : outflow ? -amount : amount
+    const outflow = type === "buy" || type === "withdrawal";
+    const netAmount = amount == null ? undefined : outflow ? -amount : amount;
 
     const tx: Transaction = {
       id: hashId(account.id, txId, date, type, securitiesName, amount),
@@ -118,25 +122,25 @@ export function parseTreasury(
       instrumentKey: instrument?.key,
       // For bonds we treat face value as the "quantity" (HUF nominal held).
       quantity: instrument ? faceValue : undefined,
-      currency: 'HUF',
+      currency: "HUF",
       grossAmount: amount,
       netAmount,
-      taxAmount: num(String(r['Amount of income tax'] ?? '')),
+      taxAmount: num(String(r["Amount of income tax"] ?? "")),
       reference: txId,
       raw: {
         ...r,
-        _nominalInterest: r['Nominal interest'],
-        _netBuyingPrice: r['Net buying price'],
-        _grossPurchasePrice: r['Gross purchase price'],
-        _accruedInterest: r['Accrued interest'],
-        _grossInterest: r['Gross interest'],
-        _netInterest: r['Net interest'],
-        _channel: r['Distribution channel'],
+        _nominalInterest: r["Nominal interest"],
+        _netBuyingPrice: r["Net buying price"],
+        _grossPurchasePrice: r["Gross purchase price"],
+        _accruedInterest: r["Accrued interest"],
+        _grossInterest: r["Gross interest"],
+        _netInterest: r["Net interest"],
+        _channel: r["Distribution channel"],
       },
-    }
-    out.transactions.push(tx)
+    };
+    out.transactions.push(tx);
   }
 
-  out.instruments.push(...instruments.values())
-  return out
+  out.instruments.push(...instruments.values());
+  return out;
 }

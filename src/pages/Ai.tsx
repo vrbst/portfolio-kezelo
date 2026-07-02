@@ -1,5 +1,5 @@
-import { PageHeader } from '../components/ui'
-import AiPanel from '../components/AiPanel'
+import { PageHeader } from "../components/ui";
+import AiPanel from "../components/AiPanel";
 
 export default function Ai() {
   return (
@@ -10,5 +10,5 @@ export default function Ai() {
       />
       <AiPanel />
     </div>
-  )
+  );
 }

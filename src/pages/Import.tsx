@@ -238,7 +238,7 @@ export default function Import() {
                         <td className="px-4 py-2 text-[var(--color-muted)]">
                           {t.instrumentKey ?? "—"}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums">
+                        <td className="amt px-4 py-2 text-right tabular-nums">
                           {t.grossAmount?.toLocaleString("hu-HU") ?? "—"}{" "}
                           {t.currency}
                         </td>

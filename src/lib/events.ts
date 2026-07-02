@@ -4,32 +4,38 @@ import {
   nextCouponDate,
   couponAmountHuf,
   type PortfolioSummary,
-} from './portfolio'
-import { tbszStatus } from './tbsz'
+} from "./portfolio";
+import { tbszStatus } from "./tbsz";
 
-export type EventKind = 'tbsz' | 'maturity' | 'coupon'
+export type EventKind = "tbsz" | "maturity" | "coupon";
 
 export interface UpcomingEvent {
   /** ISO date. */
-  date: string
-  daysUntil: number
-  kind: EventKind
-  title: string
-  detail?: string
+  date: string;
+  daysUntil: number;
+  kind: EventKind;
+  title: string;
+  detail?: string;
   /** HUF amount tied to the event (coupon, redemption, or affected value). */
-  amountHuf?: number
-  accountId?: string
+  amountHuf?: number;
+  accountId?: string;
 }
 
-const BOND_TYPES = new Set(['gov_bond', 'tbill'])
+const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 /** Collect future events across the portfolio, soonest first. */
 export function upcomingEvents(
   summary: PortfolioSummary,
   now: Date = new Date(),
 ): UpcomingEvent[] {
-  const nowMs = now.getTime()
-  const out: UpcomingEvent[] = []
+  // Compare against local midnight: Date.parse("YYYY-MM-DD") is UTC midnight,
+  // which east of UTC would drop today's events after ~1-2 AM local time.
+  const todayMs = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const out: UpcomingEvent[] = [];
   const push = (
     date: string,
     kind: EventKind,
@@ -38,68 +44,78 @@ export function upcomingEvents(
     amountHuf?: number,
     accountId?: string,
   ) => {
-    const ms = Date.parse(date)
-    if (!Number.isFinite(ms) || ms < nowMs) return
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+    const ms = m
+      ? new Date(+m[1], +m[2] - 1, +m[3]).getTime()
+      : Date.parse(date);
+    if (!Number.isFinite(ms) || ms < todayMs) return;
     out.push({
       date,
-      daysUntil: Math.ceil((ms - nowMs) / 86_400_000),
+      daysUntil: Math.round((ms - todayMs) / 86_400_000),
       kind,
       title,
       detail,
       amountHuf,
       accountId,
-    })
-  }
+    });
+  };
 
   for (const acc of summary.accounts) {
-    const a = acc.account
-    if (a.kind === 'tbsz' && a.tbszYear) {
-      const st = tbszStatus(a.tbszYear, now)
+    const a = acc.account;
+    if (a.kind === "tbsz" && a.tbszYear) {
+      const st = tbszStatus(a.tbszYear, now);
       for (const ms of st.milestones) {
-        if (ms.done) continue
+        if (ms.done) continue;
         // The 3-year mark drops the tax; the 5-year is the tax-free maturity.
         // No amount — the account value isn't a meaningful "event amount".
         const detail =
-          ms.key === 'three'
-            ? `adó ${st.hasSzocho ? '18' : '10'}%-ra csökken`
-            : ms.key === 'five'
-              ? 'adómentessé válik'
-              : undefined
+          ms.key === "three"
+            ? `adó ${st.hasSzocho ? "18" : "10"}%-ra csökken`
+            : ms.key === "five"
+              ? "adómentessé válik"
+              : undefined;
         push(
           ms.date,
-          'tbsz',
+          "tbsz",
           `TBSZ ${a.tbszYear} — ${ms.label}`,
           detail,
           undefined,
           a.id,
-        )
+        );
       }
     }
 
     for (const h of acc.holdings) {
-      const inst = h.instrument
-      if (!inst || !BOND_TYPES.has(inst.type)) continue
-      const face = h.quantity // bonds: quantity = face value (HUF nominal)
-      const maturity = inst.bond?.maturity ?? inst.maturity
+      const inst = h.instrument;
+      if (!inst || !BOND_TYPES.has(inst.type)) continue;
+      const face = h.quantity; // bonds: quantity = face value (HUF nominal)
+      const maturity = inst.bond?.maturity ?? inst.maturity;
       if (maturity)
-        push(maturity, 'maturity', `${inst.name} — lejárat`, undefined, face, a.id)
-      const coupon = nextCouponDate(inst.bond, now)
+        push(
+          maturity,
+          "maturity",
+          `${inst.name} — lejárat`,
+          undefined,
+          face,
+          a.id,
+        );
+      const coupon = nextCouponDate(inst.bond, now);
       if (coupon) {
-        const amount = couponAmountHuf(inst.bond, face, coupon)
+        const amount = couponAmountHuf(inst.bond, face, coupon);
         const isFirst =
           !!inst.bond?.firstCouponDate &&
-          coupon.slice(0, 10) === inst.bond.firstCouponDate.slice(0, 10)
+          coupon.slice(0, 10) === inst.bond.firstCouponDate.slice(0, 10);
         push(
           coupon,
-          'coupon',
+          "coupon",
           `${inst.name} — kamatfizetés`,
-          isFirst ? 'első kamat (tört időszak)' : undefined,
+          isFirst ? "első kamat (tört időszak)" : undefined,
           amount,
           a.id,
-        )
+        );
       }
     }
   }
 
-  return out.sort((x, y) => x.date.localeCompare(y.date))
+  return out.sort((x, y) => x.date.localeCompare(y.date));
 }

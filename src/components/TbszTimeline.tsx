@@ -1,21 +1,21 @@
-import { CalendarClock, Check, Circle } from 'lucide-react'
-import { tbszStatus, type TbszPhase } from '../lib/tbsz'
-import { formatDate } from '../lib/format'
-import { Card, Badge } from './ui'
+import { CalendarClock, Check, Circle } from "lucide-react";
+import { tbszStatus, type TbszPhase } from "../lib/tbsz";
+import { formatDate } from "../lib/format";
+import { Card, Badge } from "./ui";
 
-const phaseTone: Record<TbszPhase, 'brand' | 'warning' | 'positive'> = {
-  collecting: 'brand',
-  locked: 'warning',
-  reduced: 'brand',
-  matured: 'positive',
-}
+const phaseTone: Record<TbszPhase, "brand" | "warning" | "positive"> = {
+  collecting: "brand",
+  locked: "warning",
+  reduced: "brand",
+  matured: "positive",
+};
 
 function formatDays(days: number): string {
-  if (days <= 0) return 'ma'
-  if (days < 60) return `${days} nap`
-  const months = Math.round(days / 30.4)
-  if (months < 24) return `${months} hónap`
-  return `${(days / 365).toFixed(1)} év`
+  if (days <= 0) return "ma";
+  if (days < 60) return `${days} nap`;
+  const months = Math.round(days / 30.4);
+  if (months < 24) return `${months} hónap`;
+  return `${(days / 365).toFixed(1)} év`;
 }
 
 /** TBSZ tax timeline: phase, applicable rate, milestone markers and countdown. */
@@ -23,10 +23,10 @@ export default function TbszTimeline({
   year,
   now,
 }: {
-  year: number
-  now?: Date
+  year: number;
+  now?: Date;
 }) {
-  const s = tbszStatus(year, now)
+  const s = tbszStatus(year, now);
 
   return (
     <Card className="p-5">
@@ -39,8 +39,8 @@ export default function TbszTimeline({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={s.hasSzocho ? 'warning' : 'neutral'}>
-            {s.hasSzocho ? 'szochoköteles' : 'szochomentes'}
+          <Badge tone={s.hasSzocho ? "warning" : "neutral"}>
+            {s.hasSzocho ? "szochoköteles" : "szochomentes"}
           </Badge>
           <Badge tone={phaseTone[s.phase]}>{s.phaseLabel}</Badge>
         </div>
@@ -50,11 +50,11 @@ export default function TbszTimeline({
 
       {s.next && s.daysToNext != null && (
         <p className="mt-1 text-sm">
-          Következő mérföldkő:{' '}
-          <span className="font-medium">{s.next.label}</span> –{' '}
+          Következő mérföldkő:{" "}
+          <span className="font-medium">{s.next.label}</span> –{" "}
           <span className="text-[var(--color-brand)]">
             {formatDays(s.daysToNext)}
-          </span>{' '}
+          </span>{" "}
           <span className="text-[var(--color-muted)]">
             ({formatDate(s.next.date)})
           </span>
@@ -85,8 +85,8 @@ export default function TbszTimeline({
                 <span
                   className={
                     m.done
-                      ? 'text-[var(--color-muted)] line-through'
-                      : 'font-medium'
+                      ? "text-[var(--color-muted)] line-through"
+                      : "font-medium"
                   }
                 >
                   {m.label}
@@ -103,5 +103,5 @@ export default function TbszTimeline({
         ))}
       </ol>
     </Card>
-  )
+  );
 }

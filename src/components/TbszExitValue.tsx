@@ -85,11 +85,14 @@ export default function TbszExitValue({
                   </Badge>
                 </div>
                 <div className="mt-0.5 text-xs text-[var(--color-muted)] tabular-nums">
-                  adó: −{formatMoney(s.taxHuf)}
+                  adó: −<span className="amt">{formatMoney(s.taxHuf)}</span>
                   {s.savedVsNowHuf > 0 && (
                     <span className="text-[var(--color-positive)]">
                       {" "}
-                      · megtakarítás: +{formatMoney(s.savedVsNowHuf)}
+                      · megtakarítás: +
+                      <span className="amt">
+                        {formatMoney(s.savedVsNowHuf)}
+                      </span>
                     </span>
                   )}
                 </div>

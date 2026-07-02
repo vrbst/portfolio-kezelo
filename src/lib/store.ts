@@ -176,7 +176,9 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     exportedAt: new Date().toISOString(),
     accounts: s.accounts,
     instruments: s.instruments,
-    transactions: s.transactions,
+    // Strip the raw statement rows: nothing reads them, and they multiply the
+    // snapshot size (the GitHub contents API stops returning files over 1 MB).
+    transactions: s.transactions.map(({ raw: _raw, ...t }) => t),
     alertState: s.alertState,
     goals: s.goals,
     deletedGoalIds: s.deletedGoalIds,

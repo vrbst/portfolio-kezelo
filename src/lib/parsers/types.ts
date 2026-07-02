@@ -1,12 +1,12 @@
-import type { Account, Instrument, Transaction } from '../model'
+import type { Account, Instrument, Transaction } from "../model";
 
 /** Normalised output of any importer, ready to merge into the store. */
 export interface ParsedImport {
-  source: string
-  accounts: Account[]
-  instruments: Instrument[]
-  transactions: Transaction[]
-  warnings: string[]
+  source: string;
+  accounts: Account[];
+  instruments: Instrument[];
+  transactions: Transaction[];
+  warnings: string[];
 }
 
 export const emptyParsed = (source: string): ParsedImport => ({
@@ -15,4 +15,4 @@ export const emptyParsed = (source: string): ParsedImport => ({
   instruments: [],
   transactions: [],
   warnings: [],
-})
+});

@@ -1,14 +1,18 @@
-import { Link } from 'react-router-dom'
-import { AlertTriangle, X, ArrowRight } from 'lucide-react'
-import { usePortfolio, useActiveAlerts } from '../lib/store'
-import { categorizeAlerts, type Alert, type AlertSeverity } from '../lib/alerts'
-import { Card } from './ui'
+import { Link } from "react-router-dom";
+import { AlertTriangle, X, ArrowRight } from "lucide-react";
+import { usePortfolio, useActiveAlerts } from "../lib/store";
+import {
+  categorizeAlerts,
+  type Alert,
+  type AlertSeverity,
+} from "../lib/alerts";
+import { Card } from "./ui";
 
 const SEV_DOT: Record<AlertSeverity, string> = {
-  high: 'bg-[var(--color-negative)]',
-  medium: 'bg-[var(--color-warning)]',
-  info: 'bg-[var(--color-brand)]',
-}
+  high: "bg-[var(--color-negative)]",
+  medium: "bg-[var(--color-warning)]",
+  info: "bg-[var(--color-brand)]",
+};
 
 /**
  * One alert row, reused by the Dashboard panel and the Figyelmeztetések page.
@@ -25,28 +29,32 @@ export function AlertRow({
   onDismiss,
   onRestore,
 }: {
-  severity: AlertSeverity
-  title: string
-  detail?: string
-  to?: string
-  actionLabel?: string
-  muted?: boolean
-  onDismiss?: () => void
-  onRestore?: () => void
+  severity: AlertSeverity;
+  title: string;
+  detail?: string;
+  to?: string;
+  actionLabel?: string;
+  muted?: boolean;
+  onDismiss?: () => void;
+  onRestore?: () => void;
 }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
       <span
         className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-          muted ? 'bg-[var(--color-muted)]' : SEV_DOT[severity]
+          muted ? "bg-[var(--color-muted)]" : SEV_DOT[severity]
         }`}
       />
       <div className="min-w-0 flex-1">
-        <div className={`font-medium ${muted ? 'text-[var(--color-muted)]' : ''}`}>
+        <div
+          className={`font-medium ${muted ? "text-[var(--color-muted)]" : ""}`}
+        >
           {title}
         </div>
         {detail && (
-          <div className="mt-0.5 text-xs text-[var(--color-muted)]">{detail}</div>
+          <div className="amt mt-0.5 text-xs text-[var(--color-muted)]">
+            {detail}
+          </div>
         )}
         {to && actionLabel && (
           <Link
@@ -75,7 +83,7 @@ export function AlertRow({
         </button>
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -83,11 +91,11 @@ export function AlertRow({
  * Renders nothing when there's nothing to do.
  */
 export default function AlertsPanel() {
-  const active = useActiveAlerts()
-  const alertState = usePortfolio((s) => s.alertState)
-  const dismissAlert = usePortfolio((s) => s.dismissAlert)
-  const { active: visible } = categorizeAlerts(active, alertState)
-  if (visible.length === 0) return null
+  const active = useActiveAlerts();
+  const alertState = usePortfolio((s) => s.alertState);
+  const dismissAlert = usePortfolio((s) => s.dismissAlert);
+  const { active: visible } = categorizeAlerts(active, alertState);
+  if (visible.length === 0) return null;
 
   return (
     <Card className="mb-6 border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 p-6">
@@ -117,5 +125,5 @@ export default function AlertsPanel() {
         ))}
       </div>
     </Card>
-  )
+  );
 }

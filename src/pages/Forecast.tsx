@@ -541,8 +541,10 @@ export default function Forecast() {
           </table>
         </div>
         <p className="mt-3 text-xs text-[var(--color-muted)]">
-          A kötvények a horizonton belül {huf(result.couponHuf)} Ft kamatot és{" "}
-          {huf(result.maturityHuf)} Ft lejáró tőkét hoznak — ez ide kerül:{" "}
+          A kötvények a horizonton belül{" "}
+          <span className="amt">{huf(result.couponHuf)} Ft</span> kamatot és{" "}
+          <span className="amt">{huf(result.maturityHuf)} Ft</span> lejáró tőkét
+          hoznak — ez ide kerül:{" "}
           {reinvestContextLabel(
             settings.reinvestTarget,
             settings.reinvestBondRate,

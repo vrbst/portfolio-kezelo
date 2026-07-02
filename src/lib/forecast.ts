@@ -292,7 +292,8 @@ export function projectForecast(
   let expenseHuf = 0;
   for (const e of expenses) {
     const ms = parseDayMs(e.date);
-    if (!Number.isFinite(ms) || ms < startOfMonth || ms >= horizonMs) continue;
+    // Already-past expenses (earlier this month) are in the balance already.
+    if (!Number.isFinite(ms) || ms < nowDayMs || ms >= horizonMs) continue;
     const k = monthKey(ms);
     expenseByMonth.set(k, (expenseByMonth.get(k) ?? 0) + e.amountHuf);
     expenseHuf += e.amountHuf;
@@ -335,36 +336,38 @@ export function projectForecast(
       // 2) recurring savings → growth
       for (const s of SCENARIOS) growth[s] += assumptions.monthlySavingHuf;
       contributed += assumptions.monthlySavingHuf;
+    }
 
-      // 3) bond coupons (income) → growth or side pot
-      const coup = couponByMonth.get(key) ?? 0;
-      if (coup) {
+    // Events run at i=0 too: the buckets hold only future-dated items, so a
+    // coupon/maturity/expense still due this month lands in the first point.
+    // 3) bond coupons (income) → growth or side pot
+    const coup = couponByMonth.get(key) ?? 0;
+    if (coup) {
+      for (const s of SCENARIOS) {
+        if (toGrowth) growth[s] += coup;
+        else side[s] += coup;
+      }
+    }
+    // 4) maturities: release carry, credit face → growth or side pot
+    const mats = maturityByMonth.get(key);
+    if (mats) {
+      for (const m of mats) {
+        bondRemaining -= m.carry;
         for (const s of SCENARIOS) {
-          if (toGrowth) growth[s] += coup;
-          else side[s] += coup;
+          if (toGrowth) growth[s] += m.face;
+          else side[s] += m.face;
         }
       }
-      // 4) maturities: release carry, credit face → growth or side pot
-      const mats = maturityByMonth.get(key);
-      if (mats) {
-        for (const m of mats) {
-          bondRemaining -= m.carry;
-          for (const s of SCENARIOS) {
-            if (toGrowth) growth[s] += m.face;
-            else side[s] += m.face;
-          }
-        }
+    }
+    // 5) planned expenses (side pot first, then growth)
+    const exp = expenseByMonth.get(key) ?? 0;
+    if (exp) {
+      for (const s of SCENARIOS) {
+        const fromSide = Math.min(side[s], exp);
+        side[s] -= fromSide;
+        growth[s] -= exp - fromSide;
       }
-      // 5) planned expenses (side pot first, then growth)
-      const exp = expenseByMonth.get(key) ?? 0;
-      if (exp) {
-        for (const s of SCENARIOS) {
-          const fromSide = Math.min(side[s], exp);
-          side[s] -= fromSide;
-          growth[s] -= exp - fromSide;
-        }
-        contributed -= exp;
-      }
+      contributed -= exp;
     }
 
     points.push({

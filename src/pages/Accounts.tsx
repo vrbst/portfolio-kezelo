@@ -1,21 +1,21 @@
-import { Link } from 'react-router-dom'
-import { motion } from 'motion/react'
-import { Wallet, Landmark, ArrowRight } from 'lucide-react'
-import { usePortfolio, usePortfolioSummary } from '../lib/store'
-import { PageHeader, Card, EmptyState, Badge, Delta } from '../components/ui'
-import { formatMoney, eurEquivalent } from '../lib/format'
-import { accountKindLabel } from '../lib/labels'
+import { Link } from "react-router-dom";
+import { motion } from "motion/react";
+import { Wallet, Landmark, ArrowRight } from "lucide-react";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { PageHeader, Card, EmptyState, Badge, Delta } from "../components/ui";
+import { formatMoney, eurEquivalent } from "../lib/format";
+import { accountKindLabel } from "../lib/labels";
 import {
   accountReturn,
   isEmptyAccount,
   type AccountSummary,
-} from '../lib/portfolio'
-import { tbszStatus } from '../lib/tbsz'
+} from "../lib/portfolio";
+import { tbszStatus } from "../lib/tbsz";
 
 export default function Accounts() {
-  const accounts = usePortfolio((s) => s.accounts)
-  const summary = usePortfolioSummary()
-  const eurHuf = usePortfolio((s) => s.fx['EUR'])
+  const accounts = usePortfolio((s) => s.accounts);
+  const summary = usePortfolioSummary();
+  const eurHuf = usePortfolio((s) => s.fx["EUR"]);
 
   if (accounts.length === 0) {
     return (
@@ -31,15 +31,15 @@ export default function Accounts() {
           }
         />
       </div>
-    )
+    );
   }
 
   const treasury = summary.accounts.filter(
-    (a) => a.account.provider === 'allamkincstar',
-  )
+    (a) => a.account.provider === "allamkincstar",
+  );
   const investing = summary.accounts.filter(
-    (a) => a.account.provider !== 'allamkincstar',
-  )
+    (a) => a.account.provider !== "allamkincstar",
+  );
 
   return (
     <div>
@@ -60,7 +60,7 @@ export default function Accounts() {
         items={treasury}
       />
     </div>
-  )
+  );
 }
 
 function Section({
@@ -69,13 +69,13 @@ function Section({
   items,
   eurHuf,
 }: {
-  title: string
-  icon: React.ReactNode
-  items: AccountSummary[]
+  title: string;
+  icon: React.ReactNode;
+  items: AccountSummary[];
   /** When set, show an EUR equivalent under each account's value. */
-  eurHuf?: number
+  eurHuf?: number;
 }) {
-  if (items.length === 0) return null
+  if (items.length === 0) return null;
   return (
     <div className="mb-8">
       <div className="mb-3 flex items-center gap-2 text-[var(--color-muted)]">
@@ -86,12 +86,12 @@ function Section({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {items.map((a, i) => {
-          const ret = accountReturn(a)
-          const empty = isEmptyAccount(a)
+          const ret = accountReturn(a);
+          const empty = isEmptyAccount(a);
           const tbsz =
-            a.account.kind === 'tbsz' && a.account.tbszYear
+            a.account.kind === "tbsz" && a.account.tbszYear
               ? tbszStatus(a.account.tbszYear)
-              : undefined
+              : undefined;
           return (
             <motion.div
               key={a.account.id}
@@ -144,7 +144,8 @@ function Section({
                   {tbsz && (
                     <div className="mt-3 flex items-center justify-between border-t border-[var(--color-border)] pt-3 text-xs">
                       <span className="text-[var(--color-muted)]">
-                        {tbsz.phaseLabel} · {Math.round(tbsz.taxRate * 100)}% adó
+                        {tbsz.phaseLabel} · {Math.round(tbsz.taxRate * 100)}%
+                        adó
                       </span>
                       {tbsz.next && (
                         <span className="text-[var(--color-muted)]">
@@ -156,9 +157,9 @@ function Section({
                 </Card>
               </Link>
             </motion.div>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

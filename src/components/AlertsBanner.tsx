@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertTriangle, X, ArrowRight } from 'lucide-react'
-import { usePortfolio, useActiveAlerts } from '../lib/store'
-import { categorizeAlerts } from '../lib/alerts'
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, X, ArrowRight } from "lucide-react";
+import { usePortfolio, useActiveAlerts } from "../lib/store";
+import { categorizeAlerts } from "../lib/alerts";
 
 /**
  * Slim top banner shown when there are active alerts. Clicking it opens the
@@ -10,20 +10,20 @@ import { categorizeAlerts } from '../lib/alerts'
  * reload) — distinct from dismissing an individual alert, which is permanent.
  */
 export default function AlertsBanner() {
-  const active = useActiveAlerts()
-  const alertState = usePortfolio((s) => s.alertState)
-  const [hidden, setHidden] = useState(false)
-  const { active: visible } = categorizeAlerts(active, alertState)
-  if (hidden || visible.length === 0) return null
+  const active = useActiveAlerts();
+  const alertState = usePortfolio((s) => s.alertState);
+  const [hidden, setHidden] = useState(false);
+  const { active: visible } = categorizeAlerts(active, alertState);
+  if (hidden || visible.length === 0) return null;
 
-  const n = visible.length
+  const n = visible.length;
   return (
     <div className="mb-6 flex items-center gap-3 rounded-xl border border-[var(--color-negative)]/40 bg-[var(--color-negative)]/10 px-4 py-2.5">
       <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--color-negative)]" />
       <Link to="/alerts" className="min-w-0 flex-1 text-sm hover:underline">
         <span className="font-medium">
-          {n} aktív {n === 1 ? 'teendő' : 'teendő'}
-        </span>{' '}
+          {n} aktív {n === 1 ? "teendő" : "teendő"}
+        </span>{" "}
         <span className="text-[var(--color-muted)]">— nézd meg</span>
       </Link>
       <Link
@@ -40,5 +40,5 @@ export default function AlertsBanner() {
         <X className="h-4 w-4" />
       </button>
     </div>
-  )
+  );
 }
