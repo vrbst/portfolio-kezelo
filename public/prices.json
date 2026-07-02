@@ -1,18 +1,18 @@
 {
-  "updatedAt": "2026-07-01T18:05:46.949Z",
+  "updatedAt": "2026-07-02T17:58:48.557Z",
   "fx": {
-    "EUR": 355.83
+    "EUR": 355.98
   },
   "prices": {
     "IE00BK5BQT80": {
-      "price": 165.7,
+      "price": 163.86,
       "currency": "EUR",
       "symbol": "IE00BK5BQT80.SG",
       "label": "VWCE",
       "name": "Vanguard FTSE All-World UCITS ETF"
     },
     "GB00BJYDH287": {
-      "price": 12.593,
+      "price": 12.888,
       "currency": "EUR",
       "symbol": "GB00BJYDH287.SG",
       "label": "WBIT",
