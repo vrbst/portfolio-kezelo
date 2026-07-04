@@ -244,16 +244,26 @@ function bondLegs(summary: PortfolioSummary, nowMs: number): BondLeg[] {
 
 const monthlyRate = (annual: number) => Math.pow(1 + annual, 1 / 12) - 1;
 
-/**
- * Run the month-by-month projection. Returns one series with all three
- * scenarios plus the contributed-capital baseline.
- */
-export function projectForecast(
+/** Shared prep for both projection engines: pots + event buckets by month. */
+interface ProjectionPrep {
+  startOfMonth: number;
+  bondValue0: number;
+  startValue: number;
+  growth0: number;
+  couponByMonth: Map<string, number>;
+  maturityByMonth: Map<string, { face: number; carry: number }[]>;
+  expenseByMonth: Map<string, number>;
+  couponHuf: number;
+  maturityHuf: number;
+  expenseHuf: number;
+}
+
+function prepareProjection(
   summary: PortfolioSummary,
-  assumptions: ForecastAssumptions,
+  months: number,
   expenses: PlannedExpense[],
-  now: Date = new Date(),
-): ForecastResult {
+  now: Date,
+): ProjectionPrep {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const nowDayMs = new Date(
     now.getFullYear(),
@@ -271,7 +281,7 @@ export function projectForecast(
   const maturityByMonth = new Map<string, { face: number; carry: number }[]>();
   let couponHuf = 0;
   let maturityHuf = 0;
-  const horizonMs = addMonths(startOfMonth, assumptions.months + 1);
+  const horizonMs = addMonths(startOfMonth, months + 1);
   for (const leg of legs) {
     for (const c of leg.coupons) {
       if (c.ms >= horizonMs) continue;
@@ -298,6 +308,43 @@ export function projectForecast(
     expenseByMonth.set(k, (expenseByMonth.get(k) ?? 0) + e.amountHuf);
     expenseHuf += e.amountHuf;
   }
+
+  return {
+    startOfMonth,
+    bondValue0,
+    startValue,
+    growth0,
+    couponByMonth,
+    maturityByMonth,
+    expenseByMonth,
+    couponHuf,
+    maturityHuf,
+    expenseHuf,
+  };
+}
+
+/**
+ * Run the month-by-month projection. Returns one series with all three
+ * scenarios plus the contributed-capital baseline.
+ */
+export function projectForecast(
+  summary: PortfolioSummary,
+  assumptions: ForecastAssumptions,
+  expenses: PlannedExpense[],
+  now: Date = new Date(),
+): ForecastResult {
+  const {
+    startOfMonth,
+    bondValue0,
+    startValue,
+    growth0,
+    couponByMonth,
+    maturityByMonth,
+    expenseByMonth,
+    couponHuf,
+    maturityHuf,
+    expenseHuf,
+  } = prepareProjection(summary, assumptions.months, expenses, now);
 
   // Per-scenario pots: `growth` compounds at the scenario return; `side` holds
   // reinvested bond proceeds routed away from growth (bonds → fixed rate, cash →
@@ -390,6 +437,170 @@ export function projectForecast(
 }
 
 // ---------------------------------------------------------------------------
+// Monte Carlo engine — same cashflow model, random monthly growth returns
+// ---------------------------------------------------------------------------
+
+export interface MonteCarloOptions {
+  /** Annual volatility (σ) of the growth assets, fraction (e.g. 0.15). */
+  sigma: number;
+  runs?: number;
+  seed?: number;
+}
+
+/** Deterministic PRNG so re-renders show the same fan (seed → same paths). */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Monte Carlo projection: the growth pot gets lognormal monthly returns with
+ * the "reális" scenario as the expected compound return and `sigma` annual
+ * volatility; bonds/coupons/expenses follow the same deterministic cashflow
+ * model as projectForecast. The returned pess/real/opt are the per-month
+ * 10th / 50th / 90th percentiles across the simulated paths, so the result
+ * plugs straight into the existing chart and milestones table.
+ */
+export function projectMonteCarlo(
+  summary: PortfolioSummary,
+  assumptions: ForecastAssumptions,
+  expenses: PlannedExpense[],
+  opts: MonteCarloOptions,
+  now: Date = new Date(),
+): ForecastResult {
+  const prep = prepareProjection(summary, assumptions.months, expenses, now);
+  const months = assumptions.months;
+  const runs = Math.max(50, opts.runs ?? 500);
+  const rand = mulberry32(opts.seed ?? 1337);
+
+  // Lognormal monthly steps: exp(μ + σₘ·z), with μ set so the EXPECTED
+  // compound growth equals the "reális" annual return.
+  const sigmaM = Math.max(0, opts.sigma) / Math.sqrt(12);
+  const muM = Math.log(1 + assumptions.annualReturn.real) / 12;
+  const drawNormal = (() => {
+    let spare: number | null = null;
+    return () => {
+      if (spare != null) {
+        const v = spare;
+        spare = null;
+        return v;
+      }
+      let u = 0;
+      do {
+        u = rand();
+      } while (u <= 1e-12);
+      const r = Math.sqrt(-2 * Math.log(u));
+      const theta = 2 * Math.PI * rand();
+      spare = r * Math.sin(theta);
+      return r * Math.cos(theta);
+    };
+  })();
+
+  const toGrowth = assumptions.reinvestTarget === "growth";
+  const sideMonthly =
+    assumptions.reinvestTarget === "bond"
+      ? monthlyRate(assumptions.reinvestBondRate)
+      : 0;
+
+  // totals[i] = the simulated total across runs for month i.
+  const totals: Float64Array[] = Array.from(
+    { length: months + 1 },
+    () => new Float64Array(runs),
+  );
+  const contributedArr = new Array<number>(months + 1);
+
+  for (let run = 0; run < runs; run++) {
+    let growth = prep.growth0;
+    let side = 0;
+    let bondRemaining = prep.bondValue0;
+    let contributed = summary.netDepositedHuf;
+    for (let i = 0; i <= months; i++) {
+      const key = monthKey(addMonths(prep.startOfMonth, i));
+      if (i > 0) {
+        growth *= Math.exp(muM - (sigmaM * sigmaM) / 2 + sigmaM * drawNormal());
+        side *= 1 + sideMonthly;
+        growth += assumptions.monthlySavingHuf;
+        contributed += assumptions.monthlySavingHuf;
+      }
+      const coup = prep.couponByMonth.get(key) ?? 0;
+      if (coup) {
+        if (toGrowth) growth += coup;
+        else side += coup;
+      }
+      const mats = prep.maturityByMonth.get(key);
+      if (mats) {
+        for (const m of mats) {
+          bondRemaining -= m.carry;
+          if (toGrowth) growth += m.face;
+          else side += m.face;
+        }
+      }
+      const exp = prep.expenseByMonth.get(key) ?? 0;
+      if (exp) {
+        const fromSide = Math.min(side, exp);
+        side -= fromSide;
+        growth -= exp - fromSide;
+        contributed -= exp;
+      }
+      totals[i][run] = growth + side + bondRemaining;
+      if (run === 0) contributedArr[i] = contributed;
+    }
+  }
+
+  const points: ForecastPoint[] = [];
+  for (let i = 0; i <= months; i++) {
+    const sorted = Float64Array.from(totals[i]).sort();
+    const q = (p: number) =>
+      sorted[Math.min(runs - 1, Math.max(0, Math.round(p * (runs - 1))))];
+    const ms = addMonths(prep.startOfMonth, i);
+    points.push({
+      month: monthKey(ms),
+      ts: ms,
+      pess: q(0.1),
+      real: q(0.5),
+      opt: q(0.9),
+      contributed: contributedArr[i],
+    });
+  }
+
+  return {
+    points,
+    startValueHuf: prep.startValue,
+    couponHuf: prep.couponHuf,
+    maturityHuf: prep.maturityHuf,
+    expenseHuf: prep.expenseHuf,
+  };
+}
+
+/**
+ * Convert a nominal projection to "today's forint": every month-i value is
+ * divided by (1+inflation)^(i/12). The contributed baseline is deflated the
+ * same way so the comparison stays apples-to-apples.
+ */
+export function deflateResult(
+  result: ForecastResult,
+  annualInflation: number,
+): ForecastResult {
+  if (!annualInflation) return result;
+  const points = result.points.map((p, i) => {
+    const f = Math.pow(1 + annualInflation, i / 12);
+    return {
+      ...p,
+      pess: p.pess / f,
+      real: p.real / f,
+      opt: p.opt / f,
+      contributed: p.contributed / f,
+    };
+  });
+  return { ...result, points };
+}
+
+// ---------------------------------------------------------------------------
 // Milestones (a few landmark years for the table)
 // ---------------------------------------------------------------------------
 
@@ -415,6 +626,8 @@ export function forecastMilestones(result: ForecastResult): Milestone[] {
 
 const STORE_KEY = "pf-forecast";
 
+export type ForecastEngine = "det" | "mc";
+
 export interface ForecastSettings {
   /** null → use the auto-detected recurring saving. */
   monthlySavingOverride: number | null;
@@ -425,6 +638,14 @@ export interface ForecastSettings {
   reinvestBondRate: number;
   months: number;
   expenses: PlannedExpense[];
+  /** det = 3 fixed scenarios; mc = Monte Carlo percentile fan. */
+  engine: ForecastEngine;
+  /** Annual volatility for the Monte Carlo engine (fraction). */
+  mcSigma: number;
+  /** Annual inflation used by the real-value view (fraction). */
+  inflationPct: number;
+  /** Show values deflated to today's forint. */
+  realMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: ForecastSettings = {
@@ -434,6 +655,10 @@ export const DEFAULT_SETTINGS: ForecastSettings = {
   reinvestBondRate: 0.06,
   months: 120,
   expenses: [],
+  engine: "det",
+  mcSigma: 0.15,
+  inflationPct: 0.035,
+  realMode: false,
 };
 
 export function loadForecastSettings(): ForecastSettings {

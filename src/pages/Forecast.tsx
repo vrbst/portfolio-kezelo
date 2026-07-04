@@ -12,6 +12,8 @@ import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import {
   detectRecurringSavings,
   projectForecast,
+  projectMonteCarlo,
+  deflateResult,
   forecastMilestones,
   loadForecastSettings,
   saveForecastSettings,
@@ -85,24 +87,37 @@ export default function Forecast() {
 
   const monthlySaving = settings.monthlySavingOverride ?? detected.monthlyHuf;
 
+  const nominal = useMemo(() => {
+    const assumptions = {
+      annualReturn: settings.annualReturn,
+      monthlySavingHuf: monthlySaving,
+      reinvestTarget: settings.reinvestTarget,
+      reinvestBondRate: settings.reinvestBondRate,
+      months: settings.months,
+    };
+    return settings.engine === "mc"
+      ? projectMonteCarlo(summary, assumptions, settings.expenses, {
+          sigma: settings.mcSigma,
+        })
+      : projectForecast(summary, assumptions, settings.expenses);
+  }, [summary, settings, monthlySaving]);
+
+  // Real-value view: everything the user sees is deflated to today's forint.
   const result = useMemo(
     () =>
-      projectForecast(
-        summary,
-        {
-          annualReturn: settings.annualReturn,
-          monthlySavingHuf: monthlySaving,
-          reinvestTarget: settings.reinvestTarget,
-          reinvestBondRate: settings.reinvestBondRate,
-          months: settings.months,
-        },
-        settings.expenses,
-      ),
-    [summary, settings, monthlySaving],
+      settings.realMode
+        ? deflateResult(nominal, settings.inflationPct)
+        : nominal,
+    [nominal, settings.realMode, settings.inflationPct],
   );
 
   const milestones = useMemo(() => forecastMilestones(result), [result]);
   const last = result.points[result.points.length - 1];
+
+  const isMc = settings.engine === "mc";
+  const bandLabels = isMc
+    ? { low: "Kedvezőtlen (p10)", mid: "Medián", high: "Kedvező (p90)" }
+    : { low: "Pesszimista", mid: "Reális", high: "Optimista" };
 
   // --- AI narrative ---------------------------------------------------------
   const apiKey = loadAiKey();
@@ -132,13 +147,21 @@ export default function Forecast() {
       `Felismert havi rendszeres megtakarítás: ${huf(monthlySaving)} Ft`,
       `Feltételezett éves hozam — pesszimista ${(ret.pess * 100).toFixed(1)}%, reális ${(ret.real * 100).toFixed(1)}%, optimista ${(ret.opt * 100).toFixed(1)}%`,
       `Kötvény-kamatok és lejáró tőke iránya: ${reinvestContextLabel(settings.reinvestTarget, settings.reinvestBondRate)}`,
+      settings.engine === "mc"
+        ? `Számítás: Monte Carlo szimuláció (500 útvonal, szórás ${(settings.mcSigma * 100).toFixed(0)}%/év); a sáv a 10–90. percentilis, a középérték a medián`
+        : null,
+      settings.realMode
+        ? `Minden érték MAI FORINTBAN értendő (${(settings.inflationPct * 100).toFixed(1)}% éves inflációval deflálva)`
+        : null,
       `Horizont: ${Math.round(settings.months / 12)} év`,
       `Kötvény-cashflow a horizonton: kamat ${huf(result.couponHuf)} Ft, lejáró tőke ${huf(result.maturityHuf)} Ft`,
       `Betervezett kiadások: ${exp} (összesen ${huf(result.expenseHuf)} Ft)`,
       "",
       "Mérföldkövek:",
       ms,
-    ].join("\n");
+    ]
+      .filter((l): l is string => l != null)
+      .join("\n");
   }, [result, milestones, monthlySaving, settings]);
 
   async function runNarrative() {
@@ -302,11 +325,35 @@ export default function Forecast() {
             kötvények a saját ismert hozamukkal számolnak.
           </p>
 
+          <div className="mt-3 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+            {(
+              [
+                ["det", "Determinisztikus"],
+                ["mc", "Monte Carlo"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSettings((s) => ({ ...s, engine: key }))}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  settings.engine === key
+                    ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                    : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="mt-3 space-y-2">
-            {SCEN_META.map((sc) => (
+            {(isMc
+              ? SCEN_META.filter((sc) => sc.key === "real")
+              : SCEN_META
+            ).map((sc) => (
               <div key={sc.key} className="flex items-center gap-2">
                 <span className="w-28 text-sm text-[var(--color-muted)]">
-                  {sc.label}
+                  {isMc ? "Várható hozam" : sc.label}
                 </span>
                 <input
                   type="number"
@@ -338,6 +385,85 @@ export default function Forecast() {
                 </span>
               </div>
             ))}
+            {isMc && (
+              <div className="flex items-center gap-2">
+                <span className="w-28 text-sm text-[var(--color-muted)]">
+                  Szórás (σ)
+                </span>
+                <input
+                  type="number"
+                  step="1"
+                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  value={
+                    rateDraft["sigma"] ??
+                    String(+(settings.mcSigma * 100).toFixed(1))
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setRateDraft((d) => ({ ...d, sigma: v }));
+                    const p = Number(v.replace(",", "."));
+                    if (v.trim() !== "" && Number.isFinite(p) && p >= 0) {
+                      setSettings((s) => ({ ...s, mcSigma: p / 100 }));
+                    }
+                  }}
+                  onBlur={() =>
+                    setRateDraft((d) => ({ ...d, sigma: undefined }))
+                  }
+                />
+                <span className="text-sm text-[var(--color-muted)]">
+                  % / év
+                </span>
+              </div>
+            )}
+          </div>
+          {isMc && (
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              500 szimulált útvonal; a sáv a 10–90. percentilis, a kiemelt vonal
+              a medián. Globális részvény-ETF-re a ~15–18% szórás tipikus.
+            </p>
+          )}
+
+          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.realMode}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, realMode: e.target.checked }))
+                }
+              />
+              Mai forintban (infláció-korrigált)
+            </label>
+            {settings.realMode && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="w-28 text-sm text-[var(--color-muted)]">
+                  Infláció
+                </span>
+                <input
+                  type="number"
+                  step="0.5"
+                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  value={
+                    rateDraft["infl"] ??
+                    String(+(settings.inflationPct * 100).toFixed(1))
+                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setRateDraft((d) => ({ ...d, infl: v }));
+                    const p = Number(v.replace(",", "."));
+                    if (v.trim() !== "" && Number.isFinite(p) && p >= 0) {
+                      setSettings((s) => ({ ...s, inflationPct: p / 100 }));
+                    }
+                  }}
+                  onBlur={() =>
+                    setRateDraft((d) => ({ ...d, infl: undefined }))
+                  }
+                />
+                <span className="text-sm text-[var(--color-muted)]">
+                  % / év
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="mt-4">
@@ -484,16 +610,23 @@ export default function Forecast() {
       <Card className="mt-4 p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">Vagyon-előrejelzés</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">Vagyon-előrejelzés</h2>
+              {isMc && <Badge tone="brand">Monte Carlo</Badge>}
+              {settings.realMode && <Badge tone="neutral">mai forintban</Badge>}
+            </div>
             <p className="text-sm text-[var(--color-muted)]">
-              Reális pálya (kiemelt), pesszimista–optimista sáv, és a
-              befektetett tőke (szaggatott).
+              {isMc
+                ? "Medián pálya (kiemelt), 10–90. percentilis sáv, és a befektetett tőke (szaggatott)."
+                : "Reális pálya (kiemelt), pesszimista–optimista sáv, és a befektetett tőke (szaggatott)."}
             </p>
           </div>
           {last && (
             <div className="text-right">
               <div className="text-xs text-[var(--color-muted)]">
-                {Math.round(settings.months / 12)} év múlva (reális)
+                {Math.round(settings.months / 12)} év múlva (
+                {isMc ? "medián" : "reális"}
+                {settings.realMode ? ", mai Ft" : ""})
               </div>
               <div className="amt text-xl font-semibold tabular-nums">
                 {privacy ? "•••" : formatMoney(last.real)}
@@ -501,7 +634,7 @@ export default function Forecast() {
             </div>
           )}
         </div>
-        <ForecastChart points={result.points} />
+        <ForecastChart points={result.points} centerLabel={bandLabels.mid} />
       </Card>
 
       {/* Mérföldkövek */}
@@ -513,14 +646,20 @@ export default function Forecast() {
               <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted)]">
                 <th className="py-2 pr-3 font-medium">Idő</th>
                 <th className="py-2 pr-3 text-right font-medium">
-                  Pesszimista
+                  {bandLabels.low}
                 </th>
-                <th className="py-2 pr-3 text-right font-medium">Reális</th>
-                <th className="py-2 pr-3 text-right font-medium">Optimista</th>
+                <th className="py-2 pr-3 text-right font-medium">
+                  {bandLabels.mid}
+                </th>
+                <th className="py-2 pr-3 text-right font-medium">
+                  {bandLabels.high}
+                </th>
                 <th className="py-2 pr-3 text-right font-medium">
                   Befektetett tőke
                 </th>
-                <th className="py-2 text-right font-medium">Hozam (reális)</th>
+                <th className="py-2 text-right font-medium">
+                  Hozam ({bandLabels.mid.toLowerCase()})
+                </th>
               </tr>
             </thead>
             <tbody className="tabular-nums">

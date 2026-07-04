@@ -467,10 +467,19 @@ function PriceRow({
 }) {
   const isinKey = inst.isin ?? inst.key;
   const [sym, setSym] = useState(() => loadSymbolOverrides()[isinKey] ?? "");
+  const updateInstrument = usePortfolio((s) => s.updateInstrument);
 
   const save = () => {
     saveSymbolOverride(isinKey, sym);
     onChanged();
+  };
+
+  const saveTer = (raw: string) => {
+    const v = Number(raw.replace(",", "."));
+    void updateInstrument(inst.key, {
+      terPct:
+        raw.trim() !== "" && Number.isFinite(v) && v >= 0 ? v / 100 : undefined,
+    });
   };
 
   return (
@@ -497,6 +506,21 @@ function PriceRow({
             title="Yahoo szimbólum kézi felülírása. Üresen hagyva automatikus."
             className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-xs"
           />
+          <span className="ml-2">TER:</span>
+          <input
+            key={`ter:${inst.terPct ?? ""}`}
+            type="number"
+            step="0.01"
+            min={0}
+            defaultValue={
+              inst.terPct != null ? +(inst.terPct * 100).toFixed(3) : ""
+            }
+            onBlur={(e) => saveTer(e.target.value)}
+            placeholder="pl. 0.22"
+            title="Az alap éves költséghányada (TER) százalékban — a Hozam oldal költségbecsléséhez."
+            className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
+          />
+          <span>%</span>
         </label>
       </div>
       <div className="text-right">

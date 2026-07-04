@@ -335,7 +335,10 @@ export default function Calendar() {
             />
             TBSZ mérföldkő
           </span>
-          <span>A kör mérete az összeggel arányos · halványabb = várható.</span>
+          <span>
+            A kiemelt cella eseményt jelöl (szaggatott keret = várható) · a kör
+            mérete az összeggel arányos.
+          </span>
         </div>
       </Card>
 
@@ -451,12 +454,15 @@ function MonthGrid({
           const isSel = key === selected;
           const isFuture = key > todayIso;
           const agg = items ? dayAggregate(items) : null;
+          const has = !!items && items.length > 0;
+          const allFuture = has && items.every((it) => it.future);
           const gross = agg ? agg.inflow + agg.outflow : 0;
           const net = agg ? agg.inflow - agg.outflow : 0;
-          // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid.
+          // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid;
+          // the 8px floor keeps small amounts visible next to big buys.
           const diam =
             gross > 0 && maxGross > 0
-              ? 6 + 13 * Math.sqrt(gross / maxGross)
+              ? 8 + 12 * Math.sqrt(gross / maxGross)
               : 0;
           const tol = gross * 0.05;
           const color =
@@ -468,22 +474,29 @@ function MonthGrid({
             parts.push(`Ki −${formatCompact(agg.outflow)}`);
           const title =
             !privacy && parts.length ? parts.join(" · ") : undefined;
+          // Every event day gets a visible cell (tinted + bordered) even when
+          // its bubble would be tiny; dashed border = upcoming (várható).
+          const cellTone = isSel
+            ? "border-[var(--color-brand)]/70 bg-[var(--color-brand)]/15 ring-1 ring-[var(--color-brand)]/40"
+            : has
+              ? `${
+                  allFuture ? "border-dashed" : ""
+                } border-[var(--color-brand)]/40 bg-[var(--color-brand)]/10 hover:bg-[var(--color-brand)]/20`
+              : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40";
           return (
             <button
               key={i}
               onClick={() => onSelect(key)}
               title={title}
-              className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${
-                isSel
-                  ? "border-[var(--color-brand)]/60 ring-1 ring-[var(--color-brand)]/40"
-                  : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40"
-              }`}
+              className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${cellTone}`}
             >
               <span
                 className={`relative z-10 tabular-nums ${
                   isToday
                     ? "grid h-4 w-4 place-items-center rounded-full bg-[var(--color-brand)] text-[9px] font-semibold text-white"
-                    : "text-[var(--color-muted)]"
+                    : has
+                      ? "font-medium text-[var(--color-text)]"
+                      : "text-[var(--color-muted)]"
                 }`}
               >
                 {d}

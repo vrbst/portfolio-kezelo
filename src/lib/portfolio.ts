@@ -1129,6 +1129,45 @@ export function computeIncomeByYear(
   return [...byYear.values()].sort((a, b) => b.year - a.year);
 }
 
+export interface FxImpactResult {
+  /** Unrealized P/L from the assets' OWN price move (at today's FX). */
+  marketHuf: number;
+  /** Unrealized P/L from the currency move since purchase. */
+  fxHuf: number;
+  /** Total unrealized P/L of the non-HUF holdings (= market + fx). */
+  totalHuf: number;
+  /** Current HUF value of the non-HUF holdings. */
+  valueHuf: number;
+}
+
+/**
+ * Split the unrealized P/L of foreign-currency holdings into a market and an
+ * FX component: market = (value − cost) in the asset's currency at today's
+ * rate; fx = the cost revalued from the average purchase rate to today's.
+ * The two add up exactly to the holdings' unrealized P/L.
+ */
+export function fxImpact(summary: PortfolioSummary): FxImpactResult {
+  let marketHuf = 0;
+  let fxHuf = 0;
+  let totalHuf = 0;
+  let valueHuf = 0;
+  for (const acc of summary.accounts) {
+    for (const h of acc.holdings) {
+      if (h.currency === "HUF") continue;
+      const mvCcy = h.marketValueCcy ?? 0;
+      const mvHuf = h.marketValueHuf ?? 0;
+      if (mvCcy <= 0 || h.costBasisCcy <= 0 || h.costBasisHuf <= 0) continue;
+      const fxNow = mvHuf / mvCcy;
+      const avgFx = h.costBasisHuf / h.costBasisCcy;
+      marketHuf += (mvCcy - h.costBasisCcy) * fxNow;
+      fxHuf += h.costBasisCcy * (fxNow - avgFx);
+      totalHuf += mvHuf - h.costBasisHuf;
+      valueHuf += mvHuf;
+    }
+  }
+  return { marketHuf, fxHuf, totalHuf, valueHuf };
+}
+
 export type AssetClass = "equity" | "crypto" | "bond" | "tbill" | "cash";
 
 const CRYPTO_RE = /btc|bitcoin|crypto|ethereum|wbit|wbtc/i;

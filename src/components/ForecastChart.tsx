@@ -51,7 +51,14 @@ function yearTicks(points: ForecastPoint[], maxLabels = 8): number[] {
  * scenarios, the realistic path as a solid line, and the contributed-capital
  * baseline dashed. Privacy mode masks the amounts like the value chart.
  */
-export default function ForecastChart({ points }: { points: ForecastPoint[] }) {
+export default function ForecastChart({
+  points,
+  centerLabel = "Reális",
+}: {
+  points: ForecastPoint[];
+  /** Tooltip label of the highlighted middle line (det: Reális, MC: Medián). */
+  centerLabel?: string;
+}) {
   const privacy = usePortfolio((s) => s.privacy);
   const data = useMemo(
     () =>
@@ -102,7 +109,7 @@ export default function ForecastChart({ points }: { points: ForecastPoint[] }) {
                 return [null, null] as unknown as [string, string];
               const label =
                 name === "real"
-                  ? "Reális"
+                  ? centerLabel
                   : name === "contributed"
                     ? "Befektetett tőke"
                     : name;

@@ -82,6 +82,8 @@ export interface Instrument {
   faceValue?: number;
   /** Bonds: user-supplied series terms for accurate valuation. */
   bond?: BondTerms;
+  /** ETFs/funds: annual total expense ratio (fraction, e.g. 0.0022 = 0,22%). */
+  terPct?: number;
 }
 
 /** Normalised transaction type across all providers. */

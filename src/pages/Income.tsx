@@ -1,8 +1,20 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Coins, TrendingUp, Landmark, Receipt, Banknote } from "lucide-react";
-import { usePortfolio } from "../lib/store";
-import { computeIncomeByYear, computeReturns } from "../lib/portfolio";
+import {
+  Coins,
+  TrendingUp,
+  Landmark,
+  Receipt,
+  Banknote,
+  Globe2,
+  Percent,
+} from "lucide-react";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import {
+  computeIncomeByYear,
+  computeReturns,
+  fxImpact,
+} from "../lib/portfolio";
 import { PageHeader, Card, StatCard, EmptyState } from "../components/ui";
 import { formatMoney, formatPercent } from "../lib/format";
 
@@ -13,6 +25,33 @@ export default function Income() {
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const historyFile = usePortfolio((s) => s.historyFile);
+  const summary = usePortfolioSummary();
+
+  // FX vs. market decomposition of the unrealized P/L (non-HUF holdings).
+  const fxi = useMemo(() => fxImpact(summary), [summary]);
+
+  // Estimated annual fund cost from the user-entered TER per instrument.
+  const terRows = useMemo(() => {
+    const rows: { key: string; name: string; valueHuf: number; ter: number }[] =
+      [];
+    for (const acc of summary.accounts) {
+      for (const h of acc.holdings) {
+        const ter = h.instrument?.terPct;
+        if (!ter || !(h.marketValueHuf ?? 0)) continue;
+        const existing = rows.find((r) => r.key === h.instrumentKey);
+        if (existing) existing.valueHuf += h.marketValueHuf ?? 0;
+        else
+          rows.push({
+            key: h.instrumentKey,
+            name: h.instrument?.name ?? h.instrumentKey,
+            valueHuf: h.marketValueHuf ?? 0,
+            ter,
+          });
+      }
+    }
+    return rows.sort((a, b) => b.valueHuf * b.ter - a.valueHuf * a.ter);
+  }, [summary]);
+  const terAnnualHuf = terRows.reduce((s, r) => s + r.valueHuf * r.ter, 0);
 
   const instMap = useMemo(
     () => new Map(instruments.map((i) => [i.key, i])),
@@ -147,6 +186,128 @@ export default function Income() {
         <span className="amt ml-auto text-lg font-semibold tabular-nums">
           {formatMoney(net, "HUF", { sign: true })}
         </span>
+      </div>
+
+      {/* Devizahatás-felbontás + költség-analitika */}
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {Math.abs(fxi.valueHuf) > 1 && (
+          <Card className="p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <Globe2 className="h-5 w-5 text-[var(--color-brand)]" />
+              <h2 className="text-lg font-semibold">Devizahatás</h2>
+            </div>
+            <p className="mb-4 text-sm text-[var(--color-muted)]">
+              A külföldi devizás papírok nem realizált hozamából mennyi a piac
+              és mennyi az árfolyammozgás (a vételi átlagárfolyamhoz képest).
+            </p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[var(--color-muted)]">
+                  Piaci árváltozás
+                </span>
+                <span
+                  className={`amt font-semibold tabular-nums ${
+                    fxi.marketHuf >= 0
+                      ? "text-[var(--color-positive)]"
+                      : "text-[var(--color-negative)]"
+                  }`}
+                >
+                  {formatMoney(fxi.marketHuf, "HUF", { sign: true })}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[var(--color-muted)]">
+                  Árfolyamhatás (deviza)
+                </span>
+                <span
+                  className={`amt font-semibold tabular-nums ${
+                    fxi.fxHuf >= 0
+                      ? "text-[var(--color-positive)]"
+                      : "text-[var(--color-negative)]"
+                  }`}
+                >
+                  {formatMoney(fxi.fxHuf, "HUF", { sign: true })}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 border-t border-[var(--color-border)] pt-2">
+                <span className="text-[var(--color-muted)]">
+                  Összesen (nem realizált)
+                </span>
+                <span
+                  className={`amt font-semibold tabular-nums ${
+                    fxi.totalHuf >= 0
+                      ? "text-[var(--color-positive)]"
+                      : "text-[var(--color-negative)]"
+                  }`}
+                >
+                  {formatMoney(fxi.totalHuf, "HUF", { sign: true })}
+                </span>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-[var(--color-muted)]">
+              Ha az árfolyamhatás dominál, a hozamod nagy része az EUR/HUF
+              mozgásból jön — ez visszafordulhat.
+            </p>
+          </Card>
+        )}
+
+        <Card className="p-6">
+          <div className="mb-1 flex items-center gap-2">
+            <Percent className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Költségek</h2>
+          </div>
+          <p className="mb-4 text-sm text-[var(--color-muted)]">
+            Eddig kifizetett díjak és a tartás becsült éves alapkezelési
+            költsége (TER).
+          </p>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[var(--color-muted)]">
+                Fizetett díjak összesen
+              </span>
+              <span className="amt font-semibold tabular-nums">
+                {formatMoney(total.feesHuf)}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[var(--color-muted)]">
+                Levont adó összesen
+              </span>
+              <span className="amt font-semibold tabular-nums">
+                {formatMoney(total.taxHuf)}
+              </span>
+            </div>
+            {terRows.length > 0 ? (
+              <>
+                <div className="flex items-baseline justify-between gap-3 border-t border-[var(--color-border)] pt-2">
+                  <span className="text-[var(--color-muted)]">
+                    Becsült ETF-költség (TER)
+                  </span>
+                  <span className="amt font-semibold tabular-nums">
+                    ~{formatMoney(terAnnualHuf)} / év
+                  </span>
+                </div>
+                <ul className="space-y-1 text-xs text-[var(--color-muted)]">
+                  {terRows.map((r) => (
+                    <li key={r.key} className="flex justify-between gap-3">
+                      <span className="truncate">
+                        {r.name} ({(r.ter * 100).toFixed(2)}%)
+                      </span>
+                      <span className="amt shrink-0 tabular-nums">
+                        ~{formatMoney(r.valueHuf * r.ter)} / év
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="border-t border-[var(--color-border)] pt-2 text-xs text-[var(--color-muted)]">
+                Az ETF-ek éves költségének becsléséhez add meg a TER-t a
+                Beállítások → Árfolyamok szekcióban (pl. VWCE: 0,22%).
+              </p>
+            )}
+          </div>
+        </Card>
       </div>
 
       <Card className="mt-6 overflow-hidden">

@@ -22,6 +22,7 @@ import {
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
 import HoldingsPanel from "../components/HoldingsPanel";
+import AllocationTargets from "../components/AllocationTargets";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import {
@@ -454,6 +455,9 @@ export default function Dashboard() {
               ))}
             </div>
           </Card>
+
+          {/* Cél-allokáció + DCA-segéd */}
+          <AllocationTargets />
 
           {/* Közelgő események — a jobb oszlop alján */}
           {events.length > 0 && (
