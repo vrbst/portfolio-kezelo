@@ -272,83 +272,77 @@ export default function Forecast() {
       />
 
       <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-        {/* 1. oszlop: Havi megtakarítás + Cél-allokáció (a javaslat ezt osztja el) */}
-        <div className="space-y-4">
-          <Card className="p-5">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-[var(--color-brand)]" />
-              <h2 className="text-lg font-semibold">Havi megtakarítás</h2>
-            </div>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              {overriding ? (
-                "Kézzel megadott havi összeg."
-              ) : (
-                <>
-                  Felismerve az eddigi befizetésekből
-                  {detected.monthsUsed > 0
-                    ? ` (${detected.monthsUsed} hónap alapján)`
-                    : ""}
-                  . Az egyszeri nagy tételeket kihagytuk.
-                </>
-              )}
-            </p>
-
-            <div className="mt-3">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
-                  value={savingDraft ?? huf(monthlySaving)}
-                  onFocus={() => setSavingDraft(String(monthlySaving))}
-                  onChange={(e) => {
-                    setSavingDraft(e.target.value);
-                    const n = Number(e.target.value.replace(/\D/g, ""));
-                    if (e.target.value.trim() !== "" && Number.isFinite(n)) {
-                      setSettings((s) => ({ ...s, monthlySavingOverride: n }));
-                    }
-                  }}
-                  onBlur={() => setSavingDraft(null)}
-                />
-                <span className="text-sm text-[var(--color-muted)]">
-                  Ft / hó
-                </span>
-                {overriding && (
-                  <button
-                    className="btn-ghost ml-auto"
-                    title="Vissza a felismert értékhez"
-                    onClick={() =>
-                      setSettings((s) => ({
-                        ...s,
-                        monthlySavingOverride: null,
-                      }))
-                    }
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {detected.oneOffs.length > 0 && (
-              <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-                <p className="text-xs font-medium text-[var(--color-muted)]">
-                  Kihagyott egyszeri befizetések
-                </p>
-                <ul className="mt-1.5 space-y-1 text-xs tabular-nums text-[var(--color-muted)]">
-                  {detected.oneOffs.map((o) => (
-                    <li key={o.month} className="flex justify-between gap-3">
-                      <span>{formatMonthLabel(o.month)}</span>
-                      <span className="amt">{huf(o.huf)} Ft</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+        {/* Havi megtakarítás */}
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Havi megtakarítás</h2>
+          </div>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            {overriding ? (
+              "Kézzel megadott havi összeg."
+            ) : (
+              <>
+                Felismerve az eddigi befizetésekből
+                {detected.monthsUsed > 0
+                  ? ` (${detected.monthsUsed} hónap alapján)`
+                  : ""}
+                . Az egyszeri nagy tételeket kihagytuk.
+              </>
             )}
-          </Card>
+          </p>
 
-          <AllocationTargets />
-        </div>
+          <div className="mt-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
+                value={savingDraft ?? huf(monthlySaving)}
+                onFocus={() => setSavingDraft(String(monthlySaving))}
+                onChange={(e) => {
+                  setSavingDraft(e.target.value);
+                  const n = Number(e.target.value.replace(/\D/g, ""));
+                  if (e.target.value.trim() !== "" && Number.isFinite(n)) {
+                    setSettings((s) => ({ ...s, monthlySavingOverride: n }));
+                  }
+                }}
+                onBlur={() => setSavingDraft(null)}
+              />
+              <span className="text-sm text-[var(--color-muted)]">Ft / hó</span>
+              {overriding && (
+                <button
+                  className="btn-ghost ml-auto"
+                  title="Vissza a felismert értékhez"
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      monthlySavingOverride: null,
+                    }))
+                  }
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {detected.oneOffs.length > 0 && (
+            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+              <p className="text-xs font-medium text-[var(--color-muted)]">
+                Kihagyott egyszeri befizetések
+              </p>
+              <ul className="mt-1.5 space-y-1 text-xs tabular-nums text-[var(--color-muted)]">
+                {detected.oneOffs.map((o) => (
+                  <li key={o.month} className="flex justify-between gap-3">
+                    <span>{formatMonthLabel(o.month)}</span>
+                    <span className="amt">{huf(o.huf)} Ft</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
 
         {/* Feltételezések */}
         <Card className="p-5">
@@ -639,36 +633,43 @@ export default function Forecast() {
         </Card>
       </div>
 
-      {/* Grafikon */}
-      <Card className="mt-4 p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold">Vagyon-előrejelzés</h2>
-              {isMc && <Badge tone="brand">Monte Carlo</Badge>}
-              {settings.realMode && <Badge tone="neutral">mai forintban</Badge>}
+      {/* Grafikon + mellette a cél-allokáció (hasonló magasságúak) */}
+      <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+        <Card className="p-5 xl:col-span-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold">Vagyon-előrejelzés</h2>
+                {isMc && <Badge tone="brand">Monte Carlo</Badge>}
+                {settings.realMode && (
+                  <Badge tone="neutral">mai forintban</Badge>
+                )}
+              </div>
+              <p className="text-sm text-[var(--color-muted)]">
+                {isMc
+                  ? "Medián pálya (kiemelt), 10–90. percentilis sáv, és a befektetett tőke (szaggatott)."
+                  : "Reális pálya (kiemelt), pesszimista–optimista sáv, és a befektetett tőke (szaggatott)."}
+              </p>
             </div>
-            <p className="text-sm text-[var(--color-muted)]">
-              {isMc
-                ? "Medián pálya (kiemelt), 10–90. percentilis sáv, és a befektetett tőke (szaggatott)."
-                : "Reális pálya (kiemelt), pesszimista–optimista sáv, és a befektetett tőke (szaggatott)."}
-            </p>
+            {last && (
+              <div className="text-right">
+                <div className="text-xs text-[var(--color-muted)]">
+                  {Math.round(settings.months / 12)} év múlva (
+                  {isMc ? "medián" : "reális"}
+                  {settings.realMode ? ", mai Ft" : ""})
+                </div>
+                <div className="amt text-xl font-semibold tabular-nums">
+                  {privacy ? "•••" : formatMoney(last.real)}
+                </div>
+              </div>
+            )}
           </div>
-          {last && (
-            <div className="text-right">
-              <div className="text-xs text-[var(--color-muted)]">
-                {Math.round(settings.months / 12)} év múlva (
-                {isMc ? "medián" : "reális"}
-                {settings.realMode ? ", mai Ft" : ""})
-              </div>
-              <div className="amt text-xl font-semibold tabular-nums">
-                {privacy ? "•••" : formatMoney(last.real)}
-              </div>
-            </div>
-          )}
-        </div>
-        <ForecastChart points={result.points} centerLabel={bandLabels.mid} />
-      </Card>
+          <ForecastChart points={result.points} centerLabel={bandLabels.mid} />
+        </Card>
+
+        {/* Cél-allokáció + DCA-segéd */}
+        <AllocationTargets />
+      </div>
 
       {/* Mérföldkövek */}
       <Card className="mt-4 p-5">
