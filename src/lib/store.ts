@@ -30,14 +30,23 @@ import {
 import {
   computeAlerts,
   bondImportAlerts,
+  reminderAlerts,
   loadAlertConfig,
   saveIdleCashThreshold,
   saveTbszCheck,
   reconcileAlertState,
+  REMINDER_ALERT_PREFIX,
   type Alert,
   type AlertState,
   type AlertConfig,
+  type Reminder,
 } from "./alerts";
+import {
+  collectPrefs,
+  applyRemotePrefs,
+  mergePrefs,
+  PREFS_EVENT,
+} from "./prefs";
 import {
   computeGoalProgress,
   goalAlerts,
@@ -82,6 +91,13 @@ interface PortfolioState {
   addGoal: (goal: Omit<Goal, "id" | "createdAt">) => Promise<void>;
   updateGoal: (id: string, patch: Partial<Goal>) => Promise<void>;
   removeGoal: (id: string) => Promise<void>;
+
+  /** User-created reminders (to-dos), synced. */
+  reminders: Reminder[];
+  /** Tombstones so a dismissed reminder never comes back from the cloud. */
+  deletedReminderIds: string[];
+  addReminder: (r: Omit<Reminder, "id" | "createdAt">) => Promise<void>;
+  removeReminder: (id: string) => Promise<void>;
 
   /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
   privacy: boolean;
@@ -181,6 +197,11 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     alertState: s.alertState,
     goals: s.goals,
     deletedGoalIds: s.deletedGoalIds,
+    reminders: s.reminders,
+    deletedReminderIds: s.deletedReminderIds,
+    // Planning prefs (allocation targets, forecast settings) — read straight
+    // from localStorage; the token and the AI key are separate keys, never here.
+    prefs: collectPrefs(),
   };
 }
 
@@ -211,6 +232,13 @@ function unionSnapshots(
     ]),
   ];
   const deleted = new Set(deletedGoalIds);
+  const deletedReminderIds = [
+    ...new Set([
+      ...(remote.deletedReminderIds ?? []),
+      ...(local.deletedReminderIds ?? []),
+    ]),
+  ];
+  const deletedRem = new Set(deletedReminderIds);
   return {
     version: 1,
     exportedAt: local.exportedAt,
@@ -227,6 +255,12 @@ function unionSnapshots(
       (g) => !deleted.has(g.id),
     ),
     deletedGoalIds,
+    reminders: unionById(remote.reminders, local.reminders, (r) => r.id).filter(
+      (r) => !deletedRem.has(r.id),
+    ),
+    deletedReminderIds,
+    // Per-field newest wins; local wins timestamp ties (it triggered the push).
+    prefs: mergePrefs(remote.prefs, local.prefs),
   };
 }
 
@@ -237,6 +271,7 @@ async function applySnapshotLocal(
   snap: PortfolioSnapshot,
 ) {
   const deletedGoalIds = snap.deletedGoalIds ?? [];
+  const deletedReminderIds = snap.deletedReminderIds ?? [];
   await Promise.all([
     db.accounts.bulkPut(snap.accounts),
     db.instruments.bulkPut(snap.instruments),
@@ -244,7 +279,11 @@ async function applySnapshotLocal(
     setMeta("alertState", snap.alertState ?? {}),
     setMeta("goals", snap.goals ?? []),
     setMeta("deletedGoalIds", deletedGoalIds),
+    setMeta("reminders", snap.reminders ?? []),
+    setMeta("deletedReminderIds", deletedReminderIds),
   ]);
+  // Planning prefs: only a strictly newer remote copy overwrites localStorage.
+  applyRemotePrefs(snap.prefs);
   const s = get();
   set({
     accounts: snap.accounts,
@@ -253,6 +292,8 @@ async function applySnapshotLocal(
     alertState: snap.alertState ?? {},
     goals: snap.goals ?? [],
     deletedGoalIds,
+    reminders: snap.reminders ?? [],
+    deletedReminderIds,
     prices: buildPriceMap(s.priceFile, s.livePrices),
     fx: { ...deriveFx(snap.transactions), ...s.fx },
   });
@@ -300,6 +341,18 @@ async function mergeSnapshot(
   for (const g of snap.goals ?? []) goalById.set(g.id, g);
   const goals = [...goalById.values()].filter((g) => !deleted.has(g.id));
 
+  // Reminders: merge by id, remote wins, tombstones drop dismissed ones.
+  const deletedReminderIds = [
+    ...new Set([...s.deletedReminderIds, ...(snap.deletedReminderIds ?? [])]),
+  ];
+  const deletedRem = new Set(deletedReminderIds);
+  const remById = new Map(s.reminders.map((r) => [r.id, r]));
+  for (const r of snap.reminders ?? []) remById.set(r.id, r);
+  const reminders = [...remById.values()].filter((r) => !deletedRem.has(r.id));
+
+  // Planning prefs: only a strictly newer remote copy overwrites localStorage.
+  applyRemotePrefs(snap.prefs);
+
   await Promise.all([
     db.accounts.bulkPut(accounts),
     db.instruments.bulkPut(instruments),
@@ -307,6 +360,8 @@ async function mergeSnapshot(
     setMeta("alertState", alertState),
     setMeta("goals", goals),
     setMeta("deletedGoalIds", deletedGoalIds),
+    setMeta("reminders", reminders),
+    setMeta("deletedReminderIds", deletedReminderIds),
     // Remember the remote version we now reflect, so startupSync can tell
     // whether a later cloud copy is genuinely different.
     ...(sha ? [setMeta("lastPulledSha", sha)] : []),
@@ -319,6 +374,8 @@ async function mergeSnapshot(
     alertState,
     goals,
     deletedGoalIds,
+    reminders,
+    deletedReminderIds,
     prices: buildPriceMap(s.priceFile, s.livePrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   });
@@ -370,6 +427,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   alertConfig: loadAlertConfig(),
   goals: [],
   deletedGoalIds: [],
+  reminders: [],
+  deletedReminderIds: [],
   privacy: loadPrivacy(),
   togglePrivacy: () => {
     const v = !get().privacy;
@@ -391,6 +450,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       alertState,
       goals,
       deletedGoalIds,
+      reminders,
+      deletedReminderIds,
     ] = await Promise.all([
       db.accounts.toArray(),
       db.instruments.toArray(),
@@ -399,6 +460,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       getMeta<AlertState>("alertState"),
       getMeta<Goal[]>("goals"),
       getMeta<string[]>("deletedGoalIds"),
+      getMeta<Reminder[]>("reminders"),
+      getMeta<string[]>("deletedReminderIds"),
     ]);
     // Manual price overrides were removed — drop any value left from older
     // versions so it can never override the automatic price again.
@@ -412,6 +475,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       alertState: alertState ?? {},
       goals: goals ?? [],
       deletedGoalIds: deletedGoalIds ?? [],
+      reminders: reminders ?? [],
+      deletedReminderIds: deletedReminderIds ?? [],
       loaded: true,
     });
     // Pull live prices in the background (non-blocking).
@@ -571,6 +636,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   dismissAlert: async (alert) => {
+    // A reminder's dismiss means "done" → remove it (tombstoned, so it can't
+    // come back from the cloud); its history record then reads as fulfilled.
+    if (alert.id.startsWith(REMINDER_ALERT_PREFIX)) {
+      await get().removeReminder(alert.id.slice(REMINDER_ALERT_PREFIX.length));
+      return;
+    }
     const now = new Date().toISOString();
     const prev = get().alertState;
     const rec = prev[alert.id];
@@ -643,6 +714,30 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       setMeta("deletedGoalIds", deletedGoalIds),
     ]);
     set({ goals, deletedGoalIds });
+    scheduleAutoSync(set, get);
+  },
+
+  addReminder: async (r) => {
+    const reminder: Reminder = {
+      ...r,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    const reminders = [...get().reminders, reminder];
+    await setMeta("reminders", reminders);
+    set({ reminders });
+    scheduleAutoSync(set, get);
+  },
+
+  removeReminder: async (id) => {
+    const reminders = get().reminders.filter((r) => r.id !== id);
+    // Tombstone so the sync merge can't re-add it from the cloud copy.
+    const deletedReminderIds = [...new Set([...get().deletedReminderIds, id])];
+    await Promise.all([
+      setMeta("reminders", reminders),
+      setMeta("deletedReminderIds", deletedReminderIds),
+    ]);
+    set({ reminders, deletedReminderIds });
     scheduleAutoSync(set, get);
   },
 
@@ -764,6 +859,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       alertState: {},
       goals: [],
       deletedGoalIds: [],
+      reminders: [],
+      deletedReminderIds: [],
       priceFile: null,
       priceUpdatedAt: undefined,
     });
@@ -782,6 +879,18 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     );
   },
 }));
+
+// A local edit to the synced planning prefs (allocation targets, forecast
+// settings) happens outside the store — push it like any other data change.
+// Remote applies fire the same event with source "remote"; those must NOT
+// re-push (they came from the cloud), so only local edits schedule a sync.
+if (typeof window !== "undefined") {
+  window.addEventListener(PREFS_EVENT, (e) => {
+    if ((e as CustomEvent<{ source?: string }>).detail?.source === "local") {
+      scheduleAutoSync(usePortfolio.setState, usePortfolio.getState);
+    }
+  });
+}
 
 /**
  * Shared, identity-keyed memo: every component that calls usePortfolioSummary
@@ -851,9 +960,11 @@ const cachedAlerts = sharedMemo(
     config: Parameters<typeof computeAlerts>[1],
     transactions: Transaction[],
     goalProgress: GoalProgress[],
+    reminders: Reminder[],
   ) => [
     ...computeAlerts(summary, config),
     ...goalAlerts(goalProgress),
+    ...reminderAlerts(reminders),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
   ],
 );
@@ -863,5 +974,6 @@ export function useActiveAlerts(): Alert[] {
   const config = usePortfolio((s) => s.alertConfig);
   const transactions = usePortfolio((s) => s.transactions);
   const goalProgress = useGoalProgress();
-  return cachedAlerts(summary, config, transactions, goalProgress);
+  const reminders = usePortfolio((s) => s.reminders);
+  return cachedAlerts(summary, config, transactions, goalProgress, reminders);
 }

@@ -3,8 +3,9 @@
 // The token is stored locally (per device) — never committed, never synced.
 
 import type { Account, Instrument, Transaction } from "./model";
-import type { AlertState } from "./alerts";
+import type { AlertState, Reminder } from "./alerts";
 import type { Goal } from "./goals";
+import type { SyncedPrefs } from "./prefs";
 
 const API = "https://api.github.com";
 const CONFIG_KEY = "portfolio.syncConfig";
@@ -33,6 +34,15 @@ export interface PortfolioSnapshot {
    * copy (local or remote) would re-add the just-removed goal.
    */
   deletedGoalIds?: string[];
+  /** User-created reminders (to-dos), synced across devices. */
+  reminders?: Reminder[];
+  /** Tombstones for reminders dismissed/deleted on any device. */
+  deletedReminderIds?: string[];
+  /**
+   * Planning preferences (target allocation, forecast settings) — per-field
+   * last-write-wins by updatedAt. Secrets (token, AI key) are never here.
+   */
+  prefs?: SyncedPrefs;
 }
 
 export function loadSyncConfig(): SyncConfig | null {

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Crosshair, Pencil, Check, X, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Crosshair, Pencil, Check, X, Trash2, BellPlus } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { assetClassLabel } from "../lib/labels";
 import type { AssetClass } from "../lib/portfolio";
@@ -11,6 +11,7 @@ import {
   type AllocationSettings,
 } from "../lib/allocation";
 import { detectRecurringSavings, loadForecastSettings } from "../lib/forecast";
+import { PREFS_EVENT } from "../lib/prefs";
 import { Card } from "./ui";
 import { formatMoney } from "../lib/format";
 
@@ -34,6 +35,16 @@ export default function AllocationTargets() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Record<AssetClass, string>>>({});
 
+  // A sync pull may bring newer targets from another device — reload them.
+  useEffect(() => {
+    const onPrefs = (e: Event) => {
+      if ((e as CustomEvent<{ source?: string }>).detail?.source === "remote")
+        setSettings(loadAllocationSettings());
+    };
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
+
   // Same monthly saving as the Forecast page: manual override, else detected.
   const monthlySaving = useMemo(() => {
     const fs = loadForecastSettings();
@@ -53,6 +64,28 @@ export default function AllocationTargets() {
         : [],
     [summary, targets, monthlySaving],
   );
+
+  // One-click reminder from the suggestion — appears among the alerts (and
+  // syncs). The month in the title keeps one reminder per month.
+  const addReminder = usePortfolio((s) => s.addReminder);
+  const reminders = usePortfolio((s) => s.reminders);
+  const reminderTitle = useMemo(() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `Havi vásárlás (${d.getFullYear()}. ${mm}.) – cél-allokáció`;
+  }, []);
+  const reminderAdded = reminders.some((r) => r.title === reminderTitle);
+
+  function saveReminder() {
+    void addReminder({
+      severity: "info",
+      title: reminderTitle,
+      detail: `${formatMoney(monthlySaving)} javasolt elosztása: ${split
+        .map((s) => `${assetClassLabel[s.key]} ${formatMoney(s.amountHuf)}`)
+        .join(", ")}.`,
+      to: "/forecast",
+    });
+  }
 
   if (summary.totalValueHuf <= 0) return null;
 
@@ -247,6 +280,21 @@ export default function AllocationTargets() {
                 Csak vétellel közelít a célhoz — eladást (adóeseményt) nem
                 javasol.
               </p>
+              <button
+                className="btn-ghost mt-2 text-xs"
+                onClick={saveReminder}
+                disabled={reminderAdded}
+                title={
+                  reminderAdded
+                    ? "Erre a hónapra már felvetted"
+                    : "A javaslat felvétele a figyelmeztetések közé"
+                }
+              >
+                <BellPlus className="h-4 w-4" />
+                {reminderAdded
+                  ? "Felvéve a figyelmeztetések közé"
+                  : "Felvétel figyelmeztetésnek"}
+              </button>
             </div>
           )}
         </div>

@@ -1,9 +1,10 @@
 // Target allocation per asset class + DCA split helper ("what should the next
 // monthly saving buy to drift back toward the targets — without selling").
-// The targets are a per-device preference (like pf-forecast), NOT synced.
+// The targets sync across devices via the cloud snapshot (see prefs.ts).
 
 import type { AssetClass, PortfolioSummary } from "./portfolio";
 import { allocationByClass } from "./portfolio";
+import { touchPref } from "./prefs";
 
 export interface AllocationSettings {
   /** Target share per asset class, 0..1. Classes not listed count as 0. */
@@ -26,8 +27,12 @@ export function loadAllocationSettings(): AllocationSettings | null {
 
 export function saveAllocationSettings(s: AllocationSettings | null) {
   try {
-    if (s) localStorage.setItem(STORE_KEY, JSON.stringify(s));
+    const json = s ? JSON.stringify(s) : null;
+    // Only stamp a real change — a no-op save must not claim "newer" in sync.
+    if (localStorage.getItem(STORE_KEY) === json) return;
+    if (json != null) localStorage.setItem(STORE_KEY, json);
     else localStorage.removeItem(STORE_KEY);
+    touchPref("allocation");
   } catch {
     /* ignore */
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   TrendingUp,
@@ -22,8 +22,10 @@ import {
   type ScenarioKey,
   type ReinvestTarget,
 } from "../lib/forecast";
+import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
+import AllocationTargets from "../components/AllocationTargets";
 import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
 import { formatMoney } from "../lib/format";
 
@@ -78,7 +80,29 @@ export default function Forecast() {
 
   const [settings, setSettings] =
     useState<ForecastSettings>(loadForecastSettings);
-  useEffect(() => saveForecastSettings(settings), [settings]);
+  // Persist only real user edits: the mount and a sync pull both set state
+  // that is already stored — re-saving those would stamp them as "newer"
+  // than the other device's copy for nothing.
+  const skipPersist = useRef(true);
+  useEffect(() => {
+    if (skipPersist.current) {
+      skipPersist.current = false;
+      return;
+    }
+    saveForecastSettings(settings);
+  }, [settings]);
+
+  // A sync pull may bring newer settings from another device — reload them.
+  useEffect(() => {
+    const onPrefs = (e: Event) => {
+      if ((e as CustomEvent<{ source?: string }>).detail?.source === "remote") {
+        skipPersist.current = true;
+        setSettings(loadForecastSettings());
+      }
+    };
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
 
   const detected = useMemo(
     () => detectRecurringSavings(transactions, fx),
@@ -604,6 +628,9 @@ export default function Forecast() {
             </ul>
           )}
         </Card>
+
+        {/* Cél-allokáció + DCA-segéd */}
+        <AllocationTargets />
       </div>
 
       {/* Grafikon */}
@@ -769,8 +796,9 @@ export default function Forecast() {
         <Badge tone="neutral">becslés</Badge> A jövőbeli hozam feltételezés — a
         tényleges eredmény ettől eltérhet. A kötvények a jelenlegi értéküktől a
         lejáratkori névértékig kamatozódnak, a felismert havi megtakarítás pedig
-        a múltbeli befizetéseidből adódik. A tervezési adatok csak ezen az
-        eszközön tárolódnak.
+        a múltbeli befizetéseidből adódik. A tervezési beállítások és a
+        cél-allokáció a felhő-szinkronnal együtt szinkronizálódnak az eszközeid
+        között.
       </p>
     </div>
   );

@@ -1,6 +1,7 @@
 import type { Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
 import { isInternalTransfer, toHuf, couponAmountHuf } from "./portfolio";
+import { touchPref } from "./prefs";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -621,7 +622,8 @@ export function forecastMilestones(result: ForecastResult): Milestone[] {
 }
 
 // ---------------------------------------------------------------------------
-// Persistence (per-device, localStorage) — planning inputs, never synced.
+// Persistence (localStorage) — planning inputs, synced across devices via the
+// cloud snapshot (see prefs.ts).
 // ---------------------------------------------------------------------------
 
 const STORE_KEY = "pf-forecast";
@@ -688,7 +690,11 @@ export function loadForecastSettings(): ForecastSettings {
 
 export function saveForecastSettings(s: ForecastSettings) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(s));
+    const json = JSON.stringify(s);
+    // Only stamp a real change — a no-op save must not claim "newer" in sync.
+    if (localStorage.getItem(STORE_KEY) === json) return;
+    localStorage.setItem(STORE_KEY, json);
+    touchPref("forecast");
   } catch {
     /* ignore */
   }

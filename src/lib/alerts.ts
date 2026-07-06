@@ -231,6 +231,36 @@ export function bondImportAlerts(reminders: BondImportReminder[]): Alert[] {
   });
 }
 
+// ---- Manual reminders (user-created to-dos, synced) ------------------------
+
+/**
+ * A user-created to-do — e.g. the allocation card's monthly buy suggestion
+ * saved with one click. Synced across devices like goals; dismissing the alert
+ * removes the reminder (tombstoned), and it then shows up as fulfilled.
+ */
+export interface Reminder {
+  id: string;
+  createdAt: string;
+  severity: AlertSeverity;
+  title: string;
+  detail?: string;
+  /** Optional deep link (router path). */
+  to?: string;
+}
+
+export const REMINDER_ALERT_PREFIX = "reminder:";
+
+/** Reminders as alerts. Dismissing one removes the reminder (see store). */
+export function reminderAlerts(reminders: Reminder[]): Alert[] {
+  return reminders.map((r) => ({
+    id: `${REMINDER_ALERT_PREFIX}${r.id}`,
+    severity: r.severity,
+    title: r.title,
+    detail: r.detail,
+    to: r.to,
+  }));
+}
+
 // ---- Synced history (seen / dismissed) ------------------------------------
 
 export interface AlertRecord {
