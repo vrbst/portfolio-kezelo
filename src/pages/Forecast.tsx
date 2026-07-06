@@ -271,9 +271,11 @@ export default function Forecast() {
         subtitle="A meglévő vagyonodból, a kötvényeid ismert hozamából és a felismert havi megtakarításból vetített jövőkép. Becslés, nem ígéret."
       />
 
-      <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-        {/* 1. oszlop: a két alacsony kártya egymás alatt */}
-        <div className="space-y-4">
+      {/* A sor magasságát a legmagasabb kártya (cél-allokáció) adja; a többi
+          oszlop kitölti (stretch). Az 1. oszlopban a kiadások kártya nyúlik. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {/* 1. oszlop: havi megtakarítás (fix) + kiadások (kitölti a maradékot) */}
+        <div className="flex flex-col gap-4">
           {/* Havi megtakarítás */}
           <Card className="p-5">
             <div className="flex items-center gap-2">
@@ -348,8 +350,8 @@ export default function Forecast() {
             )}
           </Card>
 
-          {/* Betervezett kiadások */}
-          <Card className="p-5">
+          {/* Betervezett kiadások — kitölti az oszlop maradékát */}
+          <Card className="flex min-h-0 flex-1 flex-col p-5">
             <h2 className="text-lg font-semibold">Betervezett kiadások</h2>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
               Ismert jövőbeli kiadások (pl. egy tervezett vásárlás). A megadott
@@ -391,7 +393,8 @@ export default function Forecast() {
             </div>
 
             {settings.expenses.length > 0 && (
-              <ul className="mt-3 space-y-1.5 border-t border-[var(--color-border)] pt-3 text-sm">
+              // Ha több tétel van, mint ami kifér, a lista görgethető.
+              <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto border-t border-[var(--color-border)] pt-3 text-sm">
                 {settings.expenses.map((e) => (
                   <li key={e.id} className="flex items-center gap-2">
                     <span className="text-[var(--color-muted)] tabular-nums">
