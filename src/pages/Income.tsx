@@ -361,7 +361,10 @@ export default function Income() {
       <p className="mt-4 text-xs leading-relaxed text-[var(--color-muted)]">
         Az XIRR (pénzsúlyozott) a saját pénzed évesített hozama; a TWR
         (idősúlyozott) a befektetések teljesítménye a befizetések időzítésétől
-        függetlenül. Friss portfóliónál az évesítés még zajos lehet. A realizált
+        függetlenül. A mutatók az állampapírokat a visszaváltási díj nélkül,
+        felhalmozott kamattal értékelik (lejáratig tartást feltételezve) — a
+        dashboard összértéke ennél óvatosabb: a ma visszaváltható összeget
+        mutatja. Friss portfóliónál az évesítés még zajos lehet. A realizált
         eredmény átlagos bekerülési áron, a vételkori árfolyamon számol. A díjak
         tájékoztató jellegűek (a vétel díja a bekerülésben is benne van). A
         lakossági állampapír kamata és a TBSZ a lekötési időszak alatt

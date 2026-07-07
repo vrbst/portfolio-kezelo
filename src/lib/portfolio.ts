@@ -1556,7 +1556,25 @@ export function computeReturns(
   history?: ValueHistory | null,
   now: Date = new Date(),
 ): ReturnMetrics {
-  const live = computePortfolio(accounts, txs, instruments, prices, fx, now);
+  // Performance view: bonds valued WITHOUT the early-redemption fee. The fee
+  // is a transaction cost paid only on an actual early sell — booking it at
+  // purchase would show as an instant "loss" (and bounce back as fake yield at
+  // maturity), dragging TWR/XIRR by ~the fee for the whole holding period.
+  // The dashboard's conservative "redeemable today" value keeps the fee.
+  const perfInstruments = new Map(
+    [...instruments].map(([k, i]) => [
+      k,
+      i.bond ? { ...i, bond: { ...i.bond, saleCostPct: 0 } } : i,
+    ]),
+  );
+  const live = computePortfolio(
+    accounts,
+    txs,
+    perfInstruments,
+    prices,
+    fx,
+    now,
+  );
   const value = live.totalValueHuf;
   const invested = live.netDepositedHuf;
   const simplePct = invested > 0 ? (value - invested) / invested : 0;
@@ -1601,7 +1619,7 @@ export function computeReturns(
   const series = buildValueSeries(
     accounts,
     txs,
-    instruments,
+    perfInstruments,
     prices,
     fx,
     history,
