@@ -185,6 +185,30 @@ function buildPriceMap(
   return map;
 }
 
+/**
+ * Daily FX history: the committed series (ECB fixing) is canonical — the live
+ * Yahoo series samples at a different time of day and disagrees with it by up
+ * to ~0.5% per day, which permanently perturbs the TWR chain on conversion
+ * days. Live data only extends the tail (days after the committed series ends).
+ */
+function mergeFxHistory(
+  committed: Record<string, [string, number][]> | undefined,
+  live: Record<string, [string, number][]>,
+): Record<string, [string, number][]> {
+  const out: Record<string, [string, number][]> = { ...(committed ?? {}) };
+  for (const [ccy, series] of Object.entries(live)) {
+    const base = out[ccy];
+    if (!base?.length) {
+      out[ccy] = series;
+      continue;
+    }
+    const lastDay = base[base.length - 1][0];
+    const tail = series.filter(([d]) => d > lastDay);
+    if (tail.length) out[ccy] = [...base, ...tail];
+  }
+  return out;
+}
+
 function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
   return {
     version: 1,
@@ -618,7 +642,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       historyFile: {
         updatedAt: live.updatedAt ?? committed?.updatedAt,
         prices: { ...(committed?.prices ?? {}), ...live.prices },
-        fx: { ...(committed?.fx ?? {}), ...live.fx },
+        fx: mergeFxHistory(committed?.fx, live.fx),
       },
     });
   },
