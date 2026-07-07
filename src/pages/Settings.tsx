@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Trash2,
   Database,
+  Download,
   Cloud,
   ShieldCheck,
   LineChart,
@@ -22,6 +23,7 @@ import { formatDateTime, formatNumber, formatMoney } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
 import { PERIOD_LABEL, type GoalPeriod } from "../lib/goals";
 import { verifyAccess, type SyncConfig } from "../lib/sync";
+import { downloadBackup } from "../lib/backup";
 import { loadSymbolOverrides, saveSymbolOverride } from "../lib/prices";
 import {
   AI_MODELS,
@@ -62,6 +64,22 @@ export default function Settings() {
             Minden adat a böngésződ helyi tárolójában (IndexedDB) marad, nem
             kerül szerverre.
           </p>
+          <div className="mt-4 border-t border-[var(--color-border)] pt-4">
+            <button
+              className="btn-ghost"
+              onClick={downloadBackup}
+              disabled={transactions.length === 0}
+            >
+              <Download className="h-4 w-4" /> Teljes mentés fájlba (JSON)
+            </button>
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              A teljes történet egy fájlban: tranzakciók (a nyers
+              kivonatsorokkal), számlák, értékpapírok, célok, emlékeztetők,
+              figyelmeztetés-előzmények, cél-allokáció és
+              előrejelzés-beállítások. A szinkron-token és az API-kulcs nem
+              kerül bele.
+            </p>
+          </div>
         </Card>
 
         <SyncSettings />
