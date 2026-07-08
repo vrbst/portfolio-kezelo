@@ -1304,6 +1304,96 @@ export function consolidatedHoldings(
   });
 }
 
+export interface PurchaseLot {
+  /** ISO day (YYYY-MM-DD). */
+  date: string;
+  accountId: string;
+  quantity: number;
+  /** Effective unit cost in the instrument's ccy (gross spend / qty, fees in). */
+  unitCostCcy: number;
+  /** Gross spend on this purchase, in the instrument's ccy. */
+  costCcy: number;
+  /** HUF per 1 unit of ccy on the purchase date (1 for HUF instruments). */
+  fxAtBuy: number;
+  /** HUF cost fixed at the FX paid on the purchase date. */
+  costHuf: number;
+  /** Value of this lot today (current price × qty), as if still held, HUF. */
+  currentValueHuf?: number;
+  /** currentValueHuf − costHuf (undefined if no current price). */
+  plHuf?: number;
+  /** plHuf / costHuf. */
+  plPct?: number;
+}
+
+export interface PurchaseLotsResult {
+  currency: Currency;
+  /** Current unit price in ccy (undefined if unknown / bond). */
+  currentPrice?: number;
+  lots: PurchaseLot[];
+  /**
+   * Units later sold (avg-cost accounting doesn't track which lot). When > 0 the
+   * lots are shown AS ORIGINALLY BOUGHT — the current holding is smaller.
+   */
+  soldQty: number;
+}
+
+/**
+ * Per-purchase breakdown for one instrument across all accounts: each buy with
+ * its date, quantity, unit price, the FX paid, and — at today's price — what
+ * that purchase is worth now and its return. Answers "how did each of my buys
+ * do", which the avg-cost holdings row hides. Bonds have no market price here,
+ * so this is meant for ETF/stock/fund.
+ */
+export function purchaseLots(
+  instrumentKey: string,
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  fxHistory?: FxHistory,
+): PurchaseLotsResult {
+  const inst = instruments.get(instrumentKey);
+  const ccy: Currency = inst?.currency ?? "HUF";
+  const history = fxHistory ?? buildFxHistory(txs);
+  const currentPrice = prices.get(instrumentKey);
+  const fxNow = ccy === "HUF" ? 1 : (fx[ccy] ?? 1);
+
+  const lots: PurchaseLot[] = [];
+  let soldQty = 0;
+  for (const t of txs) {
+    if (t.instrumentKey !== instrumentKey) continue;
+    if (t.internal) continue;
+    if (t.type === "sell" || t.type === "redemption") {
+      soldQty += t.quantity ?? 0;
+      continue;
+    }
+    if (t.type !== "buy") continue;
+    const qty = t.quantity ?? 0;
+    if (qty <= 0) continue;
+    const costCcy = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+    const fxAtBuy = ccy === "HUF" ? 1 : histFxRate(history, ccy, t.date, fx);
+    const costHuf = costCcy * fxAtBuy;
+    const currentValueHuf =
+      currentPrice != null ? qty * currentPrice * fxNow : undefined;
+    const plHuf =
+      currentValueHuf != null ? currentValueHuf - costHuf : undefined;
+    lots.push({
+      date: t.date.slice(0, 10),
+      accountId: t.accountId,
+      quantity: qty,
+      unitCostCcy: costCcy / qty,
+      costCcy,
+      fxAtBuy,
+      costHuf,
+      currentValueHuf,
+      plHuf,
+      plPct: plHuf != null && costHuf > 0 ? plHuf / costHuf : undefined,
+    });
+  }
+  lots.sort((a, b) => a.date.localeCompare(b.date));
+  return { currency: ccy, currentPrice, lots, soldQty };
+}
+
 export interface ValuePoint {
   /** ISO day (YYYY-MM-DD). */
   date: string;
