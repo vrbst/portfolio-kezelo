@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { Layers, ChevronRight } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
-import { consolidatedHoldings, purchaseLots } from "../lib/portfolio";
+import { consolidatedHoldings, purchaseLots, bondLots } from "../lib/portfolio";
 import { Card, Badge, Delta } from "./ui";
 import {
   formatMoney,
@@ -71,7 +71,7 @@ export default function HoldingsPanel({
                 h.costBasisHuf > 0
                   ? h.unrealizedPlHuf / h.costBasisHuf
                   : undefined;
-              const canExpand = expandable && !isBond;
+              const canExpand = expandable;
               const isOpen = open.has(h.instrumentKey);
               return (
                 <Fragment key={h.instrumentKey}>
@@ -143,7 +143,11 @@ export default function HoldingsPanel({
                         colSpan={4}
                         className="bg-[var(--color-surface-2)]/30 px-4 py-3"
                       >
-                        <LotsTable instrumentKey={h.instrumentKey} />
+                        {isBond ? (
+                          <BondLotsTable instrumentKey={h.instrumentKey} />
+                        ) : (
+                          <LotsTable instrumentKey={h.instrumentKey} />
+                        )}
                       </td>
                     </tr>
                   )}
@@ -275,6 +279,115 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
       <p className="mt-1 text-xs text-[var(--color-muted)]">
         A bekerülés a vételkori árfolyamon rögzül; a hozam az azóta eltelt ár-
         és árfolyamváltozást tartalmazza.
+      </p>
+    </div>
+  );
+}
+
+function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+
+  const result = useMemo(() => {
+    const map = new Map(instruments.map((i) => [i.key, i]));
+    return bondLots(instrumentKey, transactions, map);
+  }, [instrumentKey, transactions, instruments]);
+
+  const { lots, hadRedemptions, maturity, nextCoupon, couponRate, needsData } =
+    result;
+  if (lots.length === 0)
+    return (
+      <p className="text-xs text-[var(--color-muted)]">
+        Nincs rögzített vétel ehhez az eszközhöz.
+      </p>
+    );
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
+        <span className="font-medium">Vásárlásaim ({lots.length} db)</span>
+        {maturity && <span>Lejárat: {formatDate(maturity)}</span>}
+        {couponRate != null && (
+          <span>Kamat: {(couponRate * 100).toFixed(2)}% / év</span>
+        )}
+        {nextCoupon && <span>Köv. kamat: {formatDate(nextCoupon)}</span>}
+      </div>
+      <table className="w-full min-w-[560px] text-xs">
+        <thead className="text-left text-[var(--color-muted)]">
+          <tr>
+            <th className="py-1.5 pr-3 font-medium">Dátum</th>
+            <th className="py-1.5 pr-3 text-right font-medium">Névérték</th>
+            <th className="py-1.5 pr-3 text-right font-medium">Vételár</th>
+            <th className="py-1.5 pr-3 text-right font-medium">
+              Bekerülés (Ft)
+            </th>
+            <th className="py-1.5 pr-3 text-right font-medium">
+              Mai érték (Ft)
+            </th>
+            <th className="py-1.5 text-right font-medium">Hozam</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {lots.map((lot, i) => {
+            const partial = lot.faceValue < lot.originalFaceValue - 1e-9;
+            return (
+              <tr
+                key={`${lot.date}:${lot.accountId}:${i}`}
+                className="border-t border-[var(--color-border)]/40"
+              >
+                <td className="py-1.5 pr-3">{formatDate(lot.date)}</td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatMoney(lot.faceValue)}
+                  {partial && (
+                    <span className="ml-1 text-[10px] text-[var(--color-muted)]">
+                      (eredetileg {formatMoney(lot.originalFaceValue)})
+                    </span>
+                  )}
+                </td>
+                <td className="amt py-1.5 pr-3 text-right text-[var(--color-muted)]">
+                  {(lot.pricePct * 100).toFixed(2)}%
+                </td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatMoney(lot.costHuf)}
+                </td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatMoney(lot.currentValueHuf)}
+                </td>
+                <td className="py-1.5 text-right">
+                  <span
+                    className={
+                      lot.gainHuf >= 0
+                        ? "text-[var(--color-positive)]"
+                        : "text-[var(--color-negative)]"
+                    }
+                  >
+                    <span className="amt">
+                      {formatMoney(lot.gainHuf, "HUF", { sign: true })}
+                    </span>
+                    <span className="ml-1">({formatPercent(lot.gainPct)})</span>
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {needsData && (
+        <p className="mt-2 text-xs text-[var(--color-warning,#fbbf24)]">
+          Hiányzó sorozat-adatok miatt névértéken számol — add meg a kamatot és
+          az első kamatfizetést a Beállítások → Állampapír sorozatok alatt.
+        </p>
+      )}
+      {hadRedemptions && (
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          Az időközben lejárt/visszaváltott névértéket levontuk (a legrégebbi
+          vételből kezdve), így csak a jelenlegi készlet látszik.
+        </p>
+      )}
+      <p className="mt-1 text-xs text-[var(--color-muted)]">
+        A „mai érték" a most visszaváltható összeg: diszkont kincstárjegynél a
+        névérték felé araszoló felhalmozott érték, fix állampapírnál a névérték
+        + felhalmozott kamat, lejárat előtt a visszaváltási díjjal csökkentve.
       </p>
     </div>
   );
