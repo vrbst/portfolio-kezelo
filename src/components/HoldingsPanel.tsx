@@ -15,11 +15,15 @@ const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 /**
  * Consolidated holdings: every instrument aggregated across all accounts, so the
- * same ETF held in several accounts shows one combined total. Non-bond rows are
- * expandable to reveal the individual purchases (lots). Amounts respect privacy
- * mode (.amt); percentages stay readable.
+ * same ETF held in several accounts shows one combined total. When `expandable`,
+ * non-bond rows unfold to the individual purchases (lots). Amounts respect
+ * privacy mode (.amt); percentages stay readable.
  */
-export default function HoldingsPanel() {
+export default function HoldingsPanel({
+  expandable = false,
+}: {
+  expandable?: boolean;
+}) {
   const summary = usePortfolioSummary();
   const rows = consolidatedHoldings(summary);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -41,7 +45,9 @@ export default function HoldingsPanel() {
           <h2 className="text-lg font-semibold">Eszközeim</h2>
         </div>
         <span className="text-xs text-[var(--color-muted)]">
-          instrumentumonként, számlákon átívelve
+          {expandable
+            ? "nyisd le a vásárlásaidért"
+            : "instrumentumonként, számlákon átívelve"}
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -65,21 +71,21 @@ export default function HoldingsPanel() {
                 h.costBasisHuf > 0
                   ? h.unrealizedPlHuf / h.costBasisHuf
                   : undefined;
-              const expandable = !isBond;
+              const canExpand = expandable && !isBond;
               const isOpen = open.has(h.instrumentKey);
               return (
                 <Fragment key={h.instrumentKey}>
                   <tr
                     className={`border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40 ${
-                      expandable ? "cursor-pointer" : ""
+                      canExpand ? "cursor-pointer" : ""
                     }`}
                     onClick={
-                      expandable ? () => toggle(h.instrumentKey) : undefined
+                      canExpand ? () => toggle(h.instrumentKey) : undefined
                     }
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
-                        {expandable && (
+                        {canExpand && (
                           <ChevronRight
                             className={`h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform ${
                               isOpen ? "rotate-90" : ""
@@ -90,7 +96,11 @@ export default function HoldingsPanel() {
                           {h.instrument?.name ?? h.instrumentKey}
                         </div>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 pl-5 text-xs text-[var(--color-muted)]">
+                      <div
+                        className={`mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)] ${
+                          canExpand ? "pl-5" : ""
+                        }`}
+                      >
                         {h.instrument && (
                           <Badge tone="neutral">
                             {instrumentTypeLabel[h.instrument.type]}
@@ -127,7 +137,7 @@ export default function HoldingsPanel() {
                       )}
                     </td>
                   </tr>
-                  {expandable && isOpen && (
+                  {canExpand && isOpen && (
                     <tr className="border-b border-[var(--color-border)]/50 last:border-0">
                       <td
                         colSpan={4}
@@ -158,7 +168,7 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
     return purchaseLots(instrumentKey, transactions, map, prices, fx);
   }, [instrumentKey, transactions, instruments, prices, fx]);
 
-  const { lots, currency, soldQty } = result;
+  const { lots, currency, hadSells } = result;
   if (lots.length === 0)
     return (
       <p className="text-xs text-[var(--color-muted)]">
@@ -194,62 +204,72 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
           </tr>
         </thead>
         <tbody className="tabular-nums">
-          {lots.map((lot, i) => (
-            <tr
-              key={`${lot.date}:${lot.accountId}:${i}`}
-              className="border-t border-[var(--color-border)]/40"
-            >
-              <td className="py-1.5 pr-3">{formatDate(lot.date)}</td>
-              <td className="amt py-1.5 pr-3 text-right">
-                {formatNumber(lot.quantity, 4)}
-              </td>
-              <td className="amt py-1.5 pr-3 text-right">
-                {formatMoney(lot.unitCostCcy, currency, {
-                  decimals: foreign ? 2 : 0,
-                })}
-              </td>
-              {foreign && (
-                <td className="amt py-1.5 pr-3 text-right text-[var(--color-muted)]">
-                  {formatNumber(lot.fxAtBuy, 1)}
-                </td>
-              )}
-              <td className="amt py-1.5 pr-3 text-right">
-                {formatMoney(lot.costHuf)}
-              </td>
-              <td className="amt py-1.5 pr-3 text-right">
-                {lot.currentValueHuf != null
-                  ? formatMoney(lot.currentValueHuf)
-                  : "—"}
-              </td>
-              <td className="py-1.5 text-right">
-                {lot.plHuf != null ? (
-                  <span
-                    className={
-                      lot.plHuf >= 0
-                        ? "text-[var(--color-positive)]"
-                        : "text-[var(--color-negative)]"
-                    }
-                  >
-                    <span className="amt">
-                      {formatMoney(lot.plHuf, "HUF", { sign: true })}
+          {lots.map((lot, i) => {
+            const partial = lot.quantity < lot.originalQuantity - 1e-9;
+            return (
+              <tr
+                key={`${lot.date}:${lot.accountId}:${i}`}
+                className="border-t border-[var(--color-border)]/40"
+              >
+                <td className="py-1.5 pr-3">{formatDate(lot.date)}</td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatNumber(lot.quantity, 4)}
+                  {partial && (
+                    <span className="ml-1 text-[10px] text-[var(--color-muted)]">
+                      (eredetileg {formatNumber(lot.originalQuantity, 4)})
                     </span>
-                    {lot.plPct != null && (
-                      <span className="ml-1">({formatPercent(lot.plPct)})</span>
-                    )}
-                  </span>
-                ) : (
-                  "—"
+                  )}
+                </td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatMoney(lot.unitCostCcy, currency, {
+                    decimals: foreign ? 2 : 0,
+                  })}
+                </td>
+                {foreign && (
+                  <td className="amt py-1.5 pr-3 text-right text-[var(--color-muted)]">
+                    {formatNumber(lot.fxAtBuy, 1)}
+                  </td>
                 )}
-              </td>
-            </tr>
-          ))}
+                <td className="amt py-1.5 pr-3 text-right">
+                  {formatMoney(lot.costHuf)}
+                </td>
+                <td className="amt py-1.5 pr-3 text-right">
+                  {lot.currentValueHuf != null
+                    ? formatMoney(lot.currentValueHuf)
+                    : "—"}
+                </td>
+                <td className="py-1.5 text-right">
+                  {lot.plHuf != null ? (
+                    <span
+                      className={
+                        lot.plHuf >= 0
+                          ? "text-[var(--color-positive)]"
+                          : "text-[var(--color-negative)]"
+                      }
+                    >
+                      <span className="amt">
+                        {formatMoney(lot.plHuf, "HUF", { sign: true })}
+                      </span>
+                      {lot.plPct != null && (
+                        <span className="ml-1">
+                          ({formatPercent(lot.plPct)})
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-      {soldQty > 0 && (
+      {hadSells && (
         <p className="mt-2 text-xs text-[var(--color-muted)]">
-          Időközben {formatNumber(soldQty, 4)} darabot eladtál — a fenti tételek
-          az eredeti vásárlásokat mutatják (a jelenlegi készlet ennél kevesebb),
-          a „mai érték" és „hozam" úgy számol, mintha még mind megvolna.
+          Az időközben eladott mennyiséget levontuk (a legrégebbi vételből
+          kezdve), így csak a ténylegesen meglévő tételek látszanak — egy
+          TBSZ-be költöztetés (eladás + azonnali visszavásárlás) így kiesik.
         </p>
       )}
       <p className="mt-1 text-xs text-[var(--color-muted)]">

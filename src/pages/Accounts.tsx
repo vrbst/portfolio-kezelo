@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Wallet, Landmark, ArrowRight } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import HoldingsPanel from "../components/HoldingsPanel";
 import { PageHeader, Card, EmptyState, Badge, Delta } from "../components/ui";
 import { formatMoney, eurEquivalent } from "../lib/format";
 import { accountKindLabel } from "../lib/labels";
@@ -59,6 +60,8 @@ export default function Accounts() {
         icon={<Landmark className="h-5 w-5" />}
         items={treasury}
       />
+
+      <HoldingsPanel expandable />
     </div>
   );
 }
