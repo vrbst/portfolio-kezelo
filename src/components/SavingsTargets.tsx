@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, Plus, Trash2, X } from "lucide-react";
+import { Target, Plus, Trash2, X, Pencil, Check } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
@@ -185,25 +185,83 @@ function GoalRow({
   const barPct = Math.min(p.projectedPct * 100, 100);
   const todayPct = Math.min(p.progressPct * 100, 100);
 
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(g.name);
+  const [amount, setAmount] = useState(String(Math.round(g.targetHuf)));
+  const [date, setDate] = useState(g.targetDate);
+
+  function startEdit() {
+    setName(g.name);
+    setAmount(String(Math.round(g.targetHuf)));
+    setDate(g.targetDate);
+    setEditing(true);
+  }
+  function saveEdit() {
+    const targetHuf = Number(amount.replace(/\s/g, "").replace(",", "."));
+    if (!name.trim() || !date || !Number.isFinite(targetHuf) || targetHuf <= 0)
+      return;
+    onUpdate(g.id, { name: name.trim(), targetHuf, targetDate: date });
+    setEditing(false);
+  }
+
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="font-medium">{g.name}</div>
-          <div className="text-xs text-[var(--color-muted)]">
-            Cél: <span className="amt">{formatMoney(g.targetHuf)}</span> ·{" "}
-            {formatDate(g.targetDate)}
-            {p.daysLeft > 0 ? ` · ${p.monthsLeft} hónap` : " · lejárt"}
+      {editing ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            className="min-w-[8rem] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <input
+            type="date"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          <button className="btn-primary" onClick={saveEdit}>
+            <Check className="h-4 w-4" /> Mentés
+          </button>
+          <button className="btn-ghost" onClick={() => setEditing(false)}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="font-medium">{g.name}</div>
+            <div className="text-xs text-[var(--color-muted)]">
+              Cél: <span className="amt">{formatMoney(g.targetHuf)}</span> ·{" "}
+              {formatDate(g.targetDate)}
+              {p.daysLeft > 0 ? ` · ${p.monthsLeft} hónap` : " · lejárt"}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+              onClick={startEdit}
+              title="Cél szerkesztése"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
+              onClick={() => onRemove(g.id)}
+              title="Cél törlése"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
           </div>
         </div>
-        <button
-          className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
-          onClick={() => onRemove(g.id)}
-          title="Cél törlése"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
+      )}
 
       {/* Progress bar: today (solid) + projected-to-date (lighter) */}
       <div className="relative mt-2 h-2.5 rounded-full bg-[var(--color-surface-2)]">
