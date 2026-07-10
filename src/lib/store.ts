@@ -851,6 +851,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // disagree, and exportedAt is the OTHER device's wall clock.
       const lastPulledSha = await getMeta<string>("lastPulledSha");
       if (lastPulledSha && remote.sha === lastPulledSha) {
+        // Same cloud version we already reflect — but still (re)apply planning
+        // prefs. An app update can ADD a synced pref kind (e.g. savings goals)
+        // that an older build silently dropped when it pulled this very sha;
+        // applyRemotePrefs is a no-op unless the remote copy is genuinely newer
+        // than what's on this device, so this only fills in the missing kind.
+        applyRemotePrefs(remote.snapshot.prefs);
         set({ lastSyncedAt: remoteAt });
         return;
       }
