@@ -80,6 +80,9 @@ export default function Settings() {
               kerül bele.
             </p>
           </div>
+          <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">
+            Build: {formatDateTime(__BUILD_TIME__)} · {__BUILD_SHA__}
+          </p>
         </Card>
 
         <SyncSettings />
