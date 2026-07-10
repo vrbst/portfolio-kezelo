@@ -74,7 +74,9 @@ export function computeDrift(
   included: AssetClass[],
 ): DriftRow[] {
   const actual = new Map<string, number>(
-    allocationByClass(summary).map((s) => [s.key, s.value]),
+    // Bonds at face value (nominal) — the user targets the invested amount, not
+    // the fluctuating accreted/redeemable value.
+    allocationByClass(summary, true).map((s) => [s.key, s.value]),
   );
   const keys = included.length
     ? included
@@ -118,7 +120,9 @@ export function dcaSplit(
 ): DcaSlice[] {
   if (savingHuf <= 0) return [];
   const actual = new Map<string, number>(
-    allocationByClass(summary).map((s) => [s.key, s.value]),
+    // Bonds at face value (nominal) — the user targets the invested amount, not
+    // the fluctuating accreted/redeemable value.
+    allocationByClass(summary, true).map((s) => [s.key, s.value]),
   );
   const keys = (
     included.length ? included : (Object.keys(targets) as AssetClass[])

@@ -26,6 +26,7 @@ import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
 import AllocationTargets from "../components/AllocationTargets";
+import SavingsTargets from "../components/SavingsTargets";
 import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
 import { formatMoney } from "../lib/format";
 
@@ -642,6 +643,11 @@ export default function Forecast() {
 
         {/* Cél-allokáció + DCA-segéd */}
         <AllocationTargets />
+      </div>
+
+      {/* Középtávú célok */}
+      <div className="mt-4">
+        <SavingsTargets />
       </div>
 
       {/* Grafikon */}

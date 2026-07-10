@@ -76,7 +76,7 @@ export default function AllocationTargets() {
   const excludedLabel = useMemo(() => {
     if (!settings) return "";
     const inc = new Set(included);
-    return allocationByClass(summary)
+    return allocationByClass(summary, true)
       .filter((s) => s.value > 0 && !inc.has(s.key as AssetClass))
       .map((s) => assetClassLabel[s.key as AssetClass])
       .join(", ");
@@ -108,7 +108,7 @@ export default function AllocationTargets() {
 
   function startEdit() {
     const valueByClass = new Map(
-      allocationByClass(summary).map((s) => [s.key, s.value]),
+      allocationByClass(summary, true).map((s) => [s.key, s.value]),
     );
     // Default include: the previously managed classes, else every held class
     // (the user then unchecks the ones to ignore — e.g. a T-bill parking spot).

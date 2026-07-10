@@ -5,6 +5,7 @@
 
 import { loadAllocationSettings, type AllocationSettings } from "./allocation";
 import { loadForecastSettings, type ForecastSettings } from "./forecast";
+import { loadSavingsGoals, type SavingsGoal } from "./savings";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -16,17 +17,30 @@ export interface SyncedPrefs {
   /** null value = the user deleted the targets (the delete must sync too). */
   allocation?: StampedPref<AllocationSettings | null>;
   forecast?: StampedPref<ForecastSettings>;
+  savings?: StampedPref<SavingsGoal[]>;
 }
 
-export type PrefKind = "allocation" | "forecast";
+export type PrefKind = "allocation" | "forecast" | "savings";
+
+const KINDS: PrefKind[] = ["allocation", "forecast", "savings"];
 
 const VALUE_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation",
   forecast: "pf-forecast",
+  savings: "pf-savings",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
   forecast: "pf-forecast-updated",
+  savings: "pf-savings-updated",
+};
+
+// Loaders read the current local value for the snapshot (no cross-module cycle
+// at eval time — these run only inside collectPrefs).
+const LOADERS: Record<PrefKind, () => unknown> = {
+  allocation: loadAllocationSettings,
+  forecast: loadForecastSettings,
+  savings: loadSavingsGoals,
 };
 
 /** Fired on every pref change; detail.source tells a local edit from a sync pull. */
@@ -63,7 +77,7 @@ function stampOf(kind: PrefKind): string | null {
 /** The current local prefs for the sync snapshot (undefined = nothing set). */
 export function collectPrefs(): SyncedPrefs | undefined {
   const out: SyncedPrefs = {};
-  for (const kind of ["allocation", "forecast"] as const) {
+  for (const kind of KINDS) {
     let at = stampOf(kind);
     try {
       // Pre-existing data from before prefs were synced: value without a
@@ -76,11 +90,13 @@ export function collectPrefs(): SyncedPrefs | undefined {
       /* ignore */
     }
     if (!at) continue;
-    if (kind === "allocation")
-      out.allocation = { updatedAt: at, value: loadAllocationSettings() };
-    else out.forecast = { updatedAt: at, value: loadForecastSettings() };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (out as Record<string, StampedPref<unknown>>)[kind] = {
+      updatedAt: at,
+      value: LOADERS[kind](),
+    };
   }
-  return out.allocation || out.forecast ? out : undefined;
+  return Object.keys(out).length ? out : undefined;
 }
 
 function newer<T>(
@@ -100,12 +116,14 @@ export function mergePrefs(
 ): SyncedPrefs | undefined {
   if (!base) return over;
   if (!over) return base;
-  const out: SyncedPrefs = {};
-  const allocation = newer(base.allocation, over.allocation);
-  const forecast = newer(base.forecast, over.forecast);
-  if (allocation) out.allocation = allocation;
-  if (forecast) out.forecast = forecast;
-  return out.allocation || out.forecast ? out : undefined;
+  const out = {} as Record<string, StampedPref<unknown>>;
+  const b = base as Record<string, StampedPref<unknown>>;
+  const o = over as Record<string, StampedPref<unknown>>;
+  for (const kind of KINDS) {
+    const merged = newer(b[kind], o[kind]);
+    if (merged) out[kind] = merged;
+  }
+  return Object.keys(out).length ? (out as SyncedPrefs) : undefined;
 }
 
 /**
@@ -115,9 +133,10 @@ export function mergePrefs(
  */
 export function applyRemotePrefs(remote: SyncedPrefs | undefined): boolean {
   if (!remote) return false;
+  const r = remote as Record<string, StampedPref<unknown>>;
   let changed = false;
-  for (const kind of ["allocation", "forecast"] as const) {
-    const pref = remote[kind];
+  for (const kind of KINDS) {
+    const pref = r[kind];
     if (!pref || typeof pref.updatedAt !== "string") continue;
     const local = stampOf(kind);
     if (local && local >= pref.updatedAt) continue;

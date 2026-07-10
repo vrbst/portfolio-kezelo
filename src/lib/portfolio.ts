@@ -1194,15 +1194,25 @@ export interface AllocationSlice {
   value: number;
 }
 
-/** Portfolio value grouped by asset class (cash lumped across currencies). */
+/**
+ * Portfolio value grouped by asset class (cash lumped across currencies).
+ * With `bondsAtFace`, government bonds & T-bills count at their HUF face value
+ * (nominal) instead of the fluctuating accreted/redeemable value — used by the
+ * target allocation, where the user thinks in the nominal amount invested.
+ */
 export function allocationByClass(
   summary: PortfolioSummary,
+  bondsAtFace = false,
 ): AllocationSlice[] {
   const m = new Map<string, number>();
   const add = (k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v);
   for (const acc of summary.accounts) {
-    for (const h of acc.holdings)
-      add(assetClassOf(h.instrument), h.marketValueHuf ?? 0);
+    for (const h of acc.holdings) {
+      const isBond = h.instrument ? BOND_TYPES.has(h.instrument.type) : false;
+      const value =
+        bondsAtFace && isBond ? h.quantity : (h.marketValueHuf ?? 0);
+      add(assetClassOf(h.instrument), value);
+    }
     if (acc.cashValueHuf > 0.5) add("cash", acc.cashValueHuf);
   }
   return [...m.entries()]
