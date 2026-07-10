@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, Pencil, Check, X, Target } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { loadSavingsGoals } from "../lib/savings";
+import { PREFS_EVENT } from "../lib/prefs";
 import {
   accountReturn,
   isInternalTransfer,
@@ -53,6 +55,21 @@ export default function AccountDetail() {
         .sort((a, b) => b.date.localeCompare(a.date)),
     [transactions, id],
   );
+
+  // Medium-term goal an instrument is assigned to → shown on its holding row.
+  const [savingsGoals, setSavingsGoals] = useState(loadSavingsGoals);
+  useEffect(() => {
+    const onPrefs = () => setSavingsGoals(loadSavingsGoals());
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
+  const goalsByInstrument = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const g of savingsGoals)
+      for (const key of g.instrumentKeys)
+        m.set(key, [...(m.get(key) ?? []), g.name]);
+    return m;
+  }, [savingsGoals]);
 
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? "regular");
@@ -331,6 +348,18 @@ export default function AccountDetail() {
                             )}
                             {h.instrument?.isin && (
                               <span>{h.instrument.isin}</span>
+                            )}
+                            {(goalsByInstrument.get(h.instrumentKey) ?? []).map(
+                              (goalName) => (
+                                <span
+                                  key={goalName}
+                                  className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
+                                  title="Középtávú célhoz rendelve"
+                                >
+                                  <Target className="h-3 w-3" />
+                                  {goalName}
+                                </span>
+                              ),
                             )}
                           </div>
                           {h.bondNeedsData && (
