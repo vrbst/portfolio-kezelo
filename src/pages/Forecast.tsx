@@ -27,6 +27,7 @@ import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
 import AllocationTargets from "../components/AllocationTargets";
 import SavingsTargets from "../components/SavingsTargets";
+import { loadSavingsGoals } from "../lib/savings";
 import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
 import { formatMoney } from "../lib/format";
 
@@ -112,6 +113,37 @@ export default function Forecast() {
 
   const monthlySaving = settings.monthlySavingOverride ?? detected.monthlyHuf;
 
+  // Medium-term goals become planned expenses on their target date: the goal
+  // amount leaves the portfolio then (a planned purchase). Reloaded on any pref
+  // change so adding/editing a goal updates the projection immediately.
+  const [savingsGoals, setSavingsGoals] = useState(loadSavingsGoals);
+  useEffect(() => {
+    const onPrefs = () => setSavingsGoals(loadSavingsGoals());
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
+  const goalExpenses = useMemo<PlannedExpense[]>(
+    () =>
+      savingsGoals
+        .filter(
+          (g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0,
+        )
+        .map((g) => ({
+          id: `goal:${g.id}`,
+          date: g.targetDate,
+          amountHuf: g.targetHuf,
+          note: g.name,
+        })),
+    [savingsGoals],
+  );
+  const allExpenses = useMemo(
+    () =>
+      [...settings.expenses, ...goalExpenses].sort((a, b) =>
+        a.date.localeCompare(b.date),
+      ),
+    [settings.expenses, goalExpenses],
+  );
+
   const nominal = useMemo(() => {
     const assumptions = {
       annualReturn: settings.annualReturn,
@@ -121,11 +153,11 @@ export default function Forecast() {
       months: settings.months,
     };
     return settings.engine === "mc"
-      ? projectMonteCarlo(summary, assumptions, settings.expenses, {
+      ? projectMonteCarlo(summary, assumptions, allExpenses, {
           sigma: settings.mcSigma,
         })
-      : projectForecast(summary, assumptions, settings.expenses);
-  }, [summary, settings, monthlySaving]);
+      : projectForecast(summary, assumptions, allExpenses);
+  }, [summary, settings, monthlySaving, allExpenses]);
 
   // Real-value view: everything the user sees is deflated to today's forint.
   const result = useMemo(
@@ -159,8 +191,8 @@ export default function Forecast() {
           `+${m.years} év (${m.point.month}): reális ${huf(m.point.real)} Ft (sáv ${huf(m.point.pess)}–${huf(m.point.opt)}), ebből befektetett tőke ${huf(m.point.contributed)} Ft`,
       )
       .join("\n");
-    const exp = settings.expenses.length
-      ? settings.expenses
+    const exp = allExpenses.length
+      ? allExpenses
           .map(
             (e) =>
               `${e.date}: ${huf(e.amountHuf)} Ft${e.note ? ` (${e.note})` : ""}`,
@@ -187,7 +219,7 @@ export default function Forecast() {
     ]
       .filter((l): l is string => l != null)
       .join("\n");
-  }, [result, milestones, monthlySaving, settings]);
+  }, [result, milestones, monthlySaving, settings, allExpenses]);
 
   async function runNarrative() {
     setAiLoading(true);
@@ -393,7 +425,7 @@ export default function Forecast() {
               </div>
             </div>
 
-            {settings.expenses.length > 0 && (
+            {(settings.expenses.length > 0 || goalExpenses.length > 0) && (
               // Ha több tétel van, mint ami kifér, a lista görgethető.
               <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto border-t border-[var(--color-border)] pt-3 text-sm">
                 {settings.expenses.map((e) => (
@@ -416,6 +448,22 @@ export default function Forecast() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                  </li>
+                ))}
+                {/* Középtávú célokból származó, automatikus kiadások — itt csak
+                    olvashatók, a Középtávú célok kártyán szerkeszthetők. */}
+                {goalExpenses.map((e) => (
+                  <li key={e.id} className="flex items-center gap-2 opacity-80">
+                    <span className="text-[var(--color-muted)] tabular-nums">
+                      {e.date}
+                    </span>
+                    <span className="amt font-medium tabular-nums">
+                      {huf(e.amountHuf)} Ft
+                    </span>
+                    <span className="truncate text-xs text-[var(--color-muted)]">
+                      {e.note}
+                    </span>
+                    <Badge tone="brand">cél</Badge>
                   </li>
                 ))}
               </ul>

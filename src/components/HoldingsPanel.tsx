@@ -1,7 +1,9 @@
-import { Fragment, useMemo, useState } from "react";
-import { Layers, ChevronRight } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Layers, ChevronRight, Target } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { consolidatedHoldings, purchaseLots, bondLots } from "../lib/portfolio";
+import { loadSavingsGoals } from "../lib/savings";
+import { PREFS_EVENT } from "../lib/prefs";
 import { Card, Badge, Delta } from "./ui";
 import {
   formatMoney,
@@ -27,6 +29,22 @@ export default function HoldingsPanel({
   const summary = usePortfolioSummary();
   const rows = consolidatedHoldings(summary);
   const [open, setOpen] = useState<Set<string>>(new Set());
+
+  // Which medium-term goals each instrument is assigned to → show "what it's
+  // for" on the row. Reloaded on any pref change (assignment happens elsewhere).
+  const [savingsGoals, setSavingsGoals] = useState(loadSavingsGoals);
+  useEffect(() => {
+    const onPrefs = () => setSavingsGoals(loadSavingsGoals());
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
+  const goalsByInstrument = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const g of savingsGoals)
+      for (const key of g.instrumentKeys)
+        m.set(key, [...(m.get(key) ?? []), g.name]);
+    return m;
+  }, [savingsGoals]);
 
   if (rows.length === 0) return null;
 
@@ -108,6 +126,18 @@ export default function HoldingsPanel({
                         )}
                         {h.accountCount > 1 && (
                           <span>{h.accountCount} számlán</span>
+                        )}
+                        {(goalsByInstrument.get(h.instrumentKey) ?? []).map(
+                          (goalName) => (
+                            <span
+                              key={goalName}
+                              className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
+                              title="Középtávú célhoz rendelve"
+                            >
+                              <Target className="h-3 w-3" />
+                              {goalName}
+                            </span>
+                          ),
                         )}
                       </div>
                     </td>
