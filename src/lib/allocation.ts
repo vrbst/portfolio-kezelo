@@ -7,11 +7,26 @@ import { allocationByClass } from "./portfolio";
 import { touchPref } from "./prefs";
 
 export interface AllocationSettings {
-  /** Target share per asset class, 0..1. Classes not listed count as 0. */
+  /** Target share per asset class, 0..1. Normalised across `included`. */
   targets: Partial<Record<AssetClass, number>>;
+  /**
+   * Which asset classes the target allocation manages. Only these count toward
+   * the 100% and the actual-vs-target split; everything else (e.g. a T-bill
+   * parking spot, crypto, cash) is ignored. Undefined = legacy setting: derive
+   * from the targeted classes so old saves keep working.
+   */
+  included?: AssetClass[];
 }
 
 const STORE_KEY = "pf-allocation";
+
+/** The managed classes — explicit `included`, or (legacy) the targeted ones. */
+export function includedClasses(s: AllocationSettings): AssetClass[] {
+  if (s.included && s.included.length) return s.included;
+  return (Object.keys(s.targets) as AssetClass[]).filter(
+    (k) => (s.targets[k] ?? 0) > 0,
+  );
+}
 
 export function loadAllocationSettings(): AllocationSettings | null {
   try {
@@ -41,29 +56,34 @@ export function saveAllocationSettings(s: AllocationSettings | null) {
 export interface DriftRow {
   key: AssetClass;
   valueHuf: number;
-  /** Current share of the total, 0..1. */
+  /** Share of the INCLUDED classes' combined value, 0..1. */
   actualPct: number;
   targetPct: number;
-  /** Ft above (+) or below (−) the target. */
+  /** Ft above (+) or below (−) the target within the included subset. */
   driftHuf: number;
 }
 
-/** Actual vs. target per class — union of held classes and targeted classes. */
+/**
+ * Actual vs. target for the managed (included) classes only. Percentages are
+ * over the included classes' combined value, so excluding e.g. a T-bill parking
+ * spot removes it from both the 100% and the actual share.
+ */
 export function computeDrift(
   summary: PortfolioSummary,
   targets: Partial<Record<AssetClass, number>>,
+  included: AssetClass[],
 ): DriftRow[] {
-  const total = summary.totalValueHuf;
   const actual = new Map<string, number>(
     allocationByClass(summary).map((s) => [s.key, s.value]),
   );
-  const keys = new Set<AssetClass>([
-    ...([...actual.keys()] as AssetClass[]),
-    ...(Object.keys(targets) as AssetClass[]).filter(
-      (k) => (targets[k] ?? 0) > 0,
-    ),
-  ]);
-  return [...keys]
+  const keys = included.length
+    ? included
+    : (Object.keys(targets) as AssetClass[]).filter(
+        (k) => (targets[k] ?? 0) > 0,
+      );
+  // Denominator = combined value of the included classes only.
+  const total = keys.reduce((sum, k) => sum + (actual.get(k) ?? 0), 0);
+  return keys
     .map((key) => {
       const valueHuf = actual.get(key) ?? 0;
       const targetPct = targets[key] ?? 0;
@@ -84,27 +104,30 @@ export interface DcaSlice {
 }
 
 /**
- * Split a new contribution across the classes so the portfolio moves toward
- * the targets by BUYING only (no sells → no tax event). Underweight classes
- * get money proportionally to their shortfall vs. the post-contribution
- * total; if the shortfalls are smaller than the contribution, the remainder
- * is spread by target share.
+ * Split a new contribution across the managed (included) classes so the subset
+ * moves toward the targets by BUYING only (no sells → no tax event). Underweight
+ * classes get money proportionally to their shortfall vs. the post-contribution
+ * subset total; if the shortfalls are smaller than the contribution, the
+ * remainder is spread by target share. Excluded classes never receive money.
  */
 export function dcaSplit(
   summary: PortfolioSummary,
   targets: Partial<Record<AssetClass, number>>,
   savingHuf: number,
+  included: AssetClass[],
 ): DcaSlice[] {
   if (savingHuf <= 0) return [];
-  const total = summary.totalValueHuf;
-  const newTotal = total + savingHuf;
   const actual = new Map<string, number>(
     allocationByClass(summary).map((s) => [s.key, s.value]),
   );
-  const keys = (Object.keys(targets) as AssetClass[]).filter(
-    (k) => (targets[k] ?? 0) > 0,
-  );
+  const keys = (
+    included.length ? included : (Object.keys(targets) as AssetClass[])
+  ).filter((k) => (targets[k] ?? 0) > 0);
   if (keys.length === 0) return [];
+
+  // Total is the included subset only, so the saving rebalances within it.
+  const total = keys.reduce((s, k) => s + (actual.get(k) ?? 0), 0);
+  const newTotal = total + savingHuf;
 
   const need = keys.map((k) => ({
     key: k,

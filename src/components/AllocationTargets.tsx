@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Crosshair, Pencil, Check, X, Trash2, BellPlus } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { assetClassLabel } from "../lib/labels";
-import type { AssetClass } from "../lib/portfolio";
+import { allocationByClass, type AssetClass } from "../lib/portfolio";
 import {
   computeDrift,
   dcaSplit,
+  includedClasses,
   loadAllocationSettings,
   saveAllocationSettings,
   type AllocationSettings,
@@ -34,6 +35,8 @@ export default function AllocationTargets() {
   );
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Record<AssetClass, string>>>({});
+  // Which classes participate in the target allocation (checkbox in edit mode).
+  const [include, setInclude] = useState<Set<AssetClass>>(new Set());
 
   // A sync pull may bring newer targets from another device — reload them.
   useEffect(() => {
@@ -53,17 +56,31 @@ export default function AllocationTargets() {
   }, [transactions, fx]);
 
   const targets = settings?.targets ?? null;
+  const included = useMemo(
+    () => (settings ? includedClasses(settings) : []),
+    [settings],
+  );
   const drift = useMemo(
-    () => (targets ? computeDrift(summary, targets) : []),
-    [summary, targets],
+    () => (settings ? computeDrift(summary, settings.targets, included) : []),
+    [summary, settings, included],
   );
   const split = useMemo(
     () =>
-      targets && monthlySaving > 0
-        ? dcaSplit(summary, targets, monthlySaving)
+      settings && monthlySaving > 0
+        ? dcaSplit(summary, settings.targets, monthlySaving, included)
         : [],
-    [summary, targets, monthlySaving],
+    [summary, settings, monthlySaving, included],
   );
+
+  // Held classes that are NOT managed — named so the user sees what's ignored.
+  const excludedLabel = useMemo(() => {
+    if (!settings) return "";
+    const inc = new Set(included);
+    return allocationByClass(summary)
+      .filter((s) => s.value > 0 && !inc.has(s.key as AssetClass))
+      .map((s) => assetClassLabel[s.key as AssetClass])
+      .join(", ");
+  }, [summary, settings, included]);
 
   // One-click reminder from the suggestion — appears among the alerts (and
   // syncs). The month in the title keeps one reminder per month.
@@ -90,28 +107,57 @@ export default function AllocationTargets() {
   if (summary.totalValueHuf <= 0) return null;
 
   function startEdit() {
-    const actual = new Map(
-      computeDrift(summary, targets ?? {}).map((r) => [r.key, r.actualPct]),
+    const valueByClass = new Map(
+      allocationByClass(summary).map((s) => [s.key, s.value]),
+    );
+    // Default include: the previously managed classes, else every held class
+    // (the user then unchecks the ones to ignore — e.g. a T-bill parking spot).
+    const inc = new Set<AssetClass>(
+      settings
+        ? includedClasses(settings)
+        : ALL_CLASSES.filter((k) => (valueByClass.get(k) ?? 0) > 0),
+    );
+    // Prefill % as each included class's share WITHIN the included subset, so
+    // the starting numbers already sum to ~100 for the managed classes.
+    const incTotal = [...inc].reduce(
+      (s, k) => s + (valueByClass.get(k) ?? 0),
+      0,
     );
     const d: Partial<Record<AssetClass, string>> = {};
     for (const k of ALL_CLASSES) {
-      const v = targets?.[k] ?? actual.get(k) ?? 0;
+      const share =
+        inc.has(k) && incTotal > 0 ? (valueByClass.get(k) ?? 0) / incTotal : 0;
+      const v = settings?.targets[k] ?? share;
       d[k] = v > 0.0005 ? String(Math.round(v * 100)) : "";
     }
+    setInclude(inc);
     setDraft(d);
     setEditing(true);
   }
 
-  const draftSum = ALL_CLASSES.reduce((s, k) => s + (Number(draft[k]) || 0), 0);
+  const draftSum = [...include].reduce(
+    (s, k) => s + (Number(draft[k]) || 0),
+    0,
+  );
+
+  function toggleInclude(k: AssetClass) {
+    setInclude((prev) => {
+      const next = new Set(prev);
+      next.has(k) ? next.delete(k) : next.add(k);
+      return next;
+    });
+  }
 
   function saveEdit() {
-    if (draftSum <= 0) return;
+    const inc = ALL_CLASSES.filter((k) => include.has(k));
+    const sum = inc.reduce((s, k) => s + (Number(draft[k]) || 0), 0);
+    if (sum <= 0) return;
     const t: Partial<Record<AssetClass, number>> = {};
-    for (const k of ALL_CLASSES) {
+    for (const k of inc) {
       const v = Number(draft[k]) || 0;
-      if (v > 0) t[k] = v / draftSum; // normalise to 100%
+      if (v > 0) t[k] = v / sum; // normalise to 100% within the included set
     }
-    const next = { targets: t };
+    const next: AllocationSettings = { targets: t, included: inc };
     saveAllocationSettings(next);
     setSettings(next);
     setEditing(false);
@@ -165,29 +211,51 @@ export default function AllocationTargets() {
 
       {editing && (
         <div>
+          <p className="mb-2 text-xs text-[var(--color-muted)]">
+            Pipáld ki, mely eszközosztályokra állítasz célt — csak ezek
+            számítanak a 100%-ba és az arányokba. A többit (pl. parkoló DKJ,
+            kripto, készpénz) az app figyelmen kívül hagyja.
+          </p>
           <div className="space-y-2">
-            {ALL_CLASSES.map((k) => (
-              <div key={k} className="flex items-center gap-2">
-                <span className="flex-1 text-sm text-[var(--color-muted)]">
-                  {assetClassLabel[k]}
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-                  value={draft[k] ?? ""}
-                  placeholder="0"
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, [k]: e.target.value }))
-                  }
-                />
-                <span className="w-4 text-sm text-[var(--color-muted)]">%</span>
-              </div>
-            ))}
+            {ALL_CLASSES.map((k) => {
+              const on = include.has(k);
+              return (
+                <div key={k} className="flex items-center gap-2">
+                  <label className="flex flex-1 cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggleInclude(k)}
+                    />
+                    <span
+                      className={
+                        on ? "" : "text-[var(--color-muted)] line-through"
+                      }
+                    >
+                      {assetClassLabel[k]}
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    disabled={!on}
+                    className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums disabled:opacity-40"
+                    value={draft[k] ?? ""}
+                    placeholder="0"
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, [k]: e.target.value }))
+                    }
+                  />
+                  <span className="w-4 text-sm text-[var(--color-muted)]">
+                    %
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <p className="mt-2 text-xs text-[var(--color-muted)]">
-            Összesen: {Math.round(draftSum)}%
+            Kiválasztott összesen: {Math.round(draftSum)}%
             {Math.round(draftSum) !== 100 && draftSum > 0
               ? " — mentéskor 100%-ra arányosítjuk."
               : ""}
@@ -256,6 +324,13 @@ export default function AllocationTargets() {
               );
             })}
           </div>
+
+          {excludedLabel && (
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              Az arányok a kiválasztott osztályokon belül értendők; kihagyva:{" "}
+              {excludedLabel}.
+            </p>
+          )}
 
           {split.length > 0 && (
             <div className="mt-4 border-t border-[var(--color-border)] pt-3">
