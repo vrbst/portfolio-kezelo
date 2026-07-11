@@ -330,13 +330,13 @@ export default function Calendar() {
           </span>
           <span className="flex items-center gap-1.5">
             <span
-              className="h-3.5 w-3.5 rounded-full border-2"
-              style={{ borderColor: CAT_COLOR.tbsz }}
+              className="h-3 w-3 rounded-full"
+              style={{ background: CAT_COLOR.tbsz }}
             />
             TBSZ mérföldkő
           </span>
           <span>
-            A cella színe a nap jellegét mutatja (szaggatott keret = várható) ·
+            A cella színe a nap jellegét mutatja (a halványabb kör = várható) ·
             a kör mérete az összeggel arányos · a hónap fejlécében a sáv a be/ki
             arány, a zöld szám a várható bevétel.
           </span>
@@ -501,7 +501,6 @@ function MonthGrid({
           const isFuture = key > todayIso;
           const agg = items ? dayAggregate(items) : null;
           const has = !!items && items.length > 0;
-          const allFuture = has && items.every((it) => it.future);
           const gross = agg ? agg.inflow + agg.outflow : 0;
           const net = agg ? agg.inflow - agg.outflow : 0;
           // Area ∝ amount → diameter ∝ √. The bubbles deliberately overflow the
@@ -530,8 +529,8 @@ function MonthGrid({
             parts.push(`Ki −${formatCompact(agg.outflow)}`);
           const title =
             !privacy && parts.length ? parts.join(" · ") : undefined;
-          // Event days are tinted + bordered in their OWN category colour so the
-          // month reads at a glance; dashed border = upcoming (várható).
+          // Event days are tinted in their OWN category colour (no frame — the
+          // tint + bubble carry it); the clicked day keeps a ring highlight.
           const style: CSSProperties = isSel
             ? {
                 background: `${color}33`,
@@ -539,14 +538,12 @@ function MonthGrid({
                 boxShadow: `0 0 0 1px ${color}80`,
               }
             : has
-              ? { background: `${color}1f`, borderColor: `${color}66` }
+              ? { background: `${color}1f`, borderColor: "transparent" }
               : {};
           const cellTone = isSel
             ? ""
             : has
-              ? allFuture
-                ? "border-dashed"
-                : ""
+              ? ""
               : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40";
           return (
             <button
@@ -583,10 +580,12 @@ function MonthGrid({
               {diam === 0 && agg?.hasMarker && (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span
-                    className="h-2.5 w-2.5 rounded-full border-2"
+                    className="shrink-0 rounded-full"
                     style={{
-                      borderColor: CAT_COLOR.tbsz,
-                      boxShadow: `0 0 4px ${CAT_COLOR.tbsz}80`,
+                      width: 16,
+                      height: 16,
+                      background: CAT_COLOR.tbsz,
+                      boxShadow: `0 0 8px ${CAT_COLOR.tbsz}80`,
                     }}
                   />
                 </span>
