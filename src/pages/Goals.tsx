@@ -15,12 +15,14 @@ export default function Goals() {
         title="Célok"
         subtitle="Cél-allokáció, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
       />
+      {/* Left: the two compact cards stacked (allocation + DCA), so they fill
+          the height of the taller medium-term goals card on the right. */}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <AllocationTargets />
+        <div className="space-y-4">
+          <AllocationTargets />
+          <GoalsSettings />
+        </div>
         <SavingsTargets />
-      </div>
-      <div className="mt-4">
-        <GoalsSettings />
       </div>
     </div>
   );
