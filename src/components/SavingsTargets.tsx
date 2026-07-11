@@ -110,19 +110,6 @@ export default function SavingsTargets() {
     persist(goals.filter((g) => g.id !== id));
   }
 
-  // One-click reminder from a goal — appears among the alerts (and syncs).
-  const addReminder = usePortfolio((s) => s.addReminder);
-  const reminders = usePortfolio((s) => s.reminders);
-  const reminderTitle = (name: string) => `Középtávú cél: ${name}`;
-  function reminderDetail(
-    pr: ReturnType<typeof computeSavingsProgress>[number],
-  ) {
-    const base = `${formatMoney(pr.goal.targetHuf)} · ${formatDate(pr.goal.targetDate)}`;
-    if (pr.reached)
-      return `${base} · a jelenlegi eszközökből teljesül a céldátumra.`;
-    return `${base} · most ${Math.round(pr.progressPct * 100)}% · havi ${formatMoney(pr.monthlyNeededHuf)} félretétel kell.`;
-  }
-
   return (
     <Card className="p-5">
       <div className="mb-1 flex items-center gap-2">
@@ -164,28 +151,16 @@ export default function SavingsTargets() {
 
       {progress.length > 0 && (
         <div className="mt-4 space-y-4">
-          {progress.map((p) => {
-            const rTitle = reminderTitle(p.goal.name);
-            return (
-              <GoalRow
-                key={p.goal.id}
-                progress={p}
-                holdings={holdings}
-                nameOf={nameOf}
-                onUpdate={update}
-                onRemove={remove}
-                reminderAdded={reminders.some((r) => r.title === rTitle)}
-                onAddReminder={() =>
-                  void addReminder({
-                    severity: "info",
-                    title: rTitle,
-                    detail: reminderDetail(p),
-                    to: "/forecast",
-                  })
-                }
-              />
-            );
-          })}
+          {progress.map((p) => (
+            <GoalRow
+              key={p.goal.id}
+              progress={p}
+              holdings={holdings}
+              nameOf={nameOf}
+              onUpdate={update}
+              onRemove={remove}
+            />
+          ))}
         </div>
       )}
     </Card>
@@ -198,16 +173,12 @@ function GoalRow({
   nameOf,
   onUpdate,
   onRemove,
-  reminderAdded,
-  onAddReminder,
 }: {
   progress: ReturnType<typeof computeSavingsProgress>[number];
   holdings: { key: string; name: string; value: number }[];
   nameOf: (key: string) => string;
   onUpdate: (id: string, patch: Partial<SavingsGoal>) => void;
   onRemove: (id: string) => void;
-  reminderAdded: boolean;
-  onAddReminder: () => void;
 }) {
   const g = p.goal;
   const assignable = holdings.filter((h) => !g.instrumentKeys.includes(h.key));
@@ -402,21 +373,34 @@ function GoalRow({
         )}
       </div>
 
-      <button
-        className="btn-ghost mt-2 text-xs"
-        onClick={onAddReminder}
-        disabled={reminderAdded}
-        title={
-          reminderAdded
-            ? "Már felvetted figyelmeztetésnek"
-            : "A cél felvétele a figyelmeztetések közé"
-        }
-      >
-        <BellPlus className="h-4 w-4" />
-        {reminderAdded
-          ? "Felvéve a figyelmeztetések közé"
-          : "Felvétel figyelmeztetésnek"}
-      </button>
+      {g.instrumentKeys.length > 0 ? (
+        <button
+          className="btn-ghost mt-2 text-xs"
+          onClick={() =>
+            onUpdate(g.id, { monthlyReminder: !g.monthlyReminder })
+          }
+          title={
+            g.monthlyReminder
+              ? "Havi vásárlás-emlékeztető kikapcsolása"
+              : "Havi emlékeztető: figyelmeztet, amíg a hónapban meg nem vetted"
+          }
+        >
+          <BellPlus className="h-4 w-4" />
+          {g.monthlyReminder
+            ? "Havi emlékeztető bekapcsolva"
+            : "Felvétel havi figyelmeztetésnek"}
+        </button>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          Rendelj hozzá eszközt, hogy havi vásárlás-emlékeztetőt kérhess.
+        </p>
+      )}
+      {g.monthlyReminder && g.instrumentKeys.length > 0 && (
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          Minden hónapban figyelmeztet, amíg meg nem veszed a hozzárendelt
+          eszközt (a hónap utolsó munkanapja már a következő hónaphoz számít).
+        </p>
+      )}
     </div>
   );
 }

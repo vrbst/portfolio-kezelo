@@ -74,7 +74,7 @@ function lastWorkingDayOfMonth(year: number, month0: number): number {
 }
 
 /** Apply the "last working day rolls into next month" rule. */
-function effectiveMonth(date: Date): { year: number; month0: number } {
+export function effectiveMonth(date: Date): { year: number; month0: number } {
   const y = date.getFullYear();
   const m = date.getMonth();
   if (date.getDate() >= lastWorkingDayOfMonth(y, m)) {

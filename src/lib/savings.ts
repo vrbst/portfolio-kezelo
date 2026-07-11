@@ -13,6 +13,8 @@ import {
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
+import { effectiveMonth } from "./goals";
+import type { Alert } from "./alerts";
 import { touchPref } from "./prefs";
 
 export interface SavingsGoal {
@@ -26,6 +28,13 @@ export interface SavingsGoal {
   instrumentKeys: string[];
   /** If true, future bond coupons arriving on/before the date count too. */
   includeCoupons: boolean;
+  /**
+   * If true (only meaningful with assigned instruments), raise a monthly alert
+   * until an assigned instrument is bought in the current month — the "did I do
+   * this month's purchase?" nudge. Uses the same month-boundary rule as the DCA
+   * goals (a buy on the last working day counts toward the next month).
+   */
+  monthlyReminder?: boolean;
   createdAt: string;
 }
 
@@ -78,6 +87,53 @@ export interface SavingsProgress {
   monthlyNeededHuf: number;
   /** The projection already covers the target. */
   reached: boolean;
+}
+
+/**
+ * Monthly-purchase alerts for goals that opted in (monthlyReminder) and have at
+ * least one assigned instrument: active until an assigned instrument is bought
+ * in the CURRENT month. The month boundary follows the DCA-goal rule — a buy on
+ * the month's last working day counts toward the next month — so the two agree.
+ * The month key in the id resets the alert each month.
+ */
+export function savingsGoalAlerts(
+  goals: SavingsGoal[],
+  transactions: Transaction[],
+  instruments: Map<string, Instrument>,
+  now: Date = new Date(),
+): Alert[] {
+  const eff = effectiveMonth(now);
+  const curKey = `${eff.year}-${eff.month0}`;
+  const out: Alert[] = [];
+  for (const g of goals) {
+    if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
+    const keys = new Set(g.instrumentKeys);
+    let bought = false;
+    for (const t of transactions) {
+      if (t.type !== "buy" || !t.instrumentKey || !keys.has(t.instrumentKey))
+        continue;
+      const d = new Date(t.date);
+      if (Number.isNaN(d.getTime())) continue;
+      const em = effectiveMonth(d);
+      if (em.year === eff.year && em.month0 === eff.month0) {
+        bought = true;
+        break;
+      }
+    }
+    if (bought) continue; // this month's purchase is done → no alert
+    const names = g.instrumentKeys
+      .map((k) => instruments.get(k)?.name ?? k)
+      .join(", ");
+    out.push({
+      id: `savings-goal:${g.id}:${curKey}`,
+      severity: "medium",
+      title: `Havi vásárlás – ${g.name}`,
+      detail: `Ebben a hónapban még nem vetted meg a célhoz rendelt eszközt (${names}).`,
+      to: "/forecast",
+      actionLabel: "Célok",
+    });
+  }
+  return out;
 }
 
 const MONTH_MS = (365.25 / 12) * 86_400_000;

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useEffect, useState } from "react";
 import { db, getMeta, setMeta } from "./db";
 import type { Account, Instrument, Transaction } from "./model";
 import type { ParsedImport } from "./parsers";
@@ -47,6 +48,11 @@ import {
   mergePrefs,
   PREFS_EVENT,
 } from "./prefs";
+import {
+  loadSavingsGoals,
+  savingsGoalAlerts,
+  type SavingsGoal,
+} from "./savings";
 import {
   computeGoalProgress,
   goalAlerts,
@@ -991,13 +997,35 @@ const cachedAlerts = sharedMemo(
     transactions: Transaction[],
     goalProgress: GoalProgress[],
     reminders: Reminder[],
+    savingsGoals: SavingsGoal[],
+    instruments: Instrument[],
   ) => [
     ...computeAlerts(summary, config),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
+    ...savingsGoalAlerts(
+      savingsGoals,
+      transactions,
+      new Map(instruments.map((i) => [i.key, i])),
+    ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
   ],
 );
+
+/**
+ * Savings goals live in localStorage (a synced pref), not the store — expose
+ * them reactively so alerts recompute when a goal is added/edited (local) or
+ * arrives from another device (remote). Both fire PREFS_EVENT.
+ */
+export function useSavingsGoals(): SavingsGoal[] {
+  const [goals, setGoals] = useState<SavingsGoal[]>(loadSavingsGoals);
+  useEffect(() => {
+    const on = () => setGoals(loadSavingsGoals());
+    window.addEventListener(PREFS_EVENT, on);
+    return () => window.removeEventListener(PREFS_EVENT, on);
+  }, []);
+  return goals;
+}
 
 export function useActiveAlerts(): Alert[] {
   const summary = usePortfolioSummary();
@@ -1005,5 +1033,15 @@ export function useActiveAlerts(): Alert[] {
   const transactions = usePortfolio((s) => s.transactions);
   const goalProgress = useGoalProgress();
   const reminders = usePortfolio((s) => s.reminders);
-  return cachedAlerts(summary, config, transactions, goalProgress, reminders);
+  const savingsGoals = useSavingsGoals();
+  const instruments = usePortfolio((s) => s.instruments);
+  return cachedAlerts(
+    summary,
+    config,
+    transactions,
+    goalProgress,
+    reminders,
+    savingsGoals,
+    instruments,
+  );
 }
