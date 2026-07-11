@@ -10,6 +10,7 @@ import Import from "./pages/Import";
 import Income from "./pages/Income";
 import Calendar from "./pages/Calendar";
 import Forecast from "./pages/Forecast";
+import Goals from "./pages/Goals";
 import Alerts from "./pages/Alerts";
 import Ai from "./pages/Ai";
 import Settings from "./pages/Settings";
@@ -25,6 +26,7 @@ const router = createHashRouter([
       { path: "income", element: <Income /> },
       { path: "calendar", element: <Calendar /> },
       { path: "forecast", element: <Forecast /> },
+      { path: "goals", element: <Goals /> },
       { path: "alerts", element: <Alerts /> },
       { path: "ai", element: <Ai /> },
       { path: "import", element: <Import /> },

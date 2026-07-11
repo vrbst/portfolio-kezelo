@@ -6,6 +6,7 @@ import {
   Settings as SettingsIcon,
   CalendarDays,
   LineChart,
+  Target,
   Bell,
   Sparkles,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const links = [
   { to: "/income", label: "Hozam", icon: Receipt, end: false },
   { to: "/calendar", label: "Naptár", icon: CalendarDays, end: false },
   { to: "/forecast", label: "Előrejel.", icon: LineChart, end: false },
+  { to: "/goals", label: "Célok", icon: Target, end: false },
   { to: "/alerts", label: "Teendők", icon: Bell, end: false },
   { to: "/ai", label: "AI", icon: Sparkles, end: false },
   { to: "/settings", label: "Beáll.", icon: SettingsIcon, end: false },

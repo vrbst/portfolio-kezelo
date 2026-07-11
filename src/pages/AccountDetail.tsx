@@ -257,7 +257,15 @@ export default function AccountDetail() {
             <StatCard
               label="Készpénz"
               value={formatMoney(accSummary.cashValueHuf)}
-              sub={eur(accSummary.cashValueHuf)}
+              // Show the actual EUR balance when the account holds EUR cash
+              // (a TBSZ usually just has EUR leftovers); else the HUF→EUR
+              // equivalent.
+              sub={
+                accSummary.cash["EUR"] != null &&
+                Math.abs(accSummary.cash["EUR"]) > 0.005
+                  ? formatMoney(accSummary.cash["EUR"], "EUR")
+                  : eur(accSummary.cashValueHuf)
+              }
               index={2}
             />
             <StatCard
@@ -474,22 +482,26 @@ export default function AccountDetail() {
         )}
       </div>
 
-      {/* Cash by currency — treasury esetén a készpénz már fent van az 5. kártyán */}
-      {!isTreasury && Object.keys(accSummary.cash).length > 0 && (
-        <div className="mt-6">
-          <h2 className="mb-3 text-lg font-semibold">Készpénz egyenleg</h2>
-          <div className="flex flex-wrap gap-3">
-            {Object.entries(accSummary.cash).map(([ccy, amt]) => (
-              <Card key={ccy} className="px-5 py-4">
-                <div className="text-xs text-[var(--color-muted)]">{ccy}</div>
-                <div className="amt text-lg font-semibold tabular-nums">
-                  {formatMoney(amt, ccy)}
-                </div>
-              </Card>
-            ))}
+      {/* Cash by currency — a treasury és a TBSZ számlán a készpénz már fent
+          van a kártyán (TBSZ-en az EUR-egyenleggel), így csak a pénzszámla-hub
+          és a sima befektetési számlák mutatják a bontást. */}
+      {!isTreasury &&
+        account.kind !== "tbsz" &&
+        Object.keys(accSummary.cash).length > 0 && (
+          <div className="mt-6">
+            <h2 className="mb-3 text-lg font-semibold">Készpénz egyenleg</h2>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(accSummary.cash).map(([ccy, amt]) => (
+                <Card key={ccy} className="px-5 py-4">
+                  <div className="text-xs text-[var(--color-muted)]">{ccy}</div>
+                  <div className="amt text-lg font-semibold tabular-nums">
+                    {formatMoney(amt, ccy)}
+                  </div>
+                </Card>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Transactions */}
       <div className="mt-6">

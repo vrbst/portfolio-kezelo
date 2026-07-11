@@ -25,8 +25,6 @@ import {
 import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
-import AllocationTargets from "../components/AllocationTargets";
-import SavingsTargets from "../components/SavingsTargets";
 import { loadSavingsGoals } from "../lib/savings";
 import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
 import { formatMoney } from "../lib/format";
@@ -304,172 +302,164 @@ export default function Forecast() {
         subtitle="A meglévő vagyonodból, a kötvényeid ismert hozamából és a felismert havi megtakarításból vetített jövőkép. Becslés, nem ígéret."
       />
 
-      {/* A sor magasságát a legmagasabb kártya (cél-allokáció) adja; a többi
-          oszlop kitölti (stretch). Az 1. oszlopban a kiadások kártya nyúlik. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {/* 1. oszlop: havi megtakarítás (fix) + kiadások (kitölti a maradékot) */}
-        <div className="flex flex-col gap-4">
-          {/* Havi megtakarítás */}
-          <Card className="p-5">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-[var(--color-brand)]" />
-              <h2 className="text-lg font-semibold">Havi megtakarítás</h2>
-            </div>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              {overriding ? (
-                "Kézzel megadott havi összeg."
-              ) : (
-                <>
-                  Felismerve az eddigi befizetésekből
-                  {detected.monthsUsed > 0
-                    ? ` (${detected.monthsUsed} hónap alapján)`
-                    : ""}
-                  . Az egyszeri nagy tételeket kihagytuk.
-                </>
-              )}
-            </p>
-
-            <div className="mt-3">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
-                  value={savingDraft ?? huf(monthlySaving)}
-                  onFocus={() => setSavingDraft(String(monthlySaving))}
-                  onChange={(e) => {
-                    setSavingDraft(e.target.value);
-                    const n = Number(e.target.value.replace(/\D/g, ""));
-                    if (e.target.value.trim() !== "" && Number.isFinite(n)) {
-                      setSettings((s) => ({ ...s, monthlySavingOverride: n }));
-                    }
-                  }}
-                  onBlur={() => setSavingDraft(null)}
-                />
-                <span className="text-sm text-[var(--color-muted)]">
-                  Ft / hó
-                </span>
-                {overriding && (
-                  <button
-                    className="btn-ghost ml-auto"
-                    title="Vissza a felismert értékhez"
-                    onClick={() =>
-                      setSettings((s) => ({
-                        ...s,
-                        monthlySavingOverride: null,
-                      }))
-                    }
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {detected.oneOffs.length > 0 && (
-              <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-                <p className="text-xs font-medium text-[var(--color-muted)]">
-                  Kihagyott egyszeri befizetések
-                </p>
-                <ul className="mt-1.5 space-y-1 text-xs tabular-nums text-[var(--color-muted)]">
-                  {detected.oneOffs.map((o) => (
-                    <li key={o.month} className="flex justify-between gap-3">
-                      <span>{formatMonthLabel(o.month)}</span>
-                      <span className="amt">{huf(o.huf)} Ft</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+      <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+        {/* Havi megtakarítás */}
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Havi megtakarítás</h2>
+          </div>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            {overriding ? (
+              "Kézzel megadott havi összeg."
+            ) : (
+              <>
+                Felismerve az eddigi befizetésekből
+                {detected.monthsUsed > 0
+                  ? ` (${detected.monthsUsed} hónap alapján)`
+                  : ""}
+                . Az egyszeri nagy tételeket kihagytuk.
+              </>
             )}
-          </Card>
+          </p>
 
-          {/* Betervezett kiadások — kitölti az oszlop maradékát */}
-          <Card className="flex min-h-0 flex-1 flex-col p-5">
-            <h2 className="text-lg font-semibold">Betervezett kiadások</h2>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              Ismert jövőbeli kiadások (pl. egy tervezett vásárlás). A megadott
-              dátumkor levonjuk a vagyonból.
-            </p>
-
-            <div className="mt-3 space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <input
-                  type="date"
-                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
-                  value={expDate}
-                  onChange={(e) => setExpDate(e.target.value)}
-                />
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="Összeg (Ft)"
-                  className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-                  value={expAmount}
-                  onChange={(e) => setExpAmount(e.target.value)}
-                />
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Megjegyzés (opcionális)"
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
-                  value={expNote}
-                  onChange={(e) => setExpNote(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") addExpense();
-                  }}
-                />
-                <button className="btn-ghost" onClick={addExpense}>
-                  <Plus className="h-4 w-4" />
+          <div className="mt-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
+                value={savingDraft ?? huf(monthlySaving)}
+                onFocus={() => setSavingDraft(String(monthlySaving))}
+                onChange={(e) => {
+                  setSavingDraft(e.target.value);
+                  const n = Number(e.target.value.replace(/\D/g, ""));
+                  if (e.target.value.trim() !== "" && Number.isFinite(n)) {
+                    setSettings((s) => ({ ...s, monthlySavingOverride: n }));
+                  }
+                }}
+                onBlur={() => setSavingDraft(null)}
+              />
+              <span className="text-sm text-[var(--color-muted)]">Ft / hó</span>
+              {overriding && (
+                <button
+                  className="btn-ghost ml-auto"
+                  title="Vissza a felismert értékhez"
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      monthlySavingOverride: null,
+                    }))
+                  }
+                >
+                  <RotateCcw className="h-4 w-4" />
                 </button>
-              </div>
+              )}
             </div>
+          </div>
 
-            {(settings.expenses.length > 0 || goalExpenses.length > 0) && (
-              // Ha több tétel van, mint ami kifér, a lista görgethető.
-              <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto border-t border-[var(--color-border)] pt-3 text-sm">
-                {settings.expenses.map((e) => (
-                  <li key={e.id} className="flex items-center gap-2">
-                    <span className="text-[var(--color-muted)] tabular-nums">
-                      {e.date}
-                    </span>
-                    <span className="amt font-medium tabular-nums">
-                      {huf(e.amountHuf)} Ft
-                    </span>
-                    {e.note && (
-                      <span className="truncate text-xs text-[var(--color-muted)]">
-                        {e.note}
-                      </span>
-                    )}
-                    <button
-                      className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-negative)]"
-                      onClick={() => removeExpense(e.id)}
-                      title="Törlés"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </li>
-                ))}
-                {/* Középtávú célokból származó, automatikus kiadások — itt csak
-                    olvashatók, a Középtávú célok kártyán szerkeszthetők. */}
-                {goalExpenses.map((e) => (
-                  <li key={e.id} className="flex items-center gap-2 opacity-80">
-                    <span className="text-[var(--color-muted)] tabular-nums">
-                      {e.date}
-                    </span>
-                    <span className="amt font-medium tabular-nums">
-                      {huf(e.amountHuf)} Ft
-                    </span>
-                    <span className="truncate text-xs text-[var(--color-muted)]">
-                      {e.note}
-                    </span>
-                    <Badge tone="brand">cél</Badge>
+          {detected.oneOffs.length > 0 && (
+            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+              <p className="text-xs font-medium text-[var(--color-muted)]">
+                Kihagyott egyszeri befizetések
+              </p>
+              <ul className="mt-1.5 space-y-1 text-xs tabular-nums text-[var(--color-muted)]">
+                {detected.oneOffs.map((o) => (
+                  <li key={o.month} className="flex justify-between gap-3">
+                    <span>{formatMonthLabel(o.month)}</span>
+                    <span className="amt">{huf(o.huf)} Ft</span>
                   </li>
                 ))}
               </ul>
-            )}
-          </Card>
-        </div>
+            </div>
+          )}
+        </Card>
+
+        {/* Betervezett kiadások */}
+        <Card className="p-5">
+          <h2 className="text-lg font-semibold">Betervezett kiadások</h2>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            Ismert jövőbeli kiadások (pl. egy tervezett vásárlás). A megadott
+            dátumkor levonjuk a vagyonból.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="date"
+                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+                value={expDate}
+                onChange={(e) => setExpDate(e.target.value)}
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Összeg (Ft)"
+                className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                value={expAmount}
+                onChange={(e) => setExpAmount(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Megjegyzés (opcionális)"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+                value={expNote}
+                onChange={(e) => setExpNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addExpense();
+                }}
+              />
+              <button className="btn-ghost" onClick={addExpense}>
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {(settings.expenses.length > 0 || goalExpenses.length > 0) && (
+            <ul className="mt-3 space-y-1.5 border-t border-[var(--color-border)] pt-3 text-sm">
+              {settings.expenses.map((e) => (
+                <li key={e.id} className="flex items-center gap-2">
+                  <span className="text-[var(--color-muted)] tabular-nums">
+                    {e.date}
+                  </span>
+                  <span className="amt font-medium tabular-nums">
+                    {huf(e.amountHuf)} Ft
+                  </span>
+                  {e.note && (
+                    <span className="truncate text-xs text-[var(--color-muted)]">
+                      {e.note}
+                    </span>
+                  )}
+                  <button
+                    className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-negative)]"
+                    onClick={() => removeExpense(e.id)}
+                    title="Törlés"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+              {/* Középtávú célokból származó, automatikus kiadások — itt csak
+                    olvashatók, a Középtávú célok kártyán szerkeszthetők. */}
+              {goalExpenses.map((e) => (
+                <li key={e.id} className="flex items-center gap-2 opacity-80">
+                  <span className="text-[var(--color-muted)] tabular-nums">
+                    {e.date}
+                  </span>
+                  <span className="amt font-medium tabular-nums">
+                    {huf(e.amountHuf)} Ft
+                  </span>
+                  <span className="truncate text-xs text-[var(--color-muted)]">
+                    {e.note}
+                  </span>
+                  <Badge tone="brand">cél</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
 
         {/* Feltételezések */}
         <Card className="p-5">
@@ -688,14 +678,6 @@ export default function Forecast() {
             </div>
           </div>
         </Card>
-
-        {/* Cél-allokáció + DCA-segéd */}
-        <AllocationTargets />
-      </div>
-
-      {/* Középtávú célok */}
-      <div className="mt-4">
-        <SavingsTargets />
       </div>
 
       {/* Grafikon */}
