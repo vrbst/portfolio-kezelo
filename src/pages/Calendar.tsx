@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import {
@@ -336,8 +336,9 @@ export default function Calendar() {
             TBSZ mérföldkő
           </span>
           <span>
-            A kiemelt cella eseményt jelöl (szaggatott keret = várható) · a kör
-            mérete az összeggel arányos.
+            A cella színe a nap jellegét mutatja (szaggatott keret = várható) ·
+            a kör mérete az összeggel arányos · a hónap fejlécében a sáv a be/ki
+            arány, a zöld szám a várható bevétel.
           </span>
         </div>
       </Card>
@@ -429,15 +430,60 @@ function MonthGrid({
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
   const isCurrentMonth = todayIso.startsWith(isoDay(year, m, 1).slice(0, 7));
+
+  // Month totals for the header bar + expected-income badge.
+  let monthIn = 0;
+  let monthOut = 0;
+  let monthFutureIn = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const items = byDay.get(isoDay(year, m, d));
+    if (!items) continue;
+    const a = dayAggregate(items);
+    monthIn += a.inflow;
+    monthOut += a.outflow;
+    for (const it of items)
+      if (it.future && it.amountHuf != null && it.cat !== "out")
+        monthFutureIn += it.amountHuf;
+  }
+  const monthGross = monthIn + monthOut;
+
   return (
     <div
-      className={`rounded-xl border p-2 ${
+      className={`rounded-xl border p-2 transition ${
         isCurrentMonth
-          ? "border-[var(--color-brand)]/40 bg-[var(--color-surface-2)]/30"
+          ? "border-[var(--color-brand)]/60 bg-gradient-to-b from-[var(--color-brand)]/10 to-transparent ring-1 ring-[var(--color-brand)]/25"
           : "border-[var(--color-border)]/60"
       }`}
     >
-      <div className="mb-1 text-xs font-semibold capitalize">{MONTHS[m]}</div>
+      <div className="mb-1 flex items-center justify-between gap-1">
+        <span
+          className={`text-xs font-semibold capitalize ${
+            isCurrentMonth ? "text-[var(--color-brand)]" : ""
+          }`}
+        >
+          {MONTHS[m]}
+        </span>
+        {!privacy && monthFutureIn > 0 && (
+          <span className="rounded-full bg-[var(--color-positive)]/15 px-1.5 py-px text-[9px] font-semibold tabular-nums text-[var(--color-positive)]">
+            +{formatCompact(monthFutureIn)}
+          </span>
+        )}
+      </div>
+      {/* Month activity bar: green = money in, red = money out (proportional). */}
+      <div className="mb-1.5 flex h-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+        {monthGross > 0 && (
+          <>
+            <span
+              style={{ width: `${(monthIn / monthGross) * 100}%` }}
+              className="bg-[var(--color-positive)]"
+            />
+            <span
+              style={{ width: `${(monthOut / monthGross) * 100}%` }}
+              className="bg-[var(--color-negative)]"
+            />
+          </>
+        )}
+      </div>
       <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-[var(--color-muted)]">
         {WEEKDAYS.map((w, wi) => (
           <div key={wi} className="py-0.5">
@@ -465,8 +511,16 @@ function MonthGrid({
               ? 8 + 12 * Math.sqrt(gross / maxGross)
               : 0;
           const tol = gross * 0.05;
+          // The day's dominant colour: net inflow green, net outflow red, a
+          // balanced rebalance indigo, an amount-less day (TBSZ) amber.
           const color =
-            net > tol ? "#34d399" : net < -tol ? "#fb7185" : "#6366f1";
+            gross === 0 && agg?.hasMarker
+              ? CAT_COLOR.tbsz
+              : net > tol
+                ? CAT_COLOR.in
+                : net < -tol
+                  ? CAT_COLOR.out
+                  : CAT_COLOR.maturity;
           const parts: string[] = [];
           if (agg && agg.inflow > 0.5)
             parts.push(`Be +${formatCompact(agg.inflow)}`);
@@ -474,20 +528,30 @@ function MonthGrid({
             parts.push(`Ki −${formatCompact(agg.outflow)}`);
           const title =
             !privacy && parts.length ? parts.join(" · ") : undefined;
-          // Every event day gets a visible cell (tinted + bordered) even when
-          // its bubble would be tiny; dashed border = upcoming (várható).
-          const cellTone = isSel
-            ? "border-[var(--color-brand)]/70 bg-[var(--color-brand)]/15 ring-1 ring-[var(--color-brand)]/40"
+          // Event days are tinted + bordered in their OWN category colour so the
+          // month reads at a glance; dashed border = upcoming (várható).
+          const style: CSSProperties = isSel
+            ? {
+                background: `${color}33`,
+                borderColor: color,
+                boxShadow: `0 0 0 1px ${color}80`,
+              }
             : has
-              ? `${
-                  allFuture ? "border-dashed" : ""
-                } border-[var(--color-brand)]/40 bg-[var(--color-brand)]/10 hover:bg-[var(--color-brand)]/20`
+              ? { background: `${color}1f`, borderColor: `${color}66` }
+              : {};
+          const cellTone = isSel
+            ? ""
+            : has
+              ? allFuture
+                ? "border-dashed"
+                : ""
               : "border-transparent hover:border-[var(--color-brand)]/40 hover:bg-[var(--color-surface-2)]/40";
           return (
             <button
               key={i}
               onClick={() => onSelect(key)}
               title={title}
+              style={style}
               className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${cellTone}`}
             >
               <span
@@ -495,7 +559,7 @@ function MonthGrid({
                   isToday
                     ? "grid h-4 w-4 place-items-center rounded-full bg-[var(--color-brand)] text-[9px] font-semibold text-white"
                     : has
-                      ? "font-medium text-[var(--color-text)]"
+                      ? "font-semibold text-[var(--color-text)]"
                       : "text-[var(--color-muted)]"
                 }`}
               >
@@ -508,7 +572,8 @@ function MonthGrid({
                     style={{
                       width: diam,
                       height: diam,
-                      background: `${color}${isFuture ? "70" : "cc"}`,
+                      background: `${color}${isFuture ? "66" : "cc"}`,
+                      boxShadow: `0 0 ${Math.round(diam / 2)}px ${color}${isFuture ? "40" : "70"}`,
                     }}
                   />
                 </span>
@@ -516,8 +581,11 @@ function MonthGrid({
               {diam === 0 && agg?.hasMarker && (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span
-                    className="h-2 w-2 rounded-full border-2"
-                    style={{ borderColor: CAT_COLOR.tbsz }}
+                    className="h-2.5 w-2.5 rounded-full border-2"
+                    style={{
+                      borderColor: CAT_COLOR.tbsz,
+                      boxShadow: `0 0 4px ${CAT_COLOR.tbsz}80`,
+                    }}
                   />
                 </span>
               )}
