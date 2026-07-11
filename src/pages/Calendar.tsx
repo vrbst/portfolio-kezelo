@@ -570,7 +570,7 @@ function MonthGrid({
               {diam > 0 && (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span
-                    className="rounded-full"
+                    className="shrink-0 rounded-full"
                     style={{
                       width: diam,
                       height: diam,
