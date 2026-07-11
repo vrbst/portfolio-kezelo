@@ -99,9 +99,16 @@ export interface SavingsMonthlyStatus {
   /** HUF bought this effective month toward the goal (assigned key OR type). */
   boughtHuf: number;
   /**
-   * Monthly amount needed to stay on track — the goal's gap divided by the
+   * Base monthly amount needed to stay on track — the goal's gap divided by the
    * months left, recomputed live (0 once the goal is already covered).
    */
+  baseNeededHuf: number;
+  /**
+   * Bond coupons received THIS effective month, if includeCoupons — money the
+   * user is expected to reinvest into the goal's instrument this month.
+   */
+  couponHuf: number;
+  /** Total to buy this month = baseNeeded + couponHuf. */
   neededHuf: number;
   /** Still missing this month (max 0, needed − bought). */
   missingHuf: number;
@@ -167,10 +174,29 @@ export function savingsMonthlyStatus(
         fx,
       );
     }
-    const neededHuf = Math.max(
+    const baseNeededHuf = Math.max(
       0,
       progressByGoal.get(g.id)?.monthlyNeededHuf ?? 0,
     );
+    // Coupons received THIS effective month — if the goal earmarks coupons
+    // (includeCoupons), the user is expected to reinvest them into the goal's
+    // instrument, so they add to what must be bought this month.
+    let couponHuf = 0;
+    if (g.includeCoupons) {
+      for (const t of transactions) {
+        if (t.type !== "interest") continue;
+        const d = new Date(t.date);
+        if (Number.isNaN(d.getTime())) continue;
+        const em = effectiveMonth(d);
+        if (em.year !== eff.year || em.month0 !== eff.month0) continue;
+        couponHuf += toHuf(
+          Math.abs(t.netAmount ?? t.grossAmount ?? 0),
+          t.currency,
+          fx,
+        );
+      }
+    }
+    const neededHuf = baseNeededHuf + couponHuf;
     // Met once this month's purchases reach (1 − tolerance) × needed, so
     // rounding / FX drift doesn't leave it a few hundred Ft "short".
     const done =
@@ -180,6 +206,8 @@ export function savingsMonthlyStatus(
       name: g.name,
       monthLabel,
       boughtHuf,
+      baseNeededHuf,
+      couponHuf,
       neededHuf,
       missingHuf: Math.max(0, neededHuf - boughtHuf),
       done,
@@ -217,14 +245,20 @@ export function savingsGoalAlerts(
     now,
   )
     .filter((s) => !s.done)
-    .map((s) => ({
-      id: `savings-goal:${s.goalId}:${curKey}`,
-      severity: "medium" as const,
-      title: `Havi vásárlás – ${s.name}`,
-      detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)} kell a célhoz rendelt eszközből (${s.instrumentNames}).`,
-      to: "/forecast",
-      actionLabel: "Célok",
-    }));
+    .map((s) => {
+      const couponNote =
+        s.couponHuf > 0
+          ? ` Ebből ${formatMoney(s.couponHuf)} a most beérkezett kamat újrabefektetése.`
+          : "";
+      return {
+        id: `savings-goal:${s.goalId}:${curKey}`,
+        severity: "medium" as const,
+        title: `Havi vásárlás – ${s.name}`,
+        detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)} kell a célhoz rendelt eszközből (${s.instrumentNames}).${couponNote}`,
+        to: "/forecast",
+        actionLabel: "Célok",
+      };
+    });
 }
 
 const MONTH_MS = (365.25 / 12) * 86_400_000;

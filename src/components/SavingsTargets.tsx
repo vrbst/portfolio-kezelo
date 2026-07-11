@@ -397,8 +397,12 @@ function GoalRow({
       )}
       {g.monthlyReminder && g.instrumentKeys.length > 0 && (
         <p className="mt-1 text-xs text-[var(--color-muted)]">
-          Minden hónapban figyelmeztet, amíg meg nem veszed a hozzárendelt
-          eszközt (a hónap utolsó munkanapja már a következő hónaphoz számít).
+          Minden hónapban figyelmeztet, amíg meg nem veszed a szükséges havi
+          összegben a hozzárendelt eszközt (a hónap utolsó munkanapja már a
+          következő hónaphoz számít).
+          {g.includeCoupons
+            ? " A hónapban beérkezett kötvénykamatot is hozzáadja a szükséges összeghez — azaz azt is fektesd be az eszközbe."
+            : ""}
         </p>
       )}
     </div>

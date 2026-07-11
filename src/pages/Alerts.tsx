@@ -75,7 +75,11 @@ export default function Alerts() {
         label: `Havi vásárlás – ${s.name}`,
         detail:
           s.neededHuf > 0
-            ? `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} ✓`
+            ? `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} ✓${
+                s.couponHuf > 0
+                  ? ` (kamat ${formatMoney(s.couponHuf)} újrabefektetve)`
+                  : ""
+              }`
             : `${s.monthLabel}: nincs több teendő (a cél fedezve) ✓`,
         to: "/forecast" as string | undefined,
       })),
