@@ -15,14 +15,12 @@ export default function Goals() {
         title="Célok"
         subtitle="Cél-allokáció, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
       />
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-1">
-          <AllocationTargets />
-        </div>
-        <div className="xl:col-span-2 space-y-4">
-          <SavingsTargets />
-          <GoalsSettings />
-        </div>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <AllocationTargets />
+        <SavingsTargets />
+      </div>
+      <div className="mt-4">
+        <GoalsSettings />
       </div>
     </div>
   );
