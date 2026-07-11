@@ -82,9 +82,14 @@ export default function Alerts() {
   ];
 
   // Goal + savings-goal alerts live in "Rendben" once met, so keep them out of
-  // the "Teljesült" history to avoid showing them twice.
+  // the "Teljesült" history. A live reminder is always active, so any reminder
+  // record here is an orphan of a removed to-do — hide it too (the store prunes
+  // these on reconcile).
   const fulfilledShown = fulfilled.filter(
-    (r) => !r.id.startsWith("goal:") && !r.id.startsWith("savings-goal:"),
+    (r) =>
+      !r.id.startsWith("goal:") &&
+      !r.id.startsWith("savings-goal:") &&
+      !r.id.startsWith("reminder:"),
   );
 
   const activeById = new Map(active.map((a) => [a.id, a]));

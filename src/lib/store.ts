@@ -654,11 +654,33 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   reconcileAlerts: (active) => {
-    const { state, changed } = reconcileAlertState(
+    const reconciled = reconcileAlertState(
       get().alertState,
       active,
       new Date().toISOString(),
     );
+    let state = reconciled.state;
+    let changed = reconciled.changed;
+    // Prune history records for reminders that no longer exist: a removed
+    // (dismissed) to-do shouldn't linger forever in "Teljesült". A live
+    // reminder is always active, so any reminder-id record that isn't backed by
+    // a current reminder is an orphan (e.g. from the old savings-goal button).
+    const liveReminderIds = new Set(
+      get().reminders.map((r) => `${REMINDER_ALERT_PREFIX}${r.id}`),
+    );
+    const pruned: AlertState = {};
+    let didPrune = false;
+    for (const [id, rec] of Object.entries(state)) {
+      if (id.startsWith(REMINDER_ALERT_PREFIX) && !liveReminderIds.has(id)) {
+        didPrune = true;
+        continue;
+      }
+      pruned[id] = rec;
+    }
+    if (didPrune) {
+      state = pruned;
+      changed = true;
+    }
     if (!changed) return;
     void setMeta("alertState", state);
     set({ alertState: state });
@@ -763,11 +785,25 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const reminders = get().reminders.filter((r) => r.id !== id);
     // Tombstone so the sync merge can't re-add it from the cloud copy.
     const deletedReminderIds = [...new Set([...get().deletedReminderIds, id])];
+    // Also drop its alert-history record, so a removed to-do doesn't linger in
+    // "Teljesült".
+    const alertKey = `${REMINDER_ALERT_PREFIX}${id}`;
+    const alertState = { ...get().alertState };
+    let alertChanged = false;
+    if (alertState[alertKey]) {
+      delete alertState[alertKey];
+      alertChanged = true;
+    }
     await Promise.all([
       setMeta("reminders", reminders),
       setMeta("deletedReminderIds", deletedReminderIds),
+      ...(alertChanged ? [setMeta("alertState", alertState)] : []),
     ]);
-    set({ reminders, deletedReminderIds });
+    set({
+      reminders,
+      deletedReminderIds,
+      ...(alertChanged ? { alertState } : {}),
+    });
     scheduleAutoSync(set, get);
   },
 
