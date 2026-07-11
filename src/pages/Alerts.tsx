@@ -27,8 +27,10 @@ export default function Alerts() {
   const alertState = usePortfolio((s) => s.alertState);
   const goalProgress = useGoalProgress();
   const savingsGoals = useSavingsGoals();
+  const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const dismissAlert = usePortfolio((s) => s.dismissAlert);
   const restoreAlert = usePortfolio((s) => s.restoreAlert);
@@ -58,18 +60,23 @@ export default function Alerts() {
         )} ✓`,
         to: "/settings" as string | undefined,
       })),
-    // Medium-term goals whose monthly purchase is already done this month.
+    // Medium-term goals whose monthly required amount is already met this month.
     ...savingsMonthlyStatus(
       savingsGoals,
+      accounts,
       transactions,
       new Map(instruments.map((i) => [i.key, i])),
+      prices,
       fx,
     )
       .filter((s) => s.done)
       .map((s) => ({
         id: `savings-ok:${s.goalId}`,
         label: `Havi vásárlás – ${s.name}`,
-        detail: `${s.monthLabel}: megvéve (${formatMoney(s.boughtHuf)}) ✓`,
+        detail:
+          s.neededHuf > 0
+            ? `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} ✓`
+            : `${s.monthLabel}: nincs több teendő (a cél fedezve) ✓`,
         to: "/forecast" as string | undefined,
       })),
   ];

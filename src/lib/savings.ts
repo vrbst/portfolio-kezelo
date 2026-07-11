@@ -14,8 +14,9 @@ import {
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
-import { effectiveMonth, effectiveMonthLabel } from "./goals";
+import { effectiveMonth, effectiveMonthLabel, GOAL_TOLERANCE } from "./goals";
 import type { Alert } from "./alerts";
+import { formatMoney } from "./format";
 import { touchPref } from "./prefs";
 
 export interface SavingsGoal {
@@ -97,29 +98,50 @@ export interface SavingsMonthlyStatus {
   monthLabel: string;
   /** HUF bought this effective month toward the goal (assigned key OR type). */
   boughtHuf: number;
-  /** True once anything counting toward the goal was bought this month. */
+  /**
+   * Monthly amount needed to stay on track — the goal's gap divided by the
+   * months left, recomputed live (0 once the goal is already covered).
+   */
+  neededHuf: number;
+  /** Still missing this month (max 0, needed − bought). */
+  missingHuf: number;
+  /** True once this month's purchases reach the needed amount (or none needed). */
   done: boolean;
   /** Assigned instrument names (for display). */
   instrumentNames: string;
 }
 
 /**
- * Per-goal "did I do this month's purchase?" status for goals that opted in
- * (monthlyReminder) and have ≥1 assigned instrument. A buy counts if it is one
- * of the assigned instruments OR the SAME TYPE as an assigned one — so a fresh
- * DKJ series (new ISIN) bought this month still counts without re-assigning it.
- * The month boundary follows the DCA-goal rule (a buy on the month's last
- * working day counts toward the next month), so the two always agree.
+ * Per-goal "did I put in this month's required amount?" status, for goals that
+ * opted in (monthlyReminder) and have ≥1 assigned instrument. The required
+ * amount is the goal's monthly-needed saving (gap ÷ months left), recomputed
+ * live — not a snapshot. A buy counts if it is an assigned instrument OR the
+ * SAME TYPE as an assigned one, so a fresh DKJ series (new ISIN) counts without
+ * re-assigning it. The month boundary follows the DCA-goal rule (a buy on the
+ * month's last working day counts toward the next month).
  */
 export function savingsMonthlyStatus(
   goals: SavingsGoal[],
+  accounts: Account[],
   transactions: Transaction[],
   instruments: Map<string, Instrument>,
+  prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
 ): SavingsMonthlyStatus[] {
   const eff = effectiveMonth(now);
   const monthLabel = effectiveMonthLabel(now);
+  const progressByGoal = new Map(
+    computeSavingsProgress(
+      goals,
+      accounts,
+      transactions,
+      instruments,
+      prices,
+      fx,
+      now,
+    ).map((p) => [p.goal.id, p]),
+  );
   const out: SavingsMonthlyStatus[] = [];
   for (const g of goals) {
     if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
@@ -145,12 +167,22 @@ export function savingsMonthlyStatus(
         fx,
       );
     }
+    const neededHuf = Math.max(
+      0,
+      progressByGoal.get(g.id)?.monthlyNeededHuf ?? 0,
+    );
+    // Met once this month's purchases reach (1 − tolerance) × needed, so
+    // rounding / FX drift doesn't leave it a few hundred Ft "short".
+    const done =
+      neededHuf <= 0 || boughtHuf >= neededHuf * (1 - GOAL_TOLERANCE);
     out.push({
       goalId: g.id,
       name: g.name,
       monthLabel,
       boughtHuf,
-      done: boughtHuf > 0,
+      neededHuf,
+      missingHuf: Math.max(0, neededHuf - boughtHuf),
+      done,
       instrumentNames: g.instrumentKeys
         .map((k) => instruments.get(k)?.name ?? k)
         .join(", "),
@@ -160,26 +192,36 @@ export function savingsMonthlyStatus(
 }
 
 /**
- * Alerts for the monthly purchase not yet done. The met ones are shown as a
- * green "Rendben" on the Alerts page instead (see savingsMonthlyStatus). The
- * month key in the id resets the alert each month.
+ * Alerts for the monthly required amount not yet reached. Met ones show as a
+ * green "Rendben" on the Alerts page instead. The month key in the id resets
+ * the alert each month.
  */
 export function savingsGoalAlerts(
   goals: SavingsGoal[],
+  accounts: Account[],
   transactions: Transaction[],
   instruments: Map<string, Instrument>,
+  prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
 ): Alert[] {
   const eff = effectiveMonth(now);
   const curKey = `${eff.year}-${eff.month0}`;
-  return savingsMonthlyStatus(goals, transactions, instruments, fx, now)
+  return savingsMonthlyStatus(
+    goals,
+    accounts,
+    transactions,
+    instruments,
+    prices,
+    fx,
+    now,
+  )
     .filter((s) => !s.done)
     .map((s) => ({
       id: `savings-goal:${s.goalId}:${curKey}`,
       severity: "medium" as const,
       title: `Havi vásárlás – ${s.name}`,
-      detail: `${s.monthLabel}: még nem vettél a célhoz rendelt eszközből (${s.instrumentNames}).`,
+      detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)} kell a célhoz rendelt eszközből (${s.instrumentNames}).`,
       to: "/forecast",
       actionLabel: "Célok",
     }));
