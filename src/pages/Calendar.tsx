@@ -504,11 +504,13 @@ function MonthGrid({
           const allFuture = has && items.every((it) => it.future);
           const gross = agg ? agg.inflow + agg.outflow : 0;
           const net = agg ? agg.inflow - agg.outflow : 0;
-          // Area ∝ amount → diameter ∝ √. Smaller scale for the mini grid;
-          // the 8px floor keeps small amounts visible next to big buys.
+          // Area ∝ amount → diameter ∝ √. The bubbles deliberately overflow the
+          // 22px cell (they sit behind the day number, semi-transparent), so a
+          // big flow reads as a bold glowing blob. 14px floor keeps small
+          // amounts visible next to the big buys.
           const diam =
             gross > 0 && maxGross > 0
-              ? 8 + 12 * Math.sqrt(gross / maxGross)
+              ? 14 + 34 * Math.sqrt(gross / maxGross)
               : 0;
           const tol = gross * 0.05;
           // The day's dominant colour: net inflow green, net outflow red, a
