@@ -84,6 +84,12 @@ export function effectiveMonth(date: Date): { year: number; month0: number } {
   return { year: y, month0: m };
 }
 
+/** Hungarian label for the effective month of a date (e.g. "2026. július"). */
+export function effectiveMonthLabel(date: Date): string {
+  const { year, month0 } = effectiveMonth(date);
+  return `${year}. ${MONTHS[month0]}`;
+}
+
 /** Calendar-aligned period bucket for an (already effective) month. */
 function periodInfo(
   year: number,

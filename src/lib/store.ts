@@ -999,6 +999,7 @@ const cachedAlerts = sharedMemo(
     reminders: Reminder[],
     savingsGoals: SavingsGoal[],
     instruments: Instrument[],
+    fx: Record<string, number>,
   ) => [
     ...computeAlerts(summary, config),
     ...goalAlerts(goalProgress),
@@ -1007,6 +1008,7 @@ const cachedAlerts = sharedMemo(
       savingsGoals,
       transactions,
       new Map(instruments.map((i) => [i.key, i])),
+      fx,
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
   ],
@@ -1035,6 +1037,7 @@ export function useActiveAlerts(): Alert[] {
   const reminders = usePortfolio((s) => s.reminders);
   const savingsGoals = useSavingsGoals();
   const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
   return cachedAlerts(
     summary,
     config,
@@ -1043,5 +1046,6 @@ export function useActiveAlerts(): Alert[] {
     reminders,
     savingsGoals,
     instruments,
+    fx,
   );
 }

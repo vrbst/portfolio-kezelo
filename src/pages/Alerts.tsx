@@ -11,9 +11,11 @@ import {
   useActiveAlerts,
   usePortfolioSummary,
   useGoalProgress,
+  useSavingsGoals,
 } from "../lib/store";
 import { categorizeAlerts, computeStatusChecks } from "../lib/alerts";
 import { PERIOD_LABEL } from "../lib/goals";
+import { savingsMonthlyStatus } from "../lib/savings";
 import { PageHeader, Card, EmptyState } from "../components/ui";
 import { AlertRow } from "../components/AlertsPanel";
 import { formatDate, formatMoney } from "../lib/format";
@@ -24,6 +26,10 @@ export default function Alerts() {
   const alertConfig = usePortfolio((s) => s.alertConfig);
   const alertState = usePortfolio((s) => s.alertState);
   const goalProgress = useGoalProgress();
+  const savingsGoals = useSavingsGoals();
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
   const dismissAlert = usePortfolio((s) => s.dismissAlert);
   const restoreAlert = usePortfolio((s) => s.restoreAlert);
   const {
@@ -52,10 +58,27 @@ export default function Alerts() {
         )} ✓`,
         to: "/settings" as string | undefined,
       })),
+    // Medium-term goals whose monthly purchase is already done this month.
+    ...savingsMonthlyStatus(
+      savingsGoals,
+      transactions,
+      new Map(instruments.map((i) => [i.key, i])),
+      fx,
+    )
+      .filter((s) => s.done)
+      .map((s) => ({
+        id: `savings-ok:${s.goalId}`,
+        label: `Havi vásárlás – ${s.name}`,
+        detail: `${s.monthLabel}: megvéve (${formatMoney(s.boughtHuf)}) ✓`,
+        to: "/forecast" as string | undefined,
+      })),
   ];
 
-  // Goal alerts live in "Rendben" once met, so keep them out of the history.
-  const fulfilledShown = fulfilled.filter((r) => !r.id.startsWith("goal:"));
+  // Goal + savings-goal alerts live in "Rendben" once met, so keep them out of
+  // the "Teljesült" history to avoid showing them twice.
+  const fulfilledShown = fulfilled.filter(
+    (r) => !r.id.startsWith("goal:") && !r.id.startsWith("savings-goal:"),
+  );
 
   const activeById = new Map(active.map((a) => [a.id, a]));
   const nothing =

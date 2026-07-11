@@ -10,10 +10,11 @@ import {
   computePortfolio,
   consolidatedHoldings,
   futureBondCashflows,
+  toHuf,
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
-import { effectiveMonth } from "./goals";
+import { effectiveMonth, effectiveMonthLabel } from "./goals";
 import type { Alert } from "./alerts";
 import { touchPref } from "./prefs";
 
@@ -89,51 +90,99 @@ export interface SavingsProgress {
   reached: boolean;
 }
 
+export interface SavingsMonthlyStatus {
+  goalId: string;
+  name: string;
+  /** Human label of the current effective month (e.g. "2026. július"). */
+  monthLabel: string;
+  /** HUF bought this effective month toward the goal (assigned key OR type). */
+  boughtHuf: number;
+  /** True once anything counting toward the goal was bought this month. */
+  done: boolean;
+  /** Assigned instrument names (for display). */
+  instrumentNames: string;
+}
+
 /**
- * Monthly-purchase alerts for goals that opted in (monthlyReminder) and have at
- * least one assigned instrument: active until an assigned instrument is bought
- * in the CURRENT month. The month boundary follows the DCA-goal rule — a buy on
- * the month's last working day counts toward the next month — so the two agree.
- * The month key in the id resets the alert each month.
+ * Per-goal "did I do this month's purchase?" status for goals that opted in
+ * (monthlyReminder) and have ≥1 assigned instrument. A buy counts if it is one
+ * of the assigned instruments OR the SAME TYPE as an assigned one — so a fresh
+ * DKJ series (new ISIN) bought this month still counts without re-assigning it.
+ * The month boundary follows the DCA-goal rule (a buy on the month's last
+ * working day counts toward the next month), so the two always agree.
+ */
+export function savingsMonthlyStatus(
+  goals: SavingsGoal[],
+  transactions: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+  now: Date = new Date(),
+): SavingsMonthlyStatus[] {
+  const eff = effectiveMonth(now);
+  const monthLabel = effectiveMonthLabel(now);
+  const out: SavingsMonthlyStatus[] = [];
+  for (const g of goals) {
+    if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
+    const keys = new Set(g.instrumentKeys);
+    const types = new Set(
+      g.instrumentKeys
+        .map((k) => instruments.get(k)?.type)
+        .filter((t): t is Instrument["type"] => !!t),
+    );
+    let boughtHuf = 0;
+    for (const t of transactions) {
+      if (t.type !== "buy" || !t.instrumentKey) continue;
+      const inst = instruments.get(t.instrumentKey);
+      const match = keys.has(t.instrumentKey) || (inst && types.has(inst.type));
+      if (!match) continue;
+      const d = new Date(t.date);
+      if (Number.isNaN(d.getTime())) continue;
+      const em = effectiveMonth(d);
+      if (em.year !== eff.year || em.month0 !== eff.month0) continue;
+      boughtHuf += toHuf(
+        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
+        t.currency,
+        fx,
+      );
+    }
+    out.push({
+      goalId: g.id,
+      name: g.name,
+      monthLabel,
+      boughtHuf,
+      done: boughtHuf > 0,
+      instrumentNames: g.instrumentKeys
+        .map((k) => instruments.get(k)?.name ?? k)
+        .join(", "),
+    });
+  }
+  return out;
+}
+
+/**
+ * Alerts for the monthly purchase not yet done. The met ones are shown as a
+ * green "Rendben" on the Alerts page instead (see savingsMonthlyStatus). The
+ * month key in the id resets the alert each month.
  */
 export function savingsGoalAlerts(
   goals: SavingsGoal[],
   transactions: Transaction[],
   instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
   now: Date = new Date(),
 ): Alert[] {
   const eff = effectiveMonth(now);
   const curKey = `${eff.year}-${eff.month0}`;
-  const out: Alert[] = [];
-  for (const g of goals) {
-    if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
-    const keys = new Set(g.instrumentKeys);
-    let bought = false;
-    for (const t of transactions) {
-      if (t.type !== "buy" || !t.instrumentKey || !keys.has(t.instrumentKey))
-        continue;
-      const d = new Date(t.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const em = effectiveMonth(d);
-      if (em.year === eff.year && em.month0 === eff.month0) {
-        bought = true;
-        break;
-      }
-    }
-    if (bought) continue; // this month's purchase is done → no alert
-    const names = g.instrumentKeys
-      .map((k) => instruments.get(k)?.name ?? k)
-      .join(", ");
-    out.push({
-      id: `savings-goal:${g.id}:${curKey}`,
-      severity: "medium",
-      title: `Havi vásárlás – ${g.name}`,
-      detail: `Ebben a hónapban még nem vetted meg a célhoz rendelt eszközt (${names}).`,
+  return savingsMonthlyStatus(goals, transactions, instruments, fx, now)
+    .filter((s) => !s.done)
+    .map((s) => ({
+      id: `savings-goal:${s.goalId}:${curKey}`,
+      severity: "medium" as const,
+      title: `Havi vásárlás – ${s.name}`,
+      detail: `${s.monthLabel}: még nem vettél a célhoz rendelt eszközből (${s.instrumentNames}).`,
       to: "/forecast",
       actionLabel: "Célok",
-    });
-  }
-  return out;
+    }));
 }
 
 const MONTH_MS = (365.25 / 12) * 86_400_000;
