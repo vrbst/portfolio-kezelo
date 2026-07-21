@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Pencil, Check, X, Target } from "lucide-react";
+import { ArrowLeft, Pencil, Check, X, Target, ChevronDown } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { loadSavingsGoals } from "../lib/savings";
 import { PREFS_EVENT } from "../lib/prefs";
@@ -21,6 +21,9 @@ import {
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
 import TbszExitValue from "../components/TbszExitValue";
+import HoldingPriceChart, {
+  type BuyPoint,
+} from "../components/HoldingPriceChart";
 import {
   formatMoney,
   formatNumber,
@@ -44,6 +47,7 @@ export default function AccountDetail() {
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const fx = usePortfolio((s) => s.fx);
   const priceFile = usePortfolio((s) => s.priceFile);
+  const historyFile = usePortfolio((s) => s.historyFile);
 
   const account = accounts.find((a) => a.id === id);
   const accSummary = summary.accounts.find((a) => a.account.id === id);
@@ -70,6 +74,24 @@ export default function AccountDetail() {
         m.set(key, [...(m.get(key) ?? []), g.name]);
     return m;
   }, [savingsGoals]);
+
+  // Own buys per instrument → marked on the expandable price chart.
+  const buysByInstrument = useMemo(() => {
+    const m = new Map<string, BuyPoint[]>();
+    for (const t of accTxs) {
+      if (t.type !== "buy" || !t.instrumentKey || !t.quantity) continue;
+      const price = t.pricePerUnit ?? (t.grossAmount ?? 0) / t.quantity;
+      if (!(price > 0)) continue;
+      m.set(t.instrumentKey, [
+        ...(m.get(t.instrumentKey) ?? []),
+        { date: t.date, price },
+      ]);
+    }
+    return m;
+  }, [accTxs]);
+
+  // Which holding row has its price chart expanded (instrument key).
+  const [chartOpen, setChartOpen] = useState<string | null>(null);
 
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? "regular");
@@ -329,36 +351,64 @@ export default function AccountDetail() {
                       h.currentPrice != null && h.currency !== "HUF"
                         ? h.currentPrice * (fx[h.currency] ?? 0)
                         : undefined;
+                    const priceSeries = historyFile?.prices[h.instrumentKey];
+                    const hasChart = !!priceSeries && priceSeries.length >= 2;
+                    const open = chartOpen === h.instrumentKey;
                     return (
-                      <tr
-                        key={h.instrumentKey}
-                        className="border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40"
-                      >
-                        <td className="px-4 py-3">
-                          <div className="font-medium">
-                            {h.instrument?.name ?? h.instrumentKey}
-                          </div>
-                          {priceName && priceName !== h.instrument?.name && (
-                            <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                              {priceName}
+                      <Fragment key={h.instrumentKey}>
+                        <tr
+                          className={`border-b border-[var(--color-border)]/50 hover:bg-[var(--color-surface-2)]/40 ${
+                            open ? "" : "last:border-0"
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <div
+                              className={`font-medium ${
+                                hasChart
+                                  ? "inline-flex cursor-pointer items-center gap-1 hover:text-[var(--color-brand)]"
+                                  : ""
+                              }`}
+                              onClick={
+                                hasChart
+                                  ? () =>
+                                      setChartOpen(
+                                        open ? null : h.instrumentKey,
+                                      )
+                                  : undefined
+                              }
+                              title={hasChart ? "Árfolyam grafikon" : undefined}
+                            >
+                              {h.instrument?.name ?? h.instrumentKey}
+                              {hasChart && (
+                                <ChevronDown
+                                  className={`h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform ${
+                                    open ? "rotate-180" : ""
+                                  }`}
+                                />
+                              )}
                             </div>
-                          )}
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-                            {h.instrument && (
-                              <Badge tone="neutral">
-                                {instrumentTypeLabel[h.instrument.type]}
-                              </Badge>
+                            {priceName && priceName !== h.instrument?.name && (
+                              <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                                {priceName}
+                              </div>
                             )}
-                            {h.instrument?.maturity && (
-                              <span>
-                                lejárat: {formatDate(h.instrument.maturity)}
-                              </span>
-                            )}
-                            {h.instrument?.isin && (
-                              <span>{h.instrument.isin}</span>
-                            )}
-                            {(goalsByInstrument.get(h.instrumentKey) ?? []).map(
-                              (goalName) => (
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+                              {h.instrument && (
+                                <Badge tone="neutral">
+                                  {instrumentTypeLabel[h.instrument.type]}
+                                </Badge>
+                              )}
+                              {h.instrument?.maturity && (
+                                <span>
+                                  lejárat: {formatDate(h.instrument.maturity)}
+                                </span>
+                              )}
+                              {h.instrument?.isin && (
+                                <span>{h.instrument.isin}</span>
+                              )}
+                              {(
+                                goalsByInstrument.get(h.instrumentKey) ?? []
+                              ).map((goalName) => (
                                 <span
                                   key={goalName}
                                   className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
@@ -367,79 +417,98 @@ export default function AccountDetail() {
                                   <Target className="h-3 w-3" />
                                   {goalName}
                                 </span>
-                              ),
+                              ))}
+                            </div>
+                            {h.bondNeedsData && (
+                              <Link
+                                to="/settings"
+                                className="mt-1 inline-block"
+                                title="Add meg a sorozat adatait a pontos értékhez"
+                              >
+                                <Badge tone="warning">
+                                  névértéken — sorozat-adat hiányzik
+                                </Badge>
+                              </Link>
                             )}
-                          </div>
-                          {h.bondNeedsData && (
-                            <Link
-                              to="/settings"
-                              className="mt-1 inline-block"
-                              title="Add meg a sorozat adatait a pontos értékhez"
-                            >
-                              <Badge tone="warning">
-                                névértéken — sorozat-adat hiányzik
-                              </Badge>
-                            </Link>
-                          )}
-                        </td>
-                        <td className="amt px-4 py-3 text-right tabular-nums">
-                          {formatNumber(h.quantity, isTreasury ? 0 : 4)}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                          {h.currentPrice != null && h.currency !== "HUF" ? (
-                            <>
-                              <div className="amt text-[var(--color-text)]">
-                                {formatMoney(h.currentPrice, h.currency)}
+                          </td>
+                          <td className="amt px-4 py-3 text-right tabular-nums">
+                            {formatNumber(h.quantity, isTreasury ? 0 : 4)}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                            {h.currentPrice != null && h.currency !== "HUF" ? (
+                              <>
+                                <div className="amt text-[var(--color-text)]">
+                                  {formatMoney(h.currentPrice, h.currency)}
+                                </div>
+                                {unitHuf != null && (
+                                  <div className="amt text-xs opacity-70">
+                                    ≈ {formatMoney(unitHuf)}
+                                  </div>
+                                )}
+                              </>
+                            ) : isTreasury &&
+                              h.marketValueHuf != null &&
+                              h.quantity > 0 ? (
+                              <div>
+                                {(
+                                  (h.marketValueHuf / h.quantity) *
+                                  100
+                                ).toFixed(2)}
+                                %
                               </div>
-                              {unitHuf != null && (
-                                <div className="amt text-xs opacity-70">
-                                  ≈ {formatMoney(unitHuf)}
+                            ) : (
+                              <span>—</span>
+                            )}
+                          </td>
+                          <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                            <div>{formatMoney(h.costBasisHuf)}</div>
+                            {h.currency !== "HUF" && (
+                              <div className="text-xs opacity-70">
+                                {formatMoney(h.costBasisCcy, h.currency)}
+                              </div>
+                            )}
+                            {!isTreasury && h.quantity > 0 && (
+                              <div className="mt-1 text-xs opacity-70">
+                                átlagár:{" "}
+                                {formatMoney(h.avgCost, h.currency, {
+                                  decimals: h.currency === "HUF" ? 0 : 2,
+                                })}
+                                {h.currency !== "HUF" &&
+                                  ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium tabular-nums">
+                            <div className="amt">
+                              {formatMoney(h.marketValueHuf)}
+                            </div>
+                            {h.currency !== "HUF" &&
+                              h.marketValueCcy != null && (
+                                <div className="amt text-xs font-normal text-[var(--color-muted)]">
+                                  {formatMoney(h.marketValueCcy, h.currency)}
                                 </div>
                               )}
-                            </>
-                          ) : isTreasury &&
-                            h.marketValueHuf != null &&
-                            h.quantity > 0 ? (
-                            <div>
-                              {((h.marketValueHuf / h.quantity) * 100).toFixed(
-                                2,
-                              )}
-                              %
-                            </div>
-                          ) : (
-                            <span>—</span>
-                          )}
-                        </td>
-                        <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                          <div>{formatMoney(h.costBasisHuf)}</div>
-                          {h.currency !== "HUF" && (
-                            <div className="text-xs opacity-70">
-                              {formatMoney(h.costBasisCcy, h.currency)}
-                            </div>
-                          )}
-                          {!isTreasury && h.quantity > 0 && (
-                            <div className="mt-1 text-xs opacity-70">
-                              átlagár:{" "}
-                              {formatMoney(h.avgCost, h.currency, {
-                                decimals: h.currency === "HUF" ? 0 : 2,
-                              })}
-                              {h.currency !== "HUF" &&
-                                ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium tabular-nums">
-                          <div className="amt">
-                            {formatMoney(h.marketValueHuf)}
-                          </div>
-                          {h.currency !== "HUF" && h.marketValueCcy != null && (
-                            <div className="amt text-xs font-normal text-[var(--color-muted)]">
-                              {formatMoney(h.marketValueCcy, h.currency)}
-                            </div>
-                          )}
-                        </td>
-                        {!isTreasury && <ReturnCell h={h} fx={fx} />}
-                      </tr>
+                          </td>
+                          {!isTreasury && <ReturnCell h={h} fx={fx} />}
+                        </tr>
+                        {open && hasChart && (
+                          <tr className="border-b border-[var(--color-border)]/50 last:border-0">
+                            <td
+                              colSpan={isTreasury ? 5 : 6}
+                              className="bg-[var(--color-surface-2)]/30 px-4 py-4"
+                            >
+                              <HoldingPriceChart
+                                series={priceSeries!}
+                                currency={h.currency}
+                                fxSeries={historyFile?.fx?.["EUR"]}
+                                buys={
+                                  buysByInstrument.get(h.instrumentKey) ?? []
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
