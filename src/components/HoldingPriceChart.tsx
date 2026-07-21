@@ -18,15 +18,17 @@ const tooltipStyle = {
   color: "#e8ecf8",
 } as const;
 
-type Range = "1M" | "6M" | "1Y" | "5Y";
+type Range = "1M" | "3M" | "6M" | "1Y" | "5Y";
 const RANGE_DAYS: Record<Range, number> = {
   "1M": 31,
+  "3M": 92,
   "6M": 183,
   "1Y": 366,
   "5Y": Infinity,
 };
 const RANGE_LABEL: Record<Range, string> = {
   "1M": "1H",
+  "3M": "3H",
   "6M": "6H",
   "1Y": "1É",
   "5Y": "5É",
