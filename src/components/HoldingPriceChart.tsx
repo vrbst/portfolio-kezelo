@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Scatter,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
-  ReferenceDot,
 } from "recharts";
 import { formatMoney } from "../lib/format";
 
@@ -208,7 +208,7 @@ export default function HoldingPriceChart({
       </div>
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
+          <ComposedChart
             data={chartData}
             margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
           >
@@ -242,11 +242,11 @@ export default function HoldingPriceChart({
             <Tooltip
               contentStyle={tooltipStyle}
               labelFormatter={(l) => formatDay(Number(l))}
-              formatter={(v) => [
+              formatter={(v, name) => [
                 formatMoney(Number(v), displayCcy, {
                   decimals: displayCcy === "HUF" ? 0 : 2,
                 }),
-                "Árfolyam",
+                name === "buy" ? "Vétel" : "Árfolyam",
               ]}
             />
             <Area
@@ -259,19 +259,30 @@ export default function HoldingPriceChart({
               name="value"
               isAnimationActive={false}
             />
-            {buyDots.map((b, i) => (
-              <ReferenceDot
-                key={i}
-                x={b.ts}
-                y={b.value}
-                r={4}
-                fill="#fbbf24"
-                stroke="#141a2e"
-                strokeWidth={1.5}
-                ifOverflow="extendDomain"
-              />
-            ))}
-          </AreaChart>
+            {/* Buys as a real scatter series (its own data): every point is
+                plotted in the shared coordinate system, unlike ReferenceDot
+                which Recharts drops when an explicit axis domain is set. */}
+            <Scatter
+              data={buyDots}
+              dataKey="value"
+              name="buy"
+              isAnimationActive={false}
+              shape={(props: { cx?: number; cy?: number }) =>
+                props.cx != null && props.cy != null ? (
+                  <circle
+                    cx={props.cx}
+                    cy={props.cy}
+                    r={4}
+                    fill="#fbbf24"
+                    stroke="#141a2e"
+                    strokeWidth={1.5}
+                  />
+                ) : (
+                  <g />
+                )
+              }
+            />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
       {buyDots.length > 0 && (
