@@ -121,17 +121,33 @@ export default function HoldingPriceChart({
   }, [series, cutoff, showHuf, fxAt]);
 
   const buyDots = useMemo(() => {
+    const times = chartData.map((d) => d.ts);
+    if (times.length === 0) return [];
+    // Snap each buy to the nearest charted trading day so its X always lands
+    // inside the axis domain (a weekend/edge buy would otherwise be clipped).
+    const snap = (ts: number) => {
+      let best = times[0];
+      let bestDiff = Math.abs(times[0] - ts);
+      for (const t of times) {
+        const diff = Math.abs(t - ts);
+        if (diff < bestDiff) {
+          best = t;
+          bestDiff = diff;
+        }
+      }
+      return best;
+    };
     return buys
       .filter((b) => b.date.slice(0, 10) >= cutoff)
       .map((b) => {
         const rate = showHuf ? fxAt(b.date.slice(0, 10)) : 1;
         const value = rate != null ? b.price * rate : null;
         return value != null
-          ? { ts: new Date(b.date.slice(0, 10)).getTime(), value }
+          ? { ts: snap(new Date(b.date.slice(0, 10)).getTime()), value }
           : null;
       })
       .filter((b): b is { ts: number; value: number } => b != null);
-  }, [buys, cutoff, showHuf, fxAt]);
+  }, [buys, cutoff, showHuf, fxAt, chartData]);
 
   if (chartData.length < 2) {
     return (
@@ -144,6 +160,17 @@ export default function HoldingPriceChart({
   const min = chartData[0].ts;
   const max = chartData[chartData.length - 1].ts;
   const longSpan = RANGE_DAYS[range] > 200;
+
+  // Y domain must cover the buy prices too, otherwise a dot above/below the
+  // visible price band gets clipped even with ifOverflow.
+  const yValues = [
+    ...chartData.map((d) => d.value as number),
+    ...buyDots.map((b) => b.value),
+  ];
+  const yLo = Math.min(...yValues);
+  const yHi = Math.max(...yValues);
+  const yPad = (yHi - yLo) * 0.06 || Math.abs(yHi) * 0.02 || 1;
+  const yDomain: [number, number] = [yLo - yPad, yHi + yPad];
 
   const btn = (active: boolean) =>
     `rounded-md px-2.5 py-1 text-xs font-medium transition ${
@@ -200,7 +227,7 @@ export default function HoldingPriceChart({
               minTickGap={40}
             />
             <YAxis
-              domain={["auto", "auto"]}
+              domain={yDomain}
               tickFormatter={(v) =>
                 formatMoney(Number(v), displayCcy, {
                   decimals: displayCcy === "HUF" ? 0 : 2,
