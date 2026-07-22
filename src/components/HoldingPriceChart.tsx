@@ -9,6 +9,8 @@ import {
   CartesianGrid,
   useXAxisScale,
   useYAxisScale,
+  ZIndexLayer,
+  DefaultZIndexes,
 } from "recharts";
 import { formatMoney } from "../lib/format";
 
@@ -64,30 +66,37 @@ function ChartTooltip({
  * collapses two buys that share a day (same x) into one marker — and, worse,
  * falls back to the CHART's data when handed an empty array, painting a marker
  * on every trading day. Drawing the circles ourselves gives exactly one per buy.
+ *
+ * SVG has no z-index, so Recharts paints into per-layer portals: a plain <g>
+ * child lands in the default layer and the Area (zIndex 100) covers it. We
+ * portal into the same layer Recharts uses for Scatter/ReferenceDot (600), so
+ * the markers sit above the filled area and the axes.
  */
 function BuyMarkers({ points }: { points: { ts: number; value: number }[] }) {
   const xScale = useXAxisScale();
   const yScale = useYAxisScale();
   if (!xScale || !yScale || points.length === 0) return null;
   return (
-    <g>
-      {points.map((p, i) => {
-        const cx = Number(xScale(p.ts));
-        const cy = Number(yScale(p.value));
-        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
-        return (
-          <circle
-            key={`${p.ts}-${p.value}-${i}`}
-            cx={cx}
-            cy={cy}
-            r={4}
-            fill="#fbbf24"
-            stroke="#141a2e"
-            strokeWidth={1.5}
-          />
-        );
-      })}
-    </g>
+    <ZIndexLayer zIndex={DefaultZIndexes.scatter}>
+      <g>
+        {points.map((p, i) => {
+          const cx = Number(xScale(p.ts));
+          const cy = Number(yScale(p.value));
+          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+          return (
+            <circle
+              key={`${p.ts}-${p.value}-${i}`}
+              cx={cx}
+              cy={cy}
+              r={4}
+              fill="#fbbf24"
+              stroke="#141a2e"
+              strokeWidth={1.5}
+            />
+          );
+        })}
+      </g>
+    </ZIndexLayer>
   );
 }
 
