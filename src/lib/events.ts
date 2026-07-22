@@ -5,7 +5,37 @@ import {
   couponAmountHuf,
   type PortfolioSummary,
 } from "./portfolio";
+import type { Transaction } from "./model";
 import { tbszStatus } from "./tbsz";
+
+const DAY_MS = 86_400_000;
+
+/**
+ * A credited coupon may be booked a day or two off the nominal schedule date,
+ * so match within a window. Coupons are quarterly at their most frequent, so
+ * this can never reach the neighbouring one.
+ */
+const COUPON_MATCH_DAYS = 7;
+
+/**
+ * Local midnight ms for a stored date. Bare `YYYY-MM-DD` is read as local (UTC
+ * parsing would shift the day east of UTC). Full ISO timestamps are the parsers'
+ * output — built from a local midnight, so their UTC day can be the day before;
+ * we take the LOCAL calendar day back out to compare like with like.
+ */
+function dayMs(date: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date.slice(0, 10)) && !date.includes("T")) {
+    const [y, m, d] = date.slice(0, 10).split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return NaN;
+  return new Date(
+    parsed.getFullYear(),
+    parsed.getMonth(),
+    parsed.getDate(),
+  ).getTime();
+}
 
 export type EventKind = "tbsz" | "maturity" | "coupon";
 
@@ -23,11 +53,31 @@ export interface UpcomingEvent {
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
-/** Collect future events across the portfolio, soonest first. */
+/**
+ * Collect future events across the portfolio, soonest first.
+ *
+ * `transactions` (optional) suppresses coupons that have already been credited:
+ * the Államkincstár books the payment on the nominal date (often paying out the
+ * day before), so once the statement is imported the event must stop showing as
+ * "1 nap múlva" — we skip ahead to the next coupon that has NOT been paid.
+ */
 export function upcomingEvents(
   summary: PortfolioSummary,
   now: Date = new Date(),
+  transactions: Transaction[] = [],
 ): UpcomingEvent[] {
+  // Imported interest dates per instrument → "did this coupon already arrive?"
+  const paidByInst = new Map<string, number[]>();
+  for (const t of transactions) {
+    if (t.type !== "interest" || !t.instrumentKey) continue;
+    const ms = dayMs(t.date);
+    if (!Number.isFinite(ms)) continue;
+    paidByInst.set(t.instrumentKey, [
+      ...(paidByInst.get(t.instrumentKey) ?? []),
+      ms,
+    ]);
+  }
+
   // Compare against local midnight: Date.parse("YYYY-MM-DD") is UTC midnight,
   // which east of UTC would drop today's events after ~1-2 AM local time.
   const todayMs = new Date(
@@ -99,7 +149,18 @@ export function upcomingEvents(
           face,
           a.id,
         );
-      const coupon = nextCouponDate(inst.bond, now);
+      // Walk forward past any coupon we've already received. The guard keeps a
+      // pathological schedule from looping; maturity ends the chain anyway.
+      const paid = paidByInst.get(inst.key) ?? [];
+      let coupon = nextCouponDate(inst.bond, now);
+      for (let i = 0; coupon && i < 6; i++) {
+        const cMs = dayMs(coupon);
+        const credited = paid.some(
+          (ms) => Math.abs(ms - cMs) <= COUPON_MATCH_DAYS * DAY_MS,
+        );
+        if (!credited) break;
+        coupon = nextCouponDate(inst.bond, new Date(cMs + DAY_MS));
+      }
       if (coupon) {
         const amount = couponAmountHuf(inst.bond, face, coupon);
         const isFirst =

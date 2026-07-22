@@ -1048,7 +1048,7 @@ const cachedAlerts = sharedMemo(
     prices: PriceMap,
     fx: Record<string, number>,
   ) => [
-    ...computeAlerts(summary, config),
+    ...computeAlerts(summary, config, undefined, transactions),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
     ...savingsGoalAlerts(

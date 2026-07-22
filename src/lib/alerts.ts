@@ -6,6 +6,7 @@
 // active, which resolved on their own (fulfilled), and which you dismissed.
 
 import type { PortfolioSummary, BondImportReminder } from "./portfolio";
+import type { Transaction } from "./model";
 import { upcomingEvents } from "./events";
 import { formatMoney, formatDate } from "./format";
 
@@ -117,6 +118,8 @@ export function computeAlerts(
   summary: PortfolioSummary,
   config: AlertConfig = DEFAULT_ALERT_CONFIG,
   now: Date = new Date(),
+  /** Used to hide coupon events whose payment has already been imported. */
+  transactions: Transaction[] = [],
 ): Alert[] {
   const out: Alert[] = [];
 
@@ -181,7 +184,7 @@ export function computeAlerts(
   }
 
   // 3) Upcoming events (coupon / maturity / TBSZ milestone) within the horizon.
-  for (const e of upcomingEvents(summary, now)) {
+  for (const e of upcomingEvents(summary, now, transactions)) {
     if (e.daysUntil > config.eventHorizonDays) continue;
     const when =
       e.daysUntil <= 0
