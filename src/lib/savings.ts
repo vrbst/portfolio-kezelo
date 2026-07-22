@@ -86,7 +86,7 @@ export interface SavingsProgress {
   projectedPct: number;
   /** Shortfall on the target date (0 if already covered). */
   gapHuf: number;
-  /** Whole months from today to the target date (≥ 0). */
+  /** Monthly pay days (the 1st) still landing on/before the target date (≥ 0). */
   monthsLeft: number;
   daysLeft: number;
   /** Monthly saving needed to close the gap by the date. */
@@ -265,7 +265,25 @@ export function savingsGoalAlerts(
     });
 }
 
-const MONTH_MS = (365.25 / 12) * 86_400_000;
+/**
+ * How many monthly pay days (the 1st of each month) still fall on or before the
+ * target date — i.e. how many times you can still put money aside.
+ *
+ * Dividing the remaining days by an average month length undercounts whenever
+ * the target lands early in a month: 22 July → 2 November is 103 days ≈ 3.4
+ * "months", yet four salaries still arrive (Aug 1, Sep 1, Oct 1, Nov 1). Since
+ * every month's 1st is its first day, this is simply the number of whole
+ * calendar-month boundaries between the two dates. 0 means the deadline hits
+ * before the next pay day, so the whole gap has to come from what you hold now.
+ */
+function paydaysUntil(now: Date, targetMs: number): number {
+  const t = new Date(targetMs);
+  return Math.max(
+    0,
+    (t.getFullYear() - now.getFullYear()) * 12 +
+      (t.getMonth() - now.getMonth()),
+  );
+}
 
 function parseDateMs(iso: string): number {
   const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -397,9 +415,7 @@ export function computeSavingsProgress(
     const targetHuf = goal.targetHuf;
     const gapHuf = Math.max(0, targetHuf - projectedHuf);
     const daysLeft = future ? Math.round((dateMs - nowMs) / 86_400_000) : 0;
-    const monthsLeft = future
-      ? Math.max(1, Math.round((dateMs - nowMs) / MONTH_MS))
-      : 0;
+    const monthsLeft = future ? paydaysUntil(now, dateMs) : 0;
     const monthlyNeededHuf = monthsLeft > 0 ? gapHuf / monthsLeft : gapHuf;
 
     return {
