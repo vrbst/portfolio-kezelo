@@ -197,20 +197,29 @@ function buildPriceMap(
  * to ~0.5% per day, which permanently perturbs the TWR chain on conversion
  * days. Live data only extends the tail (days after the committed series ends).
  */
-function mergeFxHistory(
+/**
+ * Merge dated [day, value] series (EUR/HUF rates or per-instrument closes): the
+ * committed snapshot is canonical, the live pull only appends days AFTER its last
+ * committed day. This keeps the (denser, ECB/build-time) history intact and never
+ * lets a sparse or delayed live fetch shorten it — e.g. Yahoo's illiquid .SG
+ * listings sometimes return just 1–2 points, which must not clobber a rich
+ * committed series (that made a holding's price chart vanish). A key absent from
+ * committed is taken wholesale from live (a newly bought ETF the build never saw).
+ */
+function mergeDatedSeries(
   committed: Record<string, [string, number][]> | undefined,
   live: Record<string, [string, number][]>,
 ): Record<string, [string, number][]> {
   const out: Record<string, [string, number][]> = { ...(committed ?? {}) };
-  for (const [ccy, series] of Object.entries(live)) {
-    const base = out[ccy];
+  for (const [key, series] of Object.entries(live)) {
+    const base = out[key];
     if (!base?.length) {
-      out[ccy] = series;
+      out[key] = series;
       continue;
     }
     const lastDay = base[base.length - 1][0];
     const tail = series.filter(([d]) => d > lastDay);
-    if (tail.length) out[ccy] = [...base, ...tail];
+    if (tail.length) out[key] = [...base, ...tail];
   }
   return out;
 }
@@ -647,8 +656,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({
       historyFile: {
         updatedAt: live.updatedAt ?? committed?.updatedAt,
-        prices: { ...(committed?.prices ?? {}), ...live.prices },
-        fx: mergeFxHistory(committed?.fx, live.fx),
+        prices: mergeDatedSeries(committed?.prices, live.prices),
+        fx: mergeDatedSeries(committed?.fx, live.fx),
       },
     });
   },
