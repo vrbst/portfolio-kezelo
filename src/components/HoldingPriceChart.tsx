@@ -12,6 +12,51 @@ import {
 } from "recharts";
 import { formatMoney } from "../lib/format";
 
+interface ChartRow {
+  ts: number;
+  value: number | null;
+  date: string;
+  /** Buy prices (display currency) executed on this day, if any. */
+  buys?: number[];
+}
+
+/**
+ * Tooltip: the day's close plus — on a day you bought — your actual execution
+ * price(s). The marker sits on the curve, so this is where the real buy price
+ * is surfaced.
+ */
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  displayCcy,
+}: {
+  active?: boolean;
+  payload?: { payload: ChartRow }[];
+  label?: string | number;
+  displayCcy: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  const money = (v: number) =>
+    formatMoney(v, displayCcy, { decimals: displayCcy === "HUF" ? 0 : 2 });
+  return (
+    <div className="rounded-xl border border-[#232b45] bg-[#141a2e] px-3 py-2 text-xs text-[#e8ecf8] shadow-xl">
+      <div className="mb-1 font-medium">{formatDay(Number(label))}</div>
+      <div className="flex justify-between gap-4">
+        <span className="text-[#8b93a7]">Árfolyam</span>
+        <span className="tabular-nums">{money(row.value ?? 0)}</span>
+      </div>
+      {row.buys?.map((b, i) => (
+        <div key={i} className="mt-0.5 flex justify-between gap-4">
+          <span className="text-[#fbbf24]">Vételed</span>
+          <span className="tabular-nums text-[#fbbf24]">{money(b)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Own-buy markers, drawn straight from the axis scales instead of through a
  * Recharts data series. Both data-driven options were wrong here: <ReferenceDot>
@@ -45,13 +90,6 @@ function BuyMarkers({ points }: { points: { ts: number; value: number }[] }) {
     </g>
   );
 }
-
-const tooltipStyle = {
-  background: "#141a2e",
-  border: "1px solid #232b45",
-  borderRadius: 12,
-  color: "#e8ecf8",
-} as const;
 
 type Range = "1M" | "3M" | "6M" | "1Y" | "5Y";
 const RANGE_DAYS: Record<Range, number> = {
@@ -157,11 +195,16 @@ export default function HoldingPriceChart({
       .filter((p) => p.value != null);
   }, [series, cutoff, showHuf, fxAt]);
 
-  const buyDots = useMemo(() => {
+  /**
+   * Own buys grouped onto the charted trading day they belong to (nearest day,
+   * so a weekend trade still lands on the line). Value = the buy price in the
+   * displayed currency; it feeds the tooltip, while the marker itself is drawn
+   * on the curve (that day's close) so it always sits exactly on the line.
+   */
+  const buysByTs = useMemo(() => {
     const times = chartData.map((d) => d.ts);
-    if (times.length === 0) return [];
-    // Snap each buy to the nearest charted trading day so its X always lands
-    // inside the axis domain (a weekend/edge buy would otherwise be clipped).
+    const map = new Map<number, number[]>();
+    if (times.length === 0) return map;
     const snap = (ts: number) => {
       let best = times[0];
       let bestDiff = Math.abs(times[0] - ts);
@@ -174,17 +217,31 @@ export default function HoldingPriceChart({
       }
       return best;
     };
-    return buys
-      .filter((b) => b.date.slice(0, 10) >= cutoff)
-      .map((b) => {
-        const rate = showHuf ? fxAt(b.date.slice(0, 10)) : 1;
-        const value = rate != null ? b.price * rate : null;
-        return value != null
-          ? { ts: snap(new Date(b.date.slice(0, 10)).getTime()), value }
-          : null;
-      })
-      .filter((b): b is { ts: number; value: number } => b != null);
+    for (const b of buys) {
+      const day = b.date.slice(0, 10);
+      if (day < cutoff) continue;
+      const rate = showHuf ? fxAt(day) : 1;
+      if (rate == null) continue;
+      const ts = snap(new Date(day).getTime());
+      map.set(ts, [...(map.get(ts) ?? []), b.price * rate]);
+    }
+    return map;
   }, [buys, cutoff, showHuf, fxAt, chartData]);
+
+  // Chart rows carry their day's buys so the tooltip can list them.
+  const data = useMemo(
+    () => chartData.map((d) => ({ ...d, buys: buysByTs.get(d.ts) })),
+    [chartData, buysByTs],
+  );
+
+  // One marker per buy day, pinned to that day's close → always on the curve.
+  const buyDots = useMemo(
+    () =>
+      data
+        .filter((d) => d.buys?.length)
+        .map((d) => ({ ts: d.ts, value: d.value as number })),
+    [data],
+  );
 
   if (chartData.length < 2) {
     return (
@@ -198,12 +255,8 @@ export default function HoldingPriceChart({
   const max = chartData[chartData.length - 1].ts;
   const longSpan = RANGE_DAYS[range] > 200;
 
-  // Y domain must cover the buy prices too, otherwise a dot above/below the
-  // visible price band gets clipped even with ifOverflow.
-  const yValues = [
-    ...chartData.map((d) => d.value as number),
-    ...buyDots.map((b) => b.value),
-  ];
+  // Markers ride on the curve, so the price series alone bounds the axis.
+  const yValues = chartData.map((d) => d.value as number);
   const yLo = Math.min(...yValues);
   const yHi = Math.max(...yValues);
   const yPad = (yHi - yLo) * 0.06 || Math.abs(yHi) * 0.02 || 1;
@@ -244,7 +297,7 @@ export default function HoldingPriceChart({
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
-            data={chartData}
+            data={data}
             margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
           >
             <defs>
@@ -274,16 +327,7 @@ export default function HoldingPriceChart({
               stroke="#232b45"
               width={64}
             />
-            <Tooltip
-              contentStyle={tooltipStyle}
-              labelFormatter={(l) => formatDay(Number(l))}
-              formatter={(v) => [
-                formatMoney(Number(v), displayCcy, {
-                  decimals: displayCcy === "HUF" ? 0 : 2,
-                }),
-                "Árfolyam",
-              ]}
-            />
+            <Tooltip content={<ChartTooltip displayCcy={displayCcy} />} />
             <Area
               type="monotone"
               dataKey="value"
