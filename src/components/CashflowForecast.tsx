@@ -1,6 +1,6 @@
 import { TrendingUp } from "lucide-react";
 import { bondCashflowForecast } from "../lib/portfolio";
-import { usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { formatMoney } from "../lib/format";
 import { Card, Badge } from "./ui";
 
@@ -31,7 +31,8 @@ function monthLabel(key: string): string {
  */
 export default function CashflowForecast() {
   const summary = usePortfolioSummary();
-  const fc = bondCashflowForecast(summary);
+  const transactions = usePortfolio((s) => s.transactions);
+  const fc = bondCashflowForecast(summary, undefined, undefined, transactions);
   if (fc.totalHuf <= 0) return null;
 
   const maxMonth = Math.max(...fc.months.map((m) => m.totalHuf), 1);

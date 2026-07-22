@@ -181,7 +181,7 @@ export default function Calendar() {
     }
 
     // Future bond cash-flows (coupons + redemptions)
-    for (const cf of futureBondCashflows(summary, today)) {
+    for (const cf of futureBondCashflows(summary, today, transactions)) {
       push(cf.date, {
         title: cf.title,
         amountHuf: cf.amountHuf,

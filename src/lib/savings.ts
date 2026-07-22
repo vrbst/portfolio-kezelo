@@ -300,7 +300,10 @@ export function computeSavingsProgress(
     fx,
     now,
   );
-  const coupons = futureBondCashflows(summaryNow, now).filter(
+  // Already-credited coupons are excluded: that money is now cash (or already
+  // reinvested into an assigned instrument), so counting it as a future inflow
+  // too would inflate the projection right before every coupon date.
+  const coupons = futureBondCashflows(summaryNow, now, txs).filter(
     (c) => c.kind === "coupon",
   );
   const summaryAtCache = new Map<string, PortfolioSummary>();

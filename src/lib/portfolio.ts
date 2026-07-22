@@ -279,18 +279,58 @@ export interface Cashflow {
   accountId?: string;
 }
 
+/** A credited coupon may be booked a day or two off the schedule date. */
+const COUPON_CREDITED_DAYS = 7;
+
+/**
+ * Local calendar day of a stored transaction timestamp. The importers store an
+ * ISO instant built from local midnight, so east of UTC its UTC day is the day
+ * before — slicing the string (what parseDayMs does for bare bond dates) would
+ * be off by one. Bond schedule dates are bare YYYY-MM-DD and go the other path.
+ */
+function txDayMs(s: string | undefined): number {
+  if (!s) return NaN;
+  if (!s.includes("T")) return parseDayMs(s);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime())
+    ? NaN
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** instrument key → local days on which an `interest` payment was booked. */
+function creditedCouponDays(
+  transactions: Transaction[],
+): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  for (const t of transactions) {
+    if (t.type !== "interest" || !t.instrumentKey) continue;
+    const ms = txDayMs(t.date);
+    if (!Number.isFinite(ms)) continue;
+    out.set(t.instrumentKey, [...(out.get(t.instrumentKey) ?? []), ms]);
+  }
+  return out;
+}
+
 /**
  * Projected future bond cash inflows from today: every remaining coupon up to
  * maturity, plus the redemption (face value) at maturity. Assumes the current
  * face holding is kept to maturity. Used by the calendar view.
+ *
+ * `transactions` (optional) drops coupons that have ALREADY been credited. The
+ * Államkincstár books a coupon on its nominal date but pays out a day earlier,
+ * so on the eve of a coupon the money is already in the account (and often
+ * reinvested) while the schedule still calls it "future" — counting both would
+ * double it in the savings-goal projection and the cashflow forecast.
  */
 export function futureBondCashflows(
   summary: PortfolioSummary,
   now: Date = new Date(),
+  transactions: Transaction[] = [],
 ): Cashflow[] {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const nowMs = today.getTime();
+  const credited = creditedCouponDays(transactions);
   const out: Cashflow[] = [];
 
   for (const acc of summary.accounts) {
@@ -313,9 +353,13 @@ export function futureBondCashflows(
         for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
           if (Number.isFinite(matMs) && cur > matMs) break;
           if (cur > nowMs) {
+            const paidDays = credited.get(inst.key);
+            const alreadyPaid = paidDays?.some(
+              (ms) => Math.abs(ms - cur) <= COUPON_CREDITED_DAYS * 86_400_000,
+            );
             const iso = toLocalDay(cur);
             const amt = couponAmountHuf(bond, face, iso);
-            if (amt && amt > 0)
+            if (!alreadyPaid && amt && amt > 0)
               out.push({
                 date: iso,
                 kind: "coupon",
@@ -369,6 +413,8 @@ export function bondCashflowForecast(
   summary: PortfolioSummary,
   now: Date = new Date(),
   months = 12,
+  /** Drops coupons already credited (see futureBondCashflows). */
+  transactions: Transaction[] = [],
 ): CashflowForecast {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
@@ -379,7 +425,7 @@ export function bondCashflowForecast(
   ).getTime();
 
   const byKey = new Map<string, CashflowMonth>();
-  for (const cf of futureBondCashflows(summary, now)) {
+  for (const cf of futureBondCashflows(summary, now, transactions)) {
     const ms = parseDayMs(cf.date);
     if (!Number.isFinite(ms) || ms > horizonMs) continue;
     const key = cf.date.slice(0, 7);
