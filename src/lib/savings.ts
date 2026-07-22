@@ -66,7 +66,11 @@ export function saveSavingsGoals(goals: SavingsGoal[]) {
 
 export interface SavingsProgress {
   goal: SavingsGoal;
-  /** Value of the assigned instruments today (HUF). */
+  /**
+   * Value the assigned instruments contribute to the goal (HUF): face value for
+   * bonds maturing by the target date, target-date value otherwise. NOT today's
+   * market mark — a goal-backing DKJ is held to maturity.
+   */
   assignedValueHuf: number;
   /** Coupons arriving on/before the target date, if includeCoupons (HUF). */
   couponsHuf: number;
@@ -268,11 +272,53 @@ function parseDateMs(iso: string): number {
   return m ? new Date(+m[1], +m[2] - 1, +m[3], 12).getTime() : NaN;
 }
 
-/** Sum the value of the given instruments in a summary (across accounts). */
-function assignedValue(summary: PortfolioSummary, keys: Set<string>): number {
+const BOND_TYPES = new Set(["gov_bond", "tbill"]);
+
+/** Local-noon ms for a stored date — bare `YYYY-MM-DD` or a full ISO instant. */
+function dayMsOf(s: string | undefined): number {
+  if (!s) return NaN;
+  if (!s.includes("T")) return parseDateMs(s);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime())
+    ? NaN
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
+}
+
+/**
+ * Value of the goal's assigned instruments, counted the way the goal actually
+ * realises them. A DKJ bought for a dated goal is held to maturity, so today's
+ * discounted mark is the wrong number:
+ *   - matures on/before the target date → its FACE value; that is the amount
+ *     that lands in the account, and it is already locked in,
+ *   - matures after the target date → its value ON the target date (a discount
+ *     bill has only pulled part-way to par by then).
+ * Non-bond instruments keep their target-date market value.
+ */
+function assignedValue(
+  summaryNow: PortfolioSummary,
+  summaryAtTarget: PortfolioSummary,
+  keys: Set<string>,
+  targetMs: number,
+): number {
+  const atTarget = new Map(
+    consolidatedHoldings(summaryAtTarget).map((h) => [h.instrumentKey, h]),
+  );
   let sum = 0;
-  for (const h of consolidatedHoldings(summary))
-    if (keys.has(h.instrumentKey)) sum += h.marketValueHuf;
+  for (const h of consolidatedHoldings(summaryNow)) {
+    if (!keys.has(h.instrumentKey)) continue;
+    const inst = h.instrument;
+    const matMs = dayMsOf(inst?.bond?.maturity ?? inst?.maturity);
+    const maturesByTarget =
+      !!inst &&
+      BOND_TYPES.has(inst.type) &&
+      Number.isFinite(matMs) &&
+      Number.isFinite(targetMs) &&
+      matMs <= targetMs;
+    // Bonds carry their HUF face value as `quantity`.
+    sum += maturesByTarget
+      ? h.quantity
+      : (atTarget.get(h.instrumentKey)?.marketValueHuf ?? h.marketValueHuf);
+  }
   return sum;
 }
 
@@ -326,14 +372,20 @@ export function computeSavingsProgress(
 
   return goals.map((goal) => {
     const keys = new Set(goal.instrumentKeys);
-    const assignedValueHuf = assignedValue(summaryNow, keys);
     const dateMs = parseDateMs(goal.targetDate);
     const future = Number.isFinite(dateMs) && dateMs > nowMs;
+    const targetMs = future ? dateMs : nowMs;
 
-    // Assigned instruments accreted to the target date (bonds pull to par).
-    const assignedAtDate = future
-      ? assignedValue(summaryAt(dateMs), keys)
-      : assignedValueHuf;
+    // Face value for bonds that mature by the target date, target-date value for
+    // everything else — see assignedValue. Today's discounted mark never applies:
+    // a DKJ held for a dated goal is realised at par, not sold at market.
+    const assignedValueHuf = assignedValue(
+      summaryNow,
+      future ? summaryAt(dateMs) : summaryNow,
+      keys,
+      targetMs,
+    );
+    const assignedAtDate = assignedValueHuf;
 
     const couponsHuf = goal.includeCoupons
       ? coupons

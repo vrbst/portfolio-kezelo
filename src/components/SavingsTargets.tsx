@@ -273,12 +273,16 @@ function GoalRow({
         <div
           className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-brand)]"
           style={{ width: `${todayPct}%` }}
-          title="Jelenlegi érték"
+          title="Hozzárendelt eszközök beszámított értéke"
         />
       </div>
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
-        <span className="tabular-nums text-[var(--color-muted)]">
-          Most: <span className="amt">{formatMoney(p.assignedValueHuf)}</span> (
+        <span
+          className="tabular-nums text-[var(--color-muted)]"
+          title="A hozzárendelt eszközök beszámított értéke: állampapír/DKJ névértéken, ha a céldátumig lejár; egyébként a céldátumra várható értéken."
+        >
+          Eszközök:{" "}
+          <span className="amt">{formatMoney(p.assignedValueHuf)}</span> (
           {Math.round(p.progressPct * 100)}%)
         </span>
         <span className="tabular-nums text-[var(--color-muted)]">
