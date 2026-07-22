@@ -18,6 +18,40 @@ import { emptyParsed, type ParsedImport } from "./types";
 
 const CASH = "MAGYAR FORINT";
 
+// The portal exports the SAME sheet with either English or Hungarian headers,
+// depending on the UI language at download time (the cell values are Hungarian
+// either way). Reading only the English names made a Hungarian export come out
+// completely blank — every row then failed as `ismeretlen tranzakciótípus ""`.
+const COLUMN_ALIASES: Record<string, string> = {
+  "Account number": "Számlaszám",
+  "Account type": "Számla típusa",
+  "Transaction type": "Tranzakció típusa",
+  "Transaction ID": "Tranzakció azonosítója",
+  Securities: "Instrumentum",
+  "Transaction status": "Tranzakció státusza",
+  "Face value": "Névérték",
+  Amount: "Összeg",
+  Currency: "Devizanem",
+  "Value date": "Értéknap",
+  "Distribution channel": "Forgalmazási csatorna",
+  "Nominal interest": "Névleges kamat",
+  "Net buying price": "Nettó vételi árfolyam",
+  "Accrued interest": "Felhalmozott kamat",
+  "Gross purchase price": "Bruttó vételi árfolyam",
+  "Net interest": "Nettó kamat",
+  "Amount of income tax": "Jövedelemadó összege",
+  "Gross interest": "Bruttó kamat",
+};
+
+/** Read a column by its English name, falling back to the Hungarian header. */
+function field(row: Record<string, unknown>, name: string): unknown {
+  const direct = row[name];
+  if (direct !== undefined && direct !== "") return direct;
+  const hu = COLUMN_ALIASES[name];
+  const alias = hu ? row[hu] : undefined;
+  return alias !== undefined && alias !== "" ? alias : (direct ?? "");
+}
+
 // Maps the Hungarian "Transaction type" to our normalised type.
 const TYPE_MAP: Record<string, TxType> = {
   vétel: "buy",
@@ -62,7 +96,7 @@ export function parseTreasury(
     return out;
   }
 
-  const accountNo = String(rows[0]["Account number"] ?? "").trim();
+  const accountNo = String(field(rows[0], "Account number") ?? "").trim();
   const account: Account = {
     id: accountNo ? `mak-${slug(accountNo)}` : `mak-${slug(fileName)}`,
     name: `Államkincstár${accountNo ? ` (${accountNo})` : ""}`,
@@ -76,7 +110,7 @@ export function parseTreasury(
   const instruments = new Map<string, Instrument>();
 
   for (const r of rows) {
-    const rawType = String(r["Transaction type"] ?? "").trim();
+    const rawType = String(field(r, "Transaction type") ?? "").trim();
     const type = TYPE_MAP[rawType.toLowerCase()];
     if (!type) {
       out.warnings.push(
@@ -85,20 +119,20 @@ export function parseTreasury(
       continue;
     }
 
-    const securitiesName = String(r["Securities"] ?? "").trim();
+    const securitiesName = String(field(r, "Securities") ?? "").trim();
     const isCashLine = !securitiesName || securitiesName === CASH;
-    const date = parseHuDate(String(r["Value date"] ?? ""));
+    const date = parseHuDate(String(field(r, "Value date") ?? ""));
     // An unparseable date would flow through as a raw string, breaking the
     // chronological ordering every consumer relies on — skip the row loudly.
     if (!/^\d{4}-\d{2}-\d{2}/.test(date)) {
       out.warnings.push(
-        `${fileName}: értelmezhetetlen dátum „${String(r["Value date"] ?? "")}" — a sor kimaradt.`,
+        `${fileName}: értelmezhetetlen dátum „${String(field(r, "Value date") ?? "")}" — a sor kimaradt.`,
       );
       continue;
     }
-    const amount = num(String(r["Amount"] ?? ""));
-    const faceValue = num(String(r["Face value"] ?? ""));
-    const txId = String(r["Transaction ID"] ?? "").trim();
+    const amount = num(String(field(r, "Amount") ?? ""));
+    const faceValue = num(String(field(r, "Face value") ?? ""));
+    const txId = String(field(r, "Transaction ID") ?? "").trim();
 
     let instrument: Instrument | undefined;
     if (!isCashLine) {
@@ -133,17 +167,17 @@ export function parseTreasury(
       currency: "HUF",
       grossAmount: amount,
       netAmount,
-      taxAmount: num(String(r["Amount of income tax"] ?? "")),
+      taxAmount: num(String(field(r, "Amount of income tax") ?? "")),
       reference: txId,
       raw: {
         ...r,
-        _nominalInterest: r["Nominal interest"],
-        _netBuyingPrice: r["Net buying price"],
-        _grossPurchasePrice: r["Gross purchase price"],
-        _accruedInterest: r["Accrued interest"],
-        _grossInterest: r["Gross interest"],
-        _netInterest: r["Net interest"],
-        _channel: r["Distribution channel"],
+        _nominalInterest: field(r, "Nominal interest"),
+        _netBuyingPrice: field(r, "Net buying price"),
+        _grossPurchasePrice: field(r, "Gross purchase price"),
+        _accruedInterest: field(r, "Accrued interest"),
+        _grossInterest: field(r, "Gross interest"),
+        _netInterest: field(r, "Net interest"),
+        _channel: field(r, "Distribution channel"),
       },
     };
     out.transactions.push(tx);
