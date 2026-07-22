@@ -6,7 +6,7 @@
 //
 // Extend INSTRUMENTS with any new ISIN you hold.
 
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,6 +14,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../public/prices.json')
 const HIST_OUT = resolve(__dirname, '../public/history.json')
 const HISTORY_YEARS = 2
+
+/** Best-effort read of an existing committed JSON file (carry-forward source). */
+function readJson(path) {
+  try {
+    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null
+  } catch {
+    return null
+  }
+}
 
 // instrument.key (ISIN) -> label + the currency the position is held in.
 // `currency` makes the resolver pick the matching listing (e.g. the EUR Xetra
@@ -137,6 +146,13 @@ async function fetchFxHistory() {
 }
 
 async function main() {
+  // Carry-forward sources: keep the previously committed data for any instrument
+  // whose live fetch fails or returns empty this run, so one flaky Yahoo response
+  // (e.g. the illiquid WBIT .SG listing, or a BTC-EUR proxy miss) never drops a
+  // symbol from the file and makes its price chart vanish.
+  const prevPrices = readJson(OUT)?.prices ?? {}
+  const prevHist = readJson(HIST_OUT)?.prices ?? {}
+
   const prices = {}
   const histPrices = {}
   for (const { isin, label, currency, historySymbol, proxySymbol } of INSTRUMENTS) {
@@ -185,6 +201,21 @@ async function main() {
       }
     } catch (err) {
       console.warn(`! ${label} (${isin}): ${err.message}`)
+    }
+  }
+
+  // Fill any gaps from the previously committed files so a transient miss this
+  // run keeps (rather than deletes) a symbol's price and history.
+  for (const { isin, label } of INSTRUMENTS) {
+    if (!prices[isin] && prevPrices[isin]) {
+      prices[isin] = prevPrices[isin]
+      console.log(`  ↳ ${label} ár megtartva a korábbi fájlból`)
+    }
+    if (!histPrices[isin] && prevHist[isin]?.length) {
+      histPrices[isin] = prevHist[isin]
+      console.log(
+        `  ↳ ${label} history megtartva a korábbi fájlból (${prevHist[isin].length} nap)`,
+      )
     }
   }
 
