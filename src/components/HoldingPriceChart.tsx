@@ -2,14 +2,49 @@ import { useMemo, useState } from "react";
 import {
   ComposedChart,
   Area,
-  Scatter,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  useXAxisScale,
+  useYAxisScale,
 } from "recharts";
 import { formatMoney } from "../lib/format";
+
+/**
+ * Own-buy markers, drawn straight from the axis scales instead of through a
+ * Recharts data series. Both data-driven options were wrong here: <ReferenceDot>
+ * silently drops points once the axis has an explicit domain, and <Scatter>
+ * collapses two buys that share a day (same x) into one marker — and, worse,
+ * falls back to the CHART's data when handed an empty array, painting a marker
+ * on every trading day. Drawing the circles ourselves gives exactly one per buy.
+ */
+function BuyMarkers({ points }: { points: { ts: number; value: number }[] }) {
+  const xScale = useXAxisScale();
+  const yScale = useYAxisScale();
+  if (!xScale || !yScale || points.length === 0) return null;
+  return (
+    <g>
+      {points.map((p, i) => {
+        const cx = Number(xScale(p.ts));
+        const cy = Number(yScale(p.value));
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+        return (
+          <circle
+            key={`${p.ts}-${p.value}-${i}`}
+            cx={cx}
+            cy={cy}
+            r={4}
+            fill="#fbbf24"
+            stroke="#141a2e"
+            strokeWidth={1.5}
+          />
+        );
+      })}
+    </g>
+  );
+}
 
 const tooltipStyle = {
   background: "#141a2e",
@@ -242,11 +277,11 @@ export default function HoldingPriceChart({
             <Tooltip
               contentStyle={tooltipStyle}
               labelFormatter={(l) => formatDay(Number(l))}
-              formatter={(v, name) => [
+              formatter={(v) => [
                 formatMoney(Number(v), displayCcy, {
                   decimals: displayCcy === "HUF" ? 0 : 2,
                 }),
-                name === "buy" ? "Vétel" : "Árfolyam",
+                "Árfolyam",
               ]}
             />
             <Area
@@ -259,29 +294,7 @@ export default function HoldingPriceChart({
               name="value"
               isAnimationActive={false}
             />
-            {/* Buys as a real scatter series (its own data): every point is
-                plotted in the shared coordinate system, unlike ReferenceDot
-                which Recharts drops when an explicit axis domain is set. */}
-            <Scatter
-              data={buyDots}
-              dataKey="value"
-              name="buy"
-              isAnimationActive={false}
-              shape={(props: { cx?: number; cy?: number }) =>
-                props.cx != null && props.cy != null ? (
-                  <circle
-                    cx={props.cx}
-                    cy={props.cy}
-                    r={4}
-                    fill="#fbbf24"
-                    stroke="#141a2e"
-                    strokeWidth={1.5}
-                  />
-                ) : (
-                  <g />
-                )
-              }
-            />
+            <BuyMarkers points={buyDots} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
