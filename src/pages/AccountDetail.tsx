@@ -36,7 +36,8 @@ import {
   txTypeLabel,
   instrumentTypeLabel,
 } from "../lib/labels";
-import type { AccountKind } from "../lib/model";
+import { groupTransactions } from "../lib/txGroups";
+import type { AccountKind, Transaction } from "../lib/model";
 
 export default function AccountDetail() {
   const { id } = useParams();
@@ -92,6 +93,18 @@ export default function AccountDetail() {
 
   // Which holding row has its price chart expanded (instrument key).
   const [chartOpen, setChartOpen] = useState<string | null>(null);
+
+  // Transactions list with the funding conversion legs folded under their
+  // buy/sell head; txOpen holds the expanded head ids.
+  const txRows = useMemo(() => groupTransactions(accTxs), [accTxs]);
+  const [txOpen, setTxOpen] = useState<Set<string>>(new Set());
+  const toggleTx = (id: string) =>
+    setTxOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const [editing, setEditing] = useState(false);
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? "regular");
@@ -592,43 +605,95 @@ export default function AccountDetail() {
                 </tr>
               </thead>
               <tbody>
-                {accTxs.map((t) => {
+                {txRows.map((row) => {
+                  const t = row.tx;
                   const inst = accSummary.holdings.find(
                     (h) => h.instrumentKey === t.instrumentKey,
                   )?.instrument;
+                  const open = txOpen.has(t.id);
                   return (
-                    <tr
-                      key={t.id}
-                      className="border-b border-[var(--color-border)]/40 last:border-0"
-                    >
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        {formatDate(t.date)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge tone="neutral">
-                          {isInternalTransfer(t)
-                            ? t.type === "deposit"
-                              ? "Transzfer be"
-                              : "Transzfer ki"
-                            : txTypeLabel[t.type]}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2.5 text-[var(--color-muted)]">
-                        {inst?.name ?? t.instrumentKey ?? "—"}
-                      </td>
-                      <td className="amt px-4 py-2.5 text-right tabular-nums">
-                        {t.quantity != null
-                          ? isTreasury
-                            ? formatMoney(t.quantity, "HUF") // névérték Ft-ban, tizedes nélkül
-                            : formatNumber(t.quantity, 4)
-                          : "—"}
-                      </td>
-                      <td className="amt px-4 py-2.5 text-right tabular-nums">
-                        {t.grossAmount != null
-                          ? formatMoney(t.grossAmount, t.currency)
-                          : "—"}
-                      </td>
-                    </tr>
+                    <Fragment key={t.id}>
+                      <tr
+                        className={`border-b border-[var(--color-border)]/40 last:border-0 ${
+                          row.details
+                            ? "cursor-pointer hover:bg-[var(--color-surface-2)]/40"
+                            : ""
+                        }`}
+                        onClick={row.details ? () => toggleTx(t.id) : undefined}
+                        title={
+                          row.details
+                            ? open
+                              ? "Átváltás-lábak elrejtése"
+                              : "Átváltás-lábak megjelenítése"
+                            : undefined
+                        }
+                      >
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5">
+                            {row.details && (
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 shrink-0 text-[var(--color-muted)] transition-transform ${
+                                  open ? "" : "-rotate-90"
+                                }`}
+                              />
+                            )}
+                            {formatDate(t.date)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Badge tone="neutral">
+                              {isInternalTransfer(t)
+                                ? t.type === "deposit"
+                                  ? "Transzfer be"
+                                  : "Transzfer ki"
+                                : txTypeLabel[t.type]}
+                            </Badge>
+                            {row.details && !open && (
+                              <span className="text-[10px] text-[var(--color-muted)]">
+                                +{row.details.length}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-[var(--color-muted)]">
+                          {inst?.name ?? t.instrumentKey ?? "—"}
+                        </td>
+                        <td className="amt px-4 py-2.5 text-right tabular-nums">
+                          {t.quantity != null
+                            ? isTreasury
+                              ? formatMoney(t.quantity, "HUF") // névérték Ft-ban, tizedes nélkül
+                              : formatNumber(t.quantity, 4)
+                            : "—"}
+                        </td>
+                        <td className="amt px-4 py-2.5 text-right tabular-nums">
+                          {t.grossAmount != null
+                            ? formatMoney(t.grossAmount, t.currency)
+                            : "—"}
+                        </td>
+                      </tr>
+                      {open &&
+                        row.details?.map((d: Transaction) => (
+                          <tr
+                            key={d.id}
+                            className="border-b border-[var(--color-border)]/40 bg-[var(--color-surface-2)]/30 text-[var(--color-muted)] last:border-0"
+                          >
+                            <td className="whitespace-nowrap py-2 pl-10 pr-4 text-xs">
+                              {formatDate(d.date)}
+                            </td>
+                            <td className="px-4 py-2 text-xs">
+                              {txTypeLabel[d.type]} ({d.currency})
+                            </td>
+                            <td className="px-4 py-2 text-xs">—</td>
+                            <td className="px-4 py-2 text-right text-xs">—</td>
+                            <td className="amt px-4 py-2 text-right text-xs tabular-nums">
+                              {d.grossAmount != null
+                                ? formatMoney(d.grossAmount, d.currency)
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
                   );
                 })}
               </tbody>
