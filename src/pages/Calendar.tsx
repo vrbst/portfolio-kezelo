@@ -565,7 +565,7 @@ function YearInflowChart({
       <h3 className="mb-3 text-sm font-semibold text-[var(--color-muted)]">
         Havi bevétel az évben
       </h3>
-      <div className="flex h-32 items-end gap-1 sm:gap-1.5">
+      <div className="flex h-36 gap-1 sm:gap-1.5">
         {data.map((d) => {
           const total = d.past + d.future;
           const isNow = d.month === todayMonth;
@@ -577,7 +577,7 @@ function YearInflowChart({
               onMouseEnter={() => setHover(d.month)}
               onMouseLeave={() => setHover(null)}
             >
-              <div className="relative flex h-full w-full flex-col justify-end">
+              <div className="relative flex w-full flex-1 flex-col justify-end">
                 {active && total > 0 && (
                   <div className="amt pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] font-medium tabular-nums shadow-xl">
                     {privacy ? "•••" : `+${formatMoney(total)}`}
