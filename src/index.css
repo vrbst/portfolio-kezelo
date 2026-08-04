@@ -162,11 +162,29 @@ body::before {
   }
 }
 
+/* Reusable outward pulse for a highlighted element (e.g. the calendar's next
+ * event day). A hair gentler than live-ping so it doesn't cover neighbours. */
+.cal-ping {
+  animation: cal-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes cal-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
 /* Respect reduced-motion: kill the ambient/decorative animations. Count-up
  * numbers are gated in JS separately. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after,
-  .live-dot::before {
+  .live-dot::before,
+  .cal-ping {
     animation: none;
   }
 }

@@ -1,5 +1,13 @@
-import { useMemo, useState, type CSSProperties } from "react";
-import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  TrendingUp,
+  Coins,
+  CalendarClock,
+} from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import {
   buildFxHistory,
@@ -8,7 +16,7 @@ import {
   isInternalTransfer,
 } from "../lib/portfolio";
 import { tbszStatus } from "../lib/tbsz";
-import { PageHeader, Card, Badge } from "../components/ui";
+import { PageHeader, Card, Badge, AnimatedAmount } from "../components/ui";
 import CashflowForecast from "../components/CashflowForecast";
 import { formatMoney, formatCompact, formatDate } from "../lib/format";
 import { txTypeLabel } from "../lib/labels";
@@ -239,6 +247,67 @@ export default function Calendar() {
     return sum;
   }, [byDay, year]);
 
+  // Interest actually credited this (calendar) year — the KPI "eddig kapott".
+  const yearInterest = useMemo(() => {
+    let sum = 0;
+    for (const t of transactions) {
+      if (t.type !== "interest") continue;
+      const d = new Date(t.date);
+      if (Number.isNaN(d.getTime()) || d.getFullYear() !== year) continue;
+      const raw = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+      sum +=
+        t.currency === "HUF"
+          ? raw
+          : raw * histFxRate(fxHistory, t.currency, t.date, fx);
+    }
+    return sum;
+  }, [transactions, year, fxHistory, fx]);
+
+  // The nearest upcoming (future) inflow day, for the KPI + the pulsing marker.
+  const nextEvent = useMemo(() => {
+    let best: { key: string; daysUntil: number; amountHuf: number } | null =
+      null;
+    for (const [key, items] of byDay) {
+      if (key <= todayIso) continue;
+      const inflow = items.reduce(
+        (s, it) =>
+          it.future && it.amountHuf != null && it.cat !== "out"
+            ? s + it.amountHuf
+            : s,
+        0,
+      );
+      if (inflow <= 0) continue;
+      if (!best || key < best.key) {
+        const daysUntil = Math.round(
+          (Date.parse(key) - Date.parse(todayIso)) / 86_400_000,
+        );
+        best = { key, daysUntil, amountHuf: inflow };
+      }
+    }
+    return best;
+  }, [byDay, todayIso]);
+
+  // Per-month inflow (realised + expected) for the year cashflow mini-chart.
+  const monthlyInflow = useMemo(() => {
+    const out: { month: number; past: number; future: number }[] = [];
+    for (let m = 0; m < 12; m++) {
+      const days = new Date(year, m + 1, 0).getDate();
+      let past = 0;
+      let future = 0;
+      for (let d = 1; d <= days; d++) {
+        const items = byDay.get(isoDay(year, m, d));
+        if (!items) continue;
+        for (const it of items) {
+          if (it.amountHuf == null || it.cat === "out") continue;
+          if (it.future) future += it.amountHuf;
+          else past += it.amountHuf;
+        }
+      }
+      out.push({ month: m, past, future });
+    }
+    return out;
+  }, [byDay, year]);
+
   const selectedItems = selected ? (byDay.get(selected) ?? []) : [];
 
   return (
@@ -279,14 +348,45 @@ export default function Calendar() {
           </div>
         </div>
 
-        {yearExpected > 0 && (
-          <p className="mb-3 text-sm text-[var(--color-muted)]">
-            Várható bevétel ebben az évben:{" "}
-            <span className="amt font-semibold text-[var(--color-positive)]">
-              {formatMoney(yearExpected)}
-            </span>
-          </p>
-        )}
+        {/* Year KPI strip */}
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <KpiTile
+            icon={<TrendingUp className="h-4 w-4" />}
+            label="Idei várható bevétel"
+            value={yearExpected}
+            tone="positive"
+            privacy={privacy}
+          />
+          <KpiTile
+            icon={<Coins className="h-4 w-4" />}
+            label="Idén kapott kamat"
+            value={yearInterest}
+            privacy={privacy}
+          />
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+              <CalendarClock className="h-4 w-4" />
+              Legközelebbi esemény
+            </div>
+            {nextEvent ? (
+              <>
+                <div className="amt mt-1 text-lg font-semibold tabular-nums text-[var(--color-positive)]">
+                  +{formatMoney(nextEvent.amountHuf)}
+                </div>
+                <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                  {formatDate(nextEvent.key)} ·{" "}
+                  {nextEvent.daysUntil === 0
+                    ? "ma"
+                    : `${nextEvent.daysUntil} nap múlva`}
+                </div>
+              </>
+            ) : (
+              <div className="mt-1 text-sm text-[var(--color-muted)]">
+                Nincs várható bevétel
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* 12 months at once */}
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
@@ -301,6 +401,7 @@ export default function Calendar() {
               selected={selected}
               onSelect={setSelected}
               privacy={privacy}
+              nextEventKey={nextEvent?.key ?? null}
             />
           ))}
         </div>
@@ -341,6 +442,12 @@ export default function Calendar() {
             arány, a zöld szám a várható bevétel.
           </span>
         </div>
+        {/* Éves bevétel-idővonal: a 12 hónap egymás mellett */}
+        <YearInflowChart
+          data={monthlyInflow}
+          todayMonth={year === today.getFullYear() ? today.getMonth() : -1}
+          privacy={privacy}
+        />
       </Card>
 
       {/* Forward 12-month cashflow forecast (coupons + maturities) */}
@@ -399,6 +506,123 @@ export default function Calendar() {
   );
 }
 
+/** One year-KPI stat tile: label + count-up amount (masked in privacy mode). */
+function KpiTile({
+  icon,
+  label,
+  value,
+  tone,
+  privacy,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+  tone?: "positive";
+  privacy: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+      <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+        {icon}
+        {label}
+      </div>
+      <div
+        className={`amt mt-1 text-lg font-semibold tabular-nums ${
+          tone === "positive" ? "text-[var(--color-positive)]" : ""
+        }`}
+      >
+        {privacy ? (
+          "•••"
+        ) : (
+          <AnimatedAmount value={value} format={(n) => formatMoney(n)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Year income timeline: one bar per month (realised inflow solid, expected
+ * inflow lighter, stacked), a single positive hue — magnitude over time. The
+ * current month is ringed; hovering a bar shows its month + total.
+ */
+function YearInflowChart({
+  data,
+  todayMonth,
+  privacy,
+}: {
+  data: { month: number; past: number; future: number }[];
+  todayMonth: number;
+  privacy: boolean;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(...data.map((d) => d.past + d.future), 1);
+  const hasAny = data.some((d) => d.past + d.future > 0);
+  if (!hasAny) return null;
+  const pos = "var(--color-positive)";
+  return (
+    <div className="mt-5 border-t border-[var(--color-border)] pt-4">
+      <h3 className="mb-3 text-sm font-semibold text-[var(--color-muted)]">
+        Havi bevétel az évben
+      </h3>
+      <div className="flex h-32 items-end gap-1 sm:gap-1.5">
+        {data.map((d) => {
+          const total = d.past + d.future;
+          const isNow = d.month === todayMonth;
+          const active = hover === d.month;
+          return (
+            <div
+              key={d.month}
+              className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
+              onMouseEnter={() => setHover(d.month)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <div className="relative flex h-full w-full flex-col justify-end">
+                {active && total > 0 && (
+                  <div className="amt pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] font-medium tabular-nums shadow-xl">
+                    {privacy ? "•••" : `+${formatMoney(total)}`}
+                  </div>
+                )}
+                {/* Expected (future) segment — lighter, sits on top. */}
+                {d.future > 0 && (
+                  <div
+                    className="w-full rounded-t"
+                    style={{
+                      height: `${(d.future / max) * 100}%`,
+                      background: pos,
+                      opacity: active ? 0.55 : 0.4,
+                    }}
+                  />
+                )}
+                {/* Realised segment — solid, anchored to the baseline. */}
+                {d.past > 0 && (
+                  <div
+                    className={`w-full ${d.future > 0 ? "mt-0.5" : "rounded-t"}`}
+                    style={{
+                      height: `${(d.past / max) * 100}%`,
+                      background: pos,
+                      opacity: active ? 1 : 0.85,
+                    }}
+                  />
+                )}
+              </div>
+              <span
+                className={`text-[10px] tabular-nums ${
+                  isNow
+                    ? "font-semibold text-[var(--color-positive)]"
+                    : "text-[var(--color-muted)]"
+                }`}
+              >
+                {MONTHS[d.month].slice(0, 3)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // One compact month grid. Bubbles reuse the day-aggregate logic but are
 // smaller and label-less (the number would not fit) — click for the detail.
 // Top-level component (not nested in Calendar), so its identity is stable and
@@ -412,6 +636,7 @@ function MonthGrid({
   selected,
   onSelect,
   privacy,
+  nextEventKey,
 }: {
   m: number;
   year: number;
@@ -421,7 +646,13 @@ function MonthGrid({
   selected: string | null;
   onSelect: (key: string) => void;
   privacy: boolean;
+  nextEventKey: string | null;
 }) {
+  // Hover tooltip: the day under the cursor + the rect to anchor a floating card
+  // (a real card beats the browser's title tooltip).
+  const [hover, setHover] = useState<{ key: string; rect: DOMRect } | null>(
+    null,
+  );
   const first = new Date(year, m, 1);
   const lead = (first.getDay() + 6) % 7; // Monday = 0
   const daysInMonth = new Date(year, m + 1, 0).getDate();
@@ -522,13 +753,11 @@ function MonthGrid({
                 : net < -tol
                   ? CAT_COLOR.out
                   : CAT_COLOR.maturity;
-          const parts: string[] = [];
-          if (agg && agg.inflow > 0.5)
-            parts.push(`Be +${formatCompact(agg.inflow)}`);
-          if (agg && agg.outflow > 0.5)
-            parts.push(`Ki −${formatCompact(agg.outflow)}`);
-          const title =
-            !privacy && parts.length ? parts.join(" · ") : undefined;
+          const isNext = key === nextEventKey;
+          // A glossy sphere: a light highlight top-left, the hue in the body, a
+          // darker rim — reads as a 3D blob rather than a flat disc.
+          const sphere = (c: string) =>
+            `radial-gradient(circle at 35% 28%, color-mix(in srgb, ${c}, white 48%), ${c} 58%, color-mix(in srgb, ${c}, black 22%))`;
           // Event days are tinted in their OWN category colour (no frame — the
           // tint + bubble carry it); the clicked day keeps a ring highlight.
           const style: CSSProperties = isSel
@@ -549,7 +778,15 @@ function MonthGrid({
             <button
               key={i}
               onClick={() => onSelect(key)}
-              title={title}
+              onMouseEnter={(e) =>
+                has
+                  ? setHover({
+                      key,
+                      rect: e.currentTarget.getBoundingClientRect(),
+                    })
+                  : undefined
+              }
+              onMouseLeave={() => setHover((h) => (h?.key === key ? null : h))}
               style={style}
               className={`relative flex h-[22px] items-center justify-center rounded border text-[10px] transition ${cellTone}`}
             >
@@ -564,6 +801,19 @@ function MonthGrid({
               >
                 {d}
               </span>
+              {/* Pulsing ring on the nearest upcoming inflow day. */}
+              {isNext && (
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span
+                    className="cal-ping rounded-full"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      border: `2px solid ${color}`,
+                    }}
+                  />
+                </span>
+              )}
               {diam > 0 && (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span
@@ -571,8 +821,9 @@ function MonthGrid({
                     style={{
                       width: diam,
                       height: diam,
-                      background: `${color}${isFuture ? "66" : "cc"}`,
-                      boxShadow: `0 0 ${Math.round(diam / 2)}px ${color}${isFuture ? "40" : "70"}`,
+                      background: sphere(color),
+                      opacity: isFuture ? 0.62 : 1,
+                      boxShadow: `0 0 ${Math.round(diam / 2)}px ${color}${isFuture ? "40" : "80"}`,
                     }}
                   />
                 </span>
@@ -584,7 +835,7 @@ function MonthGrid({
                     style={{
                       width: 16,
                       height: 16,
-                      background: CAT_COLOR.tbsz,
+                      background: sphere(CAT_COLOR.tbsz),
                       boxShadow: `0 0 8px ${CAT_COLOR.tbsz}80`,
                     }}
                   />
@@ -594,6 +845,75 @@ function MonthGrid({
           );
         })}
       </div>
+      {hover && (
+        <DayTooltip
+          rect={hover.rect}
+          items={byDay.get(hover.key) ?? []}
+          date={hover.key}
+          privacy={privacy}
+        />
+      )}
     </div>
+  );
+}
+
+/** Floating card shown while hovering a day cell — the day's items at a glance. */
+function DayTooltip({
+  rect,
+  items,
+  date,
+  privacy,
+}: {
+  rect: DOMRect;
+  items: DayItem[];
+  date: string;
+  privacy: boolean;
+}) {
+  if (items.length === 0) return null;
+  const sorted = [...items].sort(
+    (a, b) => (b.amountHuf ?? 0) - (a.amountHuf ?? 0),
+  );
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-50 w-56 -translate-x-1/2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 shadow-xl"
+      style={{
+        left: Math.min(
+          Math.max(rect.left + rect.width / 2, 120),
+          window.innerWidth - 120,
+        ),
+        top: rect.bottom + 8,
+      }}
+    >
+      <div className="mb-1.5 text-xs font-semibold text-[var(--color-muted)]">
+        {formatDate(date)}
+      </div>
+      <div className="space-y-1">
+        {sorted.map((it, i) => (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: CAT_COLOR[it.cat] }}
+            />
+            <span className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
+              {it.title}
+            </span>
+            {it.amountHuf != null && (
+              <span
+                className={`amt shrink-0 font-medium tabular-nums ${
+                  it.cat === "out"
+                    ? "text-[var(--color-negative)]"
+                    : "text-[var(--color-positive)]"
+                }`}
+              >
+                {privacy
+                  ? "•••"
+                  : `${it.cat === "out" ? "−" : "+"}${formatCompact(it.amountHuf)}`}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body,
   );
 }
