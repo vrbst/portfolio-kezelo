@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 /** Re-check for a new deploy this often while the app stays open. */
 const CHECK_MS = 30 * 60 * 1000;
+/** If activating the waiting worker hasn't reloaded us by now, force it. */
+const RELOAD_FALLBACK_MS = 1200;
 
 /**
  * "Új verzió érhető el" toast. The service worker runs in "prompt" mode: a new
@@ -36,6 +38,22 @@ export default function UpdatePrompt() {
     },
   });
 
+  const [reloading, setReloading] = useState(false);
+
+  // Activate the new worker AND make sure we actually reload. The plugin's
+  // updateServiceWorker(true) only reloads when a `waiting` worker exists (it
+  // posts SKIP_WAITING and reloads on controllerchange). If the new build has
+  // already become the active worker — e.g. it activated during an earlier full
+  // navigation — there is nothing waiting, so the built-in reload never fires
+  // and the prompt looks dead. The fallback reload covers that: it runs only if
+  // controllerchange didn't already tear this page down first (no double load).
+  function applyUpdate() {
+    if (reloading) return;
+    setReloading(true);
+    void updateServiceWorker(true);
+    window.setTimeout(() => window.location.reload(), RELOAD_FALLBACK_MS);
+  }
+
   // Keyboard-reachable escape hatch: Esc dismisses the toast.
   useEffect(() => {
     if (!needRefresh) return;
@@ -51,13 +69,18 @@ export default function UpdatePrompt() {
   return (
     <div className="fixed inset-x-0 bottom-20 z-50 flex justify-center px-4 md:bottom-6">
       <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-brand)]/40 bg-[var(--color-surface)] px-4 py-3 shadow-xl">
-        <RefreshCw className="h-4 w-4 shrink-0 text-[var(--color-brand)]" />
+        <RefreshCw
+          className={`h-4 w-4 shrink-0 text-[var(--color-brand)] ${
+            reloading ? "animate-spin" : ""
+          }`}
+        />
         <span className="text-sm">Új verzió érhető el.</span>
         <button
           className="btn-primary px-3 py-1.5 text-sm"
-          onClick={() => void updateServiceWorker(true)}
+          onClick={applyUpdate}
+          disabled={reloading}
         >
-          Frissítés
+          {reloading ? "Frissítés…" : "Frissítés"}
         </button>
         <button
           className="shrink-0 rounded-lg p-1 text-[var(--color-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
