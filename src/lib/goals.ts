@@ -185,7 +185,7 @@ export function goalAlerts(progress: GoalProgress[]): Alert[] {
       detail: `${p.periodLabel}: ${formatMoney(p.investedHuf)} / ${formatMoney(
         p.targetHuf,
       )} — még ${formatMoney(p.remainingHuf)} hiányzik`,
-      to: "/settings",
+      to: "/goals",
       actionLabel: "Célok",
     });
   }

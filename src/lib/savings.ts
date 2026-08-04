@@ -259,7 +259,7 @@ export function savingsGoalAlerts(
         severity: "medium" as const,
         title: `Havi vásárlás – ${s.name}`,
         detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)} kell a célhoz rendelt eszközből (${s.instrumentNames}).${couponNote}`,
-        to: "/forecast",
+        to: "/goals",
         actionLabel: "Célok",
       };
     });
