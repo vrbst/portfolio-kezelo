@@ -245,7 +245,7 @@ export default function Dashboard() {
               index={2}
             />
             <StatCard
-              label="Realizált eredmény"
+              label="Realizált eredmény összesen"
               value={formatMoney(
                 summary.totalPlHuf - summary.unrealizedPlHuf,
                 "HUF",
@@ -255,10 +255,12 @@ export default function Dashboard() {
               )}
               sub={
                 summary.interestHuf > 0.5
-                  ? `ebből kamat: ${formatMoney(summary.interestHuf, "HUF", {
-                      sign: true,
-                    })}`
-                  : undefined
+                  ? `kamattal, díjak után · ebből kamat: ${formatMoney(
+                      summary.interestHuf,
+                      "HUF",
+                      { sign: true },
+                    )}`
+                  : "kamattal, díjak után"
               }
               icon={<Coins className="h-5 w-5" />}
               index={3}
@@ -335,42 +337,41 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-              {summary.accounts.map((a) => (
-                <Link
-                  key={a.account.id}
-                  to={`/accounts/${a.account.id}`}
-                  className="block min-w-0"
-                >
-                  <div className="card-hover flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium">
-                          {a.account.name}
-                        </span>
-                        <Badge tone="neutral">
-                          {accountKindLabel(a.account)}
-                        </Badge>
+              {/* Empty accounts are noise here — the Számlák page still lists them. */}
+              {summary.accounts
+                .filter((a) => !isEmptyAccount(a))
+                .map((a) => (
+                  <Link
+                    key={a.account.id}
+                    to={`/accounts/${a.account.id}`}
+                    className="block min-w-0"
+                  >
+                    <div className="card-hover flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium">
+                            {a.account.name}
+                          </span>
+                          <Badge tone="neutral">
+                            {accountKindLabel(a.account)}
+                          </Badge>
+                        </div>
+                        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+                          {a.holdings.length} pozíció · készpénz{" "}
+                          <Amt>{formatMoney(a.cashValueHuf)}</Amt>
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                        {a.holdings.length} pozíció · készpénz{" "}
-                        <Amt>{formatMoney(a.cashValueHuf)}</Amt>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="amt font-semibold tabular-nums">
-                        {formatMoney(a.totalValueHuf)}
-                      </div>
-                      {isEmptyAccount(a) ? (
-                        <Badge tone="neutral">üres</Badge>
-                      ) : (
-                        accountReturn(a) != null && (
+                      <div className="text-right">
+                        <div className="amt font-semibold tabular-nums">
+                          {formatMoney(a.totalValueHuf)}
+                        </div>
+                        {accountReturn(a) != null && (
                           <Delta pct={accountReturn(a)} className="text-xs" />
-                        )
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                ))}
             </div>
           </Card>
 

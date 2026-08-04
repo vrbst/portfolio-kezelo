@@ -77,7 +77,8 @@ export default function SavingsTargets() {
   const nameOf = (key: string) =>
     holdings.find((h) => h.key === key)?.name ?? key;
 
-  // --- add-goal form ---
+  // --- add-goal form (hidden behind "+ Új cél" — rarely used) ---
+  const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState("");
@@ -101,6 +102,7 @@ export default function SavingsTargets() {
     setName("");
     setAmount("");
     setDate("");
+    setAdding(false);
   }
 
   function update(id: string, patch: Partial<SavingsGoal>) {
@@ -122,32 +124,49 @@ export default function SavingsTargets() {
       </p>
 
       {/* Új cél */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          placeholder="Cél neve (pl. Autó)"
-          className="min-w-[8rem] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <input
-          type="text"
-          inputMode="numeric"
-          placeholder="Összeg (Ft)"
-          className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-        <input
-          type="date"
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-        <button className="btn-ghost" onClick={addGoal} title="Cél hozzáadása">
-          <Plus className="h-4 w-4" />
+      {!adding ? (
+        <button className="btn-ghost text-sm" onClick={() => setAdding(true)}>
+          <Plus className="h-4 w-4" /> Új cél
         </button>
-      </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder="Cél neve (pl. Autó)"
+            className="min-w-[8rem] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Összeg (Ft)"
+            className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <input
+            type="date"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          <button
+            className="btn-ghost"
+            onClick={addGoal}
+            title="Cél hozzáadása"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => setAdding(false)}
+            title="Mégse"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {progress.length > 0 && (
         <div className="mt-4 space-y-4">

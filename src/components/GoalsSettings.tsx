@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Target, Trash2, Plus, CheckCircle2 } from "lucide-react";
+import { Target, Trash2, Plus, CheckCircle2, X } from "lucide-react";
 import { usePortfolio, useGoalProgress } from "../lib/store";
 import { Card, Badge } from "./ui";
 import { formatMoney } from "../lib/format";
@@ -24,6 +24,9 @@ export default function GoalsSettings() {
   // Distinct types present → "buy any instrument of this type" category goals
   // (e.g. DKJ, where each issuance is a different series/ISIN).
   const categoryTypes = [...new Set(investable.map((i) => i.type))];
+  // The add form is rarely used — keep it behind a button so the goal cards
+  // stay the focus of the card.
+  const [adding, setAdding] = useState(false);
   const [target, setTarget] = useState("");
   const [periodMonths, setPeriodMonths] = useState<GoalPeriod>(1);
   const [amount, setAmount] = useState("");
@@ -55,6 +58,7 @@ export default function GoalsSettings() {
       });
     }
     setAmount("");
+    setAdding(false);
   }
 
   const fieldClass =
@@ -135,6 +139,10 @@ export default function GoalsSettings() {
         <p className="text-sm text-[var(--color-muted)]">
           Előbb importálj adatokat, hogy legyen mihez célt rendelni.
         </p>
+      ) : !adding ? (
+        <button className="btn-ghost text-sm" onClick={() => setAdding(true)}>
+          <Plus className="h-4 w-4" /> Új cél
+        </button>
       ) : (
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
@@ -199,6 +207,13 @@ export default function GoalsSettings() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40"
           >
             <Plus className="h-4 w-4" /> Hozzáad
+          </button>
+          <button
+            onClick={() => setAdding(false)}
+            title="Mégse"
+            className="btn-ghost"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}

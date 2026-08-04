@@ -152,7 +152,7 @@ export default function Income() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Realizált eredmény"
+          label="Realizált árfolyameredmény"
           value={formatMoney(total.realizedPlHuf, "HUF", { sign: true })}
           icon={<TrendingUp className="h-5 w-5" />}
           index={0}
@@ -316,7 +316,9 @@ export default function Income() {
             <thead className="text-left text-xs text-[var(--color-muted)]">
               <tr className="border-b border-[var(--color-border)]">
                 <th className="px-4 py-3 font-medium">Év</th>
-                <th className="px-4 py-3 text-right font-medium">Realizált</th>
+                <th className="px-4 py-3 text-right font-medium">
+                  Árfolyameredmény
+                </th>
                 <th className="px-4 py-3 text-right font-medium">Kamat</th>
                 <th className="px-4 py-3 text-right font-medium">Osztalék</th>
                 <th className="px-4 py-3 text-right font-medium">Díjak</th>
