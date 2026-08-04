@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Coins,
@@ -14,9 +14,18 @@ import {
   computeIncomeByYear,
   computeReturns,
   fxImpact,
+  buildValueSeries,
+  type YearIncome,
 } from "../lib/portfolio";
-import { PageHeader, Card, StatCard, EmptyState } from "../components/ui";
-import { formatMoney, formatPercent } from "../lib/format";
+import {
+  PageHeader,
+  Card,
+  StatCard,
+  EmptyState,
+  AnimatedAmount,
+  Sparkline,
+} from "../components/ui";
+import { formatMoney, formatPercent, formatCompact } from "../lib/format";
 
 export default function Income() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -68,6 +77,22 @@ export default function Income() {
       computeReturns(accounts, transactions, instMap, prices, fx, historyFile),
     [accounts, transactions, instMap, prices, fx, historyFile],
   );
+
+  // Portfolio profit (value − invested) over time → the Teljesítmény sparkline.
+  const profitSpark = useMemo(() => {
+    const series = buildValueSeries(
+      accounts,
+      transactions,
+      instMap,
+      prices,
+      fx,
+      historyFile,
+    );
+    return series.slice(-40).map((p) => p.value - p.invested);
+  }, [accounts, transactions, instMap, prices, fx, historyFile]);
+  const sparkUp =
+    profitSpark.length > 1 &&
+    profitSpark[profitSpark.length - 1] >= profitSpark[0];
 
   const total = useMemo(
     () =>
@@ -140,6 +165,10 @@ export default function Income() {
                 ? `${formatPercent(returns.twrCumulativePct)} a teljes időszakban`
                 : undefined
             }
+            spark={profitSpark}
+            sparkStroke={
+              sparkUp ? "var(--color-positive)" : "var(--color-negative)"
+            }
             hint="A befektetéseid teljesítménye, a befizetések időzítésétől megtisztítva — benchmarkhoz."
           />
           <Metric
@@ -153,39 +182,64 @@ export default function Income() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Realizált árfolyameredmény"
-          value={formatMoney(total.realizedPlHuf, "HUF", { sign: true })}
+          numericValue={total.realizedPlHuf}
+          format={(n) => formatMoney(n, "HUF", { sign: true })}
           icon={<TrendingUp className="h-5 w-5" />}
           index={0}
           accent
         />
         <StatCard
           label="Kapott kamat"
-          value={formatMoney(total.interestHuf)}
+          numericValue={total.interestHuf}
+          format={(n) => formatMoney(n)}
           icon={<Landmark className="h-5 w-5" />}
           index={1}
         />
         <StatCard
           label="Osztalék"
-          value={formatMoney(total.dividendHuf)}
+          numericValue={total.dividendHuf}
+          format={(n) => formatMoney(n)}
           icon={<Coins className="h-5 w-5" />}
           index={2}
         />
         <StatCard
           label="Fizetett díjak"
-          value={formatMoney(total.feesHuf)}
+          numericValue={total.feesHuf}
+          format={(n) => formatMoney(n)}
           icon={<Receipt className="h-5 w-5" />}
           index={3}
         />
       </div>
 
-      <div className="mt-4 flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-5 py-4">
-        <Banknote className="h-5 w-5 text-[var(--color-brand)]" />
-        <span className="text-sm text-[var(--color-muted)]">
-          Nettó pénzbeáramlás (realizált + kamat + osztalék − díj − adó)
-        </span>
-        <span className="amt ml-auto text-lg font-semibold tabular-nums">
-          {formatMoney(net, "HUF", { sign: true })}
-        </span>
+      {/* Nettó pénzbeáramlás — a "amit a befektetéseid ténylegesen termeltek"
+          szám, hero-kiemeléssel. */}
+      <div className="relative mt-4 overflow-hidden rounded-2xl border border-[var(--color-brand)]/30 bg-[var(--color-surface)] p-5 ring-1 ring-[var(--color-brand)]/20 sm:p-6">
+        <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-[var(--color-brand)]/20 blur-2xl" />
+        <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
+              <Banknote className="h-5 w-5" />
+            </span>
+            <div>
+              <div className="text-sm font-medium">Nettó pénzbeáramlás</div>
+              <div className="text-xs text-[var(--color-muted)]">
+                realizált + kamat + osztalék − díj − adó
+              </div>
+            </div>
+          </div>
+          <div
+            className={`amt text-2xl font-bold tracking-tight tabular-nums sm:text-3xl ${
+              net >= 0
+                ? "text-[var(--color-positive)]"
+                : "text-[var(--color-negative)]"
+            }`}
+          >
+            <AnimatedAmount
+              value={net}
+              format={(n) => formatMoney(n, "HUF", { sign: true })}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Devizahatás-felbontás + költség-analitika */}
@@ -200,35 +254,25 @@ export default function Income() {
               A külföldi devizás papírok nem realizált hozamából mennyi a piac
               és mennyi az árfolyammozgás (a vételi átlagárfolyamhoz képest).
             </p>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--color-muted)]">
-                  Piaci árváltozás
-                </span>
-                <span
-                  className={`amt font-semibold tabular-nums ${
-                    fxi.marketHuf >= 0
-                      ? "text-[var(--color-positive)]"
-                      : "text-[var(--color-negative)]"
-                  }`}
-                >
-                  {formatMoney(fxi.marketHuf, "HUF", { sign: true })}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--color-muted)]">
-                  Árfolyamhatás (deviza)
-                </span>
-                <span
-                  className={`amt font-semibold tabular-nums ${
-                    fxi.fxHuf >= 0
-                      ? "text-[var(--color-positive)]"
-                      : "text-[var(--color-negative)]"
-                  }`}
-                >
-                  {formatMoney(fxi.fxHuf, "HUF", { sign: true })}
-                </span>
-              </div>
+            <div className="space-y-3 text-sm">
+              <FxDivergingRow
+                label="Piaci árváltozás"
+                value={fxi.marketHuf}
+                max={Math.max(
+                  Math.abs(fxi.marketHuf),
+                  Math.abs(fxi.fxHuf),
+                  1,
+                )}
+              />
+              <FxDivergingRow
+                label="Árfolyamhatás (deviza)"
+                value={fxi.fxHuf}
+                max={Math.max(
+                  Math.abs(fxi.marketHuf),
+                  Math.abs(fxi.fxHuf),
+                  1,
+                )}
+              />
               <div className="flex items-baseline justify-between gap-3 border-t border-[var(--color-border)] pt-2">
                 <span className="text-[var(--color-muted)]">
                   Összesen (nem realizált)
@@ -310,7 +354,10 @@ export default function Income() {
         </Card>
       </div>
 
-      <Card className="mt-6 overflow-hidden">
+      {/* Évenkénti hozam-bontás: diverging stacked oszlopok a tábla fölé */}
+      <YearReturnChart years={years} />
+
+      <Card className="mt-4 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-[var(--color-muted)]">
@@ -376,16 +423,218 @@ export default function Income() {
   );
 }
 
+/** A label + signed amount with a diverging bar from the centre (right = +,
+ * left = −), sized against `max`. Shows at a glance which side a factor pulls. */
+function FxDivergingRow({
+  label,
+  value,
+  max,
+}: {
+  label: string;
+  value: number;
+  max: number;
+}) {
+  const frac = Math.min(Math.abs(value) / max, 1) * 50; // half-width max
+  const positive = value >= 0;
+  const color = positive
+    ? "var(--color-positive)"
+    : "var(--color-negative)";
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[var(--color-muted)]">{label}</span>
+        <span
+          className="amt font-semibold tabular-nums"
+          style={{ color }}
+        >
+          {formatMoney(value, "HUF", { sign: true })}
+        </span>
+      </div>
+      <div className="relative mt-1 h-1.5 rounded-full bg-[var(--color-surface-2)]">
+        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--color-border)]" />
+        <span
+          className="absolute inset-y-0 rounded-full"
+          style={{
+            background: color,
+            width: `${frac}%`,
+            left: positive ? "50%" : `${50 - frac}%`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-year return breakdown as a diverging stacked bar chart: income
+ * (realised + interest + dividend) above the zero line, costs (fees + tax)
+ * below. One positive hue, one indigo, one negative — the zero line + gaps do
+ * the separating (validated adjacent-pairs; see the palette check).
+ */
+function YearReturnChart({ years }: { years: YearIncome[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const rows = years.filter(
+    (y) =>
+      Math.abs(y.realizedPlHuf) +
+        y.interestHuf +
+        y.dividendHuf +
+        y.feesHuf +
+        y.taxHuf >
+      0,
+  );
+  if (rows.length === 0) return null;
+
+  // Positive stack = income; negative stack = costs (+ a negative realised P/L).
+  const posOf = (y: YearIncome) =>
+    Math.max(0, y.realizedPlHuf) + y.interestHuf + y.dividendHuf;
+  const negOf = (y: YearIncome) =>
+    Math.max(0, -y.realizedPlHuf) + y.feesHuf + y.taxHuf;
+  const max = Math.max(...rows.map((y) => Math.max(posOf(y), negOf(y))), 1);
+
+  const GREEN = "var(--color-positive)";
+  const INDIGO = "var(--color-brand)";
+  const PINK = "var(--color-negative)";
+  const seg = (v: number, color: string, key: string) =>
+    v > 0 ? (
+      <div
+        key={key}
+        className="w-full first:rounded-t last:rounded-b"
+        style={{
+          height: `${(v / max) * 50}%`,
+          background: color,
+          marginBottom: 1,
+        }}
+      />
+    ) : null;
+
+  return (
+    <Card className="mt-6 p-5 sm:p-6">
+      <h2 className="mb-1 text-lg font-semibold">Éves hozam-bontás</h2>
+      <p className="mb-4 text-sm text-[var(--color-muted)]">
+        Bevétel a nullvonal fölött (realizált + kamat + osztalék), költség
+        alatta (díj + adó).
+      </p>
+      <div className="flex items-stretch gap-4 sm:gap-6">
+        {rows.map((y) => {
+          const active = hover === y.year;
+          return (
+            <div
+              key={y.year}
+              className="flex flex-1 flex-col items-center gap-2"
+              onMouseEnter={() => setHover(y.year)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <div className="relative h-48 w-full max-w-[7rem]">
+                {active && (
+                  <div className="amt pointer-events-none absolute -top-1 left-1/2 z-10 w-44 -translate-x-1/2 -translate-y-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-xs shadow-xl">
+                    <div className="mb-1 font-semibold">{y.year}</div>
+                    <TipLine
+                      label="Realizált"
+                      value={y.realizedPlHuf}
+                      dot={INDIGO}
+                    />
+                    <TipLine label="Kamat" value={y.interestHuf} dot={GREEN} />
+                    {y.dividendHuf > 0 && (
+                      <TipLine
+                        label="Osztalék"
+                        value={y.dividendHuf}
+                        dot={GREEN}
+                      />
+                    )}
+                    <TipLine label="Díjak" value={-y.feesHuf} dot={PINK} />
+                    {y.taxHuf > 0 && (
+                      <TipLine label="Adó" value={-y.taxHuf} dot={PINK} />
+                    )}
+                  </div>
+                )}
+                {/* Top half: income (grows down from the middle) */}
+                <div className="absolute inset-x-0 top-0 flex h-1/2 flex-col justify-end">
+                  {seg(Math.max(0, y.realizedPlHuf), INDIGO, "r+")}
+                  {seg(y.dividendHuf, GREEN, "d")}
+                  {seg(y.interestHuf, GREEN, "i")}
+                </div>
+                {/* Zero line */}
+                <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--color-border)]" />
+                {/* Bottom half: costs (grows down from the middle) */}
+                <div className="absolute inset-x-0 top-1/2 flex h-1/2 flex-col justify-start">
+                  {seg(Math.max(0, -y.realizedPlHuf), INDIGO, "r-")}
+                  {seg(y.feesHuf, PINK, "f")}
+                  {seg(y.taxHuf, PINK, "t")}
+                </div>
+              </div>
+              <span className="text-xs font-medium tabular-nums">{y.year}</span>
+            </div>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
+        <LegendDot color={GREEN} label="Kamat / osztalék" />
+        <LegendDot color={INDIGO} label="Realizált árfolyam" />
+        <LegendDot color={PINK} label="Díj / adó" />
+      </div>
+    </Card>
+  );
+}
+
+function TipLine({
+  label,
+  value,
+  dot,
+}: {
+  label: string;
+  value: number;
+  dot: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <span className="flex items-center gap-1.5 text-[var(--color-muted)]">
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: dot }}
+        />
+        {label}
+      </span>
+      <span
+        className={`amt tabular-nums ${
+          value >= 0
+            ? "text-[var(--color-positive)]"
+            : "text-[var(--color-negative)]"
+        }`}
+      >
+        {formatCompact(value)}
+      </span>
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        className="h-2.5 w-2.5 rounded-full"
+        style={{ background: color }}
+      />
+      {label}
+    </span>
+  );
+}
+
 function Metric({
   label,
   pct,
   sub,
   hint,
+  spark,
+  sparkStroke,
 }: {
   label: string;
   pct?: number;
   sub?: string;
   hint?: string;
+  /** Optional trend line drawn under the number. */
+  spark?: number[];
+  sparkStroke?: string;
 }) {
   const color =
     pct == null
@@ -397,10 +646,23 @@ function Metric({
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
       <div className="text-xs text-[var(--color-muted)]">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${color}`}>
-        {pct == null ? "—" : formatPercent(pct)}
+        {pct == null ? (
+          "—"
+        ) : (
+          <AnimatedAmount value={pct} format={(n) => formatPercent(n)} />
+        )}
       </div>
       {sub && (
         <div className="mt-0.5 text-xs text-[var(--color-muted)]">{sub}</div>
+      )}
+      {spark && spark.length >= 2 && (
+        <div className="mt-2 h-8 w-full">
+          <Sparkline
+            data={spark}
+            stroke={sparkStroke}
+            className="h-full w-full"
+          />
+        </div>
       )}
       {hint && (
         <div className="mt-2 text-xs leading-relaxed text-[var(--color-muted)]">
