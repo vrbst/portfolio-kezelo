@@ -390,10 +390,12 @@ export default function Dashboard() {
           <HoldingsPanel maxBodyHeight="26rem" />
         </div>
 
-        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. items-stretch
-            (flex default) makes this column as tall as the left one; the events
-            card grows (flex-1) to end flush with the Eszközeim card's bottom. */}
-        <div className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0">
+        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. The row
+            stretches both columns to the same height; xl:min-h-0 lets THIS
+            column shrink to the left one's height instead of growing to its own
+            content, so the events card (flex-1, min-h-0, scrolling list) ends
+            flush with the Eszközeim card's bottom rather than overshooting. */}
+        <div className="flex w-full flex-col gap-4 xl:min-h-0 xl:w-[400px] xl:shrink-0">
           <LivePricesPanel />
           {/* Allocation donut */}
           <Card className="p-5">
