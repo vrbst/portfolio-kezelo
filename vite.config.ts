@@ -21,7 +21,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: "autoUpdate",
+      // "prompt": the new service worker WAITS until the user clicks the
+      // in-app "Frissítés" toast (UpdatePrompt) — no more hard-reload ritual
+      // after a deploy, and no mid-session surprise reload either.
+      registerType: "prompt",
       includeAssets: ["favicon.svg", "apple-touch-icon.png"],
       manifest: {
         name: "Portfólió-kezelő",

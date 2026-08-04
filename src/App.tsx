@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
+import UpdatePrompt from "./components/UpdatePrompt";
 import AlertsBanner from "./components/AlertsBanner";
 import { usePortfolio, useActiveAlerts } from "./lib/store";
 
@@ -95,6 +96,7 @@ export default function App() {
       </main>
       <MobileNav />
       <InstallPrompt />
+      <UpdatePrompt />
     </div>
   );
 }
