@@ -86,7 +86,11 @@ export interface SavingsProgress {
   projectedPct: number;
   /** Shortfall on the target date (0 if already covered). */
   gapHuf: number;
-  /** Monthly pay days (the 1st) still landing on/before the target date (≥ 0). */
+  /**
+   * Months you can still save toward the goal: future pay days plus the current
+   * month while it is an open opportunity (no purchase into the goal yet this
+   * month). See contributionMonthsLeft. ≥ 0.
+   */
   monthsLeft: number;
   daysLeft: number;
   /** Monthly saving needed to close the gap by the date. */
@@ -266,15 +270,15 @@ export function savingsGoalAlerts(
 }
 
 /**
- * How many monthly pay days (the 1st of each month) still fall on or before the
- * target date — i.e. how many times you can still put money aside.
+ * How many FUTURE monthly pay days (the 1st of each later month) fall on or
+ * before the target date — the whole calendar-month boundaries strictly after
+ * the current month.
  *
  * Dividing the remaining days by an average month length undercounts whenever
  * the target lands early in a month: 22 July → 2 November is 103 days ≈ 3.4
- * "months", yet four salaries still arrive (Aug 1, Sep 1, Oct 1, Nov 1). Since
- * every month's 1st is its first day, this is simply the number of whole
- * calendar-month boundaries between the two dates. 0 means the deadline hits
- * before the next pay day, so the whole gap has to come from what you hold now.
+ * "months", yet the Aug/Sep/Oct/Nov 1st all still arrive. This counts those
+ * boundaries exactly. The CURRENT month is added separately (see
+ * contributionMonthsLeft) only while it is still an open opportunity.
  */
 function paydaysUntil(now: Date, targetMs: number): number {
   const t = new Date(targetMs);
@@ -283,6 +287,61 @@ function paydaysUntil(now: Date, targetMs: number): number {
     (t.getFullYear() - now.getFullYear()) * 12 +
       (t.getMonth() - now.getMonth()),
   );
+}
+
+/**
+ * HUF already bought toward a goal in the CURRENT effective month (an assigned
+ * instrument, or the same type as one — so a fresh DKJ series counts). Mirrors
+ * the match rule used by savingsMonthlyStatus. 0 for goals with no assigned
+ * instruments (nothing to match against).
+ */
+function boughtThisEffectiveMonth(
+  goal: SavingsGoal,
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+  now: Date,
+): number {
+  if (goal.instrumentKeys.length === 0) return 0;
+  const eff = effectiveMonth(now);
+  const keys = new Set(goal.instrumentKeys);
+  const types = new Set(
+    goal.instrumentKeys
+      .map((k) => instruments.get(k)?.type)
+      .filter((t): t is Instrument["type"] => !!t),
+  );
+  let sum = 0;
+  for (const t of txs) {
+    if (t.type !== "buy" || !t.instrumentKey) continue;
+    const inst = instruments.get(t.instrumentKey);
+    if (!(keys.has(t.instrumentKey) || (inst && types.has(inst.type))))
+      continue;
+    const d = new Date(t.date);
+    if (Number.isNaN(d.getTime())) continue;
+    const em = effectiveMonth(d);
+    if (em.year !== eff.year || em.month0 !== eff.month0) continue;
+    sum += toHuf(Math.abs(t.netAmount ?? t.grossAmount ?? 0), t.currency, fx);
+  }
+  return sum;
+}
+
+/**
+ * How many months you can still put money aside toward the goal: the future
+ * pay days (paydaysUntil) PLUS the current month while it is still an open
+ * opportunity — i.e. you have not yet bought into the goal this month.
+ *
+ * This is why on 4 Aug (before this month's DKJ purchase) a 620 000 Ft gap to a
+ * 1 Nov target spreads over Aug+Sep+Oct+Nov = 4 → 155 000/mo, not /3 = 206 667;
+ * and once August passes (or you buy this month) the current month drops out and
+ * it becomes /3. In July the month's purchase was already done, so the current
+ * month didn't count and it was Aug–Nov = 4 either way.
+ */
+function contributionMonthsLeft(
+  now: Date,
+  targetMs: number,
+  currentMonthOpen: boolean,
+): number {
+  return paydaysUntil(now, targetMs) + (currentMonthOpen ? 1 : 0);
 }
 
 function parseDateMs(iso: string): number {
@@ -415,7 +474,14 @@ export function computeSavingsProgress(
     const targetHuf = goal.targetHuf;
     const gapHuf = Math.max(0, targetHuf - projectedHuf);
     const daysLeft = future ? Math.round((dateMs - nowMs) / 86_400_000) : 0;
-    const monthsLeft = future ? paydaysUntil(now, dateMs) : 0;
+    // The current month still counts as a savings opportunity until you have
+    // actually bought into the goal this month — so a mid-month gap isn't
+    // crammed into only the FUTURE months (which over-states the monthly need).
+    const currentMonthOpen =
+      boughtThisEffectiveMonth(goal, txs, instruments, fx, now) <= 1;
+    const monthsLeft = future
+      ? contributionMonthsLeft(now, dateMs, currentMonthOpen)
+      : 0;
     const monthlyNeededHuf = monthsLeft > 0 ? gapHuf / monthsLeft : gapHuf;
 
     return {

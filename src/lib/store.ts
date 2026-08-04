@@ -75,6 +75,15 @@ interface PortfolioState {
   historyFile: HistoryFile | null;
   /** Live quotes (Worker→Yahoo): instrument key -> price (instrument ccy). */
   livePrices: Record<string, number>;
+  /**
+   * TEMPORARY manual price overrides (instrument key -> price, instrument ccy).
+   * A manual price beats everything, but is dropped automatically as soon as a
+   * fresh live quote arrives for that instrument — it patches a stale/missing
+   * quote, it never silently overrides a working feed. Device-local, not synced.
+   */
+  manualPrices: Record<string, number>;
+  /** Set (price) or clear (null) a temporary manual price for an instrument. */
+  setManualPrice: (key: string, price: number | null) => Promise<void>;
   /** ISO timestamp shown in the UI. */
   priceUpdatedAt?: string;
   pricesLoading: boolean;
@@ -174,12 +183,15 @@ function deriveFx(txs: Transaction[]): Record<string, number> {
 }
 
 /**
- * Layer prices by freshness: committed snapshot < live quotes (later wins).
- * Live fills in fresh intraday values over the committed snapshot.
+ * Layer prices by freshness: committed snapshot < live quotes < manual override
+ * (later wins). Live fills in fresh intraday values over the committed
+ * snapshot; a manual price is a temporary user-entered patch that refreshPrices
+ * drops as soon as a live quote lands for the same instrument.
  */
 function buildPriceMap(
   file: PriceFile | null,
   live: Record<string, number>,
+  manual: Record<string, number> = {},
 ): PriceMap {
   const map: PriceMap = new Map();
   if (file) {
@@ -188,6 +200,7 @@ function buildPriceMap(
     }
   }
   for (const [key, price] of Object.entries(live)) map.set(key, price);
+  for (const [key, price] of Object.entries(manual)) map.set(key, price);
   return map;
 }
 
@@ -333,7 +346,7 @@ async function applySnapshotLocal(
     deletedGoalIds,
     reminders: snap.reminders ?? [],
     deletedReminderIds,
-    prices: buildPriceMap(s.priceFile, s.livePrices),
+    prices: buildPriceMap(s.priceFile, s.livePrices, s.manualPrices),
     fx: { ...deriveFx(snap.transactions), ...s.fx },
   });
 }
@@ -415,7 +428,7 @@ async function mergeSnapshot(
     deletedGoalIds,
     reminders,
     deletedReminderIds,
-    prices: buildPriceMap(s.priceFile, s.livePrices),
+    prices: buildPriceMap(s.priceFile, s.livePrices, s.manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   });
   return added;
@@ -460,6 +473,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   priceFile: null,
   historyFile: null,
   livePrices: {},
+  manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
   alertState: {},
@@ -491,6 +505,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedGoalIds,
       reminders,
       deletedReminderIds,
+      manualPrices,
     ] = await Promise.all([
       db.accounts.toArray(),
       db.instruments.toArray(),
@@ -501,9 +516,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       getMeta<string[]>("deletedGoalIds"),
       getMeta<Reminder[]>("reminders"),
       getMeta<string[]>("deletedReminderIds"),
+      getMeta<Record<string, number>>("manualPriceOverrides"),
     ]);
-    // Manual price overrides were removed — drop any value left from older
-    // versions so it can never override the automatic price again.
+    // The OLD (permanent) manual-price feature was removed — drop its leftover
+    // meta so it can never override the automatic price again. The current
+    // "manualPriceOverrides" key is the temporary variant that auto-clears on
+    // the next live quote.
     void db.meta.delete("manualPrices");
     const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) };
     set({
@@ -511,6 +529,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       instruments,
       transactions,
       fx,
+      manualPrices: manualPrices ?? {},
       alertState: alertState ?? {},
       goals: goals ?? [],
       deletedGoalIds: deletedGoalIds ?? [],
@@ -585,6 +604,19 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     });
   },
 
+  setManualPrice: async (key, price) => {
+    const s = get();
+    const manual = { ...s.manualPrices };
+    if (price != null && Number.isFinite(price) && price > 0)
+      manual[key] = price;
+    else delete manual[key];
+    await setMeta("manualPriceOverrides", manual);
+    set({
+      manualPrices: manual,
+      prices: buildPriceMap(s.priceFile, s.livePrices, manual),
+    });
+  },
+
   refreshPrices: async () => {
     set({ pricesLoading: true });
     // Price every held ETF / stock / fund. Symbols are resolved from the ISIN
@@ -609,7 +641,16 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       const priceFile = file ?? s.priceFile;
       // Keep the last good live quote for any symbol that failed this round.
       const live = { ...s.livePrices, ...livePrices };
-      const prices = buildPriceMap(priceFile, live);
+      // A fresh live quote retires the manual override for that instrument —
+      // the manual price is a stopgap, not a permanent opinion.
+      let manual = s.manualPrices;
+      const dropped = Object.keys(livePrices).filter((k) => k in manual);
+      if (dropped.length > 0) {
+        manual = { ...manual };
+        for (const k of dropped) delete manual[k];
+        void setMeta("manualPriceOverrides", manual);
+      }
+      const prices = buildPriceMap(priceFile, live, manual);
       // Live FX wins. Until the first live success the committed prices.json
       // beats the saved/derived rates; afterwards the session's live rates are
       // fresher than the (hours-old) file, so a failed round must not let the
@@ -624,6 +665,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       return {
         priceFile,
         livePrices: live,
+        manualPrices: manual,
         prices,
         fx,
         // Live quote → "now"; otherwise fall back to the snapshot's timestamp.
@@ -937,6 +979,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       prices: new Map(),
       fx: {},
       livePrices: {},
+      manualPrices: {},
       alertState: {},
       goals: [],
       deletedGoalIds: [],

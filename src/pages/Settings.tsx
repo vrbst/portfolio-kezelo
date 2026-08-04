@@ -12,6 +12,9 @@ import {
   CloudUpload,
   CloudDownload,
   CheckCircle2,
+  Check,
+  Pencil,
+  X,
   AlertTriangle,
   Landmark,
   Sparkles,
@@ -419,6 +422,8 @@ function PriceSettings() {
   const priceFile = usePortfolio((s) => s.priceFile);
   const prices = usePortfolio((s) => s.prices);
   const livePrices = usePortfolio((s) => s.livePrices);
+  const manualPrices = usePortfolio((s) => s.manualPrices);
+  const setManualPrice = usePortfolio((s) => s.setManualPrice);
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const pricesLoading = usePortfolio((s) => s.pricesLoading);
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
@@ -448,7 +453,9 @@ function PriceSettings() {
         Automatikus forrás: Yahoo Finance (a szimbólumot az ISIN-ből keresi meg)
         + frankfurter.app (EUR/HUF
         {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ""}). Ha egy papírnál rossz
-        listát talál, a szimbólumot kézzel felülírhatod alább.
+        listát talál, a szimbólumot kézzel felülírhatod alább. Az árat is
+        megadhatod kézzel (ceruza) — ez ideiglenes, a következő sikeres
+        árfrissítéskor automatikusan visszaáll az élő értékre.
         {priceUpdatedAt && ` Frissítve: ${formatDateTime(priceUpdatedAt)}.`}
       </p>
 
@@ -465,8 +472,10 @@ function PriceSettings() {
               price={prices.get(inst.key)}
               currency={priceFile?.prices[inst.key]?.currency ?? inst.currency}
               isLive={inst.key in livePrices}
+              isManual={inst.key in manualPrices}
               autoSymbol={priceFile?.prices[inst.key]?.symbol}
               onChanged={() => refreshPrices()}
+              onManualPrice={(p) => setManualPrice(inst.key, p)}
             />
           ))}
         </div>
@@ -480,19 +489,37 @@ function PriceRow({
   price,
   currency,
   isLive,
+  isManual,
   autoSymbol,
   onChanged,
+  onManualPrice,
 }: {
   inst: Instrument;
   price?: number;
   currency: string;
   isLive: boolean;
+  isManual: boolean;
   autoSymbol?: string;
   onChanged: () => void;
+  onManualPrice: (price: number | null) => void;
 }) {
   const isinKey = inst.isin ?? inst.key;
   const [sym, setSym] = useState(() => loadSymbolOverrides()[isinKey] ?? "");
   const updateInstrument = usePortfolio((s) => s.updateInstrument);
+
+  // Manual price editor: opens with the current price prefilled.
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [priceDraft, setPriceDraft] = useState("");
+
+  const openPriceEdit = () => {
+    setPriceDraft(price != null ? String(+price.toFixed(4)) : "");
+    setEditingPrice(true);
+  };
+  const savePriceEdit = () => {
+    const v = Number(priceDraft.replace(/\s/g, "").replace(",", "."));
+    onManualPrice(Number.isFinite(v) && v > 0 ? v : null);
+    setEditingPrice(false);
+  };
 
   const save = () => {
     saveSymbolOverride(isinKey, sym);
@@ -549,17 +576,72 @@ function PriceRow({
         </label>
       </div>
       <div className="text-right">
-        {price != null ? (
-          <div className="amt font-semibold tabular-nums">
-            {formatNumber(price, 2)}{" "}
-            <span className="text-xs font-normal text-[var(--color-muted)]">
+        {editingPrice ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              type="text"
+              inputMode="decimal"
+              value={priceDraft}
+              onChange={(e) => setPriceDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") savePriceEdit();
+                if (e.key === "Escape") setEditingPrice(false);
+              }}
+              placeholder={price != null ? formatNumber(price, 2) : "ár"}
+              className="w-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-sm tabular-nums"
+            />
+            <span className="text-xs text-[var(--color-muted)]">
               {currency}
             </span>
+            <button
+              onClick={savePriceEdit}
+              title="Kézi ár mentése"
+              className="rounded-lg p-1 text-[var(--color-positive)] hover:bg-[var(--color-surface-2)]"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setEditingPrice(false)}
+              title="Mégse"
+              className="rounded-lg p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         ) : (
-          <span className="text-xs text-[var(--color-muted)]">
-            Nincs ár még
-          </span>
+          <div className="flex items-center justify-end gap-2">
+            <div className="text-right">
+              {price != null ? (
+                <div className="amt font-semibold tabular-nums">
+                  {formatNumber(price, 2)}{" "}
+                  <span className="text-xs font-normal text-[var(--color-muted)]">
+                    {currency}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-xs text-[var(--color-muted)]">
+                  Nincs ár még
+                </span>
+              )}
+              {isManual && (
+                <button
+                  onClick={() => onManualPrice(null)}
+                  title="Vissza az automatikus árra"
+                  className="text-[10px] text-[var(--color-warning,#fbbf24)] hover:underline"
+                >
+                  kézi ár · visszaállítás
+                </button>
+              )}
+            </div>
+            <button
+              onClick={openPriceEdit}
+              title="Kézi árfolyam megadása (ideiglenes)"
+              className="rounded-lg p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
     </div>
