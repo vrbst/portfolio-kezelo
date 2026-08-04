@@ -23,8 +23,12 @@ const BOND_TYPES = new Set(["gov_bond", "tbill"]);
  */
 export default function HoldingsPanel({
   expandable = false,
+  maxBodyHeight,
 }: {
   expandable?: boolean;
+  /** Cap the table body's height and scroll it (with a sticky header) past this,
+   * so a long holdings list doesn't stretch the card. e.g. "26rem". */
+  maxBodyHeight?: string;
 }) {
   const summary = usePortfolioSummary();
   const rows = consolidatedHoldings(summary);
@@ -68,9 +72,16 @@ export default function HoldingsPanel({
             : "instrumentumonként, számlákon átívelve"}
         </span>
       </div>
-      <div className="overflow-x-auto">
+      <div
+        className={maxBodyHeight ? "overflow-auto" : "overflow-x-auto"}
+        style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
+      >
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-[var(--color-muted)]">
+          <thead
+            className={`text-left text-xs text-[var(--color-muted)] ${
+              maxBodyHeight ? "sticky top-0 z-10 bg-[var(--color-surface)]" : ""
+            }`}
+          >
             <tr className="border-b border-[var(--color-border)]">
               <th className="px-4 py-3 font-medium">Eszköz</th>
               <th className="px-4 py-3 text-right font-medium">Mennyiség</th>

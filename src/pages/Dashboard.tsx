@@ -385,10 +385,14 @@ export default function Dashboard() {
             </div>
           </Card>
 
-          <HoldingsPanel />
+          {/* Cap the holdings list so a long portfolio scrolls instead of
+              stretching the column (and dragging the right rail down with it). */}
+          <HoldingsPanel maxBodyHeight="26rem" />
         </div>
 
-        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események */}
+        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. items-stretch
+            (flex default) makes this column as tall as the left one; the events
+            card grows (flex-1) to end flush with the Eszközeim card's bottom. */}
         <div className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0">
           <LivePricesPanel />
           {/* Allocation donut */}
@@ -469,15 +473,17 @@ export default function Dashboard() {
             </div>
           </Card>
 
-          {/* Közelgő események — a jobb oszlop alján */}
+          {/* Közelgő események — a jobb oszlop alján; xl-en kitölti a maradék
+              magasságot, hogy az alja az Eszközeim aljához érjen. */}
           {events.length > 0 && (
-            <Card className="p-5">
+            <Card className="flex flex-col p-5 xl:min-h-0 xl:flex-1">
               <div className="mb-4 flex items-center gap-2">
                 <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
                 <h2 className="text-lg font-semibold">Közelgő események</h2>
               </div>
-              {/* ~4 elem látszik egyszerre, a többi görgethető */}
-              <div className="max-h-[17rem] space-y-2 overflow-y-auto pr-1">
+              {/* Mobilon fix magasságú (max-h) és görgethető; xl-en a kártya
+                  flex-1-e adja a magasságot, a lista kitölti és görget. */}
+              <div className="max-h-[17rem] min-h-0 space-y-2 overflow-y-auto pr-1 xl:max-h-none xl:flex-1">
                 {events.map((e) => {
                   const key = `${e.date}:${e.kind}:${e.title}`;
                   const Icon = EVENT_ICON[e.kind];
