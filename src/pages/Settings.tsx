@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Trash2,
   Database,
   Download,
+  Upload,
   Cloud,
   ShieldCheck,
   LineChart,
@@ -62,13 +64,20 @@ export default function Settings() {
             kerül szerverre.
           </p>
           <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-            <button
-              className="btn-ghost"
-              onClick={downloadBackup}
-              disabled={transactions.length === 0}
-            >
-              <Download className="h-4 w-4" /> Teljes mentés fájlba (JSON)
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {/* The mobile tab bar has no Importálás entry (no room) — this
+                  link keeps the import flow reachable on a phone. */}
+              <Link to="/import" className="btn-ghost md:hidden">
+                <Upload className="h-4 w-4" /> Importálás
+              </Link>
+              <button
+                className="btn-ghost"
+                onClick={downloadBackup}
+                disabled={transactions.length === 0}
+              >
+                <Download className="h-4 w-4" /> Teljes mentés fájlba (JSON)
+              </button>
+            </div>
             <p className="mt-2 text-xs text-[var(--color-muted)]">
               A teljes történet egy fájlban: tranzakciók (a nyers
               kivonatsorokkal), számlák, értékpapírok, célok, emlékeztetők,
