@@ -258,20 +258,12 @@ export default function Income() {
               <FxDivergingRow
                 label="Piaci árváltozás"
                 value={fxi.marketHuf}
-                max={Math.max(
-                  Math.abs(fxi.marketHuf),
-                  Math.abs(fxi.fxHuf),
-                  1,
-                )}
+                max={Math.max(Math.abs(fxi.marketHuf), Math.abs(fxi.fxHuf), 1)}
               />
               <FxDivergingRow
                 label="Árfolyamhatás (deviza)"
                 value={fxi.fxHuf}
-                max={Math.max(
-                  Math.abs(fxi.marketHuf),
-                  Math.abs(fxi.fxHuf),
-                  1,
-                )}
+                max={Math.max(Math.abs(fxi.marketHuf), Math.abs(fxi.fxHuf), 1)}
               />
               <div className="flex items-baseline justify-between gap-3 border-t border-[var(--color-border)] pt-2">
                 <span className="text-[var(--color-muted)]">
@@ -436,17 +428,12 @@ function FxDivergingRow({
 }) {
   const frac = Math.min(Math.abs(value) / max, 1) * 50; // half-width max
   const positive = value >= 0;
-  const color = positive
-    ? "var(--color-positive)"
-    : "var(--color-negative)";
+  const color = positive ? "var(--color-positive)" : "var(--color-negative)";
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[var(--color-muted)]">{label}</span>
-        <span
-          className="amt font-semibold tabular-nums"
-          style={{ color }}
-        >
+        <span className="amt font-semibold tabular-nums" style={{ color }}>
           {formatMoney(value, "HUF", { sign: true })}
         </span>
       </div>
@@ -514,17 +501,17 @@ function YearReturnChart({ years }: { years: YearIncome[] }) {
         Bevétel a nullvonal fölött (realizált + kamat + osztalék), költség
         alatta (díj + adó).
       </p>
-      <div className="flex items-stretch gap-4 sm:gap-6">
+      <div className="flex items-stretch gap-4 sm:gap-8">
         {rows.map((y) => {
           const active = hover === y.year;
           return (
             <div
               key={y.year}
-              className="flex flex-1 flex-col items-center gap-2"
+              className="flex w-24 flex-col items-center gap-2 sm:w-28"
               onMouseEnter={() => setHover(y.year)}
               onMouseLeave={() => setHover(null)}
             >
-              <div className="relative h-48 w-full max-w-[7rem]">
+              <div className="relative h-48 w-full">
                 {active && (
                   <div className="amt pointer-events-none absolute -top-1 left-1/2 z-10 w-44 -translate-x-1/2 -translate-y-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-xs shadow-xl">
                     <div className="mb-1 font-semibold">{y.year}</div>
