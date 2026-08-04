@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import {
@@ -157,6 +157,28 @@ export default function Dashboard() {
     [summary, transactions],
   );
 
+  // Match the right rail's height to the left column so the events card ends
+  // flush with the Eszközeim card. Nested-flex min-content makes this impossible
+  // to pin purely in CSS (the column grows to its own content), so we measure
+  // the left column and cap the right one to it — only on the xl two-column
+  // layout; stacked below xl the cap is removed.
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const [railMaxH, setRailMaxH] = useState<number | undefined>();
+  useEffect(() => {
+    const el = leftColRef.current;
+    if (!el) return;
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const update = () => setRailMaxH(mq.matches ? el.offsetHeight : undefined);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    mq.addEventListener("change", update);
+    return () => {
+      ro.disconnect();
+      mq.removeEventListener("change", update);
+    };
+  }, []);
+
   if (accounts.length === 0) {
     return (
       <div>
@@ -226,9 +248,9 @@ export default function Dashboard() {
 
       <AlertsPanel />
 
-      <div className="mt-4 flex flex-col gap-4 xl:flex-row">
+      <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-start">
         {/* Bal fő-oszlop: kártyák + grafikon + eszközeim */}
-        <div className="min-w-0 flex-1 space-y-4">
+        <div ref={leftColRef} className="min-w-0 flex-1 space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
               label="Teljes érték"
@@ -390,12 +412,14 @@ export default function Dashboard() {
           <HoldingsPanel maxBodyHeight="26rem" />
         </div>
 
-        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. The row
-            stretches both columns to the same height; xl:min-h-0 lets THIS
-            column shrink to the left one's height instead of growing to its own
-            content, so the events card (flex-1, min-h-0, scrolling list) ends
-            flush with the Eszközeim card's bottom rather than overshooting. */}
-        <div className="flex w-full flex-col gap-4 xl:min-h-0 xl:w-[400px] xl:shrink-0">
+        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. Its height is
+            capped to the left column (railMaxH, measured above); overflow-hidden
+            keeps the flex-1 events card inside that cap, its list scrolling — so
+            the card ends flush with the Eszközeim card's bottom. */}
+        <div
+          className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0 xl:overflow-hidden"
+          style={railMaxH ? { maxHeight: railMaxH } : undefined}
+        >
           <LivePricesPanel />
           {/* Allocation donut */}
           <Card className="p-5">
