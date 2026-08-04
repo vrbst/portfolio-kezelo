@@ -1783,13 +1783,21 @@ export function buildValueSeries(
         asOf(history?.fx["EUR"], day) ??
         histFxRate(fxHistory, "EUR", dayEnd, fx),
     };
+    // Value the holdings at the SAME instant used as the transaction cutoff
+    // (end of `day`), not local noon. Bond accrued interest resets on the coupon
+    // boundary; a coupon tx is stored at the value date's local midnight (=
+    // 22:00Z east of UTC), so it lands in cash as of `dayEnd`. Valuing accrual at
+    // local noon of the same UTC day-string would be BEFORE that boundary, so the
+    // bond would still carry a full period of accrued interest while the coupon
+    // is already in cash → the coupon double-counts for one sample (a phantom
+    // spike on the coupon day). Aligning both to `dayEnd` keeps them consistent.
     const s = computePortfolio(
       accounts,
       txsUpTo,
       instruments,
       pricesAtD,
       fxAtD,
-      new Date(`${day}T12:00:00`),
+      new Date(dayEnd),
     );
     const transit = bridge ? inTransitOn(day) : 0;
     points.push({
