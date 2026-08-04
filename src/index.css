@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /* ----- Design tokens ----------------------------------------------------- */
 @theme {
@@ -17,8 +17,9 @@
   --color-negative: #fb7185;
   --color-warning: #fbbf24;
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-    Roboto, Arial, sans-serif;
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial,
+    sans-serif;
 
   --radius-xl: 1.25rem;
   --shadow-glow: 0 0 40px -12px rgb(99 102 241 / 0.45);
@@ -42,14 +43,26 @@ body {
 
 /* Ambient gradient backdrop */
 body::before {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(60rem 60rem at 12% -10%, rgb(99 102 241 / 0.18), transparent 60%),
-    radial-gradient(50rem 50rem at 100% 0%, rgb(34 211 238 / 0.10), transparent 55%),
-    radial-gradient(70rem 70rem at 50% 120%, rgb(139 92 246 / 0.12), transparent 60%);
+    radial-gradient(
+      60rem 60rem at 12% -10%,
+      rgb(99 102 241 / 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      50rem 50rem at 100% 0%,
+      rgb(34 211 238 / 0.1),
+      transparent 55%
+    ),
+    radial-gradient(
+      70rem 70rem at 50% 120%,
+      rgb(139 92 246 / 0.12),
+      transparent 60%
+    );
 }
 
 /* Thin, quiet scrollbars */
@@ -99,6 +112,62 @@ body::before {
   .btn-ghost {
     @apply border border-[var(--color-border)] text-[var(--color-text)]
       hover:bg-[var(--color-surface-2)] hover:border-[var(--color-brand)]/40;
+  }
+
+  /* Loading placeholder with a sweeping shimmer. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-2xl border border-[var(--color-border)]
+      bg-[var(--color-surface-2)]/50;
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.06),
+      transparent
+    );
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* A small "live" dot with a soft outward ping. Put `.live-dot` on the coloured
+ * dot; the ::before echoes its colour and pulses outward. */
+.live-dot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: live-ping 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes live-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  70%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+/* Respect reduced-motion: kill the ambient/decorative animations. Count-up
+ * numbers are gated in JS separately. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .live-dot::before {
+    animation: none;
   }
 }
 

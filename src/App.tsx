@@ -6,6 +6,7 @@ import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AlertsBanner from "./components/AlertsBanner";
+import { Skeleton } from "./components/ui";
 import { usePortfolio, useActiveAlerts } from "./lib/store";
 
 /** Re-fetch live prices at most this often when refreshing on tab focus. */
@@ -76,9 +77,7 @@ export default function App() {
         <div className="mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8 2xl:max-w-[1600px]">
           {loaded && <AlertsBanner />}
           {!loaded ? (
-            <div className="flex h-[60vh] items-center justify-center text-[var(--color-muted)]">
-              Betöltés…
-            </div>
+            <LoadingSkeleton />
           ) : (
             <AnimatePresence mode="wait">
               <motion.div
@@ -97,6 +96,34 @@ export default function App() {
       <MobileNav />
       <InstallPrompt />
       <UpdatePrompt />
+    </div>
+  );
+}
+
+/** First-paint placeholder while IndexedDB loads: mirrors the dashboard shape
+ * (title, four stat cards, chart + sidebar) with shimmering blocks. */
+function LoadingSkeleton() {
+  return (
+    <div>
+      <Skeleton className="h-8 w-44" />
+      <div className="mt-2">
+        <Skeleton className="h-4 w-64 border-0" />
+      </div>
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-28" />
+        ))}
+      </div>
+      <div className="mt-4 flex flex-col gap-4 xl:flex-row">
+        <div className="min-w-0 flex-1 space-y-4">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-40" />
+        </div>
+        <div className="w-full space-y-4 xl:w-[400px] xl:shrink-0">
+          <Skeleton className="h-44" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
     </div>
   );
 }

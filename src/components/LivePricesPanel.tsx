@@ -159,7 +159,7 @@ function PriceTile({
         ) : (
           live && (
             <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
+              className="live-dot relative h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
               title="Élő árfolyam"
             />
           )

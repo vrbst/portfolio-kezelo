@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useReducedMotion } from "motion/react";
 import {
   AreaChart,
   Area,
@@ -16,12 +17,55 @@ import { usePortfolio } from "../lib/store";
 
 const MASK = "•••";
 
-const tooltipStyle = {
-  background: "#141a2e",
-  border: "1px solid #232b45",
-  borderRadius: 12,
-  color: "#e8ecf8",
-} as const;
+const SERIES_LABEL: Record<string, string> = {
+  value: "Érték",
+  profit: "Hozam",
+  invested: "Befektetett tőke",
+};
+
+/** Card-style tooltip: day header + a coloured row per series. */
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  privacy,
+}: {
+  active?: boolean;
+  payload?: {
+    name?: string;
+    value?: number;
+    stroke?: string;
+    color?: string;
+  }[];
+  label?: number;
+  privacy?: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-xl">
+      <div className="mb-1 text-xs text-[var(--color-muted)]">
+        {formatDay(Number(label))}
+      </div>
+      {payload.map((p) => (
+        <div
+          key={p.name}
+          className="flex items-center justify-between gap-4 text-sm"
+        >
+          <span className="flex items-center gap-1.5 text-[var(--color-muted)]">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: p.stroke ?? p.color }}
+            />
+            {SERIES_LABEL[p.name ?? ""] ?? p.name}
+          </span>
+          <span className="amt font-medium tabular-nums">
+            {privacy ? MASK : formatMoney(Number(p.value))}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function formatMonth(ms: number): string {
   const d = new Date(ms);
@@ -94,6 +138,14 @@ export default function ValueChart({
   const lastProfit = chartData[chartData.length - 1]?.profit ?? 0;
   const profitColor = lastProfit < 0 ? "#fb7185" : "#34d399";
 
+  // Draw-in animation, unless the viewer prefers reduced motion.
+  const reduce = useReducedMotion();
+  const anim = {
+    isAnimationActive: !reduce,
+    animationDuration: 900,
+    animationEasing: "ease-out" as const,
+  };
+
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -102,12 +154,15 @@ export default function ValueChart({
           margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
         >
           <defs>
+            {/* Richer fill: a brighter top, a soft mid-stop, fading to nothing. */}
             <linearGradient id="valueFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.5} />
+              <stop offset="55%" stopColor="#6366f1" stopOpacity={0.14} />
               <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="profitFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={profitColor} stopOpacity={0.35} />
+              <stop offset="0%" stopColor={profitColor} stopOpacity={0.5} />
+              <stop offset="55%" stopColor={profitColor} stopOpacity={0.14} />
               <stop offset="100%" stopColor={profitColor} stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -128,16 +183,8 @@ export default function ValueChart({
             width={52}
           />
           <Tooltip
-            contentStyle={tooltipStyle}
-            labelFormatter={(l) => formatDay(Number(l))}
-            formatter={(v, name) => [
-              privacy ? MASK : formatMoney(Number(v)),
-              name === "value"
-                ? "Érték"
-                : name === "profit"
-                  ? "Hozam"
-                  : "Befektetett tőke",
-            ]}
+            cursor={{ stroke: "#3a4468", strokeWidth: 1 }}
+            content={<ChartTooltip privacy={privacy} />}
           />
           {mode === "profit" ? (
             <>
@@ -146,10 +193,11 @@ export default function ValueChart({
                 type="monotone"
                 dataKey="profit"
                 stroke={profitColor}
-                strokeWidth={2}
+                strokeWidth={2.5}
                 fill="url(#profitFill)"
                 dot={false}
                 name="profit"
+                {...anim}
               />
             </>
           ) : (
@@ -158,10 +206,11 @@ export default function ValueChart({
                 type="monotone"
                 dataKey="value"
                 stroke="#6366f1"
-                strokeWidth={2}
+                strokeWidth={2.5}
                 fill="url(#valueFill)"
                 dot={false}
                 name="value"
+                {...anim}
               />
               <Line
                 type="monotone"
@@ -171,6 +220,7 @@ export default function ValueChart({
                 strokeDasharray="4 4"
                 dot={false}
                 name="invested"
+                {...anim}
               />
             </>
           )}

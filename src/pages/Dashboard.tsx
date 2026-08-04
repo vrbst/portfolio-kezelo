@@ -103,6 +103,14 @@ export default function Dashboard() {
     [accounts, transactions, instruments, prices, fx, historyFile],
   );
 
+  // Last ~30 samples of total value → the hero card's sparkline trend.
+  const valueSpark = useMemo(
+    () => valueSeries.slice(-30).map((p) => p.value),
+    [valueSeries],
+  );
+  const sparkUp =
+    valueSpark.length > 1 && valueSpark[valueSpark.length - 1] >= valueSpark[0];
+
   const [range, setRange] = useState<RangeKey>("max");
   const [chartMode, setChartMode] = useState<ChartMode>("value");
 
@@ -224,15 +232,21 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
               label="Teljes érték"
-              value={formatMoney(summary.totalValueHuf)}
+              numericValue={summary.totalValueHuf}
+              format={(n) => formatMoney(n)}
               sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
               icon={<Wallet className="h-5 w-5" />}
               index={0}
-              accent
+              hero
+              sparkline={valueSpark}
+              sparkStroke={
+                sparkUp ? "var(--color-positive)" : "var(--color-negative)"
+              }
             />
             <StatCard
               label="Teljes hozam"
-              value={formatMoney(summary.totalPlHuf, "HUF", { sign: true })}
+              numericValue={summary.totalPlHuf}
+              format={(n) => formatMoney(n, "HUF", { sign: true })}
               sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
               deltaPct={summary.totalReturnPct}
               icon={<TrendingUp className="h-5 w-5" />}
@@ -240,19 +254,15 @@ export default function Dashboard() {
             />
             <StatCard
               label="Befektetett tőke"
-              value={formatMoney(summary.netDepositedHuf)}
+              numericValue={summary.netDepositedHuf}
+              format={(n) => formatMoney(n)}
               icon={<PiggyBank className="h-5 w-5" />}
               index={2}
             />
             <StatCard
               label="Realizált eredmény összesen"
-              value={formatMoney(
-                summary.totalPlHuf - summary.unrealizedPlHuf,
-                "HUF",
-                {
-                  sign: true,
-                },
-              )}
+              numericValue={summary.totalPlHuf - summary.unrealizedPlHuf}
+              format={(n) => formatMoney(n, "HUF", { sign: true })}
               sub={
                 summary.interestHuf > 0.5
                   ? `kamattal, díjak után · ebből kamat: ${formatMoney(
