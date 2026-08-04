@@ -16,6 +16,8 @@ interface Tile {
   price: number;
   currency: string;
   live: boolean;
+  /** Price is a temporary manual override (beats the live quote). */
+  manual: boolean;
   hufEquiv?: number;
 }
 
@@ -28,6 +30,7 @@ export default function LivePricesPanel() {
   const summary = usePortfolioSummary();
   const prices = usePortfolio((s) => s.prices);
   const livePrices = usePortfolio((s) => s.livePrices);
+  const manualPrices = usePortfolio((s) => s.manualPrices);
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const fx = usePortfolio((s) => s.fx);
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
@@ -55,6 +58,7 @@ export default function LivePricesPanel() {
         const price = prices.get(inst.key);
         if (price == null) return [];
         const rate = inst.currency === "HUF" ? 1 : fx[inst.currency];
+        const manual = inst.key in manualPrices;
         return [
           {
             key: inst.key,
@@ -62,13 +66,15 @@ export default function LivePricesPanel() {
             sub: inst.ticker ? inst.name : undefined,
             price,
             currency: inst.currency,
-            live: inst.key in livePrices,
+            // A manual override wins over the live quote, so it is NOT "live".
+            live: !manual && inst.key in livePrices,
+            manual,
             hufEquiv:
               inst.currency !== "HUF" && rate ? price * rate : undefined,
           },
         ];
       });
-  }, [summary, prices, livePrices, fx]);
+  }, [summary, prices, livePrices, manualPrices, fx]);
 
   if (!eurHuf && tiles.length === 0) return null;
 
@@ -118,6 +124,7 @@ export default function LivePricesPanel() {
               t.hufEquiv != null ? `≈ ${formatMoney(t.hufEquiv, "HUF")}` : t.sub
             }
             live={t.live}
+            manual={t.manual}
           />
         ))}
       </div>
@@ -130,11 +137,13 @@ function PriceTile({
   value,
   sub,
   live,
+  manual,
 }: {
   label: string;
   value: string;
   sub?: string;
   live?: boolean;
+  manual?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
@@ -142,19 +151,33 @@ function PriceTile({
         <span className="truncate text-xs font-medium text-[var(--color-muted)]">
           {label}
         </span>
-        {live && (
+        {manual ? (
           <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
-            title="Élő árfolyam"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-warning,#fbbf24)]"
+            title="Kézi árfolyam — a következő frissítéskor visszaáll az élő értékre"
           />
+        ) : (
+          live && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
+              title="Élő árfolyam"
+            />
+          )
         )}
       </div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-      {sub && (
-        <div className="mt-0.5 truncate text-xs text-[var(--color-muted)]">
-          {sub}
-        </div>
-      )}
+      <div className="mt-0.5 flex items-center gap-1.5">
+        {manual && (
+          <span className="shrink-0 text-[10px] font-medium text-[var(--color-warning,#fbbf24)]">
+            kézi
+          </span>
+        )}
+        {sub && (
+          <span className="truncate text-xs text-[var(--color-muted)]">
+            {sub}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
