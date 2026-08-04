@@ -7,13 +7,33 @@
 
 import type { Account, Instrument, Transaction } from "./model";
 import {
+  buildFxHistory,
   computePortfolio,
   consolidatedHoldings,
   futureBondCashflows,
+  histFxRate,
   toHuf,
+  type FxHistory,
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
+
+/**
+ * HUF a buy ACTUALLY cost: the gross amount at the buy-day conversion rate, not
+ * today's FX on the net. A EUR WBIT buy is 109.65 € × the buy-day rate ≈ 40 003
+ * Ft (what left the account), not 108.65 € × today's rate ≈ 39 200. Matches the
+ * portfolio cost basis and the DCA-goal progress.
+ */
+function buyHufAtCost(
+  t: Transaction,
+  fxHistory: FxHistory,
+  fx: Record<string, number>,
+): number {
+  const amt = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+  return t.currency === "HUF"
+    ? amt
+    : amt * histFxRate(fxHistory, t.currency, t.date, fx);
+}
 import { effectiveMonth, effectiveMonthLabel, GOAL_TOLERANCE } from "./goals";
 import type { Alert } from "./alerts";
 import { formatMoney } from "./format";
@@ -146,6 +166,7 @@ export function savingsMonthlyStatus(
 ): SavingsMonthlyStatus[] {
   const eff = effectiveMonth(now);
   const monthLabel = effectiveMonthLabel(now);
+  const fxHistory = buildFxHistory(transactions);
   const progressByGoal = new Map(
     computeSavingsProgress(
       goals,
@@ -176,11 +197,7 @@ export function savingsMonthlyStatus(
       if (Number.isNaN(d.getTime())) continue;
       const em = effectiveMonth(d);
       if (em.year !== eff.year || em.month0 !== eff.month0) continue;
-      boughtHuf += toHuf(
-        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-        t.currency,
-        fx,
-      );
+      boughtHuf += buyHufAtCost(t, fxHistory, fx);
     }
     const baseNeededHuf = Math.max(
       0,
@@ -304,6 +321,7 @@ function boughtThisEffectiveMonth(
 ): number {
   if (goal.instrumentKeys.length === 0) return 0;
   const eff = effectiveMonth(now);
+  const fxHistory = buildFxHistory(txs);
   const keys = new Set(goal.instrumentKeys);
   const types = new Set(
     goal.instrumentKeys
@@ -320,7 +338,7 @@ function boughtThisEffectiveMonth(
     if (Number.isNaN(d.getTime())) continue;
     const em = effectiveMonth(d);
     if (em.year !== eff.year || em.month0 !== eff.month0) continue;
-    sum += toHuf(Math.abs(t.netAmount ?? t.grossAmount ?? 0), t.currency, fx);
+    sum += buyHufAtCost(t, fxHistory, fx);
   }
   return sum;
 }

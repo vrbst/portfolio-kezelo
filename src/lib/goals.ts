@@ -7,7 +7,7 @@
 // period, so the two always agree.
 
 import type { Instrument, InstrumentType, Transaction } from "./model";
-import { toHuf } from "./portfolio";
+import { buildFxHistory, histFxRate } from "./portfolio";
 import { formatMoney } from "./format";
 import { instrumentTypeLabel } from "./labels";
 import type { Alert } from "./alerts";
@@ -128,6 +128,17 @@ export function computeGoalProgress(
 ): GoalProgress[] {
   const instById = new Map(instruments.map((i) => [i.key, i]));
   const eff = effectiveMonth(now);
+  // Value each buy at the HUF it ACTUALLY cost — the gross amount at the day's
+  // conversion rate — not today's FX on the net. For a EUR WBIT buy that means
+  // 109.65 € × the buy-day rate ≈ 40 003 Ft (what left the account), not
+  // 108.65 € × today's rate ≈ 39 200. Matches the portfolio's cost basis.
+  const fxHistory = buildFxHistory(transactions);
+  const buyHuf = (t: Transaction): number => {
+    const amt = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+    return t.currency === "HUF"
+      ? amt
+      : amt * histFxRate(fxHistory, t.currency, t.date, fx);
+  };
 
   return goals.map((goal) => {
     const cur = periodInfo(eff.year, eff.month0, goal.periodMonths);
@@ -149,8 +160,7 @@ export function computeGoalProgress(
       const em = effectiveMonth(d);
       if (periodInfo(em.year, em.month0, goal.periodMonths).key !== cur.key)
         continue;
-      const amt = Math.abs(t.netAmount ?? t.grossAmount ?? 0);
-      invested += toHuf(amt, t.currency, fx);
+      invested += buyHuf(t);
     }
     const target = goal.amountHuf;
     const instrumentName = goal.instrumentType
