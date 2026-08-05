@@ -9,7 +9,7 @@ import {
   type SavingsGoal,
 } from "../lib/savings";
 import { PREFS_EVENT } from "../lib/prefs";
-import { Card } from "./ui";
+import { Card, AmountInput } from "./ui";
 import { formatMoney, formatDate } from "../lib/format";
 
 function newId(): string {
@@ -137,13 +137,11 @@ export default function SavingsTargets() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <input
-            type="text"
-            inputMode="numeric"
+          <AmountInput
             placeholder="Összeg (Ft)"
             className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onValueChange={setAmount}
           />
           <input
             type="date"
@@ -233,12 +231,10 @@ function GoalRow({
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <input
-            type="text"
-            inputMode="numeric"
+          <AmountInput
             className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onValueChange={setAmount}
           />
           <input
             type="date"

@@ -21,7 +21,7 @@ import {
   Bell,
 } from "lucide-react";
 import { usePortfolio } from "../lib/store";
-import { PageHeader, Card, Badge } from "../components/ui";
+import { PageHeader, Card, Badge, AmountInput } from "../components/ui";
 import { formatDateTime, formatNumber } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
 import { verifyAccess, type SyncConfig } from "../lib/sync";
@@ -890,15 +890,12 @@ function AlertSettings() {
             Ha egy számlán ennél több készpénz áll, figyelmeztetés jelenik meg.
           </span>
           <div className="mt-1 flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              step={10000}
+            <AmountInput
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onValueChange={setDraft}
               onBlur={commit}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-              className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm tabular-nums"
+              className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
             />
             <span className="text-sm text-[var(--color-muted)]">Ft</span>
           </div>

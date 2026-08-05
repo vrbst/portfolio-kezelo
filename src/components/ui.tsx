@@ -1,7 +1,88 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { motion, animate, useReducedMotion } from "motion/react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { formatMoney, formatPercent } from "../lib/format";
+
+/** Group an integer digit-string with non-breaking thousands spaces (hu-HU). */
+function groupDigits(d: string): string {
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+/**
+ * A whole-number amount field (Ft) that stays thousands-grouped WHILE you type
+ * (e.g. `155 000`), preserving the caret position across reformatting. It is
+ * controlled: `value` is the raw digit-string the parent stores and
+ * `onValueChange` reports the raw digits back (no separators), so existing parse
+ * logic (`Number(v.replace(/\s/g, ""))`) keeps working unchanged. Uses a text
+ * input with a numeric keypad since a native number input can't show grouping.
+ */
+export function AmountInput({
+  value,
+  onValueChange,
+  className = "",
+  ...rest
+}: {
+  value: string | number;
+  onValueChange: (raw: string) => void;
+  className?: string;
+} & Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "value" | "onChange" | "type" | "inputMode"
+>) {
+  const ref = useRef<HTMLInputElement>(null);
+  // Desired caret position after a reformat; set on change, applied post-render.
+  const caret = useRef<number | null>(null);
+
+  const raw = String(value ?? "").replace(/\D/g, "");
+  const display = raw ? groupDigits(raw) : "";
+
+  useLayoutEffect(() => {
+    if (caret.current != null && ref.current) {
+      ref.current.setSelectionRange(caret.current, caret.current);
+      caret.current = null;
+    }
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target;
+    const pos = el.selectionStart ?? el.value.length;
+    // How many digits sit left of the caret — the anchor we keep stable.
+    const digitsLeft = el.value.slice(0, pos).replace(/\D/g, "").length;
+    let digits = el.value.replace(/\D/g, "");
+    // Drop leading zeros ("007" → "7") but keep a lone "0".
+    digits = digits.replace(/^0+(?=\d)/, "");
+    const formatted = digits ? groupDigits(digits) : "";
+    // Re-find the caret: walk the formatted string past `digitsLeft` digits.
+    let seen = 0;
+    let i = 0;
+    while (i < formatted.length && seen < digitsLeft) {
+      if (formatted[i] >= "0" && formatted[i] <= "9") seen++;
+      i++;
+    }
+    caret.current = i;
+    onValueChange(digits);
+  };
+
+  return (
+    <input
+      ref={ref}
+      type="text"
+      inputMode="numeric"
+      value={display}
+      onChange={handleChange}
+      className={className}
+      {...rest}
+    />
+  );
+}
 
 /**
  * A number that counts up to `value` — from 0 on first mount, from the previous

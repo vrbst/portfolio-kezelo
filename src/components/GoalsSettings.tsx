@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Target, Trash2, Plus, CheckCircle2, X } from "lucide-react";
 import { usePortfolio, useGoalProgress } from "../lib/store";
-import { Card, Badge } from "./ui";
+import { Card, Badge, AmountInput } from "./ui";
 import { formatMoney } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
 import { PERIOD_LABEL, type GoalPeriod } from "../lib/goals";
@@ -190,15 +190,12 @@ export default function GoalsSettings() {
             <span className="text-xs text-[var(--color-muted)]">
               Összeg (Ft)
             </span>
-            <input
-              type="number"
-              min={0}
-              step={10000}
+            <AmountInput
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onValueChange={setAmount}
               onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder="100000"
-              className={`${fieldClass} w-36 tabular-nums`}
+              placeholder="100 000"
+              className={`${fieldClass} w-36 text-right tabular-nums`}
             />
           </label>
           <button
