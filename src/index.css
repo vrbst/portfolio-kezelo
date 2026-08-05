@@ -179,12 +179,83 @@ body::before {
   }
 }
 
+/* Ticker-style value flash: a brief coloured glow around the number when it
+ * changes (works on gradient text via drop-shadow). */
+.flash-up {
+  animation: flash-up 0.9s ease-out;
+}
+.flash-down {
+  animation: flash-down 0.9s ease-out;
+}
+@keyframes flash-up {
+  0% {
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  22% {
+    filter: drop-shadow(0 0 12px var(--color-positive));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
+  }
+}
+@keyframes flash-down {
+  0% {
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  22% {
+    filter: drop-shadow(0 0 12px var(--color-negative));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
+  }
+}
+
+/* Slow aurora wash for the hero card. Two drifting radial blooms in the brand
+ * hues; kept low-opacity so the number stays crisp. */
+.aurora {
+  background:
+    radial-gradient(
+      18rem 12rem at 15% 20%,
+      rgb(99 102 241 / 0.35),
+      transparent 60%
+    ),
+    radial-gradient(
+      16rem 12rem at 85% 90%,
+      rgb(34 211 238 / 0.28),
+      transparent 60%
+    ),
+    radial-gradient(
+      14rem 12rem at 60% 10%,
+      rgb(139 92 246 / 0.3),
+      transparent 60%
+    );
+  background-size: 180% 180%;
+  animation: aurora-drift 14s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0% {
+    background-position:
+      0% 0%,
+      100% 100%,
+      50% 0%;
+  }
+  100% {
+    background-position:
+      100% 50%,
+      0% 40%,
+      40% 100%;
+  }
+}
+
 /* Respect reduced-motion: kill the ambient/decorative animations. Count-up
  * numbers are gated in JS separately. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after,
   .live-dot::before,
-  .cal-ping {
+  .cal-ping,
+  .aurora,
+  .flash-up,
+  .flash-down {
     animation: none;
   }
 }

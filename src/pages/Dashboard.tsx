@@ -10,8 +10,13 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
+  Target,
 } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import {
+  usePortfolio,
+  usePortfolioSummary,
+  useGoalProgress,
+} from "../lib/store";
 import {
   accountReturn,
   isEmptyAccount,
@@ -32,6 +37,7 @@ import {
   Delta,
   Badge,
   Amt,
+  Sparkline,
 } from "../components/ui";
 import {
   formatMoney,
@@ -75,6 +81,19 @@ function rangeCutoff(key: RangeKey, now = new Date()): string | null {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+/** Short Hungarian "how long ago" label for the live-price freshness pill. */
+function relTime(iso?: string): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "az imént";
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "az imént";
+  if (min < 60) return `${min} perce`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} órája`;
+  return `${Math.round(h / 24)} napja`;
+}
+
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
@@ -110,6 +129,53 @@ export default function Dashboard() {
   );
   const sparkUp =
     valueSpark.length > 1 && valueSpark[valueSpark.length - 1] >= valueSpark[0];
+
+  // Change between the last two samples → the hero's "ma" pill. The final point
+  // is today at live prices; when samples are daily (spans ≤ ~1y) the previous
+  // one is yesterday → "ma", otherwise we label the actual gap in days.
+  const dayChange = useMemo(() => {
+    if (valueSeries.length < 2) return null;
+    const last = valueSeries[valueSeries.length - 1];
+    const prev = valueSeries[valueSeries.length - 2];
+    const abs = last.value - prev.value;
+    const gap = Math.round(
+      (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
+    );
+    return {
+      abs,
+      pct: prev.value ? abs / prev.value : undefined,
+      note: gap <= 1 ? "ma" : `${gap} nap`,
+    };
+  }, [valueSeries]);
+
+  // Per-account value trend for the account-card sparklines. Reuses the same
+  // history-aware builder on each account alone (bridge off — inter-account
+  // transit only matters for the whole-portfolio curve).
+  const instMap = useMemo(
+    () => new Map(instruments.map((i) => [i.key, i])),
+    [instruments],
+  );
+  const accountSparks = useMemo(() => {
+    const out = new Map<string, number[]>();
+    for (const a of summary.accounts) {
+      if (isEmptyAccount(a)) continue;
+      const s = buildValueSeries(
+        [a.account],
+        transactions,
+        instMap,
+        prices,
+        fx,
+        historyFile,
+        new Date(),
+        false,
+      );
+      if (s.length >= 2) out.set(a.account.id, s.slice(-24).map((p) => p.value));
+    }
+    return out;
+  }, [summary.accounts, transactions, instMap, prices, fx, historyFile]);
+
+  const goalProgress = useGoalProgress();
+  const [activeSlice, setActiveSlice] = useState<number | null>(null);
 
   const [range, setRange] = useState<RangeKey>("max");
   const [chartMode, setChartMode] = useState<ChartMode>("value");
@@ -203,6 +269,15 @@ export default function Dashboard() {
         subtitle="A teljes portfóliód egy helyen."
         action={
           <div className="flex items-center gap-3 text-sm">
+            {priceUpdatedAt && (
+              <span
+                className="hidden items-center gap-1.5 rounded-full border border-[var(--color-positive)]/30 bg-[var(--color-positive)]/10 px-2.5 py-1 text-xs text-[var(--color-positive)] sm:inline-flex"
+                title={`Árfolyamok frissítve: ${formatDateTime(priceUpdatedAt)}`}
+              >
+                <span className="live-dot relative h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" />
+                élő · {relTime(priceUpdatedAt)}
+              </span>
+            )}
             {eurHuf && (
               <span className="hidden text-[var(--color-muted)] sm:inline">
                 EUR/HUF{" "}
@@ -257,9 +332,14 @@ export default function Dashboard() {
               numericValue={summary.totalValueHuf}
               format={(n) => formatMoney(n)}
               sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
+              delta={dayChange?.abs}
+              deltaPct={dayChange?.pct}
+              deltaNote={dayChange?.note}
               icon={<Wallet className="h-5 w-5" />}
               index={0}
               hero
+              aurora
+              flashOnChange
               sparkline={valueSpark}
               sparkStroke={
                 sparkUp ? "var(--color-positive)" : "var(--color-negative)"
@@ -393,6 +473,19 @@ export default function Dashboard() {
                           <Amt>{formatMoney(a.cashValueHuf)}</Amt>
                         </div>
                       </div>
+                      {accountSparks.has(a.account.id) && (
+                        <div className="hidden h-8 w-14 shrink-0 sm:block">
+                          <Sparkline
+                            data={accountSparks.get(a.account.id)!}
+                            stroke={
+                              (accountReturn(a) ?? 0) >= 0
+                                ? "var(--color-positive)"
+                                : "var(--color-negative)"
+                            }
+                            className="h-full w-full"
+                          />
+                        </div>
+                      )}
                       <div className="text-right">
                         <div className="amt font-semibold tabular-nums">
                           {formatMoney(a.totalValueHuf)}
@@ -456,9 +549,19 @@ export default function Dashboard() {
                     outerRadius={100}
                     paddingAngle={3}
                     stroke="none"
+                    isAnimationActive={false}
+                    onMouseEnter={(_, i) => setActiveSlice(i)}
+                    onMouseLeave={() => setActiveSlice(null)}
                   >
                     {allocation.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      <Cell
+                        key={i}
+                        fill={COLORS[i % COLORS.length]}
+                        fillOpacity={
+                          activeSlice == null || activeSlice === i ? 1 : 0.3
+                        }
+                        style={{ transition: "fill-opacity 0.2s" }}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -469,18 +572,43 @@ export default function Dashboard() {
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xs text-[var(--color-muted)]">
-                  Összesen
-                </span>
-                <span className="amt text-xl font-semibold">
-                  {formatMoney(summary.totalValueHuf)}
-                </span>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
+                {activeSlice != null && allocation[activeSlice] ? (
+                  <>
+                    <span className="max-w-full truncate text-xs text-[var(--color-muted)]">
+                      {allocation[activeSlice].name}
+                    </span>
+                    <span className="amt text-lg font-semibold">
+                      {formatMoney(allocation[activeSlice].value)}
+                    </span>
+                    <span className="text-xs font-medium text-[var(--color-brand)]">
+                      {formatPercent(
+                        allocation[activeSlice].value / summary.totalValueHuf,
+                      ).replace("+", "")}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-[var(--color-muted)]">
+                      Összesen
+                    </span>
+                    <span className="amt text-xl font-semibold">
+                      {formatMoney(summary.totalValueHuf)}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
             <div className="mt-4 space-y-2">
               {allocation.map((a, i) => (
-                <div key={a.name} className="flex items-center gap-2 text-sm">
+                <div
+                  key={a.name}
+                  className={`flex cursor-default items-center gap-2 rounded-lg px-1 py-0.5 text-sm transition-colors ${
+                    activeSlice === i ? "bg-[var(--color-surface-2)]/60" : ""
+                  }`}
+                  onMouseEnter={() => setActiveSlice(i)}
+                  onMouseLeave={() => setActiveSlice(null)}
+                >
                   <span
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ background: COLORS[i % COLORS.length] }}
@@ -498,6 +626,60 @@ export default function Dashboard() {
               ))}
             </div>
           </Card>
+
+          {/* Havi célok (DCA) — kompakt haladás-gyűrűk. Csak ha van cél. */}
+          {goalProgress.length > 0 && (
+            <Card className="p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <Target className="h-5 w-5 text-[var(--color-brand)]" />
+                <h2 className="text-lg font-semibold">Célok</h2>
+              </div>
+              <div className="space-y-3">
+                {goalProgress.map((p) => {
+                  const pct = Math.min(Math.max(p.ratio, 0), 1) * 100;
+                  const color = p.done
+                    ? "var(--color-positive)"
+                    : "var(--color-brand)";
+                  return (
+                    <Link
+                      key={p.goal.id}
+                      to="/goals"
+                      className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 card-hover"
+                    >
+                      <div className="relative h-12 w-12 shrink-0">
+                        <div
+                          className="absolute inset-0 rounded-full"
+                          style={{
+                            background: `conic-gradient(${color} ${pct}%, var(--color-surface-2) 0)`,
+                          }}
+                        />
+                        <div className="absolute inset-[3px] grid place-items-center rounded-full bg-[var(--color-surface)] text-[11px] font-semibold tabular-nums">
+                          {Math.round(p.ratio * 100)}%
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">
+                            {p.instrumentName}
+                          </span>
+                          {p.done && (
+                            <Badge tone="positive">Teljesítve</Badge>
+                          )}
+                        </div>
+                        <div className="amt mt-0.5 text-xs tabular-nums text-[var(--color-muted)]">
+                          {formatMoney(p.investedHuf)} /{" "}
+                          {formatMoney(p.targetHuf)}
+                          {!p.done && p.remainingHuf > 0 && (
+                            <> · még {formatMoney(p.remainingHuf)}</>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {/* Közelgő események — a jobb oszlop alján; xl-en kitölti a maradék
               magasságot, hogy az alja az Eszközeim aljához érjen. */}

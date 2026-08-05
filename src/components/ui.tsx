@@ -200,10 +200,13 @@ export function StatCard({
   sub,
   delta,
   deltaPct,
+  deltaNote,
   icon,
   index = 0,
   accent = false,
   hero = false,
+  aurora = false,
+  flashOnChange = false,
   sparkline,
   sparkStroke = "var(--color-brand)",
 }: {
@@ -217,18 +220,44 @@ export function StatCard({
   sub?: ReactNode;
   delta?: number;
   deltaPct?: number;
+  /** Muted qualifier after the delta (e.g. "ma"). */
+  deltaNote?: string;
   icon?: ReactNode;
   index?: number;
   accent?: boolean;
   /** Larger, gradient-tinted number + stronger glow for the primary metric. */
   hero?: boolean;
+  /** Slow animated gradient wash behind the card (reduced-motion: static). */
+  aurora?: boolean;
+  /** Briefly glows the number green/red when numericValue changes. */
+  flashOnChange?: boolean;
   /** Tiny trend line drawn at the bottom of the card. */
   sparkline?: number[];
   sparkStroke?: string;
 }) {
+  const reduce = useReducedMotion();
+  // Ticker-style flash: when a fresh value arrives (e.g. after a price refresh)
+  // the number briefly glows up/down. Skipped on first mount and reduced-motion.
+  const [flash, setFlash] = useState<null | "up" | "down">(null);
+  const prevNum = useRef(numericValue);
+  useEffect(() => {
+    if (!flashOnChange || reduce || numericValue == null) {
+      prevNum.current = numericValue;
+      return;
+    }
+    if (prevNum.current != null && numericValue !== prevNum.current) {
+      setFlash(numericValue > prevNum.current ? "up" : "down");
+      const t = setTimeout(() => setFlash(null), 900);
+      prevNum.current = numericValue;
+      return () => clearTimeout(t);
+    }
+    prevNum.current = numericValue;
+  }, [numericValue, flashOnChange, reduce]);
+
   const numberCls = hero
     ? "mt-2 text-3xl font-bold tracking-tight text-gradient"
     : "mt-2 text-2xl font-semibold tracking-tight";
+  const flashCls = flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : "";
   const showValue =
     numericValue != null && format ? (
       <AnimatedAmount value={numericValue} format={format} />
@@ -248,6 +277,14 @@ export function StatCard({
         accent || hero ? "ring-1 ring-[var(--color-brand)]/30" : ""
       }`}
     >
+      {aurora && (
+        <div
+          className={`pointer-events-none absolute inset-0 opacity-70 ${
+            reduce ? "" : "aurora"
+          }`}
+          aria-hidden="true"
+        />
+      )}
       {(accent || hero) && (
         <div
           className={`pointer-events-none absolute -right-8 -top-10 rounded-full bg-[var(--color-brand)]/20 blur-2xl ${
@@ -259,19 +296,24 @@ export function StatCard({
         <span className="text-sm text-[var(--color-muted)]">{label}</span>
         {icon && <span className="text-[var(--color-muted)]">{icon}</span>}
       </div>
-      <div className={`amt ${numberCls}`}>{showValue}</div>
+      <div className={`amt relative ${numberCls} ${flashCls}`}>{showValue}</div>
       {sub != null && (
-        <div className="amt mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
+        <div className="amt relative mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
           {sub}
         </div>
       )}
       {(delta != null || deltaPct != null) && (
-        <div className="mt-1.5 text-sm">
+        <div className="relative mt-1.5 flex items-center gap-1.5 text-sm">
           <Delta value={delta} pct={deltaPct} />
+          {deltaNote && (
+            <span className="text-xs text-[var(--color-muted)]">
+              {deltaNote}
+            </span>
+          )}
         </div>
       )}
       {sparkline && sparkline.length >= 2 && (
-        <div className="mt-3 h-8 w-full">
+        <div className="relative mt-3 h-8 w-full">
           <Sparkline
             data={sparkline}
             stroke={sparkStroke}
