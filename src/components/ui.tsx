@@ -255,8 +255,8 @@ export function StatCard({
   }, [numericValue, flashOnChange, reduce]);
 
   const numberCls = hero
-    ? "mt-2 text-3xl font-bold tracking-tight text-gradient"
-    : "mt-2 text-2xl font-semibold tracking-tight";
+    ? "font-display mt-2 text-3xl font-bold tracking-tight text-gradient"
+    : "font-display mt-2 text-2xl font-semibold tracking-tight";
   const flashCls = flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : "";
   const showValue =
     numericValue != null && format ? (

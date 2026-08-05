@@ -18,7 +18,11 @@
   --color-warning: #fbbf24;
 
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial,
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Arial, sans-serif;
+  /* Display face for headings + big numbers — geometric, techy, fintech. */
+  --font-display:
+    "Space Grotesk Variable", "Inter Variable", ui-sans-serif, system-ui,
     sans-serif;
 
   --radius-xl: 1.25rem;
@@ -39,6 +43,14 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Headings wear the display face (Space Grotesk) for that fintech character;
+ * a hair tighter tracking keeps big titles from feeling loose. */
+h1,
+h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 /* Ambient gradient backdrop */
@@ -94,6 +106,14 @@ body::before {
   .text-gradient {
     @apply bg-gradient-to-r from-[var(--color-brand)] via-[var(--color-brand-2)]
       to-[var(--color-accent)] bg-clip-text text-transparent;
+  }
+
+  /* Big numeric readouts in the display face with tabular figures so digits
+   * stay column-aligned as values count up. */
+  .font-display {
+    font-family: var(--font-display);
+    font-feature-settings: "tnum" 1;
+    letter-spacing: -0.01em;
   }
 
   .btn,

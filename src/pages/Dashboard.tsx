@@ -578,7 +578,7 @@ export default function Dashboard() {
                     <span className="max-w-full truncate text-xs text-[var(--color-muted)]">
                       {allocation[activeSlice].name}
                     </span>
-                    <span className="amt text-lg font-semibold">
+                    <span className="amt font-display text-lg font-semibold">
                       {formatMoney(allocation[activeSlice].value)}
                     </span>
                     <span className="text-xs font-medium text-[var(--color-brand)]">
@@ -592,7 +592,7 @@ export default function Dashboard() {
                     <span className="text-xs text-[var(--color-muted)]">
                       Összesen
                     </span>
-                    <span className="amt text-xl font-semibold">
+                    <span className="amt font-display text-xl font-semibold">
                       {formatMoney(summary.totalValueHuf)}
                     </span>
                   </>

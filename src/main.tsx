@@ -1,6 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
+// Self-hosted fonts (offline-friendly, no CDN): Inter for body/UI, Space Grotesk
+// for headings + the big numbers → a modern fintech feel.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/space-grotesk";
 import "./index.css";
 import App from "./App";
 import Dashboard from "./pages/Dashboard";
