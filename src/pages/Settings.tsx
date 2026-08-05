@@ -807,19 +807,13 @@ function BondSeriesSettings() {
                     />
                   </Field>
                   <Field label="Első kamat (Ft)">
-                    <input
+                    {/* key: remount (reseed the draft) when the stored value
+                        changes externally, e.g. a cloud pull. */}
+                    <FirstCouponInput
                       key={`fc:${b.firstCouponHuf ?? ""}`}
-                      type="number"
-                      step="any"
+                      valueHuf={b.firstCouponHuf}
+                      onCommit={(v) => setBond(inst, { firstCouponHuf: v })}
                       className={`${inputCls} w-32 text-right`}
-                      defaultValue={b.firstCouponHuf ?? ""}
-                      placeholder="becsült"
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        setBond(inst, {
-                          firstCouponHuf: v === "" ? undefined : Number(v),
-                        });
-                      }}
                     />
                   </Field>
                 </div>
@@ -829,6 +823,34 @@ function BondSeriesSettings() {
         })}
       </div>
     </Card>
+  );
+}
+
+/**
+ * The bond "first coupon (Ft)" amount — grouped while typing. Controlled draft
+ * seeded from the stored value (rounded to whole Ft), committed on blur. The
+ * parent remounts it via `key` when the stored value changes externally.
+ */
+function FirstCouponInput({
+  valueHuf,
+  onCommit,
+  className,
+}: {
+  valueHuf?: number;
+  onCommit: (v: number | undefined) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(
+    valueHuf != null ? String(Math.round(valueHuf)) : "",
+  );
+  return (
+    <AmountInput
+      value={draft}
+      onValueChange={setDraft}
+      placeholder="becsült"
+      className={className}
+      onBlur={() => onCommit(draft === "" ? undefined : Number(draft))}
+    />
   );
 }
 
