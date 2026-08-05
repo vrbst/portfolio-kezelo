@@ -26,7 +26,13 @@ import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart from "../components/ForecastChart";
 import { loadSavingsGoals } from "../lib/savings";
-import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
+import {
+  PageHeader,
+  Card,
+  EmptyState,
+  Badge,
+  AmountInput,
+} from "../components/ui";
 import { formatMoney } from "../lib/format";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
@@ -328,17 +334,16 @@ export default function Forecast() {
 
             <div className="mt-3">
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
+                <AmountInput
                   className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
-                  value={savingDraft ?? huf(monthlySaving)}
-                  onFocus={() => setSavingDraft(String(monthlySaving))}
-                  onChange={(e) => {
-                    setSavingDraft(e.target.value);
-                    const n = Number(e.target.value.replace(/\D/g, ""));
-                    if (e.target.value.trim() !== "" && Number.isFinite(n)) {
-                      setSettings((s) => ({ ...s, monthlySavingOverride: n }));
+                  value={savingDraft ?? String(Math.round(monthlySaving))}
+                  onValueChange={(digits) => {
+                    setSavingDraft(digits);
+                    if (digits !== "") {
+                      setSettings((s) => ({
+                        ...s,
+                        monthlySavingOverride: Number(digits),
+                      }));
                     }
                   }}
                   onBlur={() => setSavingDraft(null)}
@@ -396,13 +401,11 @@ export default function Forecast() {
                   value={expDate}
                   onChange={(e) => setExpDate(e.target.value)}
                 />
-                <input
-                  type="text"
-                  inputMode="numeric"
+                <AmountInput
                   placeholder="Összeg (Ft)"
                   className="w-28 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
                   value={expAmount}
-                  onChange={(e) => setExpAmount(e.target.value)}
+                  onValueChange={setExpAmount}
                 />
               </div>
               <div className="flex gap-2">
