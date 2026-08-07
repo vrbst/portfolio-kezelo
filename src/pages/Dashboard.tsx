@@ -157,9 +157,10 @@ export default function Dashboard() {
   const goalProgress = useGoalProgress();
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
 
-  // "Mai mozgatók": each market-priced holding's recent move — live price vs the
-  // last close (intraday) or, when the price hasn't moved since, the previous
-  // close (last session). Biggest absolute HUF moves first.
+  // Movers since the last close: every market-priced holding measured the SAME
+  // way — its current price vs its own last recorded close — so the HUF moves
+  // are comparable (only the price move is counted, valued at today's FX; FX
+  // drift is excluded). Biggest absolute HUF move first.
   const movers = useMemo(() => {
     if (!historyFile) return [];
     const out: { name: string; changeHuf: number; changePct: number }[] = [];
@@ -167,19 +168,17 @@ export default function Dashboard() {
       if (!h.instrument || !MOVER_TYPES.has(h.instrument.type)) continue;
       if (h.quantity <= 0) continue;
       const hist = historyFile.prices[h.instrumentKey];
-      if (!hist || hist.length < 2) continue;
+      if (!hist || hist.length < 1) continue;
       const lastClose = hist[hist.length - 1][1];
-      const prevClose = hist[hist.length - 2][1];
-      const nowPrice = prices.get(h.instrumentKey) ?? lastClose;
-      const ref = nowPrice !== lastClose ? lastClose : prevClose;
-      if (!(ref > 0)) continue;
+      const nowPrice = prices.get(h.instrumentKey);
+      if (nowPrice == null || !(lastClose > 0)) continue;
       const rate = h.currency === "HUF" ? 1 : (fx[h.currency] ?? 0);
-      const changeHuf = h.quantity * (nowPrice - ref) * rate;
+      const changeHuf = h.quantity * (nowPrice - lastClose) * rate;
       if (Math.abs(changeHuf) < 1) continue;
       out.push({
         name: h.instrument.ticker ?? h.instrument.name,
         changeHuf,
-        changePct: nowPrice / ref - 1,
+        changePct: nowPrice / lastClose - 1,
       });
     }
     out.sort((a, b) => Math.abs(b.changeHuf) - Math.abs(a.changeHuf));
@@ -392,9 +391,9 @@ export default function Dashboard() {
             <Card className="p-4">
               <div className="mb-3 flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-[var(--color-brand)]" />
-                <h2 className="text-sm font-semibold">Mai mozgatók</h2>
+                <h2 className="text-sm font-semibold">Mozgatók</h2>
                 <span className="text-xs text-[var(--color-muted)]">
-                  utolsó mozgás
+                  utolsó záró óta
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
