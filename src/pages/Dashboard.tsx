@@ -16,6 +16,8 @@ import {
   usePortfolio,
   usePortfolioSummary,
   useGoalProgress,
+  useValueSeries,
+  useDayChange,
 } from "../lib/store";
 import {
   accountReturn,
@@ -23,6 +25,7 @@ import {
   buildValueSeries,
   allocationByClass,
   allocationByCurrency,
+  consolidatedHoldings,
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
@@ -57,6 +60,9 @@ const COLORS = [
   "#fbbf24",
   "#fb7185",
 ];
+
+/** Market-priced security types eligible for the "today's movers" strip. */
+const MOVER_TYPES = new Set(["etf", "stock", "fund"]);
 
 type RangeKey = "1m" | "3m" | "6m" | "1y" | "ytd" | "max";
 
@@ -109,18 +115,7 @@ export default function Dashboard() {
   const privacy = usePortfolio((s) => s.privacy);
   const togglePrivacy = usePortfolio((s) => s.togglePrivacy);
 
-  const valueSeries = useMemo(
-    () =>
-      buildValueSeries(
-        accounts,
-        transactions,
-        new Map(instruments.map((i) => [i.key, i])),
-        prices,
-        fx,
-        historyFile,
-      ),
-    [accounts, transactions, instruments, prices, fx, historyFile],
-  );
+  const valueSeries = useValueSeries();
 
   // Last ~30 samples of total value → the hero card's sparkline trend.
   const valueSpark = useMemo(
@@ -130,23 +125,8 @@ export default function Dashboard() {
   const sparkUp =
     valueSpark.length > 1 && valueSpark[valueSpark.length - 1] >= valueSpark[0];
 
-  // Change between the last two samples → the hero's "ma" pill. The final point
-  // is today at live prices; when samples are daily (spans ≤ ~1y) the previous
-  // one is yesterday → "ma", otherwise we label the actual gap in days.
-  const dayChange = useMemo(() => {
-    if (valueSeries.length < 2) return null;
-    const last = valueSeries[valueSeries.length - 1];
-    const prev = valueSeries[valueSeries.length - 2];
-    const abs = last.value - prev.value;
-    const gap = Math.round(
-      (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
-    );
-    return {
-      abs,
-      pct: prev.value ? abs / prev.value : undefined,
-      note: gap <= 1 ? "ma" : `${gap} nap`,
-    };
-  }, [valueSeries]);
+  // Change between the last two samples → the hero's "ma" pill (shared hook).
+  const dayChange = useDayChange();
 
   // Per-account value trend for the account-card sparklines. Reuses the same
   // history-aware builder on each account alone (bridge off — inter-account
@@ -176,6 +156,35 @@ export default function Dashboard() {
 
   const goalProgress = useGoalProgress();
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
+
+  // "Mai mozgatók": each market-priced holding's recent move — live price vs the
+  // last close (intraday) or, when the price hasn't moved since, the previous
+  // close (last session). Biggest absolute HUF moves first.
+  const movers = useMemo(() => {
+    if (!historyFile) return [];
+    const out: { name: string; changeHuf: number; changePct: number }[] = [];
+    for (const h of consolidatedHoldings(summary)) {
+      if (!h.instrument || !MOVER_TYPES.has(h.instrument.type)) continue;
+      if (h.quantity <= 0) continue;
+      const hist = historyFile.prices[h.instrumentKey];
+      if (!hist || hist.length < 2) continue;
+      const lastClose = hist[hist.length - 1][1];
+      const prevClose = hist[hist.length - 2][1];
+      const nowPrice = prices.get(h.instrumentKey) ?? lastClose;
+      const ref = nowPrice !== lastClose ? lastClose : prevClose;
+      if (!(ref > 0)) continue;
+      const rate = h.currency === "HUF" ? 1 : (fx[h.currency] ?? 0);
+      const changeHuf = h.quantity * (nowPrice - ref) * rate;
+      if (Math.abs(changeHuf) < 1) continue;
+      out.push({
+        name: h.instrument.ticker ?? h.instrument.name,
+        changeHuf,
+        changePct: nowPrice / ref - 1,
+      });
+    }
+    out.sort((a, b) => Math.abs(b.changeHuf) - Math.abs(a.changeHuf));
+    return out.slice(0, 4);
+  }, [summary, historyFile, prices, fx]);
 
   const [range, setRange] = useState<RangeKey>("max");
   const [chartMode, setChartMode] = useState<ChartMode>("value");
@@ -378,6 +387,51 @@ export default function Dashboard() {
               index={3}
             />
           </div>
+
+          {movers.length > 0 && (
+            <Card className="p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-[var(--color-brand)]" />
+                <h2 className="text-sm font-semibold">Mai mozgatók</h2>
+                <span className="text-xs text-[var(--color-muted)]">
+                  utolsó mozgás
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {movers.map((m) => {
+                  const up = m.changeHuf >= 0;
+                  return (
+                    <div
+                      key={m.name}
+                      className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
+                    >
+                      <div className="truncate text-xs font-medium">
+                        {m.name}
+                      </div>
+                      <div
+                        className={`amt font-display mt-1 text-sm font-semibold tabular-nums ${
+                          up
+                            ? "text-[var(--color-positive)]"
+                            : "text-[var(--color-negative)]"
+                        }`}
+                      >
+                        {formatMoney(m.changeHuf, "HUF", { sign: true })}
+                      </div>
+                      <div
+                        className={`text-xs tabular-nums ${
+                          up
+                            ? "text-[var(--color-positive)]"
+                            : "text-[var(--color-negative)]"
+                        }`}
+                      >
+                        {formatPercent(m.changePct)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {valueSeries.length > 1 && (
             <Card className="p-5">

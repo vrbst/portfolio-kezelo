@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { motion } from "motion/react";
-import { usePortfolio, useActiveAlerts } from "../lib/store";
+import {
+  usePortfolio,
+  useActiveAlerts,
+  usePortfolioSummary,
+  useDayChange,
+} from "../lib/store";
 import { categorizeAlerts } from "../lib/alerts";
+import { formatMoney, formatPercent } from "../lib/format";
 import {
   LayoutDashboard,
   Wallet,
@@ -17,6 +23,8 @@ import {
   Sparkles,
   ChevronsLeft,
   ChevronsRight,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
 
 // Nav grouped by intent: overview | what happened/happens | planning |
@@ -58,6 +66,10 @@ export default function Sidebar() {
   const active = useActiveAlerts();
   const alertState = usePortfolio((s) => s.alertState);
   const alertCount = categorizeAlerts(active, alertState).active.length;
+  const summary = usePortfolioSummary();
+  const day = useDayChange();
+  const hasValue = summary.totalValueHuf > 0;
+  const dayUp = (day?.abs ?? 0) >= 0;
 
   function toggle() {
     setCollapsed((c) => {
@@ -94,6 +106,54 @@ export default function Sidebar() {
           </div>
         )}
       </div>
+
+      {/* Always-visible portfolio value — the "balance" is one glance away on
+          every page. Collapsed: just a pulsing dot coloured by today's move. */}
+      {hasValue &&
+        (collapsed ? (
+          <div className="mb-4 flex justify-center" title="Teljes érték">
+            <span
+              className="live-dot relative h-2 w-2 rounded-full"
+              style={{
+                background: dayUp
+                  ? "var(--color-positive)"
+                  : "var(--color-negative)",
+              }}
+            />
+          </div>
+        ) : (
+          <div className="mb-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-3 py-2.5">
+            <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+              <span className="live-dot relative h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" />
+              Teljes érték
+            </div>
+            <div className="amt font-display mt-0.5 text-lg font-semibold tabular-nums">
+              {formatMoney(summary.totalValueHuf)}
+            </div>
+            {day && (
+              <div
+                className={`mt-0.5 flex items-center gap-1 text-xs ${
+                  dayUp
+                    ? "text-[var(--color-positive)]"
+                    : "text-[var(--color-negative)]"
+                }`}
+              >
+                {dayUp ? (
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                ) : (
+                  <ArrowDownRight className="h-3.5 w-3.5" />
+                )}
+                <span className="amt">
+                  {formatMoney(day.abs, "HUF", { sign: true })}
+                </span>
+                {day.pct != null && (
+                  <span className="opacity-80">{formatPercent(day.pct)}</span>
+                )}
+                <span className="text-[var(--color-muted)]">{day.note}</span>
+              </div>
+            )}
+          </div>
+        ))}
 
       <nav className="flex flex-col gap-1">
         {linkGroups.map((group, gi) => (

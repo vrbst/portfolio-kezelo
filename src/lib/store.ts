@@ -6,8 +6,10 @@ import type { ParsedImport } from "./parsers";
 import {
   computePortfolio,
   bondImportReminders,
+  buildValueSeries,
   type PortfolioSummary,
   type PriceMap,
+  type ValuePoint,
 } from "./portfolio";
 import {
   loadPriceFile,
@@ -1061,6 +1063,70 @@ export function usePortfolioSummary(): PortfolioSummary {
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   return cachedSummary(accounts, transactions, instruments, prices, fx);
+}
+
+const cachedValueSeries = sharedMemo(
+  (
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    prices: PriceMap,
+    fx: Record<string, number>,
+    history: HistoryFile | null | undefined,
+  ) =>
+    buildValueSeries(
+      accounts,
+      transactions,
+      new Map(instruments.map((i) => [i.key, i])),
+      prices,
+      fx,
+      history,
+    ),
+);
+
+/** Shared daily value/invested series (dashboard chart, sparklines, day delta).
+ * Memoised across consumers so the sidebar and dashboard compute it once. */
+export function useValueSeries(): ValuePoint[] {
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
+  const fx = usePortfolio((s) => s.fx);
+  const history = usePortfolio((s) => s.historyFile);
+  return cachedValueSeries(
+    accounts,
+    transactions,
+    instruments,
+    prices,
+    fx,
+    history,
+  );
+}
+
+export interface DayChange {
+  /** HUF change between the last two samples. */
+  abs: number;
+  /** Fraction vs the earlier sample (undefined if it was 0). */
+  pct?: number;
+  /** "ma" when the samples are ≤1 day apart, else the gap ("3 nap"). */
+  note: string;
+}
+
+/** Change between the last two value samples — the "ma" delta. Null if <2 pts. */
+export function useDayChange(): DayChange | null {
+  const series = useValueSeries();
+  if (series.length < 2) return null;
+  const last = series[series.length - 1];
+  const prev = series[series.length - 2];
+  const abs = last.value - prev.value;
+  const gap = Math.round(
+    (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
+  );
+  return {
+    abs,
+    pct: prev.value ? abs / prev.value : undefined,
+    note: gap <= 1 ? "ma" : `${gap} nap`,
+  };
 }
 
 const cachedGoalProgress = sharedMemo(computeGoalProgress);

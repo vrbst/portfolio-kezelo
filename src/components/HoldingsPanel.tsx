@@ -32,6 +32,7 @@ export default function HoldingsPanel({
 }) {
   const summary = usePortfolioSummary();
   const rows = consolidatedHoldings(summary);
+  const total = summary.totalValueHuf;
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   // Which medium-term goals each instrument is assigned to → show "what it's
@@ -102,12 +103,23 @@ export default function HoldingsPanel({
                   : undefined;
               const canExpand = expandable;
               const isOpen = open.has(h.instrumentKey);
+              // Subtle "data bar" behind the row: this position's share of the
+              // whole portfolio, so the big holdings read at a glance.
+              const weight =
+                total > 0 ? Math.min((h.marketValueHuf / total) * 100, 100) : 0;
               return (
                 <Fragment key={h.instrumentKey}>
                   <tr
                     className={`border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40 ${
                       canExpand ? "cursor-pointer" : ""
                     }`}
+                    style={
+                      weight > 0
+                        ? {
+                            backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--color-brand) 10%, transparent) ${weight}%, transparent ${weight}%)`,
+                          }
+                        : undefined
+                    }
                     onClick={
                       canExpand ? () => toggle(h.instrumentKey) : undefined
                     }
@@ -168,11 +180,19 @@ export default function HoldingsPanel({
                           so the unrealized figure is meaningless — same as the
                           Államkincstár page, we hide it. */}
                       {!isBond && Math.abs(h.unrealizedPlHuf) > 0.5 ? (
-                        <Delta
-                          value={h.unrealizedPlHuf}
-                          pct={pct}
-                          className="text-xs"
-                        />
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 ${
+                            h.unrealizedPlHuf >= 0
+                              ? "bg-[var(--color-positive)]/10"
+                              : "bg-[var(--color-negative)]/10"
+                          }`}
+                        >
+                          <Delta
+                            value={h.unrealizedPlHuf}
+                            pct={pct}
+                            className="text-xs"
+                          />
+                        </span>
                       ) : (
                         <span className="text-[var(--color-muted)]">—</span>
                       )}

@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -184,6 +185,48 @@ export function Sparkline({
 /** A single shimmering placeholder block (use with sizing utility classes). */
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`skeleton ${className}`} />;
+}
+
+/**
+ * A one-shot confetti burst for a small "goal reached" flourish. Place inside a
+ * `relative` element; the bits fly out from its centre and fade. Renders nothing
+ * under prefers-reduced-motion.
+ */
+const CELEBRATE_COLORS = [
+  "var(--color-positive)",
+  "var(--color-brand)",
+  "var(--color-accent)",
+  "var(--color-warning)",
+];
+export function Celebrate({ className = "" }: { className?: string }) {
+  const reduce = useReducedMotion();
+  if (reduce) return null;
+  const bits = Array.from({ length: 10 });
+  return (
+    <span
+      className={`pointer-events-none absolute inset-0 ${className}`}
+      aria-hidden="true"
+    >
+      {bits.map((_, i) => {
+        const angle = (i / bits.length) * 2 * Math.PI;
+        const dist = 22 + (i % 3) * 9;
+        return (
+          <span
+            key={i}
+            className="celebrate-bit"
+            style={
+              {
+                background: CELEBRATE_COLORS[i % CELEBRATE_COLORS.length],
+                "--dx": `${Math.cos(angle) * dist}px`,
+                "--dy": `${Math.sin(angle) * dist}px`,
+                animationDelay: `${(i % 5) * 25}ms`,
+              } as CSSProperties
+            }
+          />
+        );
+      })}
+    </span>
+  );
 }
 
 /**

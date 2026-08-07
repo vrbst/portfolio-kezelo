@@ -9,6 +9,7 @@ import {
   accountReturn,
   isInternalTransfer,
   isEmptyAccount,
+  accountValueSpark,
   type HoldingView,
 } from "../lib/portfolio";
 import {
@@ -47,11 +48,27 @@ export default function AccountDetail() {
   const updateAccount = usePortfolio((s) => s.updateAccount);
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const fx = usePortfolio((s) => s.fx);
+  const prices = usePortfolio((s) => s.prices);
   const priceFile = usePortfolio((s) => s.priceFile);
   const historyFile = usePortfolio((s) => s.historyFile);
 
+  const instruments = usePortfolio((s) => s.instruments);
   const account = accounts.find((a) => a.id === id);
   const accSummary = summary.accounts.find((a) => a.account.id === id);
+
+  // This account's value trend → the hero card sparkline.
+  const accSpark = useMemo(() => {
+    if (!account) return [];
+    const instMap = new Map(instruments.map((i) => [i.key, i]));
+    return accountValueSpark(
+      account,
+      transactions,
+      instMap,
+      prices,
+      fx,
+      historyFile,
+    );
+  }, [account, transactions, instruments, prices, fx, historyFile]);
 
   const accTxs = useMemo(
     () =>
@@ -213,10 +230,17 @@ export default function AccountDetail() {
       >
         <StatCard
           label="Teljes érték"
-          value={formatMoney(accSummary.totalValueHuf)}
+          numericValue={accSummary.totalValueHuf}
+          format={(n) => formatMoney(n)}
           sub={eur(accSummary.totalValueHuf)}
           index={0}
-          accent
+          hero
+          sparkline={accSpark.length >= 2 ? accSpark : undefined}
+          sparkStroke={
+            (ret ?? 0) >= 0
+              ? "var(--color-positive)"
+              : "var(--color-negative)"
+          }
         />
         {isCashHub ? (
           <>

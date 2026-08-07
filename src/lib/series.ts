@@ -215,3 +215,30 @@ export function buildValueSeries(
   }
   return points;
 }
+
+/**
+ * The last `points` values of a single account's value curve — the data behind
+ * the account-card sparklines. Bridge is off (inter-account transit only matters
+ * for the whole-portfolio curve). Returns [] with fewer than 2 samples.
+ */
+export function accountValueSpark(
+  account: Account,
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  history?: ValueHistory | null,
+  points = 24,
+): number[] {
+  const s = buildValueSeries(
+    [account],
+    txs,
+    instruments,
+    prices,
+    fx,
+    history,
+    new Date(),
+    false,
+  );
+  return s.length >= 2 ? s.slice(-points).map((p) => p.value) : [];
+}

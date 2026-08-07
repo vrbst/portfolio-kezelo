@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Target, Trash2, Plus, CheckCircle2, X } from "lucide-react";
 import { usePortfolio, useGoalProgress } from "../lib/store";
-import { Card, Badge, AmountInput } from "./ui";
+import { Card, Badge, AmountInput, Celebrate } from "./ui";
 import { formatMoney } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
 import { PERIOD_LABEL, type GoalPeriod } from "../lib/goals";
@@ -84,13 +84,20 @@ export default function GoalsSettings() {
             return (
               <div
                 key={p.goal.id}
-                className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3"
+                className={`rounded-xl border bg-[var(--color-surface-2)]/40 p-3 ${
+                  p.done
+                    ? "border-[var(--color-positive)]/40 ring-1 ring-[var(--color-positive)]/25"
+                    : "border-[var(--color-border)]"
+                }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 font-medium">
                       {p.done && (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-positive)]" />
+                        <span className="relative shrink-0">
+                          <CheckCircle2 className="h-4 w-4 text-[var(--color-positive)]" />
+                          <Celebrate />
+                        </span>
                       )}
                       <span className="truncate">{p.instrumentName}</span>
                       <Badge tone="neutral">
