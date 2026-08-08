@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Car, Scale } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Car, Landmark, Scale, CalendarClock } from "lucide-react";
 import {
   usePortfolio,
   usePortfolioSummary,
@@ -7,32 +7,21 @@ import {
 } from "../lib/store";
 import { computeSavingsProgress } from "../lib/savings";
 import {
-  detectRecurringSavings,
-  loadForecastSettings,
-} from "../lib/forecast";
-import {
-  loadBigDecision,
-  saveBigDecision,
-  newScenario,
-  buildAssetInfo,
-  computeBigDecision,
-  remainingDebtHuf,
-  newId,
-  type BigDecisionState,
-  type Scenario,
-  type FundingLeg,
-  type EngineContext,
+  loadCarSwap,
+  saveCarSwap,
+  computeCarSwap,
+  prefillFromPortfolio,
+  type CarSwapInputs,
+  type GoalInput,
 } from "../lib/bigDecision";
-import BigDecisionChart, {
-  SCENARIO_COLORS,
-} from "../components/BigDecisionChart";
+import BigDecisionChart from "../components/BigDecisionChart";
 import { PageHeader, Card, AmountInput, Amt } from "../components/ui";
 import { formatMoney, formatDate } from "../lib/format";
 
-const field =
+const inputCls =
   "rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm";
-const amtField = `${field} text-right tabular-nums`;
-const label = "text-xs text-[var(--color-muted)]";
+const amtCls = `${inputCls} w-full text-right tabular-nums`;
+const labelCls = "text-xs text-[var(--color-muted)]";
 
 export default function BigDecision() {
   const summary = usePortfolioSummary();
@@ -43,71 +32,49 @@ export default function BigDecision() {
   const fx = usePortfolio((s) => s.fx);
   const goals = useSavingsGoals();
 
-  const [state, setState] = useState<BigDecisionState>(loadBigDecision);
-  useEffect(() => saveBigDecision(state), [state]);
+  const [inp, setInp] = useState<CarSwapInputs>(loadCarSwap);
+  useEffect(() => saveCarSwap(inp), [inp]);
 
-  // Finanszírozásra felkínált eszközök (a tartott állomány).
-  const assetInfo = useMemo(() => buildAssetInfo(summary), [summary]);
-  const assetList = useMemo(
-    () =>
-      [...assetInfo.values()].sort((a, b) => b.marketValueHuf - a.marketValueHuf),
-    [assetInfo],
-  );
+  // Első betöltéskor a FixMÁP/DKJ névértéket a portfólióból előtöltjük.
+  const prefilled = useRef(!!localStorage.getItem("pf-cardecision"));
+  useEffect(() => {
+    if (prefilled.current || accounts.length === 0) return;
+    const pf = prefillFromPortfolio(summary);
+    setInp((s) => ({
+      ...s,
+      fixmapTrunk0: pf.fixmapTrunk0 || s.fixmapTrunk0,
+      dkjForCar: pf.dkjFace || s.dkjForCar,
+    }));
+    prefilled.current = true;
+  }, [summary, accounts.length]);
 
-  const goalProgress = useMemo(() => {
+  const set = (patch: Partial<CarSwapInputs>) => setInp((s) => ({ ...s, ...patch }));
+
+  // Valós célok az appból (hiánnyal, dátummal).
+  const goalInputs = useMemo<GoalInput[]>(() => {
     const m = new Map(instruments.map((i) => [i.key, i]));
-    return new Map(
-      computeSavingsProgress(goals, accounts, transactions, m, prices, fx).map(
-        (p) => [p.goal.id, p],
-      ),
+    return computeSavingsProgress(goals, accounts, transactions, m, prices, fx).map(
+      (p) => ({
+        id: p.goal.id,
+        name: p.goal.name,
+        targetHuf: p.goal.targetHuf,
+        gapHuf: p.gapHuf,
+        ts: new Date(p.goal.targetDate).getTime(),
+      }),
     );
   }, [goals, accounts, transactions, instruments, prices, fx]);
 
-  const fs = loadForecastSettings();
-  const detected = useMemo(
-    () => detectRecurringSavings(transactions, fx),
-    [transactions, fx],
-  );
-  const monthlySaving = fs.monthlySavingOverride ?? detected.monthlyHuf;
-
-  const ctx: EngineContext = useMemo(
-    () => ({
-      summary,
-      assetInfo,
-      goals,
-      goalProgress,
-      monthlySavingHuf: monthlySaving,
-      annualReturn: fs.annualReturn.real,
-      bondRate: fs.reinvestBondRate,
-      months: fs.months,
-      now: new Date(),
-    }),
-    [summary, assetInfo, goals, goalProgress, monthlySaving, fs.annualReturn.real, fs.reinvestBondRate, fs.months],
+  const res = useMemo(
+    () => computeCarSwap(inp, goalInputs),
+    [inp, goalInputs],
   );
 
-  const result = useMemo(() => computeBigDecision(ctx, state), [ctx, state]);
-  const remainingDebt = remainingDebtHuf(state.car);
-
-  // --- state helpers ---
-  const setCar = (patch: Partial<BigDecisionState["car"]>) =>
-    setState((s) => ({ ...s, car: { ...s.car, ...patch } }));
-  const addScenario = () =>
-    setState((s) => ({
+  const toggleGoal = (id: string) =>
+    setInp((s) => ({
       ...s,
-      scenarios: [
-        ...s.scenarios,
-        newScenario(`Forgatókönyv ${s.scenarios.length + 1}`),
-      ],
-    }));
-  const updateScenario = (id: string, patch: Partial<Scenario>) =>
-    setState((s) => ({
-      ...s,
-      scenarios: s.scenarios.map((x) => (x.id === id ? { ...x, ...patch } : x)),
-    }));
-  const removeScenario = (id: string) =>
-    setState((s) => ({
-      ...s,
-      scenarios: s.scenarios.filter((x) => x.id !== id),
+      excludedGoalIds: s.excludedGoalIds.includes(id)
+        ? s.excludedGoalIds.filter((x) => x !== id)
+        : [...s.excludedGoalIds, id],
     }));
 
   if (accounts.length === 0) {
@@ -125,454 +92,381 @@ export default function BigDecision() {
     <div>
       <PageHeader
         title="Nagy döntés"
-        subtitle="Egy nagy kiadás (pl. autócsere) hatása a jövőbeli portfóliódra — több forgatókönyv összehasonlítva."
+        subtitle="Autócsere (lízing lezárása + készpénzes vétel) hatása a likvid portfólióra a lízing lejáratáig — a te modelled szerint."
       />
 
-      {/* Mostani autó — közös bemenetek */}
-      <Card className="p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <Car className="h-5 w-5 text-[var(--color-brand)]" />
-          <h2 className="text-lg font-semibold">Mostani autó</h2>
-        </div>
-        <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={state.car.hasLease}
-            onChange={(e) => setCar({ hasLease: e.target.checked })}
-            className="h-4 w-4 accent-[var(--color-brand)]"
-          />
-          Van rajta lízing
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {state.car.hasLease && (
-            <>
-              <div className="flex flex-col gap-1">
-                <span className={label}>Lízing vége</span>
-                <input
-                  type="date"
-                  className={field}
-                  value={state.car.leaseEndDate}
-                  onChange={(e) => setCar({ leaseEndDate: e.target.value })}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className={label}>Havidíj (Ft)</span>
-                <AmountInput
-                  className={amtField}
-                  value={String(state.car.monthlyHuf)}
-                  onValueChange={(d) => setCar({ monthlyHuf: Number(d || 0) })}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className={label}>Végső törlesztő (Ft)</span>
-                <AmountInput
-                  className={amtField}
-                  value={String(state.car.balloonHuf)}
-                  onValueChange={(d) => setCar({ balloonHuf: Number(d || 0) })}
-                />
-              </div>
-            </>
-          )}
-          <div className="flex flex-col gap-1">
-            <span className={label}>Eladási ár (Ft)</span>
-            <AmountInput
-              className={amtField}
-              value={String(state.car.saleEstimateHuf)}
-              onValueChange={(d) => setCar({ saleEstimateHuf: Number(d || 0) })}
-            />
-          </div>
-        </div>
-        {state.car.hasLease && (
-          <div className="mt-3 text-sm text-[var(--color-muted)]">
-            Hátralévő tartozás most:{" "}
-            <Amt className="font-semibold text-[var(--color-text)]">
-              {formatMoney(remainingDebt)}
-            </Amt>{" "}
-            · nettó az eladásból ma:{" "}
-            <Amt className="font-semibold text-[var(--color-text)]">
-              {formatMoney(state.car.saleEstimateHuf - remainingDebt)}
-            </Amt>
-          </div>
-        )}
-      </Card>
-
-      {/* Forgatókönyvek */}
-      <div className="mt-4 space-y-4">
-        {state.scenarios.map((scn, i) => (
-          <ScenarioEditor
-            key={scn.id}
-            scn={scn}
-            color={SCENARIO_COLORS[i % SCENARIO_COLORS.length]}
-            assets={assetList}
-            goals={goals}
-            onChange={(patch) => updateScenario(scn.id, patch)}
-            onRemove={() => removeScenario(scn.id)}
-          />
-        ))}
-        <button className="btn-ghost" onClick={addScenario}>
-          <Plus className="h-4 w-4" /> Új forgatókönyv
-        </button>
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Kpi
+          label="Nettó többletköltség"
+          value={formatMoney(res.cost.netExtraCost)}
+          sub="a lejáratig"
+          negative
+        />
+        <Kpi
+          label="Havi szinten"
+          value={formatMoney(res.cost.monthlyCost)}
+          sub="a jobb autó ára / hó"
+          negative
+        />
+        <Kpi
+          label="Portfólió-különbség"
+          value={formatMoney(res.finalDiffHuf)}
+          sub="alap − váltás a lejáratkor"
+          negative
+        />
+        <Kpi
+          label="FixMÁP visszaépítve"
+          value={
+            res.reach40Ts
+              ? formatDate(new Date(res.reach40Ts).toISOString())
+              : "lejáratig nem"
+          }
+          sub={`cél: ${formatMoney(inp.fixmapTrunk0)}`}
+        />
       </div>
 
-      {/* Eredmény */}
-      {state.scenarios.length > 0 && (
-        <Card className="mt-6 p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <Scale className="h-5 w-5 text-[var(--color-brand)]" />
-            <h2 className="text-lg font-semibold">Összehasonlítás</h2>
-            <span className="text-xs text-[var(--color-muted)]">
-              jövőbeli vagyon a horizonton ({Math.round(fs.months / 12)} év)
-            </span>
-          </div>
-          <BigDecisionChart
-            baseline={result.baseline}
-            scenarios={result.scenarios}
-          />
+      {/* Grafikon */}
+      <Card className="mt-4 p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Scale className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">FixMÁP-állomány a lejáratig</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Váltás (autócsere) vs. maradok. A törzs 7%-on, az új befizetések{" "}
+          {(inp.newBondRate * 100).toFixed(1)}%-on; a piros sáv a különbség.
+        </p>
+        <BigDecisionChart
+          rows={res.rebuild}
+          target={inp.fixmapTrunk0}
+          reach40Ts={res.reach40Ts}
+        />
+      </Card>
 
-          <div className="mt-4 overflow-x-auto">
+      {/* Célok */}
+      <Card className="mt-4 p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">Meglévő célok</h2>
+          <span className="text-xs text-[var(--color-muted)]">
+            kipipálva = ebben a forgatókönyvben nem számít
+          </span>
+        </div>
+        {goalInputs.length === 0 ? (
+          <p className="text-sm text-[var(--color-muted)]">
+            Nincs középtávú cél a Célok oldalon.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-[var(--color-muted)]">
                 <tr className="border-b border-[var(--color-border)]">
-                  <th className="px-3 py-2 font-medium">Forgatókönyv</th>
+                  <th className="px-3 py-2 font-medium">Kihagy</th>
+                  <th className="px-3 py-2 font-medium">Cél</th>
+                  <th className="px-3 py-2 text-right font-medium">Összeg</th>
+                  <th className="px-3 py-2 font-medium">Dátum</th>
+                  <th className="px-3 py-2 text-right font-medium">Hiány ma</th>
                   <th className="px-3 py-2 text-right font-medium">
-                    Vagyon a horizonton
+                    Megtak.-ból
                   </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    vs. maradok
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">Adó/díj</th>
                   <th className="px-3 py-2 text-right font-medium">
                     FixMÁP-ból
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    FixMÁP visszapótolva
                   </th>
                 </tr>
               </thead>
               <tbody>
-                <ResultRow p={result.baseline} color="#8a93b2" />
-                {result.scenarios.map((p, i) => (
-                  <ResultRow
-                    key={p.id}
-                    p={p}
-                    color={SCENARIO_COLORS[i % SCENARIO_COLORS.length]}
-                  />
-                ))}
+                {goalInputs.map((g) => {
+                  const excluded = inp.excludedGoalIds.includes(g.id);
+                  const cov = res.goalCoverage.find((c) => c.id === g.id);
+                  return (
+                    <tr
+                      key={g.id}
+                      className="border-b border-[var(--color-border)]/50 last:border-0"
+                    >
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={excluded}
+                          onChange={() => toggleGoal(g.id)}
+                          className="h-4 w-4 accent-[var(--color-brand)]"
+                        />
+                      </td>
+                      <td
+                        className={`px-3 py-2 font-medium ${
+                          excluded
+                            ? "text-[var(--color-muted)] line-through"
+                            : ""
+                        }`}
+                      >
+                        {g.name}
+                      </td>
+                      <td className="amt px-3 py-2 text-right tabular-nums">
+                        {formatMoney(g.targetHuf)}
+                      </td>
+                      <td className="px-3 py-2 text-[var(--color-muted)]">
+                        {formatDate(new Date(g.ts).toISOString())}
+                      </td>
+                      <td className="amt px-3 py-2 text-right tabular-nums text-[var(--color-muted)]">
+                        {formatMoney(g.gapHuf)}
+                      </td>
+                      <td className="amt px-3 py-2 text-right tabular-nums text-[var(--color-muted)]">
+                        {excluded ? "—" : cov ? formatMoney(cov.savingsApplied) : "—"}
+                      </td>
+                      <td className="amt px-3 py-2 text-right tabular-nums">
+                        {excluded ? (
+                          "—"
+                        ) : cov && cov.shortfall > 0 ? (
+                          <span className="text-[var(--color-warning,#fbbf24)]">
+                            {formatMoney(cov.shortfall)}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-[var(--color-muted)]">
-            A hozam-feltevés és a horizont az Előrejelzés oldaléból jön (reális
-            hozam). A célok teljesülnek; a hiányt a céldátumon a FixMÁP-ból
-            fedezzük. Ez egy első verzió — finomítjuk.
-          </p>
+        )}
+      </Card>
+
+      {/* Költség-dekompozíció + Leaf eladás */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="mb-3 text-lg font-semibold">A váltás költsége</h2>
+          <Row label="Kieső FixMÁP-kupon (7%)" value={res.cost.foregoneCoupon} neg />
+          <Row label="Egyszeri díjak (visszaváltás + lezárás)" value={res.cost.oneOffFees} neg />
+          <Row label="Amortizáció-különbözet (M3 − Leaf)" value={res.cost.depreciationDiff} neg />
+          <Row label="Felszabaduló törlesztő hozama (levon)" value={res.cost.reinvestedReturn} pos />
+          <div className="my-2 border-t border-[var(--color-border)]" />
+          <Row label="Nettó többletköltség a lejáratig" value={res.cost.netExtraCost} neg bold />
+          <Row label="Portfólió-különbség (autók értéke nélkül)" value={res.cost.portfolioDiff} neg />
         </Card>
-      )}
+        <Card className="p-5">
+          <h2 className="mb-3 text-lg font-semibold">Leaf eladás + FixMÁP</h2>
+          <Row label="Tartozás az eladáskor" value={res.leafDebtAtSale} neg />
+          <Row label="Végtörlesztés (+ lezárási díj)" value={res.settlement} neg />
+          <Row label="Nálad maradó equity" value={res.leafEquity} pos bold />
+          <div className="my-2 border-t border-[var(--color-border)]" />
+          <Row label="FixMÁP autóra fordítva" value={-inp.fixmapForCar} neg />
+          <Row label="FixMÁP célok hiányára" value={-res.goalShortfallTotal} neg />
+          <Row label="FixMÁP-állomány a visszaépítés indulásakor" value={res.fixmapAfterAll} bold />
+        </Card>
+      </div>
+
+      {/* Bemenetek */}
+      <Card className="mt-4 p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <Car className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">Feltételezések</h2>
+          <button
+            className="ml-auto text-xs text-[var(--color-brand)] hover:underline"
+            onClick={() => {
+              const pf = prefillFromPortfolio(summary);
+              set({ fixmapTrunk0: pf.fixmapTrunk0, dkjForCar: pf.dkjFace });
+            }}
+          >
+            FixMÁP/DKJ újratöltése a portfólióból
+          </button>
+        </div>
+
+        <Section title="Autó">
+          <Huf label="Model 3 ára (kp)" v={inp.m3Price} on={(n) => set({ m3Price: n })} />
+          <Huf label="Leaf eladási ár" v={inp.leafSalePrice} on={(n) => set({ leafSalePrice: n })} />
+          <Huf label="Leaf lízingtartozás" v={inp.leafDebt} on={(n) => set({ leafDebt: n })} />
+          <Huf label="Havi törlesztő" v={inp.monthlyLease} on={(n) => set({ monthlyLease: n })} />
+          <Num label="Lement törlesztők eladásig" v={inp.paymentsBeforeSale} on={(n) => set({ paymentsBeforeSale: n })} />
+          <Huf label="Lezárási díj" v={inp.closingFee} on={(n) => set({ closingFee: n })} />
+          <Huf label="Model 3 értéke a lejáratkor" v={inp.m3Value2029} on={(n) => set({ m3Value2029: n })} />
+          <Huf label="Leaf értéke (ha megtartod)" v={inp.leafValue2029} on={(n) => set({ leafValue2029: n })} />
+          <Huf label="Leaf maradványérték a lejáratkor" v={inp.leafResidual2029} on={(n) => set({ leafResidual2029: n })} />
+        </Section>
+
+        <Section title="FixMÁP / megtakarítás">
+          <Huf label="FixMÁP kiinduló állomány" v={inp.fixmapTrunk0} on={(n) => set({ fixmapTrunk0: n })} />
+          <Huf label="DKJ autóra" v={inp.dkjForCar} on={(n) => set({ dkjForCar: n })} />
+          <Huf label="FixMÁP autóra" v={inp.fixmapForCar} on={(n) => set({ fixmapForCar: n })} />
+          <Huf label="Havi megtakarítás" v={inp.monthlySaving} on={(n) => set({ monthlySaving: n })} />
+          <Pct label="FixMÁP kamat (törzs)" v={inp.fixmapRate} on={(n) => set({ fixmapRate: n })} />
+          <Pct label="Új befizetés kamata" v={inp.newBondRate} on={(n) => set({ newBondRate: n })} />
+          <Pct label="FixMÁP visszaváltási díj" v={inp.fixmapRedemptionFee} on={(n) => set({ fixmapRedemptionFee: n })} />
+        </Section>
+
+        <Section title="Dátumok">
+          <MonthF label="Leaf eladása" v={inp.saleMonth} on={(s2) => set({ saleMonth: s2 })} />
+          <MonthF label="Visszaépítés indul" v={inp.rebuildStartMonth} on={(s2) => set({ rebuildStartMonth: s2 })} />
+          <MonthF label="Lízing lejárata" v={inp.leaseEndMonth} on={(s2) => set({ leaseEndMonth: s2 })} />
+        </Section>
+      </Card>
+
+      <p className="mt-3 text-xs text-[var(--color-muted)]">
+        A modell a te Excel-logikádat követi (kp-s vétel): a törzs 7%-on, az új
+        befizetések + kuponok friss papírban, a felszabaduló lízingdíj a
+        megtakarításhoz adódik. A célokat az app Célok oldaláról veszi. A
+        lízinges változat és a több-forgatókönyv összevetés a következő lépés.
+      </p>
     </div>
   );
 }
 
-function ResultRow({
-  p,
-  color,
+function Kpi({
+  label,
+  value,
+  sub,
+  negative = false,
 }: {
-  p: import("../lib/bigDecision").ScenarioProjection;
-  color: string;
+  label: string;
+  value: string;
+  sub?: string;
+  negative?: boolean;
 }) {
-  const up = p.vsBaselineHuf >= 0;
   return (
-    <tr className="border-b border-[var(--color-border)]/50 last:border-0">
-      <td className="px-3 py-2.5">
-        <span className="inline-flex items-center gap-2">
-          <span
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ background: color }}
-          />
-          <span className="font-medium">{p.name}</span>
-        </span>
-      </td>
-      <td className="amt px-3 py-2.5 text-right font-semibold tabular-nums">
-        {formatMoney(p.horizonValueHuf)}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        {p.isBaseline ? (
-          <span className="text-[var(--color-muted)]">—</span>
-        ) : (
-          <span
-            className={
-              up
-                ? "text-[var(--color-positive)]"
-                : "text-[var(--color-negative)]"
-            }
-          >
-            <Amt>{formatMoney(p.vsBaselineHuf, "HUF", { sign: true })}</Amt>
-          </span>
-        )}
-      </td>
-      <td className="amt px-3 py-2.5 text-right tabular-nums text-[var(--color-muted)]">
-        {p.taxPaidHuf > 0 ? formatMoney(p.taxPaidHuf) : "—"}
-      </td>
-      <td className="amt px-3 py-2.5 text-right tabular-nums text-[var(--color-muted)]">
-        {p.fromFixmapHuf > 0 ? formatMoney(p.fromFixmapHuf) : "—"}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-[var(--color-muted)]">
-        {p.fromFixmapHuf > 0
-          ? p.fixmapRecoverTs
-            ? formatDate(new Date(p.fixmapRecoverTs).toISOString())
-            : "5+ év"
-          : "—"}
-      </td>
-    </tr>
+    <Card className="p-4">
+      <div className="text-xs text-[var(--color-muted)]">{label}</div>
+      <div
+        className={`amt font-display mt-1 text-xl font-semibold tabular-nums ${
+          negative ? "text-[var(--color-negative)]" : ""
+        }`}
+      >
+        {value}
+      </div>
+      {sub && <div className="mt-0.5 text-xs text-[var(--color-muted)]">{sub}</div>}
+    </Card>
   );
 }
 
-function ScenarioEditor({
-  scn,
-  color,
-  assets,
-  goals,
-  onChange,
-  onRemove,
+function Row({
+  label,
+  value,
+  neg = false,
+  pos = false,
+  bold = false,
 }: {
-  scn: Scenario;
-  color: string;
-  assets: import("../lib/bigDecision").AssetInfo[];
-  goals: import("../lib/savings").SavingsGoal[];
-  onChange: (patch: Partial<Scenario>) => void;
-  onRemove: () => void;
+  label: string;
+  value: number;
+  neg?: boolean;
+  pos?: boolean;
+  bold?: boolean;
 }) {
-  const setLease = (patch: Partial<Scenario["lease"]>) =>
-    onChange({ lease: { ...scn.lease, ...patch } });
-  const addLeg = () =>
-    onChange({
-      funding: [...scn.funding, { id: newId(), instrumentKey: "", amountHuf: 0 }],
-    });
-  const updateLeg = (id: string, patch: Partial<FundingLeg>) =>
-    onChange({
-      funding: scn.funding.map((l) => (l.id === id ? { ...l, ...patch } : l)),
-    });
-  const removeLeg = (id: string) =>
-    onChange({ funding: scn.funding.filter((l) => l.id !== id) });
-  const toggleGoal = (goalId: string) => {
-    const has = scn.excludedGoalIds.includes(goalId);
-    onChange({
-      excludedGoalIds: has
-        ? scn.excludedGoalIds.filter((g) => g !== goalId)
-        : [...scn.excludedGoalIds, goalId],
-    });
-  };
-
-  const fundLabel =
-    scn.financing === "cash" ? "Finanszírozás (vételár)" : "Önerő fedezete";
-
+  const color = neg
+    ? "text-[var(--color-negative)]"
+    : pos
+      ? "text-[var(--color-positive)]"
+      : "";
   return (
-    <Card className="p-5" hover>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-        <input
-          className={`${field} flex-1 font-medium`}
-          value={scn.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-        />
-        <button
-          className="rounded-lg p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-negative)]"
-          onClick={onRemove}
-          title="Forgatókönyv törlése"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
+    <div className="flex items-baseline justify-between gap-3 py-1 text-sm">
+      <span className={bold ? "font-medium" : "text-[var(--color-muted)]"}>
+        {label}
+      </span>
+      <Amt className={`tabular-nums ${bold ? "font-semibold" : ""} ${color}`}>
+        {formatMoney(value)}
+      </Amt>
+    </div>
+  );
+}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-1">
-          <span className={label}>Új autó ára (Ft)</span>
-          <AmountInput
-            className={amtField}
-            value={String(scn.newCarPriceHuf)}
-            onValueChange={(d) => onChange({ newCarPriceHuf: Number(d || 0) })}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className={label}>Vétel dátuma</span>
-          <input
-            type="date"
-            className={field}
-            value={scn.buyDate}
-            onChange={(e) => onChange({ buyDate: e.target.value })}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className={label}>Régi autó eladása</span>
-          <input
-            type="date"
-            className={field}
-            value={scn.sellDate}
-            onChange={(e) => onChange({ sellDate: e.target.value })}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className={label}>Finanszírozás</span>
-          <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
-            {(
-              [
-                ["cash", "Készpénz"],
-                ["lease", "Lízing"],
-              ] as const
-            ).map(([k, l]) => (
-              <button
-                key={k}
-                onClick={() => onChange({ financing: k })}
-                className={`flex-1 rounded-md px-2 py-1 transition ${
-                  scn.financing === k
-                    ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
-                    : "text-[var(--color-muted)]"
-                }`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+        {title === "FixMÁP / megtakarítás" ? (
+          <Landmark className="h-3.5 w-3.5" />
+        ) : null}
+        {title}
       </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+    </div>
+  );
+}
 
-      {scn.financing === "lease" && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <span className={label}>Önerő (Ft)</span>
-            <AmountInput
-              className={amtField}
-              value={String(scn.lease.downPaymentHuf)}
-              onValueChange={(d) => setLease({ downPaymentHuf: Number(d || 0) })}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className={label}>Havidíj (Ft)</span>
-            <AmountInput
-              className={amtField}
-              value={String(scn.lease.monthlyHuf)}
-              onValueChange={(d) => setLease({ monthlyHuf: Number(d || 0) })}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className={label}>Futamidő (hó)</span>
-            <input
-              type="number"
-              min={0}
-              className={amtField}
-              value={scn.lease.termMonths}
-              onChange={(e) =>
-                setLease({ termMonths: Number(e.target.value || 0) })
-              }
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className={label}>Végső törlesztő (Ft)</span>
-            <AmountInput
-              className={amtField}
-              value={String(scn.lease.balloonHuf)}
-              onValueChange={(d) => setLease({ balloonHuf: Number(d || 0) })}
-            />
-          </div>
-        </div>
-      )}
+function Huf({
+  label,
+  v,
+  on,
+}: {
+  label: string;
+  v: number;
+  on: (n: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={labelCls}>{label}</span>
+      <AmountInput className={amtCls} value={String(v)} onValueChange={(d) => on(Number(d || 0))} />
+    </label>
+  );
+}
 
-      {/* Finanszírozó eszközök */}
-      <div className="mt-4">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className={label}>{fundLabel}</span>
-          <button
-            className="text-xs text-[var(--color-brand)] hover:underline"
-            onClick={addLeg}
-          >
-            + eszköz
-          </button>
-        </div>
-        <div className="space-y-2">
-          {scn.funding.map((leg) => (
-            <div key={leg.id} className="flex items-center gap-2">
-              <select
-                className={`${field} min-w-0 flex-1`}
-                value={leg.instrumentKey}
-                onChange={(e) => updateLeg(leg.id, { instrumentKey: e.target.value })}
-              >
-                <option value="">Válassz eszközt…</option>
-                {assets.map((a) => (
-                  <option key={a.key} value={a.key}>
-                    {a.name} ({formatMoney(a.marketValueHuf)})
-                  </option>
-                ))}
-              </select>
-              <AmountInput
-                className={`${amtField} w-32`}
-                value={String(leg.amountHuf)}
-                onValueChange={(d) =>
-                  updateLeg(leg.id, { amountHuf: Number(d || 0) })
-                }
-              />
-              <button
-                className="rounded-lg p-1.5 text-[var(--color-muted)] hover:text-[var(--color-negative)]"
-                onClick={() => removeLeg(leg.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-          {scn.funding.length === 0 && (
-            <p className="text-xs text-[var(--color-muted)]">
-              Add meg, melyik eszközből mennyit vonnál ki (pl. 3,5M DKJ + 5M
-              FixMÁP).
-            </p>
-          )}
-        </div>
-      </div>
+function Num({
+  label,
+  v,
+  on,
+}: {
+  label: string;
+  v: number;
+  on: (n: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={labelCls}>{label}</span>
+      <input
+        type="number"
+        className={amtCls}
+        value={v}
+        onChange={(e) => on(Number(e.target.value || 0))}
+      />
+    </label>
+  );
+}
 
-      {/* Kihagyott célok + FixMÁP-visszapótlás hozam */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        {goals.length > 0 && (
-          <div>
-            <span className={label}>Ebben NEM számító célok</span>
-            <div className="mt-1.5 space-y-1.5">
-              {goals.map((g) => (
-                <label
-                  key={g.id}
-                  className="flex cursor-pointer items-center gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={scn.excludedGoalIds.includes(g.id)}
-                    onChange={() => toggleGoal(g.id)}
-                    className="h-4 w-4 accent-[var(--color-brand)]"
-                  />
-                  <span className={scn.excludedGoalIds.includes(g.id) ? "line-through text-[var(--color-muted)]" : ""}>
-                    {g.name} · <Amt>{formatMoney(g.targetHuf)}</Amt> ·{" "}
-                    {formatDate(g.targetDate)}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-        <div>
-          <span className={label}>FixMÁP-visszapótlás hozama</span>
-          <div className="mt-1.5 flex items-center gap-2">
-            <input
-              type="number"
-              step="0.1"
-              min={0}
-              className={`${amtField} w-24`}
-              value={+(scn.fixmapYieldPct * 100).toFixed(2)}
-              onChange={(e) =>
-                onChange({ fixmapYieldPct: Number(e.target.value || 0) / 100 })
-              }
-            />
-            <span className="text-sm text-[var(--color-muted)]">% / év</span>
-          </div>
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Ilyen hozamú új FixMÁP-ba forgatjuk vissza a szabad pénzt (a célok
-            feltöltése után).
-          </p>
-        </div>
-      </div>
-    </Card>
+function Pct({
+  label,
+  v,
+  on,
+}: {
+  label: string;
+  v: number;
+  on: (n: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={labelCls}>{label} (%)</span>
+      <input
+        type="number"
+        step="0.1"
+        className={amtCls}
+        value={+(v * 100).toFixed(3)}
+        onChange={(e) => on(Number(e.target.value || 0) / 100)}
+      />
+    </label>
+  );
+}
+
+function MonthF({
+  label,
+  v,
+  on,
+}: {
+  label: string;
+  v: string;
+  on: (s: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={labelCls}>{label}</span>
+      <input
+        type="month"
+        className={inputCls}
+        value={v}
+        onChange={(e) => on(e.target.value)}
+      />
+    </label>
   );
 }

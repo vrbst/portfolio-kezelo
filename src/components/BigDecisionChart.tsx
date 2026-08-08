@@ -1,15 +1,17 @@
 import { useMemo } from "react";
 import {
-  LineChart,
+  ComposedChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
   Legend,
+  ReferenceLine,
 } from "recharts";
-import type { ScenarioProjection } from "../lib/bigDecision";
+import type { RebuildRow } from "../lib/bigDecision";
 import { formatMoney, formatCompact } from "../lib/format";
 import { usePortfolio } from "../lib/store";
 
@@ -22,18 +24,7 @@ const tooltipStyle = {
   color: "#e8ecf8",
 } as const;
 
-/** Forgatókönyv-színek (a baseline mindig szürke, szaggatott). */
-export const SCENARIO_COLORS = [
-  "#6366f1",
-  "#34d399",
-  "#22d3ee",
-  "#fbbf24",
-  "#fb7185",
-  "#8b5cf6",
-];
-export const BASELINE_COLOR = "#8a93b2";
-
-function formatYear(ms: number): string {
+function formatYm(ms: number): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "";
   return new Intl.DateTimeFormat("hu-HU", {
@@ -42,13 +33,13 @@ function formatYear(ms: number): string {
   }).format(d);
 }
 
-function yearTicks(points: { ts: number }[], maxLabels = 8): number[] {
+function yearTicks(rows: { ts: number }[], maxLabels = 8): number[] {
   const ticks: number[] = [];
   let lastYear = -1;
-  for (const p of points) {
-    const y = new Date(p.ts).getFullYear();
+  for (const r of rows) {
+    const y = new Date(r.ts).getFullYear();
     if (y !== lastYear) {
-      ticks.push(p.ts);
+      ticks.push(r.ts);
       lastYear = y;
     }
   }
@@ -56,52 +47,49 @@ function yearTicks(points: { ts: number }[], maxLabels = 8): number[] {
   return ticks.filter((_, i) => i % step === 0);
 }
 
+const NAMES: Record<string, string> = {
+  switchTotal: "Váltás (autócsere)",
+  baseTotal: "Maradok",
+  diff: "Különbség",
+};
+
 /**
- * A forgatókönyvek jövőérték-görbéi egy közös grafikonon: a baseline szaggatott
- * szürke, minden forgatókönyv egy-egy színes vonal.
+ * FixMÁP-állomány a lízing lejáratáig: VÁLTÁS vs ALAP (maradok), a 40M-es cél
+ * vonalával; alul a KÜLÖNBSÉG (alap − váltás) halvány sávban.
  */
 export default function BigDecisionChart({
-  baseline,
-  scenarios,
+  rows,
+  target,
+  reach40Ts,
 }: {
-  baseline: ScenarioProjection;
-  scenarios: ScenarioProjection[];
+  rows: RebuildRow[];
+  /** A visszaépítési cél (kiinduló FixMÁP-állomány), pl. 40M. */
+  target: number;
+  reach40Ts: number | null;
 }) {
   const privacy = usePortfolio((s) => s.privacy);
-
-  const { data, series } = useMemo(() => {
-    const all = [baseline, ...scenarios];
-    const series = all.map((p, i) => ({
-      id: p.id,
-      name: p.name,
-      color: p.isBaseline ? BASELINE_COLOR : SCENARIO_COLORS[(i - 1) % SCENARIO_COLORS.length],
-      dashed: p.isBaseline,
-    }));
-    const len = baseline.points.length;
-    const data = Array.from({ length: len }, (_, i) => {
-      const row: Record<string, number> = { ts: baseline.points[i]?.ts ?? 0 };
-      for (const p of all) row[p.id] = p.points[i]?.value ?? 0;
-      return row;
-    });
-    return { data, series };
-  }, [baseline, scenarios]);
-
+  const data = useMemo(() => rows, [rows]);
   const min = data[0]?.ts ?? 0;
   const max = data[data.length - 1]?.ts ?? 0;
-  const ticks = yearTicks(baseline.points);
-  const nameById = new Map(series.map((s) => [s.id, s.name]));
+  const ticks = yearTicks(rows);
 
   return (
     <div className="h-96 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <defs>
+            <linearGradient id="diffFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#fb7185" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="#fb7185" stopOpacity={0.03} />
+            </linearGradient>
+          </defs>
           <CartesianGrid stroke="#232b45" vertical={false} />
           <XAxis
             dataKey="ts"
             type="number"
             domain={[min, max]}
             ticks={ticks}
-            tickFormatter={formatYear}
+            tickFormatter={formatYm}
             tick={{ fill: "#8b93a7", fontSize: 12 }}
             stroke="#232b45"
           />
@@ -113,30 +101,66 @@ export default function BigDecisionChart({
           />
           <Tooltip
             contentStyle={tooltipStyle}
-            labelFormatter={(l) => formatYear(Number(l))}
-            formatter={(v, name) => [
-              privacy ? MASK : formatMoney(Number(v)),
-              nameById.get(String(name)) ?? String(name),
-            ]}
+            labelFormatter={(l) => formatYm(Number(l))}
+            formatter={(v, name) => {
+              if (name === "diff") return [null, null] as unknown as [string, string];
+              return [
+                privacy ? MASK : formatMoney(Number(v)),
+                NAMES[String(name)] ?? String(name),
+              ];
+            }}
           />
           <Legend
-            formatter={(name) => nameById.get(String(name)) ?? String(name)}
+            formatter={(name) => NAMES[String(name)] ?? String(name)}
             wrapperStyle={{ fontSize: 12 }}
           />
-          {series.map((s) => (
-            <Line
-              key={s.id}
-              type="monotone"
-              dataKey={s.id}
-              name={s.id}
-              stroke={s.color}
-              strokeWidth={s.dashed ? 1.75 : 2.5}
-              strokeDasharray={s.dashed ? "5 5" : undefined}
-              dot={false}
-              isAnimationActive={false}
+          <ReferenceLine
+            y={target}
+            stroke="#34d399"
+            strokeDasharray="4 4"
+            label={{
+              value: `Cél: ${formatCompact(target)}`,
+              position: "insideTopRight",
+              fill: "#34d399",
+              fontSize: 11,
+            }}
+          />
+          {reach40Ts != null && (
+            <ReferenceLine
+              x={reach40Ts}
+              stroke="#34d399"
+              strokeOpacity={0.5}
+              strokeDasharray="3 4"
             />
-          ))}
-        </LineChart>
+          )}
+          <Area
+            type="monotone"
+            dataKey="diff"
+            stroke="none"
+            fill="url(#diffFill)"
+            name="diff"
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="baseTotal"
+            stroke="#8a93b2"
+            strokeWidth={1.75}
+            strokeDasharray="5 5"
+            dot={false}
+            name="baseTotal"
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="switchTotal"
+            stroke="#6366f1"
+            strokeWidth={2.5}
+            dot={false}
+            name="switchTotal"
+            isAnimationActive={false}
+          />
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
