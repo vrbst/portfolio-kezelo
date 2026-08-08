@@ -126,6 +126,9 @@ export interface GoalInput {
   targetHuf: number;
   /** Hiány ma (targetHuf − a hozzárendelt eszközök vetített értéke). */
   gapHuf: number;
+  /** A célhoz rendelt DKJ jelenlegi értéke — ha ezt autóra fordítjuk, a cél
+   * fedezete csökken, a hiány nő. */
+  dkjBackingHuf: number;
   /** Céldátum (ms). */
   ts: number;
 }
@@ -207,9 +210,20 @@ export function computeCarSwap(
   // --- 2) Célfedezés (valós célok, kizárva a jelöltek) ---
   const saleTs = ymTs(parseYm(inp.saleMonth).y, parseYm(inp.saleMonth).m);
   const active = goals
-    .filter((g) => !inp.excludedGoalIds.includes(g.id) && g.gapHuf > 0)
+    .filter((g) => !inp.excludedGoalIds.includes(g.id))
     .filter((g) => g.ts > now.getTime())
     .sort((a, b) => a.ts - b.ts);
+
+  // Az autóra fordított DKJ elveszi a hozzá rendelt cél(ok) fedezetét → a hiány
+  // annyival nő. A dkjForCar-t a legközelebbi DKJ-fedezetű célra osztjuk elsőként
+  // (ahogy a te modelledben a DKJ az okt./Babaváró célra gyűlt).
+  let dkjLeft = inp.dkjForCar;
+  const effGap = new Map<string, number>();
+  for (const g of active) {
+    const cut = Math.min(dkjLeft, g.dkjBackingHuf || 0);
+    dkjLeft -= cut;
+    effGap.set(g.id, Math.max(0, g.gapHuf) + cut);
+  }
 
   const coverage = new Map<string, { applied: number; shortfall: number }>();
   let trunk = fixmapAfterCarRedemption;
@@ -233,9 +247,10 @@ export function computeCarSwap(
       const gy = new Date(g.ts).getFullYear();
       const gm = new Date(g.ts).getMonth() + 1;
       if (gy === y && gm === m && !coverage.has(g.id)) {
-        const applied = Math.min(g.gapHuf, Math.max(0, budget));
+        const gap = effGap.get(g.id) ?? 0;
+        const applied = Math.min(gap, Math.max(0, budget));
         budget -= applied;
-        const rawShort = Math.max(0, g.gapHuf - applied);
+        const rawShort = Math.max(0, gap - applied);
         const cut = Math.min(trunk, rawShort); // FixMÁP-ból pótolt hiány
         trunk -= cut;
         coverage.set(g.id, { applied, shortfall: cut });
@@ -249,18 +264,20 @@ export function computeCarSwap(
     }
   }
 
-  const goalCoverage: GoalCoverageRow[] = active.map((g) => {
-    const c = coverage.get(g.id) ?? { applied: 0, shortfall: 0 };
-    return {
-      id: g.id,
-      name: g.name,
-      targetHuf: g.targetHuf,
-      ts: g.ts,
-      gapHuf: g.gapHuf,
-      savingsApplied: c.applied,
-      shortfall: c.shortfall,
-    };
-  });
+  const goalCoverage: GoalCoverageRow[] = active
+    .filter((g) => (effGap.get(g.id) ?? 0) > 0)
+    .map((g) => {
+      const c = coverage.get(g.id) ?? { applied: 0, shortfall: 0 };
+      return {
+        id: g.id,
+        name: g.name,
+        targetHuf: g.targetHuf,
+        ts: g.ts,
+        gapHuf: effGap.get(g.id) ?? 0, // a váltásnál érvényes hiány (DKJ-vesztéssel)
+        savingsApplied: c.applied,
+        shortfall: c.shortfall,
+      };
+    });
   const goalShortfallTotal = goalCoverage.reduce((s, g) => s + g.shortfall, 0);
   const fixmapAfterAll = trunk;
 

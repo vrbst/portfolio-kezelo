@@ -50,19 +50,33 @@ export default function BigDecision() {
 
   const set = (patch: Partial<CarSwapInputs>) => setInp((s) => ({ ...s, ...patch }));
 
-  // Valós célok az appból (hiánnyal, dátummal).
+  // Valós célok az appból (hiánnyal, dátummal, DKJ-fedezettel).
   const goalInputs = useMemo<GoalInput[]>(() => {
     const m = new Map(instruments.map((i) => [i.key, i]));
+    // Instrument-kulcsonkénti piaci érték (a DKJ-fedezethez).
+    const valueByKey = new Map<string, number>();
+    for (const acc of summary.accounts)
+      for (const h of acc.holdings)
+        valueByKey.set(
+          h.instrumentKey,
+          (valueByKey.get(h.instrumentKey) ?? 0) + (h.marketValueHuf ?? 0),
+        );
     return computeSavingsProgress(goals, accounts, transactions, m, prices, fx).map(
-      (p) => ({
-        id: p.goal.id,
-        name: p.goal.name,
-        targetHuf: p.goal.targetHuf,
-        gapHuf: p.gapHuf,
-        ts: new Date(p.goal.targetDate).getTime(),
-      }),
+      (p) => {
+        const dkjBackingHuf = p.goal.instrumentKeys.reduce((s, k) => {
+          return m.get(k)?.type === "tbill" ? s + (valueByKey.get(k) ?? 0) : s;
+        }, 0);
+        return {
+          id: p.goal.id,
+          name: p.goal.name,
+          targetHuf: p.goal.targetHuf,
+          gapHuf: p.gapHuf,
+          dkjBackingHuf,
+          ts: new Date(p.goal.targetDate).getTime(),
+        };
+      },
     );
-  }, [goals, accounts, transactions, instruments, prices, fx]);
+  }, [goals, accounts, transactions, instruments, prices, fx, summary]);
 
   const res = useMemo(
     () => computeCarSwap(inp, goalInputs),
@@ -165,7 +179,9 @@ export default function BigDecision() {
                   <th className="px-3 py-2 font-medium">Cél</th>
                   <th className="px-3 py-2 text-right font-medium">Összeg</th>
                   <th className="px-3 py-2 font-medium">Dátum</th>
-                  <th className="px-3 py-2 text-right font-medium">Hiány ma</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Hiány (váltásnál)
+                  </th>
                   <th className="px-3 py-2 text-right font-medium">
                     Megtak.-ból
                   </th>
@@ -207,7 +223,7 @@ export default function BigDecision() {
                         {formatDate(new Date(g.ts).toISOString())}
                       </td>
                       <td className="amt px-3 py-2 text-right tabular-nums text-[var(--color-muted)]">
-                        {formatMoney(g.gapHuf)}
+                        {formatMoney(excluded ? g.gapHuf : (cov?.gapHuf ?? g.gapHuf))}
                       </td>
                       <td className="amt px-3 py-2 text-right tabular-nums text-[var(--color-muted)]">
                         {excluded ? "—" : cov ? formatMoney(cov.savingsApplied) : "—"}
