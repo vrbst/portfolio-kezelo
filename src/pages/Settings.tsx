@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Trash2,
@@ -46,6 +46,25 @@ export default function Settings() {
   const clearAll = usePortfolio((s) => s.clearAll);
   const [confirming, setConfirming] = useState(false);
 
+  // Build stamp comes from a runtime-fetched version.json (see vite.config.ts)
+  // so it never lands in the precached bundle and can't trigger a bogus PWA
+  // "new version" prompt on price-only deploys. In dev the file is absent.
+  const [build, setBuild] = useState<{ builtAt?: string; sha?: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    let alive = true;
+    fetch(`${import.meta.env.BASE_URL}version.json`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (alive) setBuild(v);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   return (
     <div>
       <PageHeader title="Beállítások" />
@@ -90,7 +109,9 @@ export default function Settings() {
             </p>
           </div>
           <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">
-            Build: {formatDateTime(__BUILD_TIME__)} · {__BUILD_SHA__}
+            Build:{" "}
+            {build?.builtAt ? formatDateTime(build.builtAt) : "—"} ·{" "}
+            {build?.sha ?? "dev"}
           </p>
         </Card>
 
