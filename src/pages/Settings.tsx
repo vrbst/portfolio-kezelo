@@ -33,6 +33,8 @@ import {
   saveAiKey,
   loadAiModel,
   saveAiModel,
+  loadSpend,
+  resetSpend,
 } from "../lib/ai";
 import type { BondTerms, Instrument } from "../lib/model";
 
@@ -324,10 +326,14 @@ function SyncSettings() {
   );
 }
 
+const usdSpend = (n: number) =>
+  n < 0.01 ? `${(n * 100).toFixed(2)} cent` : `$${n.toFixed(2)}`;
+
 function AiSettings() {
   const [key, setKey] = useState(loadAiKey());
   const [model, setModel] = useState(loadAiModel());
   const [saved, setSaved] = useState(false);
+  const [spend, setSpend] = useState(loadSpend);
 
   const connected = loadAiKey().length > 0;
 
@@ -433,6 +439,36 @@ function AiSettings() {
             Mentve · {activeModel?.label}
           </span>
         )}
+      </div>
+
+      <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+        <p className="text-xs text-[var(--color-muted)]">
+          Becsült költség (a tokenhasználatból, ezen az eszközön számolva —{" "}
+          <strong>nem</strong> a maradék kredit, azt az API nem adja vissza):
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <span>
+            Ez a hónap:{" "}
+            <strong className="tabular-nums">
+              {usdSpend(spend.monthUsd)}
+            </strong>
+          </span>
+          <span className="text-[var(--color-muted)]">
+            Összesen:{" "}
+            <span className="tabular-nums">{usdSpend(spend.allTimeUsd)}</span>
+          </span>
+          {spend.allTimeUsd > 0 && (
+            <button
+              className="text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+              onClick={() => {
+                resetSpend();
+                setSpend(loadSpend());
+              }}
+            >
+              Nullázás
+            </button>
+          )}
+        </div>
       </div>
     </Card>
   );
