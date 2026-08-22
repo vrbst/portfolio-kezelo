@@ -26,6 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Teljes history kell: a build-stamp (version.json) az utolsó NEM ár-
+          # commit dátumát/SHA-ját olvassa ki `git log`-gal. Sekély checkoutnál
+          # (alap depth=1) csak a HEAD ár-commit látszana, és visszaesne a
+          # build-óra időbélyegére.
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 22

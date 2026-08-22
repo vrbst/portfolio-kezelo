@@ -1,11 +1,18 @@
+import { execSync } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-// Build stamp shown in Settings so you can tell which build a device runs
-// (useful for confirming a PWA update landed). Time is the build machine's
-// clock (UTC in CI); sha is the commit short hash when GitHub Actions provides it.
+// Build stamp shown in Settings so you can tell which build a device runs.
+//
+// It reflects the last commit that changed actual app code — NOT the wall clock
+// and NOT the latest commit. The nightly price bot commits only
+// public/prices.json + public/history.json; if the stamp used `new Date()` or
+// HEAD's sha, every daily price deploy would show a fresh "yesterday" build date
+// even though no code changed, which reads as a phantom update. Excluding the
+// two bot-written data files from the `git log` pathspec pins the stamp to the
+// last real code change.
 //
 // IMPORTANT: this stamp is written to a runtime-fetched `version.json`, NOT
 // baked into the JS bundle. If it were `define`d into the bundle, every build
@@ -14,8 +21,28 @@ import { VitePWA } from "vite-plugin-pwa";
 // service worker and pop a bogus "Új verzió érhető el." toast. Keeping it out
 // of the precache means price-only deploys produce byte-identical JS/CSS/HTML,
 // and the update prompt fires only on real code changes.
-const BUILD_TIME = new Date().toISOString();
-const BUILD_SHA = (process.env.GITHUB_SHA ?? "").slice(0, 7) || "dev";
+//
+// Needs full git history in CI — the deploy workflow checks out with
+// fetch-depth: 0. Falls back to the build clock if git is unavailable (e.g. a
+// shallow checkout or a tarball with no .git).
+function buildStamp(): { builtAt: string; sha: string } {
+  try {
+    const out = execSync(
+      'git log -1 --format=%cI%x09%h -- . ":(exclude)public/prices.json" ":(exclude)public/history.json"',
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    const [iso, sha] = out.split("\t");
+    if (iso && sha) return { builtAt: iso, sha };
+  } catch {
+    /* no git / shallow clone — fall back to the build clock */
+  }
+  return {
+    builtAt: new Date().toISOString(),
+    sha: (process.env.GITHUB_SHA ?? "").slice(0, 7) || "dev",
+  };
+}
+
+const { builtAt: BUILD_TIME, sha: BUILD_SHA } = buildStamp();
 
 // Emits dist/version.json at build time. `.json` is excluded from the workbox
 // precache globs, so this file is served fresh (NetworkFirst) and never counts
