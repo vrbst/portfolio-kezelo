@@ -34,7 +34,12 @@ function buyHufAtCost(
     ? amt
     : amt * histFxRate(fxHistory, t.currency, t.date, fx);
 }
-import { effectiveMonth, effectiveMonthLabel, GOAL_TOLERANCE } from "./goals";
+import {
+  effectiveMonth,
+  effectiveMonthLabel,
+  GOAL_TOLERANCE,
+  lastWorkingDayOfMonth,
+} from "./goals";
 import type { Alert } from "./alerts";
 import { formatMoney } from "./format";
 import { touchPref } from "./prefs";
@@ -287,23 +292,43 @@ export function savingsGoalAlerts(
 }
 
 /**
- * How many FUTURE monthly pay days (the 1st of each later month) fall on or
- * before the target date — the whole calendar-month boundaries strictly after
- * the current month.
+ * How many FUTURE pay days fall on or before the target date.
  *
- * Dividing the remaining days by an average month length undercounts whenever
- * the target lands early in a month: 22 July → 2 November is 103 days ≈ 3.4
- * "months", yet the Aug/Sep/Oct/Nov 1st all still arrive. This counts those
- * boundaries exactly. The CURRENT month is added separately (see
- * contributionMonthsLeft) only while it is still an open opportunity.
+ * Pay day = the LAST WORKING DAY of a calendar month (the same date that, by
+ * the app-wide month rule, already counts toward the NEXT month). Counting
+ * calendar month boundaries (the 1st) instead over-counts near a month's end:
+ * on 31 Aug (August's last working day, i.e. September's pay day, already
+ * received) a 1 Nov target has only the 30 Sep and 30 Oct pay days ahead — 2,
+ * not the 3 that Sep 1 / Oct 1 / Nov 1 would suggest. Dividing the remaining
+ * days by an average month length is just as wrong the other way: 22 July →
+ * 2 November is 103 days ≈ 3.4 "months", yet 4 pay days still arrive.
+ *
+ * The CURRENT effective month's pay day is already in the past (it is what put
+ * the money in the account), so it is added separately — see
+ * contributionMonthsLeft — and only while it is still an open opportunity.
  */
 function paydaysUntil(now: Date, targetMs: number): number {
-  const t = new Date(targetMs);
-  return Math.max(
-    0,
-    (t.getFullYear() - now.getFullYear()) * 12 +
-      (t.getMonth() - now.getMonth()),
-  );
+  if (!Number.isFinite(targetMs)) return 0;
+  const nowMs = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    12,
+  ).getTime();
+  let count = 0;
+  let y = now.getFullYear();
+  let m = now.getMonth();
+  // Walk forward month by month; stop at the first pay day past the target.
+  for (let guard = 0; guard < 1200; guard++) {
+    const pay = new Date(y, m, lastWorkingDayOfMonth(y, m), 12).getTime();
+    if (pay > targetMs) break;
+    if (pay > nowMs) count++;
+    if (++m > 11) {
+      m = 0;
+      y++;
+    }
+  }
+  return count;
 }
 
 /**
@@ -345,14 +370,16 @@ function boughtThisEffectiveMonth(
 
 /**
  * How many months you can still put money aside toward the goal: the future
- * pay days (paydaysUntil) PLUS the current month while it is still an open
- * opportunity — i.e. you have not yet bought into the goal this month.
+ * pay days (paydaysUntil) PLUS the current effective month while it is still an
+ * open opportunity — i.e. its pay day has landed but you have not yet bought
+ * into the goal this month.
  *
- * This is why on 4 Aug (before this month's DKJ purchase) a 620 000 Ft gap to a
- * 1 Nov target spreads over Aug+Sep+Oct+Nov = 4 → 155 000/mo, not /3 = 206 667;
- * and once August passes (or you buy this month) the current month drops out and
- * it becomes /3. In July the month's purchase was already done, so the current
- * month didn't count and it was Aug–Nov = 4 either way.
+ * On 4 Aug (August is the effective month, its 31 Jul pay day already banked,
+ * no purchase yet) a gap to a 1 Nov target spreads over that open August plus
+ * the 31 Aug / 30 Sep / 30 Oct pay days = 4. On 31 Aug — already September's
+ * effective month, its pay day received today — an unspent month gives 1 + the
+ * 30 Sep / 30 Oct pay days = 3, and once September's purchase is made only
+ * those two remain = 2.
  */
 function contributionMonthsLeft(
   now: Date,

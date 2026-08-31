@@ -63,7 +63,7 @@ const MONTHS = [
 ];
 
 /** Last Mon–Fri date-of-month (holidays ignored — weekend-only approximation). */
-function lastWorkingDayOfMonth(year: number, month0: number): number {
+export function lastWorkingDayOfMonth(year: number, month0: number): number {
   const last = new Date(year, month0 + 1, 0);
   const dow = last.getDay();
   let day = last.getDate();
