@@ -150,6 +150,15 @@ export default function AccountDetail() {
   // Treasury: bonds' quantity = face value (névérték), so summing gives the
   // total nominal you get back at the maturities.
   const totalFaceHuf = accSummary.holdings.reduce((s, h) => s + h.quantity, 0);
+  // A pozíciók értéke névértéken + felhalmozott kamaton, illetve az az összeg,
+  // ami ma ténylegesen kijönne (kötvénynél a lejárat előtti visszaváltási
+  // díjjal csökkentve). A kettő csak akkor tér el, ha van ilyen díjas papír.
+  const totalRedeemableHuf = accSummary.holdings.reduce(
+    (s, h) => s + (h.redeemableValueHuf ?? h.marketValueHuf ?? 0),
+    0,
+  );
+  const showRedeemable =
+    Math.abs(totalRedeemableHuf - accSummary.holdingsValueHuf) > 0.5;
   // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
   // not the HUF-denominated treasury bonds.
   const eur = (huf: number, opts?: { sign?: boolean }) =>
@@ -583,11 +592,14 @@ export default function AccountDetail() {
                         )}
                       </td>
                       <td className="amt px-4 py-3 text-right tabular-nums">
-                        {formatMoney(
-                          accSummary.holdings.reduce(
-                            (s, h) => s + (h.marketValueHuf ?? 0),
-                            0,
-                          ),
+                        {formatMoney(accSummary.holdingsValueHuf)}
+                        {showRedeemable && (
+                          <div
+                            className="text-xs font-normal text-[var(--color-muted)]"
+                            title="Ennyit kapnál, ha ma mindent visszaváltanál (a lejárat előtti visszaváltási díjjal csökkentve)"
+                          >
+                            most: {formatMoney(totalRedeemableHuf)}
+                          </div>
                         )}
                       </td>
                     </tr>
