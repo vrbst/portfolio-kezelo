@@ -174,6 +174,17 @@ export default function HoldingsPanel({
                           {formatMoney(h.marketValueCcy, h.currency)}
                         </div>
                       )}
+                      {/* Fix állampapírnál az érték a névérték + felhalmozott
+                          kamat; a lejárat előtti visszaváltási díj csak akkor
+                          számít, ha tényleg most váltanád vissza. */}
+                      {h.redeemableValueHuf != null && (
+                        <div
+                          className="amt text-xs font-normal text-[var(--color-muted)]"
+                          title="Ennyit kapnál, ha ma visszaváltanád (a lejárat előtti visszaváltási díjjal csökkentve)"
+                        >
+                          most: {formatMoney(h.redeemableValueHuf)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {/* Bonds: mark-to-market oscillates with the coupon cycle,
@@ -413,6 +424,14 @@ function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
                 </td>
                 <td className="amt py-1.5 pr-3 text-right">
                   {formatMoney(lot.currentValueHuf)}
+                  {lot.redeemableValueHuf != null && (
+                    <div
+                      className="text-[10px] font-normal text-[var(--color-muted)]"
+                      title="Ennyit kapnál, ha ma visszaváltanád"
+                    >
+                      most: {formatMoney(lot.redeemableValueHuf)}
+                    </div>
+                  )}
                 </td>
                 <td className="py-1.5 text-right">
                   <span
@@ -446,9 +465,10 @@ function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
         </p>
       )}
       <p className="mt-1 text-xs text-[var(--color-muted)]">
-        A „mai érték" a most visszaváltható összeg: diszkont kincstárjegynél a
-        névérték felé araszoló felhalmozott érték, fix állampapírnál a névérték
-        + felhalmozott kamat, lejárat előtt a visszaváltási díjjal csökkentve.
+        A „mai érték" diszkont kincstárjegynél a névérték felé araszoló
+        felhalmozott érték, fix állampapírnál a névérték + felhalmozott kamat —
+        ezzel számol a portfólió összértéke is. A „most" sor a lejárat előtti
+        visszaváltási díjjal csökkentett, ténylegesen kifizetendő összeg.
       </p>
     </div>
   );

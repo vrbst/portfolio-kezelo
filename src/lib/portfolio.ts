@@ -39,6 +39,14 @@ export interface HoldingView {
   marketValueCcy?: number;
   /** Market value converted to HUF. */
   marketValueHuf?: number;
+  /**
+   * Bonds only: what redeeming TODAY would actually pay out — the value minus
+   * the early-sale cost of a fixed-rate series before maturity. `marketValueHuf`
+   * itself is the nominal + accrued (hold-to-maturity) figure the totals use, so
+   * this is the extra number the account / holdings views show alongside it.
+   * Undefined when it equals `marketValueHuf` (T-bills, matured, non-bonds).
+   */
+  redeemableValueHuf?: number;
   /** Cost basis converted to HUF (par/face proxy for bonds). */
   costBasisHuf: number;
   unrealizedPlHuf?: number;
@@ -124,11 +132,11 @@ export function accountReturn(s: AccountSummary): number | undefined {
   if (isEmptyAccount(s)) return undefined;
   if (s.capitalBasisHuf <= 0) return undefined;
   if (s.account.kind === "treasury") {
-    // Fixed-rate bond mark-to-market oscillates with the coupon cycle and bakes
-    // in a 1% early-redemption fee you won't pay if held to maturity, so it
-    // understates the real return. Use the economic result instead: coupons
-    // received + realized P&L + the discount T-bills' accretion (they pay no
-    // coupon, so their mark-to-market IS their yield).
+    // A fixed-rate bond's mark oscillates with the coupon cycle — the accrued
+    // interest resets to zero on every payment date — so it is a poor return
+    // measure. Use the economic result instead: coupons received + realized P&L
+    // + the discount T-bills' accretion (they pay no coupon, so their
+    // mark-to-market IS their yield).
     const tbillUnrealized = s.holdings
       .filter((h) => h.instrument?.type === "tbill")
       .reduce((sum, h) => sum + (h.unrealizedPlHuf ?? 0), 0);
@@ -406,11 +414,16 @@ export function computeAccountSummary(
     const currentPrice = prices.get(key);
 
     let marketValueCcy: number | undefined;
+    let redeemableCcy: number | undefined;
     let bondNeedsData = false;
     if (isBond) {
       const avgBuyMs = p.cost > 0 ? p.costDateMs / p.cost : nowMs;
       const bv = bondMarketValue(inst, p.qty, p.cost, avgBuyMs, bondNowMs);
+      // Nominal + accrued: the portfolio counts what you own, not what an early
+      // sale would net. The realisable figure rides along for the detail views.
       marketValueCcy = bv.value;
+      if (bv.redeemableValue < bv.value - 0.5)
+        redeemableCcy = bv.redeemableValue;
       bondNeedsData = bv.needsData;
     } else if (currentPrice != null) {
       marketValueCcy = p.qty * currentPrice;
@@ -437,6 +450,8 @@ export function computeAccountSummary(
       currentPrice: isBond ? undefined : currentPrice,
       marketValueCcy,
       marketValueHuf,
+      redeemableValueHuf:
+        redeemableCcy != null ? toHuf(redeemableCcy, ccy, fx) : undefined,
       costBasisHuf: costBasisHufThis,
       unrealizedPlHuf: unrealized,
       bondNeedsData: bondNeedsData || undefined,
@@ -788,6 +803,8 @@ export interface ConsolidatedHolding {
   costBasisHuf: number;
   marketValueCcy?: number;
   marketValueHuf: number;
+  /** Σ of the holdings' redeemable value; undefined when none differs. */
+  redeemableValueHuf?: number;
   unrealizedPlHuf: number;
   /** How many accounts hold this instrument. */
   accountCount: number;
@@ -815,12 +832,17 @@ export function consolidatedHoldings(
   for (const acc of summary.accounts) {
     for (const h of acc.holdings) {
       const mv = h.marketValueHuf ?? 0;
+      // Non-bond holdings redeem at their value, so they add `mv` here and the
+      // sum is dropped again below when nothing in the group differs.
+      const redeemable = h.redeemableValueHuf ?? mv;
       const existing = map.get(h.instrumentKey);
       if (existing) {
         existing.quantity += h.quantity;
         existing.costBasisCcy += h.costBasisCcy;
         existing.costBasisHuf += h.costBasisHuf;
         existing.marketValueHuf += mv;
+        existing.redeemableValueHuf =
+          (existing.redeemableValueHuf ?? 0) + redeemable;
         if (h.marketValueCcy != null)
           existing.marketValueCcy =
             (existing.marketValueCcy ?? 0) + h.marketValueCcy;
@@ -836,6 +858,7 @@ export function consolidatedHoldings(
           costBasisHuf: h.costBasisHuf,
           marketValueCcy: h.marketValueCcy,
           marketValueHuf: mv,
+          redeemableValueHuf: redeemable,
           unrealizedPlHuf: h.unrealizedPlHuf ?? 0,
           accountCount: 1,
           accountKind: acc.account.kind,
@@ -843,6 +866,10 @@ export function consolidatedHoldings(
       }
     }
   }
+  // Only keep the redeemable figure where it actually says something else.
+  for (const h of map.values())
+    if (Math.abs((h.redeemableValueHuf ?? 0) - h.marketValueHuf) < 0.5)
+      h.redeemableValueHuf = undefined;
   // Államkincstár assets on top, then TBSZ; within each group by value desc.
   return [...map.values()].sort((a, b) => {
     const ka = HOLDING_KIND_ORDER[a.accountKind] ?? 9;
@@ -1030,8 +1057,13 @@ export interface BondLot {
   costHuf: number;
   /** Purchase price as a fraction of par (costHuf / faceValue). */
   pricePct: number;
-  /** Accreted/redeemable value of the still-held face today (HUF). */
+  /** Nominal + accrued value of the still-held face today (HUF). */
   currentValueHuf: number;
+  /**
+   * What redeeming this lot today would actually pay (early-sale cost taken
+   * off). Undefined when it equals `currentValueHuf`.
+   */
+  redeemableValueHuf?: number;
   /** currentValueHuf − costHuf. */
   gainHuf: number;
   /** gainHuf / costHuf. */
@@ -1053,11 +1085,11 @@ export interface BondLotsResult {
 
 /**
  * Per-purchase breakdown for one bond (gov_bond / tbill): each still-held buy
- * with its face value, purchase price (% of par), the accreted/redeemable value
- * today, and the gain since purchase. Redemptions net against buys FIFO per
- * account. Discount T-bills accrete from each lot's own purchase date; fixed
- * bonds add coupon accrual (redeemable-today value, i.e. minus the early-sale
- * cost before maturity — matching the holdings row).
+ * with its face value, purchase price (% of par), today's value, and the gain
+ * since purchase. Redemptions net against buys FIFO per account. Discount
+ * T-bills accrete from each lot's own purchase date; fixed bonds add coupon
+ * accrual — nominal + accrued, matching the holdings row, with the amount an
+ * early redemption would actually pay carried separately.
  */
 export function bondLots(
   instrumentKey: string,
@@ -1097,6 +1129,8 @@ export function bondLots(
       costHuf,
       pricePct: faceValue > 0 ? costHuf / faceValue : 0,
       currentValueHuf: bv.value,
+      redeemableValueHuf:
+        bv.redeemableValue < bv.value - 0.5 ? bv.redeemableValue : undefined,
       gainHuf,
       gainPct: costHuf > 0 ? gainHuf / costHuf : 0,
     };

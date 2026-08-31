@@ -488,12 +488,34 @@ export function bondImportReminders(
   return out;
 }
 
+export interface BondValue {
+  /**
+   * The position's HUF value as the portfolio counts it: face + what it has
+   * earned so far, WITHOUT the early-redemption cost. This is the hold-to-
+   * maturity view — the fee is only paid if you actually sell early, so
+   * subtracting it from the portfolio total would understate what you own.
+   */
+  value: number;
+  /**
+   * What you would actually receive by redeeming TODAY: `value` minus the
+   * early-sale cost of a fixed-rate bond before maturity. Equal to `value` for
+   * discount T-bills and at/after maturity. Shown alongside the value in the
+   * account / holdings views.
+   */
+  redeemableValue: number;
+  /** Fixed-rate series terms are missing → valued at par. */
+  needsData: boolean;
+}
+
 /**
  * Current HUF value of a bond position (face = quantity), more accurate than par:
  *  - Discount T-bill (zero coupon): accretes linearly from the average purchase
  *    price toward par (100%) by maturity. At/after maturity it is par.
  *  - Fixed-rate bond (FixMÁP…): par + accrued coupon from the user-supplied
  *    series terms. Falls back to par (`needsData`) when terms are missing.
+ *
+ * Two numbers come back: `value` (nominal + accrued, what the portfolio totals
+ * use) and `redeemableValue` (minus the early-sale cost, what you'd get today).
  */
 export function bondMarketValue(
   inst: Instrument | undefined,
@@ -501,27 +523,36 @@ export function bondMarketValue(
   cost: number,
   avgBuyMs: number,
   nowMs: number,
-): { value: number; needsData: boolean } {
+): BondValue {
   const matMs = parseDayMs(inst?.bond?.maturity ?? inst?.maturity);
+  const both = (value: number, needsData: boolean): BondValue => ({
+    value,
+    redeemableValue: value,
+    needsData,
+  });
 
   if (inst?.type === "tbill") {
-    if (!Number.isFinite(matMs) || nowMs >= matMs)
-      return { value: faceQty, needsData: false }; // par at/after maturity
+    // No early-sale cost on a discount T-bill: the accreted value IS what you
+    // get back, so value and redeemable value coincide.
+    if (!Number.isFinite(matMs) || nowMs >= matMs) return both(faceQty, false); // par at/after maturity
     const avgPrice = faceQty > 0 ? cost / faceQty : 1;
     const span = matMs - avgBuyMs;
     const frac = span > 0 ? clamp01((nowMs - avgBuyMs) / span) : 1;
-    return {
-      value: faceQty * (avgPrice + (1 - avgPrice) * frac),
-      needsData: false,
-    };
+    return both(faceQty * (avgPrice + (1 - avgPrice) * frac), false);
   }
 
   const accrued = fixedBondAccrued(inst?.bond, nowMs);
-  if (accrued == null) return { value: faceQty, needsData: true }; // par fallback
-  // Early-sale cost (what you'd actually get if redeeming now); none at maturity.
+  if (accrued == null) return both(faceQty, true); // par fallback
+  const value = faceQty * (1 + accrued);
+  // Early-sale cost applies only if you redeem before maturity — it never
+  // reduces `value`, just the amount realisable today.
   const beforeMaturity = !Number.isFinite(matMs) || nowMs < matMs;
   const saleCost = beforeMaturity
     ? (inst?.bond?.saleCostPct ?? DEFAULT_BOND_SALE_COST)
     : 0;
-  return { value: faceQty * (1 + accrued - saleCost), needsData: false };
+  return {
+    value,
+    redeemableValue: value - faceQty * saleCost,
+    needsData: false,
+  };
 }

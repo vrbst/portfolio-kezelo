@@ -264,8 +264,8 @@ export default function AccountDetail() {
             />
           </>
         ) : isTreasury ? (
-          // Bonds' mark-to-market return oscillates with the coupon cycle and
-          // bakes in the 1% early-redemption fee, so we don't show a "Hozam"
+          // A bond's mark oscillates with the coupon cycle (the accrued
+          // interest resets on every payment date), so we don't show a "Hozam"
           // here. The meaningful figures: total face value, coupons received,
           // and the capital invested.
           <>
@@ -525,6 +525,17 @@ export default function AccountDetail() {
                                   {formatMoney(h.marketValueCcy, h.currency)}
                                 </div>
                               )}
+                            {/* Az érték a névérték + felhalmozott kamat; ez a
+                                sor mutatja, mennyi jönne ténylegesen, ha ma
+                                váltanád vissza a lejárat előtt. */}
+                            {h.redeemableValueHuf != null && (
+                              <div
+                                className="amt text-xs font-normal text-[var(--color-muted)]"
+                                title="Ennyit kapnál, ha ma visszaváltanád (a lejárat előtti visszaváltási díjjal csökkentve)"
+                              >
+                                most: {formatMoney(h.redeemableValueHuf)}
+                              </div>
+                            )}
                           </td>
                           {!isTreasury && <ReturnCell h={h} fx={fx} />}
                         </tr>

@@ -734,13 +734,15 @@ function BondSeriesSettings() {
       <p className="mb-4 text-xs text-[var(--color-muted)]">
         A pontos értékeléshez add meg a sorozat adatait: kibocsátás, éves kamat,
         kamatperiódus és az első kamatfizetés dátuma — ebből számoljuk a
-        felhalmozott kamatot a kupon-ütemterv szerint. Az érték a lejárat előtti
-        eladási költséggel csökkentve jelenik meg (alapból a névérték 1%-a),
-        vagyis a most realizálható összeg. Hétvégén a következő hétfői nappal
-        számolunk (mint a MobilKincstár). Az első (tört) kamat összegét kézzel
-        is megadhatod (a MÁK-érték), mert a tört periódus nem számolható
-        forintra pontosan. A diszkont kincstárjegyek automatikusan a vételár →
-        névérték akkrécióval értékelődnek.
+        felhalmozott kamatot a kupon-ütemterv szerint. A portfólió a névérték +
+        felhalmozott kamat összeggel számol (lejáratig tartva ennyit ér), a
+        lejárat előtti eladási költség (alapból a névérték 1%-a) csak a „most"
+        visszaváltható összegnél jelenik meg a számla- és eszköz-nézetben.
+        Hétvégén a következő hétfői nappal számolunk (mint a MobilKincstár). Az
+        első (tört) kamat összegét kézzel is megadhatod (a MÁK-érték), mert a
+        tört periódus nem számolható forintra pontosan. A diszkont
+        kincstárjegyek automatikusan a vételár → névérték akkrécióval
+        értékelődnek.
       </p>
 
       <div className="space-y-3">
