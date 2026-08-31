@@ -81,8 +81,19 @@ export function bondValuationMs(ms: number): number {
  * Accrued-interest fraction of par for a fixed-rate bond from its (user-supplied)
  * coupon schedule. Walks the coupon dates forward from `firstCouponDate` by the
  * interval to the latest boundary on/before `now`, then accrues linearly.
- * Before the first coupon it accrues from the issue date (the first period may be
- * irregular). Returns undefined when there is not enough data (→ value at par).
+ * Returns undefined when there is not enough data (→ value at par).
+ *
+ * Inside a REGULAR period the accrual is a share of that period's coupon —
+ * `rate × interval/12 × elapsed/periodDays` — not `rate × days/365`. The coupon
+ * is a fixed amount per period (see couponAmountHuf), so the accrual has to reach
+ * exactly that amount on the coupon date: a 92-day quarter of a 7% bond pays
+ * 1.75%, while days/365 would climb to 1.7644% and then drop back. Checked
+ * against MobilKincstár: FixMÁP 2031/Q1 on 2026-08-31 (39 of 92 days into the
+ * 07-23 → 10-23 quarter) shows 0.7418% = 1.75% × 39/92 exactly.
+ *
+ * Before the first coupon it accrues from the issue date on `rate × days/365`:
+ * that stub period's coupon is a prorated amount MÁK rounds separately, and the
+ * observed daily accrual there does follow the /365 basis.
  */
 function fixedBondAccrued(
   bond: BondTerms | undefined,
@@ -103,6 +114,9 @@ function fixedBondAccrued(
   if (Number.isFinite(matMs) && nowMs > matMs) nowMs = matMs;
 
   let anchorMs: number;
+  // A regular period runs coupon → coupon; the stub before the first coupon runs
+  // from issuance and is prorated on days/365 instead.
+  let regularPeriod = true;
   if (Number.isFinite(first) && nowMs >= first) {
     let cur = first;
     for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
@@ -113,14 +127,24 @@ function fixedBondAccrued(
     anchorMs = cur;
   } else if (Number.isFinite(issue)) {
     anchorMs = issue; // first coupon not due yet — accrue from issuance
+    regularPeriod = false;
   } else if (Number.isFinite(first)) {
     anchorMs = first;
+    regularPeriod = false;
   } else {
     return undefined;
   }
 
   const days = (nowMs - anchorMs) / 86_400_000;
-  return days > 0 ? (rate * days) / 365 : 0;
+  if (days <= 0) return 0;
+  if (regularPeriod) {
+    const periodDays = (addMonths(anchorMs, interval) - anchorMs) / 86_400_000;
+    if (periodDays > 0) {
+      const periodCoupon = (rate * interval) / 12;
+      return periodCoupon * Math.min(days / periodDays, 1);
+    }
+  }
+  return (rate * days) / 365;
 }
 
 /**
