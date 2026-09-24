@@ -424,9 +424,10 @@ export default function Dashboard() {
                 Összes <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            {/* auto-fit: the cards always fill the row, however many accounts
-                there are (a fixed 3-col grid left 2 accounts cramped). */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(17rem,1fr))] gap-3">
+            {/* auto-fit: the cards always fill the row, however many accounts. Min
+                20rem keeps the full name readable (wraps to a new row instead of
+                cramming); min(100%,…) lets it shrink on a phone. */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-3">
               {/* Empty accounts are noise here — the Számlák page still lists them. */}
               {summary.accounts
                 .filter((a) => !isEmptyAccount(a))
