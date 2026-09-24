@@ -19,6 +19,8 @@ export interface BackupFile {
   alertState: AlertState;
   goals: Goal[];
   deletedGoalIds: string[];
+  /** Account tombstones (id -> deletedAt). */
+  deletedAccounts: Record<string, string>;
   reminders: Reminder[];
   deletedReminderIds: string[];
   /** Planning preferences (target allocation, forecast settings). */
@@ -39,6 +41,7 @@ export function buildBackup(): BackupFile {
     alertState: s.alertState,
     goals: s.goals,
     deletedGoalIds: s.deletedGoalIds,
+    deletedAccounts: s.deletedAccounts,
     reminders: s.reminders,
     deletedReminderIds: s.deletedReminderIds,
     prefs: collectPrefs(),

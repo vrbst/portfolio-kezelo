@@ -34,6 +34,11 @@ export interface PortfolioSnapshot {
    * copy (local or remote) would re-add the just-removed goal.
    */
   deletedGoalIds?: string[];
+  /**
+   * Account tombstones: id -> deletion time (ISO). An account (and all its
+   * transactions) is dropped on every device unless its `restoredAt` is newer.
+   */
+  deletedAccounts?: Record<string, string>;
   /** User-created reminders (to-dos), synced across devices. */
   reminders?: Reminder[];
   /** Tombstones for reminders dismissed/deleted on any device. */

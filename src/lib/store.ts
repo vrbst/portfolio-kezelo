@@ -126,6 +126,10 @@ interface PortfolioState {
     skipped: number;
   }>;
   updateAccount: (id: string, patch: Partial<Account>) => Promise<void>;
+  /** Account tombstones (id -> deletedAt), synced so a delete propagates. */
+  deletedAccounts: Record<string, string>;
+  /** Delete an account with all its transactions (tombstoned for sync). */
+  removeAccount: (id: string) => Promise<void>;
   updateInstrument: (key: string, patch: Partial<Instrument>) => Promise<void>;
   setPrices: (prices: PriceMap, fx?: Record<string, number>) => void;
   refreshPrices: () => Promise<void>;
@@ -251,6 +255,7 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     alertState: s.alertState,
     goals: s.goals,
     deletedGoalIds: s.deletedGoalIds,
+    deletedAccounts: s.deletedAccounts,
     reminders: s.reminders,
     deletedReminderIds: s.deletedReminderIds,
     // Planning prefs (allocation targets, forecast settings) — read straight
@@ -268,6 +273,52 @@ function unionById<T>(
   for (const x of base ?? []) m.set(keyOf(x), x);
   for (const x of over ?? []) m.set(keyOf(x), x);
   return [...m.values()];
+}
+
+/** Union two tombstone maps, keeping the latest deletion time per id. */
+function mergeTombstones(
+  a: Record<string, string> | undefined,
+  b: Record<string, string> | undefined,
+): Record<string, string> {
+  const out = { ...(a ?? {}) };
+  for (const [id, at] of Object.entries(b ?? {})) {
+    if (!out[id] || at > out[id]) out[id] = at;
+  }
+  return out;
+}
+
+/** Deleted = tombstoned, and not re-imported after the deletion. */
+function isAccountDeleted(a: Account, tombstones: Record<string, string>) {
+  const at = tombstones[a.id];
+  return !!at && !(a.restoredAt && a.restoredAt > at);
+}
+
+/** Drop deleted accounts and every transaction that belongs to them. */
+function dropDeletedAccounts(
+  accounts: Account[],
+  transactions: Transaction[],
+  tombstones: Record<string, string>,
+): { accounts: Account[]; transactions: Transaction[]; removedIds: string[] } {
+  const removedIds = Object.keys(tombstones).filter((id) => {
+    const acc = accounts.find((a) => a.id === id);
+    return !acc || isAccountDeleted(acc, tombstones);
+  });
+  if (removedIds.length === 0) return { accounts, transactions, removedIds };
+  const removed = new Set(removedIds);
+  return {
+    accounts: accounts.filter((a) => !removed.has(a.id)),
+    transactions: transactions.filter((t) => !removed.has(t.accountId)),
+    removedIds,
+  };
+}
+
+/** Remove deleted accounts' rows from IndexedDB (bulkPut never deletes). */
+async function purgeAccountsFromDb(ids: string[]) {
+  if (ids.length === 0) return;
+  await Promise.all([
+    db.accounts.bulkDelete(ids),
+    db.transactions.where("accountId").anyOf(ids).delete(),
+  ]);
 }
 
 /**
@@ -293,16 +344,23 @@ function unionSnapshots(
     ]),
   ];
   const deletedRem = new Set(deletedReminderIds);
+  const deletedAccounts = mergeTombstones(
+    remote.deletedAccounts,
+    local.deletedAccounts,
+  );
+  // Drop tombstoned accounts with their transactions, so a delete is never re-added.
+  const { accounts, transactions } = dropDeletedAccounts(
+    unionById(remote.accounts, local.accounts, (a) => a.id),
+    unionById(remote.transactions, local.transactions, (t) => t.id),
+    deletedAccounts,
+  );
   return {
     version: 1,
     exportedAt: local.exportedAt,
-    accounts: unionById(remote.accounts, local.accounts, (a) => a.id),
+    accounts,
     instruments: unionById(remote.instruments, local.instruments, (i) => i.key),
-    transactions: unionById(
-      remote.transactions,
-      local.transactions,
-      (t) => t.id,
-    ),
+    transactions,
+    deletedAccounts,
     alertState: { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
     // Drop any goal a tombstone marks deleted, so a delete is never re-added.
     goals: unionById(remote.goals, local.goals, (g) => g.id).filter(
@@ -326,10 +384,16 @@ async function applySnapshotLocal(
 ) {
   const deletedGoalIds = snap.deletedGoalIds ?? [];
   const deletedReminderIds = snap.deletedReminderIds ?? [];
+  const deletedAccounts = snap.deletedAccounts ?? {};
+  await purgeAccountsFromDb(
+    dropDeletedAccounts(get().accounts, get().transactions, deletedAccounts)
+      .removedIds,
+  );
   await Promise.all([
     db.accounts.bulkPut(snap.accounts),
     db.instruments.bulkPut(snap.instruments),
     db.transactions.bulkPut(snap.transactions),
+    setMeta("deletedAccounts", deletedAccounts),
     setMeta("alertState", snap.alertState ?? {}),
     setMeta("goals", snap.goals ?? []),
     setMeta("deletedGoalIds", deletedGoalIds),
@@ -343,6 +407,7 @@ async function applySnapshotLocal(
     accounts: snap.accounts,
     instruments: snap.instruments,
     transactions: snap.transactions,
+    deletedAccounts,
     alertState: snap.alertState ?? {},
     goals: snap.goals ?? [],
     deletedGoalIds,
@@ -363,14 +428,9 @@ async function mergeSnapshot(
   const s = get();
 
   const txById = new Map(s.transactions.map((t) => [t.id, t]));
-  let added = 0;
   for (const t of snap.transactions ?? []) {
-    if (!txById.has(t.id)) {
-      txById.set(t.id, t);
-      added++;
-    }
+    if (!txById.has(t.id)) txById.set(t.id, t);
   }
-  const transactions = [...txById.values()];
 
   // Remote wins so instrument edits (e.g. bond series terms) propagate across
   // devices, mirroring the account-merge policy below.
@@ -381,7 +441,23 @@ async function mergeSnapshot(
   // Accounts: remote wins so TBSZ labels / edits propagate across devices.
   const accById = new Map(s.accounts.map((a) => [a.id, a]));
   for (const a of snap.accounts ?? []) accById.set(a.id, a);
-  const accounts = [...accById.values()];
+
+  // Account deletions from either device drop the account with its txs.
+  const deletedAccounts = mergeTombstones(
+    s.deletedAccounts,
+    snap.deletedAccounts,
+  );
+  const {
+    accounts,
+    transactions,
+    removedIds: removedAccountIds,
+  } = dropDeletedAccounts(
+    [...accById.values()],
+    [...txById.values()],
+    deletedAccounts,
+  );
+  const localTxIds = new Set(s.transactions.map((t) => t.id));
+  const added = transactions.filter((t) => !localTxIds.has(t.id)).length;
 
   // Alert history: remote wins per-id (mirrors the account merge).
   const alertState = { ...s.alertState, ...(snap.alertState ?? {}) };
@@ -407,10 +483,12 @@ async function mergeSnapshot(
   // Planning prefs: only a strictly newer remote copy overwrites localStorage.
   applyRemotePrefs(snap.prefs);
 
+  await purgeAccountsFromDb(removedAccountIds);
   await Promise.all([
     db.accounts.bulkPut(accounts),
     db.instruments.bulkPut(instruments),
     db.transactions.bulkPut(transactions),
+    setMeta("deletedAccounts", deletedAccounts),
     setMeta("alertState", alertState),
     setMeta("goals", goals),
     setMeta("deletedGoalIds", deletedGoalIds),
@@ -425,6 +503,7 @@ async function mergeSnapshot(
     accounts,
     instruments,
     transactions,
+    deletedAccounts,
     alertState,
     goals,
     deletedGoalIds,
@@ -482,6 +561,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   alertConfig: loadAlertConfig(),
   goals: [],
   deletedGoalIds: [],
+  deletedAccounts: {},
   reminders: [],
   deletedReminderIds: [],
   privacy: loadPrivacy(),
@@ -508,6 +588,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       reminders,
       deletedReminderIds,
       manualPrices,
+      deletedAccounts,
     ] = await Promise.all([
       db.accounts.toArray(),
       db.instruments.toArray(),
@@ -519,6 +600,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       getMeta<Reminder[]>("reminders"),
       getMeta<string[]>("deletedReminderIds"),
       getMeta<Record<string, number>>("manualPriceOverrides"),
+      getMeta<Record<string, string>>("deletedAccounts"),
     ]);
     // The OLD (permanent) manual-price feature was removed — drop its leftover
     // meta so it can never override the automatic price again. The current
@@ -535,6 +617,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       alertState: alertState ?? {},
       goals: goals ?? [],
       deletedGoalIds: deletedGoalIds ?? [],
+      deletedAccounts: deletedAccounts ?? {},
       reminders: reminders ?? [],
       deletedReminderIds: deletedReminderIds ?? [],
       loaded: true,
@@ -552,9 +635,18 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
     // Merge accounts (keep user edits like TBSZ year already set).
     const accountById = new Map(state.accounts.map((a) => [a.id, a]));
+    const now = new Date().toISOString();
     for (const a of parsed.accounts) {
       const existing = accountById.get(a.id);
-      accountById.set(a.id, existing ? { ...a, ...existing } : a);
+      accountById.set(
+        a.id,
+        existing
+          ? { ...a, ...existing }
+          : // Re-importing a deleted account is an explicit "bring it back".
+            state.deletedAccounts[a.id]
+            ? { ...a, restoredAt: now }
+            : a,
+      );
     }
     const accounts = [...accountById.values()];
 
@@ -585,6 +677,32 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const updated = accounts.find((a) => a.id === id);
     if (updated) await db.accounts.put(updated);
     set({ accounts });
+    scheduleAutoSync(set, get);
+  },
+
+  removeAccount: async (id) => {
+    const s = get();
+    const deletedAccounts = {
+      ...s.deletedAccounts,
+      [id]: new Date().toISOString(),
+    };
+    // An account linked to the removed one must not point at nothing.
+    const unlinked = s.accounts
+      .filter((a) => a.linkedCashAccountId === id)
+      .map((a) => ({ ...a, linkedCashAccountId: undefined }));
+    const unlinkedById = new Map(unlinked.map((a) => [a.id, a]));
+    await purgeAccountsFromDb([id]);
+    await Promise.all([
+      setMeta("deletedAccounts", deletedAccounts),
+      db.accounts.bulkPut(unlinked),
+    ]);
+    set({
+      accounts: s.accounts
+        .filter((a) => a.id !== id)
+        .map((a) => unlinkedById.get(a.id) ?? a),
+      transactions: s.transactions.filter((t) => t.accountId !== id),
+      deletedAccounts,
+    });
     scheduleAutoSync(set, get);
   },
 
@@ -994,6 +1112,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       alertState: {},
       goals: [],
       deletedGoalIds: [],
+      deletedAccounts: {},
       reminders: [],
       deletedReminderIds: [],
       priceFile: null,

@@ -29,6 +29,11 @@ export interface Account {
   openedAt?: string;
   /** id of the linked cash account, if any. */
   linkedCashAccountId?: string;
+  /**
+   * Set when a previously deleted account is imported again (ISO). It beats an
+   * older deletion tombstone, so the re-import survives the sync merge.
+   */
+  restoredAt?: string;
 }
 
 export type InstrumentType =

@@ -1,7 +1,15 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Pencil, Check, X, Target, ChevronDown } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  Pencil,
+  Check,
+  X,
+  Target,
+  ChevronDown,
+  Trash2,
+} from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { loadSavingsGoals } from "../lib/savings";
 import { PREFS_EVENT } from "../lib/prefs";
@@ -46,6 +54,8 @@ export default function AccountDetail() {
   const transactions = usePortfolio((s) => s.transactions);
   const summary = usePortfolioSummary();
   const updateAccount = usePortfolio((s) => s.updateAccount);
+  const removeAccount = usePortfolio((s) => s.removeAccount);
+  const navigate = useNavigate();
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const fx = usePortfolio((s) => s.fx);
   const prices = usePortfolio((s) => s.prices);
@@ -124,6 +134,7 @@ export default function AccountDetail() {
     });
 
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? "regular");
   const [year, setYear] = useState<string>(
     account?.tbszYear ? String(account.tbszYear) : "",
@@ -143,6 +154,9 @@ export default function AccountDetail() {
     );
   }
 
+  const accountTxCount = transactions.filter(
+    (t) => t.accountId === account.id,
+  ).length;
   const isTreasury = account.provider === "allamkincstar";
   const isCashHub = account.kind === "cash";
   const empty = isEmptyAccount(accSummary);
@@ -177,7 +191,13 @@ export default function AccountDetail() {
   function cancelEdit() {
     setKind(account!.kind);
     setYear(account!.tbszYear ? String(account!.tbszYear) : "");
+    setConfirmingDelete(false);
     setEditing(false);
+  }
+
+  async function deleteAccount() {
+    await removeAccount(account!.id);
+    navigate("/accounts");
   }
 
   return (
@@ -220,6 +240,34 @@ export default function AccountDetail() {
               <button className="btn-ghost" onClick={cancelEdit}>
                 <X className="h-4 w-4" />
               </button>
+              {confirmingDelete ? (
+                <>
+                  <span className="text-sm text-[var(--color-negative)]">
+                    A számla és mind a {accountTxCount} tranzakciója törlődik
+                    (minden szinkronizált eszközön). Újraimportálással
+                    visszahozható.
+                  </span>
+                  <button
+                    className="btn bg-[var(--color-negative)] text-white hover:brightness-110"
+                    onClick={deleteAccount}
+                  >
+                    Igen, törlöm
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => setConfirmingDelete(false)}
+                  >
+                    Mégse
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn-ghost border-[var(--color-negative)]/40 text-[var(--color-negative)]"
+                  onClick={() => setConfirmingDelete(true)}
+                >
+                  <Trash2 className="h-4 w-4" /> Számla törlése
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">
