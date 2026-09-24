@@ -222,16 +222,38 @@ export default function Dashboard() {
   // to pin purely in CSS (the column grows to its own content), so we measure
   // the left column and cap the right one to it — only on the xl two-column
   // layout; stacked below xl the cap is removed.
+  // The cap never squeezes the events card below EVENTS_MIN_PX: if the cards
+  // above it are taller than the left column allows, the rail grows instead.
   const leftColRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
   const [railMaxH, setRailMaxH] = useState<number | undefined>();
   useEffect(() => {
     const el = leftColRef.current;
     if (!el) return;
     const mq = window.matchMedia("(min-width: 1280px)");
-    const update = () => setRailMaxH(mq.matches ? el.offsetHeight : undefined);
+    const update = () => {
+      if (!mq.matches) return setRailMaxH(undefined);
+      const rail = railRef.current;
+      const eventsCard = rail?.querySelector<HTMLElement>(
+        `#${UPCOMING_EVENTS_ID}`,
+      );
+      let need = 0;
+      if (rail && eventsCard) {
+        const above = [...rail.children].filter((c) => c !== eventsCard);
+        const gap = parseFloat(getComputedStyle(rail).rowGap) || 0;
+        need =
+          above.reduce((s, c) => s + (c as HTMLElement).offsetHeight, 0) +
+          gap * above.length +
+          EVENTS_MIN_PX;
+      }
+      setRailMaxH(Math.max(el.offsetHeight, need));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    // The rail's other cards change height too (live quotes, goals loading).
+    for (const c of railRef.current?.children ?? [])
+      if (c.id !== UPCOMING_EVENTS_ID) ro.observe(c);
     mq.addEventListener("change", update);
     return () => {
       ro.disconnect();
@@ -522,6 +544,7 @@ export default function Dashboard() {
             keeps the flex-1 events card inside that cap, its list scrolling — so
             the card ends flush with the Eszközeim card's bottom. */}
         <div
+          ref={railRef}
           className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0 xl:overflow-hidden"
           style={railMaxH ? { maxHeight: railMaxH } : undefined}
         >
@@ -734,7 +757,10 @@ export default function Dashboard() {
           {/* Közelgő események — a jobb oszlop alján; xl-en kitölti a maradék
               magasságot, hogy az alja az Eszközeim aljához érjen. */}
           {events.length > 0 && (
-            <Card className="flex flex-col p-5 xl:min-h-0 xl:flex-1">
+            <Card
+              id={UPCOMING_EVENTS_ID}
+              className="flex flex-col p-5 xl:min-h-0 xl:flex-1"
+            >
               <div className="mb-4 flex items-center gap-2">
                 <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
                 <h2 className="text-lg font-semibold">Közelgő események</h2>
@@ -790,6 +816,10 @@ export default function Dashboard() {
     </div>
   );
 }
+
+const UPCOMING_EVENTS_ID = "upcoming-events";
+/** Header + ~2 event rows: the events card is never squeezed below this. */
+const EVENTS_MIN_PX = 260;
 
 const EVENT_ICON: Record<EventKind, typeof CalendarClock> = {
   tbsz: CalendarClock,

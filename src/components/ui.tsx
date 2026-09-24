@@ -277,15 +277,18 @@ export function Card({
   children,
   className = "",
   hover = false,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   hover?: boolean;
+  id?: string;
 }) {
   const reduce = useReducedMotion();
   // Glide in the first time the card scrolls into view.
   return (
     <motion.div
+      id={id}
       className={`card ${hover ? "card-hover" : ""} ${className}`}
       initial={reduce ? false : { opacity: 0, y: 14 }}
       whileInView={{ opacity: 1, y: 0 }}
