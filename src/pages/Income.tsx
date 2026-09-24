@@ -13,6 +13,8 @@ import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import {
   computeIncomeByYear,
   computeReturns,
+  benchmarkIndex,
+  BENCHMARK,
   fxImpact,
   buildValueSeries,
   type YearIncome,
@@ -26,6 +28,7 @@ import {
   Sparkline,
 } from "../components/ui";
 import { formatMoney, formatPercent, formatCompact } from "../lib/format";
+import BenchmarkChart from "../components/BenchmarkChart";
 
 export default function Income() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -79,6 +82,23 @@ export default function Income() {
   );
   // Under a year, annualizing inflates the number — lead with the period return.
   const shortPeriod = returns.days < 365;
+
+  // Portfolio TWR vs. the benchmark (in HUF) over the same days.
+  const benchmark = useMemo(() => {
+    const idx = returns.twrIndex;
+    const bench = benchmarkIndex(
+      historyFile,
+      idx.map((p) => p.date),
+    );
+    if (!bench) return null;
+    const points = idx.map((p, i) => ({
+      date: p.date,
+      portfolio: p.cum,
+      benchmark: Number.isFinite(bench[i]) ? bench[i] : undefined,
+    }));
+    const lastBench = [...bench].reverse().find((v) => Number.isFinite(v));
+    return { points, lastBench };
+  }, [returns, historyFile]);
 
   // Portfolio profit (value − invested) over time → the Teljesítmény sparkline.
   const profitSpark = useMemo(() => {
@@ -190,6 +210,40 @@ export default function Income() {
             hint="Jelenlegi érték a befektetett tőkéhez képest. A befizetések időzítése torzítja."
           />
         </div>
+
+        {benchmark &&
+          benchmark.points.length >= 2 &&
+          benchmark.lastBench != null &&
+          returns.twrCumulativePct != null && (
+            <div className="mt-6">
+              <h3 className="mb-1 text-sm font-semibold">
+                Összevetés a világindexszel
+              </h3>
+              <p className="mb-3 text-sm text-[var(--color-muted)]">
+                Ugyanebben az időszakban a {BENCHMARK.label} forintban{" "}
+                {formatPercent(benchmark.lastBench)}, a portfóliód (TWR){" "}
+                {formatPercent(returns.twrCumulativePct)} hozamot ért el —{" "}
+                {Math.abs(returns.twrCumulativePct - benchmark.lastBench) <
+                0.0005
+                  ? "gyakorlatilag ugyanannyit."
+                  : `${(
+                      Math.abs(returns.twrCumulativePct - benchmark.lastBench) *
+                      100
+                    ).toLocaleString("hu-HU", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} százalékponttal ${
+                      returns.twrCumulativePct > benchmark.lastBench
+                        ? "jobban"
+                        : "gyengébben"
+                    }.`}
+              </p>
+              <BenchmarkChart
+                data={benchmark.points}
+                benchmarkLabel={BENCHMARK.label}
+              />
+            </div>
+          )}
       </Card>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

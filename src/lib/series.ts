@@ -29,7 +29,7 @@ export interface ValueHistory {
 }
 
 /** Last value in an ascending [date, value][] series on/before `day`. */
-function asOf(
+export function asOf(
   series: [string, number][] | undefined,
   day: string,
 ): number | undefined {

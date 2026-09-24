@@ -10,7 +10,39 @@ import {
   toHuf,
   type PriceMap,
 } from "./portfolio";
-import { buildValueSeries, type ValueHistory } from "./series";
+import { asOf, buildValueSeries, type ValueHistory } from "./series";
+
+/** Benchmark for the TWR comparison: a global all-world equity ETF. */
+export const BENCHMARK = {
+  key: "IE00BK5BQT80",
+  label: "VWCE (FTSE All-World)",
+  currency: "EUR",
+} as const;
+
+/**
+ * The benchmark's cumulative return in HUF on each of `dates`, from the first
+ * date (0). Uses the daily closes + EUR/HUF in the history file, so it carries
+ * the same currency effect the portfolio does. Null if the history lacks it.
+ */
+export function benchmarkIndex(
+  history: ValueHistory | null | undefined,
+  dates: string[],
+): number[] | null {
+  const px = history?.prices[BENCHMARK.key];
+  const fxSeries = history?.fx[BENCHMARK.currency];
+  if (!px?.length || !fxSeries?.length || dates.length < 2) return null;
+  const hufAt = (d: string) => {
+    const p = asOf(px, d);
+    const r = asOf(fxSeries, d);
+    return p != null && r != null ? p * r : undefined;
+  };
+  const base = hufAt(dates[0]);
+  if (!base) return null;
+  return dates.map((d) => {
+    const v = hufAt(d);
+    return v != null ? v / base - 1 : NaN;
+  });
+}
 
 export interface ReturnMetrics {
   /** Simple return: (value − net external) / net external. */
@@ -23,6 +55,8 @@ export interface ReturnMetrics {
   twrPct?: number;
   /** Cumulative time-weighted return over the whole period. */
   twrCumulativePct?: number;
+  /** Cumulative TWR per sample day (starts at 0) — the benchmark chart's line. */
+  twrIndex: { date: string; cum: number }[];
   /** Days from the first investment to now. */
   days: number;
 }
@@ -134,6 +168,7 @@ export function computeReturns(
   let factor = 1;
   let started = false;
   let firstMs = nowMs;
+  const twrIndex: { date: string; cum: number }[] = [];
   for (let i = 1; i < series.length; i++) {
     const prev = series[i - 1];
     const cur = series[i];
@@ -148,7 +183,9 @@ export function computeReturns(
     if (!started) {
       started = true;
       firstMs = Date.parse(prev.date);
+      twrIndex.push({ date: prev.date.slice(0, 10), cum: 0 });
     }
+    twrIndex.push({ date: cur.date.slice(0, 10), cum: factor - 1 });
   }
   if (started) {
     twrCumulativePct = factor - 1;
@@ -162,6 +199,7 @@ export function computeReturns(
     xirrCumulativePct,
     twrPct,
     twrCumulativePct,
+    twrIndex,
     days,
   };
 }
