@@ -17,6 +17,8 @@ export interface ReturnMetrics {
   simplePct: number;
   /** Annualized money-weighted return (XIRR), if solvable. */
   xirrPct?: number;
+  /** XIRR compounded over the actual period (not annualized). */
+  xirrCumulativePct?: number;
   /** Annualized time-weighted return (TWR), if computable. */
   twrPct?: number;
   /** Cumulative time-weighted return over the whole period. */
@@ -103,14 +105,17 @@ export function computeReturns(
     flowTxs.length > 0 ? Math.round((nowMs - flowTxs[0].ms) / 86_400_000) : 0;
 
   let xirrPct: number | undefined;
+  let xirrCumulativePct: number | undefined;
   if (flowTxs.length > 0) {
     const t0 = flowTxs[0].ms;
     const flows = flowTxs.map((f) => ({
       t: (f.ms - t0) / (365 * 86_400_000),
       amt: f.amt,
     }));
-    flows.push({ t: (nowMs - t0) / (365 * 86_400_000), amt: value }); // liquidation
+    const span = (nowMs - t0) / (365 * 86_400_000);
+    flows.push({ t: span, amt: value }); // liquidation
     xirrPct = solveXirr(flows);
+    if (xirrPct != null) xirrCumulativePct = Math.pow(1 + xirrPct, span) - 1;
   }
 
   // TWR from the daily (bridge-free) value series: chain daily market returns.
@@ -151,5 +156,12 @@ export function computeReturns(
     twrPct = span > 0 ? Math.pow(factor, 1 / span) - 1 : twrCumulativePct;
   }
 
-  return { simplePct, xirrPct, twrPct, twrCumulativePct, days };
+  return {
+    simplePct,
+    xirrPct,
+    xirrCumulativePct,
+    twrPct,
+    twrCumulativePct,
+    days,
+  };
 }

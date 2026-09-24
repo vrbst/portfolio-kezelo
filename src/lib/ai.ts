@@ -290,12 +290,24 @@ export function buildAiPortfolioContext(
     `Nem realizált: ${huf(summary.unrealizedPlHuf)} Ft · Realizált: ${huf(summary.realizedPlHuf)} Ft · Kapott kamat: ${huf(summary.interestHuf)} Ft`,
     `Készpénz: ${huf(summary.cashValueHuf)} Ft (${pct(summary.cashValueHuf / total)})`,
     returns.xirrPct != null
-      ? `XIRR (évesített, pénzsúlyozott): ${pct(returns.xirrPct)}`
+      ? `XIRR (pénzsúlyozott): évesítve ${pct(returns.xirrPct)}${
+          returns.xirrCumulativePct != null
+            ? `, a teljes időszakra ${pct(returns.xirrCumulativePct)}`
+            : ""
+        }`
       : null,
     returns.twrPct != null
-      ? `TWR (évesített, idősúlyozott): ${pct(returns.twrPct)}`
+      ? `TWR (idősúlyozott): évesítve ${pct(returns.twrPct)}${
+          returns.twrCumulativePct != null
+            ? `, a teljes időszakra ${pct(returns.twrCumulativePct)}`
+            : ""
+        }`
       : null,
-    `Adatsor hossza: ${returns.days} nap`,
+    `Adatsor hossza: ${returns.days} nap${
+      returns.days < 365
+        ? " (egy évnél rövidebb: az évesített érték felnagyít, a teljes időszakra vetítettet érdemes hangsúlyozni)"
+        : ""
+    }`,
     extras?.dayChange
       ? `Utolsó napi változás: ${signedHuf(extras.dayChange.abs)} Ft${
           extras.dayChange.pct != null ? ` (${pct(extras.dayChange.pct)})` : ""

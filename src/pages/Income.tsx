@@ -77,6 +77,8 @@ export default function Income() {
       computeReturns(accounts, transactions, instMap, prices, fx, historyFile),
     [accounts, transactions, instMap, prices, fx, historyFile],
   );
+  // Under a year, annualizing inflates the number — lead with the period return.
+  const shortPeriod = returns.days < 365;
 
   // Portfolio profit (value − invested) over time → the Teljesítmény sparkline.
   const profitSpark = useMemo(() => {
@@ -149,21 +151,32 @@ export default function Income() {
       <Card className="mb-6 p-6">
         <h2 className="mb-1 text-lg font-semibold">Teljesítmény</h2>
         <p className="mb-4 text-sm text-[var(--color-muted)]">
-          Évesített hozam-mutatók ({returns.days} nap adat alapján).
+          {shortPeriod
+            ? `A teljes időszak hozama (${returns.days} nap adat alapján). Egy évnél rövidebb időre az évesített érték félrevezetően felnagyítana, ezért csak kiegészítésként látszik.`
+            : `Évesített hozam-mutatók (${returns.days} nap adat alapján).`}
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Metric
             label="XIRR — pénzsúlyozott"
-            pct={returns.xirrPct}
-            hint="A te pénzed tényleges évesített hozama, a be- és kifizetések időzítését is figyelembe véve."
+            pct={shortPeriod ? returns.xirrCumulativePct : returns.xirrPct}
+            sub={
+              shortPeriod && returns.xirrPct != null
+                ? `évesítve ${formatPercent(returns.xirrPct)} (rövid időszak)`
+                : undefined
+            }
+            hint="A te pénzed tényleges hozama, a be- és kifizetések időzítését is figyelembe véve."
           />
           <Metric
             label="TWR — idősúlyozott"
-            pct={returns.twrPct}
+            pct={shortPeriod ? returns.twrCumulativePct : returns.twrPct}
             sub={
-              returns.twrCumulativePct != null
-                ? `${formatPercent(returns.twrCumulativePct)} a teljes időszakban`
-                : undefined
+              shortPeriod
+                ? returns.twrPct != null
+                  ? `évesítve ${formatPercent(returns.twrPct)} (rövid időszak)`
+                  : undefined
+                : returns.twrCumulativePct != null
+                  ? `${formatPercent(returns.twrCumulativePct)} a teljes időszakban`
+                  : undefined
             }
             spark={profitSpark}
             sparkStroke={
