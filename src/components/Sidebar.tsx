@@ -25,7 +25,6 @@ import {
   ChevronsRight,
   ArrowUpRight,
   ArrowDownRight,
-  Scale,
 } from "lucide-react";
 
 // Nav grouped by intent: overview | what happened/happens | planning |
@@ -41,7 +40,6 @@ const linkGroups = [
   [
     { to: "/forecast", label: "Előrejelzés", icon: LineChart, end: false },
     { to: "/goals", label: "Célok", icon: Target, end: false },
-    { to: "/big-decision", label: "Nagy döntés", icon: Scale, end: false },
   ],
   [
     { to: "/alerts", label: "Figyelmeztetések", icon: Bell, end: false },
