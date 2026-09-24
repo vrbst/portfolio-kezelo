@@ -491,7 +491,7 @@ export function projectMonteCarlo(
         spare = null;
         return v;
       }
-      let u = 0;
+      let u: number;
       do {
         u = rand();
       } while (u <= 1e-12);

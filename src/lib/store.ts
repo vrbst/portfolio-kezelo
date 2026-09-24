@@ -967,6 +967,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   clearAll: async () => {
+    // Disconnect sync on this device too: otherwise the next startup pull (the
+    // lastPulledSha in meta is wiped below) or any auto-push merge would bring
+    // every deleted item straight back from the cloud copy. The cloud file
+    // itself is left untouched — reconnecting restores from it.
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    saveSyncConfig(null);
     await Promise.all([
       db.accounts.clear(),
       db.instruments.clear(),
@@ -989,6 +998,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedReminderIds: [],
       priceFile: null,
       priceUpdatedAt: undefined,
+      syncConfig: null,
+      lastSyncedAt: undefined,
+      syncError: undefined,
     });
   },
 
@@ -1104,7 +1116,10 @@ export function useValueSeries(): ValuePoint[] {
 }
 
 export interface DayChange {
-  /** HUF change between the last two samples. */
+  /**
+   * HUF market move between the last two samples — deposits/withdrawals in
+   * that window are netted out, so a transfer never reads as a daily gain.
+   */
   abs: number;
   /** Fraction vs the earlier sample (undefined if it was 0). */
   pct?: number;
@@ -1118,7 +1133,7 @@ export function useDayChange(): DayChange | null {
   if (series.length < 2) return null;
   const last = series[series.length - 1];
   const prev = series[series.length - 2];
-  const abs = last.value - prev.value;
+  const abs = last.value - prev.value - (last.invested - prev.invested);
   const gap = Math.round(
     (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
   );

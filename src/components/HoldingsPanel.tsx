@@ -56,7 +56,8 @@ export default function HoldingsPanel({
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 

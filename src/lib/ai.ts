@@ -233,8 +233,13 @@ function trend30(series: ValuePoint[] | undefined): string | null {
     (Date.parse(last.date) - Date.parse(base.date)) / 86_400_000,
   );
   if (days <= 0) return null;
-  const change = (last.value - base.value) / base.value;
-  return `Érték-változás az elmúlt ~${days} napban: ${pct(change)} (${signedHuf(last.value - base.value)} Ft)`;
+  // Net out deposits/withdrawals so fresh capital isn't read as performance.
+  const flow = last.invested - base.invested;
+  const move = last.value - base.value - flow;
+  const flowTxt = flow
+    ? `, a közben befizetett/kivett ${signedHuf(flow)} Ft nélkül`
+    : "";
+  return `Piaci érték-változás az elmúlt ~${days} napban: ${pct(move / base.value)} (${signedHuf(move)} Ft${flowTxt})`;
 }
 
 /**

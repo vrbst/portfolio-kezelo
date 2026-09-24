@@ -90,7 +90,6 @@ export function collectPrefs(): SyncedPrefs | undefined {
       /* ignore */
     }
     if (!at) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (out as Record<string, StampedPref<unknown>>)[kind] = {
       updatedAt: at,
       value: LOADERS[kind](),

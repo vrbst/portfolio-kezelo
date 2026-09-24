@@ -46,6 +46,7 @@ export default function Settings() {
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
   const clearAll = usePortfolio((s) => s.clearAll);
+  const syncOn = usePortfolio((s) => s.syncConfig != null);
   const [confirming, setConfirming] = useState(false);
 
   // Build stamp comes from a runtime-fetched version.json (see vite.config.ts)
@@ -135,6 +136,8 @@ export default function Settings() {
         </div>
         <p className="mb-4 text-sm text-[var(--color-muted)]">
           Az összes helyi adat végleges törlése. Ez nem vonható vissza.
+          {syncOn &&
+            " A szinkron ezen az eszközön is lekapcsol, hogy a felhőből ne töltődjön vissza minden. A felhőben lévő mentés megmarad: újracsatlakozva onnan visszaállítható."}
         </p>
         {confirming ? (
           <div className="flex items-center gap-3">
