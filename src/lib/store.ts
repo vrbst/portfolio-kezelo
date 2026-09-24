@@ -607,6 +607,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // "manualPriceOverrides" key is the temporary variant that auto-clears on
     // the next live quote.
     void db.meta.delete("manualPrices");
+    // Leftover inputs of the removed "Nagy döntés" page.
+    try {
+      localStorage.removeItem("pf-cardecision");
+    } catch {
+      /* ignore */
+    }
     const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) };
     set({
       accounts,

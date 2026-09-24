@@ -5,6 +5,8 @@
 //    GitHub Action) is the snapshot fallback for first paint / when live fails.
 //  - EUR/HUF is refreshed live from frankfurter.app (CORS-friendly, no key).
 
+import { PREFS_EVENT, touchPref } from "./prefs";
+
 export interface PriceEntry {
   price: number;
   currency: string;
@@ -71,8 +73,8 @@ const CURATED_SYMBOLS: Record<string, string> = {
   GB00BJYDH287: "GB00BJYDH287.SG",
 };
 
-// Per-device manual overrides (ISIN/key -> Yahoo symbol), set in Settings when
-// the auto-resolved listing is wrong. Stored locally, never synced.
+// Manual overrides (ISIN/key -> Yahoo symbol), set in Settings when the
+// auto-resolved listing is wrong. Synced across devices as a planning pref.
 const OVERRIDES_KEY = "portfolio.symbolOverrides";
 
 export function loadSymbolOverrides(): Record<string, string> {
@@ -95,11 +97,20 @@ export function saveSymbolOverride(isin: string, symbol: string) {
     /* ignore */
   }
   resolvedCache.delete(isin); // re-resolve with the new override next refresh
+  touchPref("symbols");
 }
 
 // Session cache of resolved symbols (ISIN -> symbol | null) so we hit Yahoo's
 // search at most once per ISIN per session.
 const resolvedCache = new Map<string, string | null>();
+
+// Overrides pulled from another device must take effect on the next refresh.
+if (typeof window !== "undefined") {
+  window.addEventListener(PREFS_EVENT, (e) => {
+    if ((e as CustomEvent<{ source?: string }>).detail?.source === "remote")
+      resolvedCache.clear();
+  });
+}
 
 interface YahooQuote {
   price: number;

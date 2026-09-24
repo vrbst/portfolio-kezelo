@@ -1,4 +1,5 @@
-// Syncable planning preferences: target allocation + forecast settings.
+// Syncable planning preferences: target allocation, forecast settings,
+// savings goals and price-symbol overrides.
 // Each field carries an updatedAt stamp and merges last-write-wins across
 // devices. Secrets (sync token, AI key) live under separate localStorage keys
 // and are NEVER part of this.
@@ -18,21 +19,25 @@ export interface SyncedPrefs {
   allocation?: StampedPref<AllocationSettings | null>;
   forecast?: StampedPref<ForecastSettings>;
   savings?: StampedPref<SavingsGoal[]>;
+  /** Manual ISIN -> Yahoo symbol overrides for live prices. */
+  symbols?: StampedPref<Record<string, string>>;
 }
 
-export type PrefKind = "allocation" | "forecast" | "savings";
+export type PrefKind = "allocation" | "forecast" | "savings" | "symbols";
 
-const KINDS: PrefKind[] = ["allocation", "forecast", "savings"];
+const KINDS: PrefKind[] = ["allocation", "forecast", "savings", "symbols"];
 
 const VALUE_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation",
   forecast: "pf-forecast",
   savings: "pf-savings",
+  symbols: "portfolio.symbolOverrides",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
   forecast: "pf-forecast-updated",
   savings: "pf-savings-updated",
+  symbols: "portfolio.symbolOverrides-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -41,6 +46,14 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   allocation: loadAllocationSettings,
   forecast: loadForecastSettings,
   savings: loadSavingsGoals,
+  // Read directly (not via prices.ts): prices.ts imports this module at load.
+  symbols: () => {
+    try {
+      return JSON.parse(localStorage.getItem(VALUE_KEY.symbols) ?? "{}");
+    } catch {
+      return {};
+    }
+  },
 };
 
 /** Fired on every pref change; detail.source tells a local edit from a sync pull. */
