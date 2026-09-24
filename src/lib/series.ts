@@ -42,32 +42,27 @@ export function asOf(
   return v;
 }
 
+/** Per-day price/FX replacements for {@link valueOnDay}. */
+export interface DayOverrides {
+  /** instrument key -> price (instrument currency). */
+  prices?: Record<string, number>;
+  /** currency -> HUF per unit. */
+  fx?: Record<string, number>;
+}
+
 /**
- * Portfolio value over time, reconstructed from the transactions.
- *  - With `history` (daily ETF closes + EUR/HUF from the GitHub Action) each
- *    sample day is marked to the real market close and FX of that day → a
- *    genuine daily curve, sampled weekly.
- *  - Without history we fall back to the price embedded in the most recent
- *    trade on/before the day and the conversion-rate FX, sampled at trade days.
- * Bonds use their accrued value on the day. The final point uses live prices so
- * it matches the dashboard total.
+ * Builds the "value at the end of day D" marker shared by the value series and
+ * {@link valueOnDay}: history closes/FX of that day (falling back to the last
+ * trade price and conversion rate), bonds accrued to the day's end.
  */
-export function buildValueSeries(
+function makeDayMarker(
   accounts: Account[],
-  txs: Transaction[],
+  sorted: Transaction[],
   instruments: Map<string, Instrument>,
-  prices: PriceMap,
   fx: Record<string, number>,
   history?: ValueHistory | null,
-  now: Date = new Date(),
-  bridge = true,
-): ValuePoint[] {
-  if (txs.length === 0) return [];
-  const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+) {
   const fxHistory = buildFxHistory(sorted);
-  const hasHistory =
-    !!history && Object.values(history.prices).some((s) => s.length > 0);
-
   // Per-instrument trade-price timeline (instrument currency per unit) — the
   // fallback when no market history is available.
   const priceTimeline = new Map<string, { date: string; price: number }[]>();
@@ -92,6 +87,91 @@ export function buildValueSeries(
     }
     return p;
   };
+
+  return (day: string, overrides?: DayOverrides) => {
+    const dayEnd = `${day}T23:59:59.999Z`;
+    const txsUpTo = sorted.filter((t) => t.date <= dayEnd);
+    const pricesAtD: PriceMap = new Map();
+    for (const inst of instruments.values()) {
+      const p =
+        overrides?.prices?.[inst.key] ??
+        asOf(history?.prices[inst.key], day) ??
+        tradePriceAsOf(inst.key, dayEnd);
+      if (p != null) pricesAtD.set(inst.key, p);
+    }
+    const fxAtD = {
+      ...fx,
+      EUR:
+        asOf(history?.fx["EUR"], day) ??
+        histFxRate(fxHistory, "EUR", dayEnd, fx),
+      ...(overrides?.fx ?? {}),
+    };
+    // Value the holdings at the SAME instant used as the transaction cutoff
+    // (end of `day`), not local noon. Bond accrued interest resets on the coupon
+    // boundary; a coupon tx is stored at the value date's local midnight (=
+    // 22:00Z east of UTC), so it lands in cash as of `dayEnd`. Valuing accrual at
+    // local noon of the same UTC day-string would be BEFORE that boundary, so the
+    // bond would still carry a full period of accrued interest while the coupon
+    // is already in cash → the coupon double-counts for one sample (a phantom
+    // spike on the coupon day). Aligning both to `dayEnd` keeps them consistent.
+    const s = computePortfolio(
+      accounts,
+      txsUpTo,
+      instruments,
+      pricesAtD,
+      fxAtD,
+      new Date(dayEnd),
+    );
+    return { value: s.totalValueHuf, invested: s.netDepositedHuf };
+  };
+}
+
+/**
+ * Portfolio value and invested capital at the end of one day, marked exactly
+ * like the value series — optionally with some prices/FX replaced (e.g. the
+ * live feed's previous closes, so a daily change compares like with like).
+ */
+export function valueOnDay(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+  history: ValueHistory | null | undefined,
+  day: string,
+  overrides?: DayOverrides,
+): { value: number; invested: number } {
+  const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+  return makeDayMarker(accounts, sorted, instruments, fx, history)(
+    day,
+    overrides,
+  );
+}
+
+/**
+ * Portfolio value over time, reconstructed from the transactions.
+ *  - With `history` (daily ETF closes + EUR/HUF from the GitHub Action) each
+ *    sample day is marked to the real market close and FX of that day → a
+ *    genuine daily curve, sampled weekly.
+ *  - Without history we fall back to the price embedded in the most recent
+ *    trade on/before the day and the conversion-rate FX, sampled at trade days.
+ * Bonds use their accrued value on the day. The final point uses live prices so
+ * it matches the dashboard total.
+ */
+export function buildValueSeries(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  history?: ValueHistory | null,
+  now: Date = new Date(),
+  bridge = true,
+): ValuePoint[] {
+  if (txs.length === 0) return [];
+  const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+  const hasHistory =
+    !!history && Object.values(history.prices).some((s) => s.length > 0);
+  const markDay = makeDayMarker(accounts, sorted, instruments, fx, history);
 
   // Bridge money in transit between the user's own accounts. A withdrawal from
   // one account is often funded into another a few days later (e.g. treasury →
@@ -161,42 +241,12 @@ export function buildValueSeries(
 
   const points: ValuePoint[] = [];
   for (const day of days) {
-    const dayEnd = `${day}T23:59:59.999Z`;
-    const txsUpTo = sorted.filter((t) => t.date <= dayEnd);
-    const pricesAtD: PriceMap = new Map();
-    for (const inst of instruments.values()) {
-      const p =
-        asOf(history?.prices[inst.key], day) ??
-        tradePriceAsOf(inst.key, dayEnd);
-      if (p != null) pricesAtD.set(inst.key, p);
-    }
-    const fxAtD = {
-      ...fx,
-      EUR:
-        asOf(history?.fx["EUR"], day) ??
-        histFxRate(fxHistory, "EUR", dayEnd, fx),
-    };
-    // Value the holdings at the SAME instant used as the transaction cutoff
-    // (end of `day`), not local noon. Bond accrued interest resets on the coupon
-    // boundary; a coupon tx is stored at the value date's local midnight (=
-    // 22:00Z east of UTC), so it lands in cash as of `dayEnd`. Valuing accrual at
-    // local noon of the same UTC day-string would be BEFORE that boundary, so the
-    // bond would still carry a full period of accrued interest while the coupon
-    // is already in cash → the coupon double-counts for one sample (a phantom
-    // spike on the coupon day). Aligning both to `dayEnd` keeps them consistent.
-    const s = computePortfolio(
-      accounts,
-      txsUpTo,
-      instruments,
-      pricesAtD,
-      fxAtD,
-      new Date(dayEnd),
-    );
+    const s = markDay(day);
     const transit = bridge ? inTransitOn(day) : 0;
     points.push({
       date: day,
-      value: s.totalValueHuf + transit,
-      invested: s.netDepositedHuf + transit,
+      value: s.value + transit,
+      invested: s.invested + transit,
     });
   }
 

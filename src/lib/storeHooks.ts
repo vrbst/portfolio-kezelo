@@ -7,11 +7,12 @@ import {
   computePortfolio,
   bondImportReminders,
   buildValueSeries,
+  valueOnDay,
   type PortfolioSummary,
   type PriceMap,
   type ValuePoint,
 } from "./portfolio";
-import { type HistoryFile } from "./prices";
+import { type HistoryFile, type LiveQuote } from "./prices";
 import {
   computeAlerts,
   bondImportAlerts,
@@ -125,21 +126,86 @@ export interface DayChange {
   note: string;
 }
 
-/** Change between the last two value samples — the "ma" delta. Null if <2 pts. */
+/**
+ * The "ma" delta: today's live value vs. the end of yesterday, flows netted out.
+ *
+ * Yesterday is re-marked with the live feed's own previous closes (securities
+ * and EUR/HUF) instead of the history file: the live EUR/HUF is Yahoo's
+ * intraday rate while the history carries the ECB fixing, and the two can
+ * differ by a few tenths of a percent — noise the size of a whole day's move.
+ * Without live quotes it falls back to the last two series samples.
+ */
+const cachedDayChange = sharedMemo(
+  (
+    series: ValuePoint[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    fx: Record<string, number>,
+    history: HistoryFile | null | undefined,
+    liveQuotes: Record<string, LiveQuote>,
+  ): DayChange | null => {
+    if (series.length < 2) return null;
+    const last = series[series.length - 1];
+
+    const instMap = new Map(instruments.map((i) => [i.key, i]));
+    const prices: Record<string, number> = {};
+    for (const [key, q] of Object.entries(liveQuotes)) {
+      if (instMap.has(key) && q.prevClose != null) prices[key] = q.prevClose;
+    }
+    const eurPrev = liveQuotes["EUR"]?.prevClose;
+    if (eurPrev != null || Object.keys(prices).length > 0) {
+      const d = new Date(`${last.date}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 1);
+      const prev = valueOnDay(
+        accounts,
+        transactions,
+        instMap,
+        fx,
+        history,
+        d.toISOString().slice(0, 10),
+        { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined },
+      );
+      // value − invested on both sides: flows (and the in-transit bridge the
+      // series adds to both) cancel out.
+      const abs = last.value - last.invested - (prev.value - prev.invested);
+      return {
+        abs,
+        pct: prev.value ? abs / prev.value : undefined,
+        note: "ma",
+      };
+    }
+
+    const prev = series[series.length - 2];
+    const abs = last.value - prev.value - (last.invested - prev.invested);
+    const gap = Math.round(
+      (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
+    );
+    return {
+      abs,
+      pct: prev.value ? abs / prev.value : undefined,
+      note: gap <= 1 ? "ma" : `${gap} nap`,
+    };
+  },
+);
+
 export function useDayChange(): DayChange | null {
   const series = useValueSeries();
-  if (series.length < 2) return null;
-  const last = series[series.length - 1];
-  const prev = series[series.length - 2];
-  const abs = last.value - prev.value - (last.invested - prev.invested);
-  const gap = Math.round(
-    (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
+  const history = usePortfolio((s) => s.historyFile);
+  const liveQuotes = usePortfolio((s) => s.liveQuotes);
+  return cachedDayChange(
+    series,
+    accounts,
+    transactions,
+    instruments,
+    fx,
+    history,
+    liveQuotes,
   );
-  return {
-    abs,
-    pct: prev.value ? abs / prev.value : undefined,
-    note: gap <= 1 ? "ma" : `${gap} nap`,
-  };
 }
 
 const cachedGoalProgress = sharedMemo(computeGoalProgress);
