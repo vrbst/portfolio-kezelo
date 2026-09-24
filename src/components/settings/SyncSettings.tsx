@@ -1,15 +1,16 @@
 import { useState } from "react";
 import {
-Cloud,RefreshCw,
-CloudUpload,
-CloudDownload,
-CheckCircle2,AlertTriangle
+  Cloud,
+  RefreshCw,
+  CloudUpload,
+  CloudDownload,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
-import { Card,Badge } from "../ui";
+import { Card, Badge } from "../ui";
 import { formatDateTime } from "../../lib/format";
-import { verifyAccess,type SyncConfig } from "../../lib/sync";
-
+import { verifyAccess, type SyncConfig } from "../../lib/sync";
 
 export default function SyncSettings() {
   const syncConfig = usePortfolio((s) => s.syncConfig);

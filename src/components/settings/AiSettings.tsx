@@ -1,18 +1,15 @@
 import { useState } from "react";
+import { CheckCircle2, Sparkles } from "lucide-react";
+import { Card, Badge } from "../ui";
 import {
-CheckCircle2,Sparkles
-} from "lucide-react";
-import { Card,Badge } from "../ui";
-import {
-AI_MODELS,
-loadAiKey,
-saveAiKey,
-loadAiModel,
-saveAiModel,
-loadSpend,
-resetSpend,
+  AI_MODELS,
+  loadAiKey,
+  saveAiKey,
+  loadAiModel,
+  saveAiModel,
+  loadSpend,
+  resetSpend,
 } from "../../lib/ai";
-
 
 const usdSpend = (n: number) =>
   n < 0.01 ? `${(n * 100).toFixed(2)} cent` : `$${n.toFixed(2)}`;
@@ -140,9 +137,7 @@ export default function AiSettings() {
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <span>
             Ez a hónap:{" "}
-            <strong className="tabular-nums">
-              {usdSpend(spend.monthUsd)}
-            </strong>
+            <strong className="tabular-nums">{usdSpend(spend.monthUsd)}</strong>
           </span>
           <span className="text-[var(--color-muted)]">
             Összesen:{" "}

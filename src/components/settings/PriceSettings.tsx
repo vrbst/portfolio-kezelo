@@ -1,17 +1,11 @@
 import { useState } from "react";
-import {
-LineChart,
-RefreshCw,Check,
-Pencil,
-X
-} from "lucide-react";
+import { LineChart, RefreshCw, Check, Pencil, X } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
-import { Card,Badge } from "../ui";
-import { formatDateTime,formatNumber } from "../../lib/format";
+import { Card, Badge } from "../ui";
+import { formatDateTime, formatNumber } from "../../lib/format";
 import { instrumentTypeLabel } from "../../lib/labels";
-import { loadSymbolOverrides,saveSymbolOverride } from "../../lib/prices";
+import { loadSymbolOverrides, saveSymbolOverride } from "../../lib/prices";
 import type { Instrument } from "../../lib/model";
-
 
 const PRICED_TYPES = new Set(["etf", "stock", "fund"]);
 

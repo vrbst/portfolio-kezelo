@@ -1,12 +1,9 @@
 import { useState } from "react";
-import {
-Landmark
-} from "lucide-react";
+import { Landmark } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
-import { Card,Badge,AmountInput } from "../ui";
+import { Card, Badge, AmountInput } from "../ui";
 import { instrumentTypeLabel } from "../../lib/labels";
-import type { BondTerms,Instrument } from "../../lib/model";
-
+import type { BondTerms, Instrument } from "../../lib/model";
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 

@@ -1,10 +1,7 @@
 import { useState } from "react";
-import {
-Bell
-} from "lucide-react";
+import { Bell } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
-import { Card,AmountInput } from "../ui";
-
+import { Card, AmountInput } from "../ui";
 
 export default function AlertSettings() {
   const idleCashHuf = usePortfolio((s) => s.alertConfig.idleCashHuf);

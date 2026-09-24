@@ -1,13 +1,8 @@
-import { useEffect,useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-Trash2,
-Database,
-Download,
-Upload,ShieldCheck
-} from "lucide-react";
+import { Trash2, Database, Download, Upload, ShieldCheck } from "lucide-react";
 import { usePortfolio } from "../lib/store";
-import { PageHeader,Card } from "../components/ui";
+import { PageHeader, Card } from "../components/ui";
 import { formatDateTime } from "../lib/format";
 import { downloadBackup } from "../lib/backup";
 
@@ -88,8 +83,7 @@ export default function Settings() {
             </p>
           </div>
           <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">
-            Build:{" "}
-            {build?.builtAt ? formatDateTime(build.builtAt) : "—"} ·{" "}
+            Build: {build?.builtAt ? formatDateTime(build.builtAt) : "—"} ·{" "}
             {build?.sha ?? "dev"}
           </p>
         </Card>
