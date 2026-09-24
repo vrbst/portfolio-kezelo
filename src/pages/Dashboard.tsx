@@ -424,7 +424,9 @@ export default function Dashboard() {
                 Összes <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+            {/* auto-fit: the cards always fill the row, however many accounts
+                there are (a fixed 3-col grid left 2 accounts cramped). */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(17rem,1fr))] gap-3">
               {/* Empty accounts are noise here — the Számlák page still lists them. */}
               {summary.accounts
                 .filter((a) => !isEmptyAccount(a))
@@ -434,41 +436,46 @@ export default function Dashboard() {
                     to={`/accounts/${a.account.id}`}
                     className="block min-w-0"
                   >
-                    <div className="card-hover flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate font-medium">
-                            {a.account.name}
-                          </span>
-                          <Badge tone="neutral">
-                            {accountKindLabel(a.account)}
-                          </Badge>
-                        </div>
-                        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                          {a.holdings.length} pozíció · készpénz{" "}
-                          <Amt>{formatMoney(a.cashValueHuf)}</Amt>
-                        </div>
+                    <div className="card-hover h-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="truncate font-medium"
+                          title={a.account.name}
+                        >
+                          {a.account.name}
+                        </span>
+                        <Badge tone="neutral">
+                          {accountKindLabel(a.account)}
+                        </Badge>
                       </div>
-                      {accountSparks.has(a.account.id) && (
-                        <div className="hidden h-8 w-14 shrink-0 sm:block">
-                          <Sparkline
-                            data={accountSparks.get(a.account.id)!}
-                            stroke={
-                              (accountReturn(a) ?? 0) >= 0
-                                ? "var(--color-positive)"
-                                : "var(--color-negative)"
-                            }
-                            className="h-full w-full"
-                          />
+                      <div className="mt-2 flex items-end gap-3">
+                        <div className="min-w-0 flex-1 text-xs text-[var(--color-muted)]">
+                          <div>{a.holdings.length} pozíció</div>
+                          <div>
+                            készpénz <Amt>{formatMoney(a.cashValueHuf)}</Amt>
+                          </div>
                         </div>
-                      )}
-                      <div className="text-right">
-                        <div className="amt font-semibold tabular-nums">
-                          {formatMoney(a.totalValueHuf)}
-                        </div>
-                        {accountReturn(a) != null && (
-                          <Delta pct={accountReturn(a)} className="text-xs" />
+                        {accountSparks.has(a.account.id) && (
+                          <div className="hidden h-8 w-16 shrink-0 sm:block">
+                            <Sparkline
+                              data={accountSparks.get(a.account.id)!}
+                              stroke={
+                                (accountReturn(a) ?? 0) >= 0
+                                  ? "var(--color-positive)"
+                                  : "var(--color-negative)"
+                              }
+                              className="h-full w-full"
+                            />
+                          </div>
                         )}
+                        <div className="text-right">
+                          <div className="amt font-semibold tabular-nums">
+                            {formatMoney(a.totalValueHuf)}
+                          </div>
+                          {accountReturn(a) != null && (
+                            <Delta pct={accountReturn(a)} className="text-xs" />
+                          )}
+                        </div>
                       </div>
                     </div>
                   </Link>
