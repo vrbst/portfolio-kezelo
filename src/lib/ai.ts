@@ -39,11 +39,18 @@ export interface AiModelInfo {
   id: string;
   label: string;
   hint: string;
-  /** USD per 1M input / output tokens (first-party API rates). */
+  /** USD per 1M input / output / cache-read tokens (first-party API rates). */
   inPrice: number;
   outPrice: number;
+  cacheReadPrice: number;
   /** Model supports adaptive thinking + effort (Haiku 4.5 does not). */
   thinking: boolean;
+  /**
+   * Opt into server-side refusal fallbacks (`fallbacks: "default"`): if the
+   * model's safety classifier declines, the API re-runs the request on
+   * Anthropic's recommended fallback model instead of returning a refusal.
+   */
+  fallback: boolean;
 }
 
 /**
@@ -52,20 +59,44 @@ export interface AiModelInfo {
  */
 export const AI_MODELS: readonly AiModelInfo[] = [
   {
+    id: "claude-fable-5-1",
+    label: "Fable 5.1",
+    hint: "A legképesebb modell, a legmélyebb elemzéshez. A legdrágább (az Opus 5 kétszerese).",
+    inPrice: 10,
+    outPrice: 50,
+    cacheReadPrice: 0.25,
+    thinking: true,
+    fallback: true,
+  },
+  {
+    id: "claude-opus-5-5",
+    label: "Opus 5.5",
+    hint: "A legújabb Opus: erősebb és olcsóbb az Opus 5-nél, adaptív gondolkodással.",
+    inPrice: 4,
+    outPrice: 20,
+    cacheReadPrice: 0.2,
+    thinking: true,
+    fallback: true,
+  },
+  {
     id: "claude-opus-5",
     label: "Opus 5",
-    hint: "Legerősebb, legárnyaltabb — adaptív gondolkodással. Drágább (~pár cent/hívás).",
+    hint: "Erős, árnyalt elemzés adaptív gondolkodással (~pár cent/hívás).",
     inPrice: 5,
     outPrice: 25,
+    cacheReadPrice: 0.5,
     thinking: true,
+    fallback: true,
   },
   {
     id: "claude-sonnet-5",
     label: "Sonnet 5",
     hint: "Kiegyensúlyozott minőség és ár, gondolkodással. Legtöbb kérdéshez elég.",
-    inPrice: 3,
-    outPrice: 15,
+    inPrice: 2,
+    outPrice: 10,
+    cacheReadPrice: 0.2,
     thinking: true,
+    fallback: false,
   },
   {
     id: "claude-haiku-4-5",
@@ -73,7 +104,9 @@ export const AI_MODELS: readonly AiModelInfo[] = [
     hint: "Leggyorsabb és legolcsóbb, rövid összefoglalókhoz. Gondolkodás nélkül.",
     inPrice: 1,
     outPrice: 5,
+    cacheReadPrice: 0.1,
     thinking: false,
+    fallback: false,
   },
 ] as const;
 
@@ -129,6 +162,7 @@ export interface AiUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
   /** Estimated USD cost of this single call. */
   costUsd: number;
 }
@@ -192,9 +226,12 @@ export function resetSpend() {
 
 function costOf(model: string, usage: Omit<AiUsage, "costUsd">): number {
   const m = modelInfo(model);
-  // Cache reads (if any) bill at ~0.1× input; uncached input at full rate.
+  // Uncached input at full rate, cache reads at the model's read rate, and
+  // 5-minute cache writes at 1.25× input.
   const inUsd =
-    (usage.inputTokens * m.inPrice + usage.cacheReadTokens * m.inPrice * 0.1) /
+    (usage.inputTokens * m.inPrice +
+      usage.cacheReadTokens * m.cacheReadPrice +
+      usage.cacheWriteTokens * m.inPrice * 1.25) /
     1_000_000;
   const outUsd = (usage.outputTokens * m.outPrice) / 1_000_000;
   return inUsd + outUsd;
@@ -415,16 +452,19 @@ export async function streamClaude(opts: {
 }): Promise<{ text: string; usage: AiUsage }> {
   const model = opts.model ?? AI_MODEL;
   const info = modelInfo(model);
-  // Thinking tokens count toward max_tokens, so give thinking models headroom
-  // even if the caller asked for a small budget.
+  // Thinking tokens count toward max_tokens, so give thinking models ample
+  // headroom (only generated tokens are billed) — a tight cap cuts the answer.
   const maxTokens = info.thinking
-    ? Math.max(opts.maxTokens ?? 0, 3500)
+    ? Math.max(opts.maxTokens ?? 0, 16000)
     : (opts.maxTokens ?? 900);
 
   const body: Record<string, unknown> = {
     model,
     max_tokens: maxTokens,
     stream: true,
+    // Auto prompt caching: follow-up chat turns re-read the system prompt +
+    // snapshot + earlier turns from cache instead of paying full input again.
+    cache_control: { type: "ephemeral" },
     system: `${SYSTEM}\n\n--- Portfólió pillanatkép ---\n${opts.context}`,
     messages: opts.messages,
   };
@@ -433,17 +473,32 @@ export async function streamClaude(opts: {
     body.output_config = { effort: "high" };
   }
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": opts.key,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify(body),
-    signal: opts.signal,
-  });
+  const send = (withFallback: boolean) =>
+    fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": opts.key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        ...(withFallback
+          ? { "anthropic-beta": "server-side-fallback-2026-07-01" }
+          : {}),
+      },
+      body: JSON.stringify(
+        withFallback ? { ...body, fallbacks: "default" } : body,
+      ),
+      signal: opts.signal,
+    });
+
+  let res = await send(info.fallback);
+  // The fallback opt-in is a beta: if the API rejects it, run without it
+  // rather than breaking the whole AI panel.
+  if (info.fallback && res.status === 400) {
+    const txt = await res.text();
+    if (!/fallback/i.test(txt)) throw new Error(apiErrorMessage(400, txt));
+    res = await send(false);
+  }
 
   if (!res.ok || !res.body) {
     const txt = res.body ? await res.text() : "";
@@ -458,7 +513,9 @@ export async function streamClaude(opts: {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
+  let stopReason: string | undefined;
 
   const handle = (evt: {
     type?: string;
@@ -473,6 +530,7 @@ export async function streamClaude(opts: {
         if (u) {
           usage.inputTokens = u.input_tokens ?? 0;
           usage.cacheReadTokens = u.cache_read_input_tokens ?? 0;
+          usage.cacheWriteTokens = u.cache_creation_input_tokens ?? 0;
         }
         break;
       }
@@ -485,6 +543,7 @@ export async function streamClaude(opts: {
       case "message_delta":
         if (evt.usage?.output_tokens != null)
           usage.outputTokens = evt.usage.output_tokens;
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
         break;
       case "error":
         throw new Error(evt.error?.message || "Streaming hiba.");
@@ -514,7 +573,19 @@ export async function streamClaude(opts: {
 
   const costUsd = costOf(model, usage);
   recordSpend(costUsd);
-  return { text: text.trim() || "(üres válasz)", usage: { ...usage, costUsd } };
+  // A safety decline (even after the fallback) arrives as a normal stream with
+  // stop_reason "refusal" — any partial text is not a usable answer.
+  if (stopReason === "refusal") {
+    throw new Error(
+      "A modell elutasította a kérést. Fogalmazd át, vagy próbáld másik modellel.",
+    );
+  }
+  const note =
+    stopReason === "max_tokens" ? "\n\n(A válasz a hosszkorlát miatt megszakadt.)" : "";
+  return {
+    text: (text.trim() || "(üres válasz)") + note,
+    usage: { ...usage, costUsd },
+  };
 }
 
 /**

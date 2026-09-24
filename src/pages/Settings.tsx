@@ -415,6 +415,9 @@ function AiSettings() {
                 <span className="block text-xs text-[var(--color-muted)]">
                   {m.hint}
                 </span>
+                <span className="block text-[11px] text-[var(--color-muted)]/80 tabular-nums">
+                  ${m.inPrice} / ${m.outPrice} per 1M token (be / ki)
+                </span>
               </span>
             </label>
           ))}
