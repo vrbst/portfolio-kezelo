@@ -248,15 +248,23 @@ export default function Dashboard() {
       }
       setRailMaxH(Math.max(el.offsetHeight, need));
     };
-    update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    // The rail's other cards change height too (live quotes, goals loading).
-    for (const c of railRef.current?.children ?? [])
-      if (c.id !== UPCOMING_EVENTS_ID) ro.observe(c);
+    // The rail's other cards change height too (live quotes), and cards come
+    // and go as data loads (the events/goals cards mount after the first
+    // paint) — re-observe and re-measure on every change of the rail's children.
+    const observeRail = () => {
+      for (const c of railRef.current?.children ?? [])
+        if (c.id !== UPCOMING_EVENTS_ID) ro.observe(c);
+      update();
+    };
+    const mo = new MutationObserver(observeRail);
+    if (railRef.current) mo.observe(railRef.current, { childList: true });
+    observeRail();
     mq.addEventListener("change", update);
     return () => {
       ro.disconnect();
+      mo.disconnect();
       mq.removeEventListener("change", update);
     };
   }, []);
