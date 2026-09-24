@@ -1,15 +1,11 @@
 import { create } from "zustand";
-import { useEffect, useState } from "react";
 import { db, getMeta, setMeta } from "./db";
 import type { Account, Instrument, Transaction } from "./model";
 import type { ParsedImport } from "./parsers";
 import {
   computePortfolio,
-  bondImportReminders,
-  buildValueSeries,
   type PortfolioSummary,
   type PriceMap,
-  type ValuePoint,
 } from "./portfolio";
 import {
   loadPriceFile,
@@ -31,9 +27,6 @@ import {
   type PortfolioSnapshot,
 } from "./sync";
 import {
-  computeAlerts,
-  bondImportAlerts,
-  reminderAlerts,
   loadAlertConfig,
   saveIdleCashThreshold,
   saveTbszCheck,
@@ -44,23 +37,17 @@ import {
   type AlertConfig,
   type Reminder,
 } from "./alerts";
+import { collectPrefs, applyRemotePrefs, PREFS_EVENT } from "./prefs";
+import { type Goal } from "./goals";
 import {
-  collectPrefs,
-  applyRemotePrefs,
-  mergePrefs,
-  PREFS_EVENT,
-} from "./prefs";
-import {
-  loadSavingsGoals,
-  savingsGoalAlerts,
-  type SavingsGoal,
-} from "./savings";
-import {
-  computeGoalProgress,
-  goalAlerts,
-  type Goal,
-  type GoalProgress,
-} from "./goals";
+  mergeTombstones,
+  dropDeletedAccounts,
+  purgeAccountsFromDb,
+  unionSnapshots,
+} from "./syncMerge";
+
+// Hooks live in storeHooks.ts; re-exported so `from "./store"` keeps working.
+export * from "./storeHooks";
 
 interface PortfolioState {
   loaded: boolean;
@@ -261,118 +248,6 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     // Planning prefs (allocation targets, forecast settings) — read straight
     // from localStorage; the token and the AI key are separate keys, never here.
     prefs: collectPrefs(),
-  };
-}
-
-function unionById<T>(
-  base: T[] | undefined,
-  over: T[] | undefined,
-  keyOf: (x: T) => string,
-): T[] {
-  const m = new Map<string, T>();
-  for (const x of base ?? []) m.set(keyOf(x), x);
-  for (const x of over ?? []) m.set(keyOf(x), x);
-  return [...m.values()];
-}
-
-/** Union two tombstone maps, keeping the latest deletion time per id. */
-function mergeTombstones(
-  a: Record<string, string> | undefined,
-  b: Record<string, string> | undefined,
-): Record<string, string> {
-  const out = { ...(a ?? {}) };
-  for (const [id, at] of Object.entries(b ?? {})) {
-    if (!out[id] || at > out[id]) out[id] = at;
-  }
-  return out;
-}
-
-/** Deleted = tombstoned, and not re-imported after the deletion. */
-function isAccountDeleted(a: Account, tombstones: Record<string, string>) {
-  const at = tombstones[a.id];
-  return !!at && !(a.restoredAt && a.restoredAt > at);
-}
-
-/** Drop deleted accounts and every transaction that belongs to them. */
-function dropDeletedAccounts(
-  accounts: Account[],
-  transactions: Transaction[],
-  tombstones: Record<string, string>,
-): { accounts: Account[]; transactions: Transaction[]; removedIds: string[] } {
-  const removedIds = Object.keys(tombstones).filter((id) => {
-    const acc = accounts.find((a) => a.id === id);
-    return !acc || isAccountDeleted(acc, tombstones);
-  });
-  if (removedIds.length === 0) return { accounts, transactions, removedIds };
-  const removed = new Set(removedIds);
-  return {
-    accounts: accounts.filter((a) => !removed.has(a.id)),
-    transactions: transactions.filter((t) => !removed.has(t.accountId)),
-    removedIds,
-  };
-}
-
-/** Remove deleted accounts' rows from IndexedDB (bulkPut never deletes). */
-async function purgeAccountsFromDb(ids: string[]) {
-  if (ids.length === 0) return;
-  await Promise.all([
-    db.accounts.bulkDelete(ids),
-    db.transactions.where("accountId").anyOf(ids).delete(),
-  ]);
-}
-
-/**
- * Union two snapshots, preferring LOCAL on per-item conflicts. Used when
- * pushing: we must never drop the OTHER device's data (goals, txs…), but this
- * device's own edits — the change that triggered the push — should win.
- */
-function unionSnapshots(
-  remote: PortfolioSnapshot,
-  local: PortfolioSnapshot,
-): PortfolioSnapshot {
-  const deletedGoalIds = [
-    ...new Set([
-      ...(remote.deletedGoalIds ?? []),
-      ...(local.deletedGoalIds ?? []),
-    ]),
-  ];
-  const deleted = new Set(deletedGoalIds);
-  const deletedReminderIds = [
-    ...new Set([
-      ...(remote.deletedReminderIds ?? []),
-      ...(local.deletedReminderIds ?? []),
-    ]),
-  ];
-  const deletedRem = new Set(deletedReminderIds);
-  const deletedAccounts = mergeTombstones(
-    remote.deletedAccounts,
-    local.deletedAccounts,
-  );
-  // Drop tombstoned accounts with their transactions, so a delete is never re-added.
-  const { accounts, transactions } = dropDeletedAccounts(
-    unionById(remote.accounts, local.accounts, (a) => a.id),
-    unionById(remote.transactions, local.transactions, (t) => t.id),
-    deletedAccounts,
-  );
-  return {
-    version: 1,
-    exportedAt: local.exportedAt,
-    accounts,
-    instruments: unionById(remote.instruments, local.instruments, (i) => i.key),
-    transactions,
-    deletedAccounts,
-    alertState: { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
-    // Drop any goal a tombstone marks deleted, so a delete is never re-added.
-    goals: unionById(remote.goals, local.goals, (g) => g.id).filter(
-      (g) => !deleted.has(g.id),
-    ),
-    deletedGoalIds,
-    reminders: unionById(remote.reminders, local.reminders, (r) => r.id).filter(
-      (r) => !deletedRem.has(r.id),
-    ),
-    deletedReminderIds,
-    // Per-field newest wins; local wins timestamp ties (it triggered the push).
-    prefs: mergePrefs(remote.prefs, local.prefs),
   };
 }
 
@@ -1177,201 +1052,4 @@ if (typeof window !== "undefined") {
       scheduleAutoSync(usePortfolio.setState, usePortfolio.getState);
     }
   });
-}
-
-/**
- * Shared, identity-keyed memo: every component that calls usePortfolioSummary
- * gets the SAME computed object, and computePortfolio runs once per state
- * change instead of once per consuming component (~8× on the dashboard).
- * The store's slices are replaced immutably, so reference equality is a
- * correct staleness check. The stable reference also keeps Zustand happy
- * (no fresh object per render → no re-render loop).
- */
-function sharedMemo<A extends readonly unknown[], R>(
-  compute: (...deps: A) => R,
-): (...deps: A) => R {
-  let cache: { deps: A; value: R } | null = null;
-  return (...deps: A) => {
-    if (cache && cache.deps.every((d, i) => d === deps[i])) return cache.value;
-    const value = compute(...deps);
-    cache = { deps, value };
-    return value;
-  };
-}
-
-const cachedSummary = sharedMemo(
-  (
-    accounts: Account[],
-    transactions: Transaction[],
-    instruments: Instrument[],
-    prices: Map<string, number>,
-    fx: Record<string, number>,
-  ) =>
-    computePortfolio(
-      accounts,
-      transactions,
-      new Map(instruments.map((i) => [i.key, i])),
-      prices,
-      fx,
-    ),
-);
-
-/** Memoised portfolio summary for components (shared across all consumers). */
-export function usePortfolioSummary(): PortfolioSummary {
-  const accounts = usePortfolio((s) => s.accounts);
-  const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
-  const prices = usePortfolio((s) => s.prices);
-  const fx = usePortfolio((s) => s.fx);
-  return cachedSummary(accounts, transactions, instruments, prices, fx);
-}
-
-const cachedValueSeries = sharedMemo(
-  (
-    accounts: Account[],
-    transactions: Transaction[],
-    instruments: Instrument[],
-    prices: PriceMap,
-    fx: Record<string, number>,
-    history: HistoryFile | null | undefined,
-  ) =>
-    buildValueSeries(
-      accounts,
-      transactions,
-      new Map(instruments.map((i) => [i.key, i])),
-      prices,
-      fx,
-      history,
-    ),
-);
-
-/** Shared daily value/invested series (dashboard chart, sparklines, day delta).
- * Memoised across consumers so the sidebar and dashboard compute it once. */
-export function useValueSeries(): ValuePoint[] {
-  const accounts = usePortfolio((s) => s.accounts);
-  const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
-  const prices = usePortfolio((s) => s.prices);
-  const fx = usePortfolio((s) => s.fx);
-  const history = usePortfolio((s) => s.historyFile);
-  return cachedValueSeries(
-    accounts,
-    transactions,
-    instruments,
-    prices,
-    fx,
-    history,
-  );
-}
-
-export interface DayChange {
-  /**
-   * HUF market move between the last two samples — deposits/withdrawals in
-   * that window are netted out, so a transfer never reads as a daily gain.
-   */
-  abs: number;
-  /** Fraction vs the earlier sample (undefined if it was 0). */
-  pct?: number;
-  /** "ma" when the samples are ≤1 day apart, else the gap ("3 nap"). */
-  note: string;
-}
-
-/** Change between the last two value samples — the "ma" delta. Null if <2 pts. */
-export function useDayChange(): DayChange | null {
-  const series = useValueSeries();
-  if (series.length < 2) return null;
-  const last = series[series.length - 1];
-  const prev = series[series.length - 2];
-  const abs = last.value - prev.value - (last.invested - prev.invested);
-  const gap = Math.round(
-    (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
-  );
-  return {
-    abs,
-    pct: prev.value ? abs / prev.value : undefined,
-    note: gap <= 1 ? "ma" : `${gap} nap`,
-  };
-}
-
-const cachedGoalProgress = sharedMemo(computeGoalProgress);
-
-/** Progress of each savings goal in its current period. */
-export function useGoalProgress(): GoalProgress[] {
-  const goals = usePortfolio((s) => s.goals);
-  const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
-  const fx = usePortfolio((s) => s.fx);
-  return cachedGoalProgress(goals, transactions, instruments, fx);
-}
-
-/**
- * Currently-active alerts: rule-based (idle cash, TBSZ, events), one per unmet
- * savings goal, plus coupon-import nudges.
- */
-const cachedAlerts = sharedMemo(
-  (
-    summary: PortfolioSummary,
-    config: Parameters<typeof computeAlerts>[1],
-    transactions: Transaction[],
-    goalProgress: GoalProgress[],
-    reminders: Reminder[],
-    savingsGoals: SavingsGoal[],
-    accounts: Account[],
-    instruments: Instrument[],
-    prices: PriceMap,
-    fx: Record<string, number>,
-  ) => [
-    ...computeAlerts(summary, config, undefined, transactions),
-    ...goalAlerts(goalProgress),
-    ...reminderAlerts(reminders),
-    ...savingsGoalAlerts(
-      savingsGoals,
-      accounts,
-      transactions,
-      new Map(instruments.map((i) => [i.key, i])),
-      prices,
-      fx,
-    ),
-    ...bondImportAlerts(bondImportReminders(summary, transactions)),
-  ],
-);
-
-/**
- * Savings goals live in localStorage (a synced pref), not the store — expose
- * them reactively so alerts recompute when a goal is added/edited (local) or
- * arrives from another device (remote). Both fire PREFS_EVENT.
- */
-export function useSavingsGoals(): SavingsGoal[] {
-  const [goals, setGoals] = useState<SavingsGoal[]>(loadSavingsGoals);
-  useEffect(() => {
-    const on = () => setGoals(loadSavingsGoals());
-    window.addEventListener(PREFS_EVENT, on);
-    return () => window.removeEventListener(PREFS_EVENT, on);
-  }, []);
-  return goals;
-}
-
-export function useActiveAlerts(): Alert[] {
-  const summary = usePortfolioSummary();
-  const config = usePortfolio((s) => s.alertConfig);
-  const transactions = usePortfolio((s) => s.transactions);
-  const goalProgress = useGoalProgress();
-  const reminders = usePortfolio((s) => s.reminders);
-  const savingsGoals = useSavingsGoals();
-  const accounts = usePortfolio((s) => s.accounts);
-  const instruments = usePortfolio((s) => s.instruments);
-  const prices = usePortfolio((s) => s.prices);
-  const fx = usePortfolio((s) => s.fx);
-  return cachedAlerts(
-    summary,
-    config,
-    transactions,
-    goalProgress,
-    reminders,
-    savingsGoals,
-    accounts,
-    instruments,
-    prices,
-    fx,
-  );
 }
