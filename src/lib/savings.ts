@@ -126,6 +126,14 @@ export interface SavingsProgress {
    * monthly status nets buys and sells against it).
    */
   monthlyNeededHuf: number;
+  /**
+   * NET HUF put into the goal this effective month (buys − sells of its
+   * instruments) — what already counts against this month's quota. 0 for
+   * goals without assigned instruments.
+   */
+  thisMonthNetHuf: number;
+  /** Adjective of the current effective month, e.g. "szeptemberi". */
+  monthAdjective: string;
   /** The projection already covers the target. */
   reached: boolean;
 }
@@ -562,6 +570,8 @@ export function computeSavingsProgress(
       monthsLeft,
       daysLeft,
       monthlyNeededHuf,
+      thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now),
+      monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
     };
   });

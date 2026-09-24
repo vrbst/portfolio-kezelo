@@ -319,8 +319,35 @@ function GoalRow({
             <span className="amt font-semibold text-[var(--color-brand)]">
               {formatMoney(p.monthlyNeededHuf)}
             </span>{" "}
-            félretétel kell a cél eléréséhez (
-            <span className="amt">{formatMoney(p.gapHuf)}</span> hiányzik).
+            félretétel kell a cél eléréséhez
+            {p.goal.instrumentKeys.length > 0 ? (
+              // The quota is per month; what this month's net purchases
+              // already covered is shown apart from the total gap, so
+              // "gap ÷ months" reading doesn't clash with the quota.
+              p.monthlyNeededHuf - p.thisMonthNetHuf > 1 ? (
+                <>
+                  . A {p.monthAdjective} keretből még{" "}
+                  <span className="amt font-semibold">
+                    {formatMoney(p.monthlyNeededHuf - p.thisMonthNetHuf)}
+                  </span>{" "}
+                  van hátra (összesen{" "}
+                  <span className="amt">{formatMoney(p.gapHuf)}</span>{" "}
+                  hiányzik).
+                </>
+              ) : (
+                <>
+                  . A {p.monthAdjective} keret teljesítve ✓ (összesen{" "}
+                  <span className="amt">{formatMoney(p.gapHuf)}</span>{" "}
+                  hiányzik).
+                </>
+              )
+            ) : (
+              <>
+                {" "}
+                (<span className="amt">{formatMoney(p.gapHuf)}</span>{" "}
+                hiányzik).
+              </>
+            )}
           </span>
         ) : (
           <span className="text-[var(--color-warning,#fbbf24)]">
