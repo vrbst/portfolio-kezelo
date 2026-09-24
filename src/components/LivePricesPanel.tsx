@@ -5,6 +5,7 @@ import { Card, Sparkline } from "./ui";
 import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
 import type { LiveQuote } from "../lib/prices";
+import InstrumentLogo from "./InstrumentLogo";
 
 /** Security types we list as "ETF" tickers (tradable, market-priced). Bonds and
  * cash are excluded — they live on the treasury pages. */
@@ -22,6 +23,7 @@ interface Tile {
   hufEquiv?: number;
   /** Live quote context (previous close, intraday curve), when available. */
   quote?: LiveQuote;
+  instrument: Instrument;
 }
 
 /**
@@ -77,6 +79,7 @@ export default function LivePricesPanel() {
               inst.currency !== "HUF" && rate ? price * rate : undefined,
             // A manual price has no market context to compare against.
             quote: manual ? undefined : liveQuotes[inst.key],
+            instrument: inst,
           },
         ];
       });
@@ -145,6 +148,7 @@ export default function LivePricesPanel() {
             live={t.live}
             manual={t.manual}
             quote={t.quote}
+            instrument={t.instrument}
           />
         ))}
       </div>
@@ -159,6 +163,7 @@ function PriceTile({
   live,
   manual,
   quote,
+  instrument,
 }: {
   label: string;
   value: string;
@@ -166,6 +171,7 @@ function PriceTile({
   live?: boolean;
   manual?: boolean;
   quote?: LiveQuote;
+  instrument?: Instrument;
 }) {
   const change =
     quote?.prevClose != null ? quote.price / quote.prevClose - 1 : undefined;
@@ -173,6 +179,7 @@ function PriceTile({
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
       <div className="flex items-center gap-1.5">
+        {instrument && <InstrumentLogo instrument={instrument} size={18} />}
         <span className="truncate text-xs font-medium text-[var(--color-muted)]">
           {label}
         </span>

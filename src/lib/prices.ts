@@ -131,6 +131,8 @@ export interface LiveQuote {
   session?: { start: number; end: number };
   /** Exchange display name (e.g. "XETRA"). */
   exchange?: string;
+  /** The security's long name (e.g. "Vanguard FTSE All-World UCITS ETF…"). */
+  name?: string;
   /** Symbol the intraday curve was borrowed from (see INTRADAY_PROXY). */
   intradayFrom?: string;
 }
@@ -161,6 +163,8 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
             previousClose?: number;
             chartPreviousClose?: number;
             fullExchangeName?: string;
+            longName?: string;
+            shortName?: string;
             currentTradingPeriod?: {
               regular?: { start?: number; end?: number };
             };
@@ -188,6 +192,7 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
           ? { start: reg.start * 1000, end: reg.end * 1000 }
           : undefined,
       exchange: meta?.fullExchangeName,
+      name: meta?.longName ?? meta?.shortName,
     };
   } catch {
     return null;

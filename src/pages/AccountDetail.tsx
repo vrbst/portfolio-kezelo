@@ -29,6 +29,7 @@ import {
   EmptyState,
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
+import InstrumentLogo from "../components/InstrumentLogo";
 import TbszExitValue from "../components/TbszExitValue";
 import HoldingPriceChart, {
   type BuyPoint,
@@ -456,6 +457,9 @@ export default function AccountDetail() {
                           }`}
                         >
                           <td className="px-4 py-3">
+                            <div className="flex items-start gap-3">
+                            <InstrumentLogo instrument={h.instrument} />
+                            <div className="min-w-0">
                             <div
                               className={`font-medium ${
                                 hasChart
@@ -524,6 +528,8 @@ export default function AccountDetail() {
                                 </Badge>
                               </Link>
                             )}
+                            </div>
+                            </div>
                           </td>
                           <td className="amt px-4 py-3 text-right tabular-nums">
                             {formatNumber(h.quantity, isTreasury ? 0 : 4)}

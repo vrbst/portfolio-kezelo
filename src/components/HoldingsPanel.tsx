@@ -12,6 +12,7 @@ import {
   formatDate,
 } from "../lib/format";
 import { instrumentTypeLabel } from "../lib/labels";
+import InstrumentLogo from "./InstrumentLogo";
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -143,43 +144,48 @@ export default function HoldingsPanel({
                     }
                   >
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        {canExpand && (
-                          <ChevronRight
-                            className={`h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform ${
-                              isOpen ? "rotate-90" : ""
+                      <div className="flex items-center gap-3">
+                        <InstrumentLogo instrument={h.instrument} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {canExpand && (
+                              <ChevronRight
+                                className={`h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform ${
+                                  isOpen ? "rotate-90" : ""
+                                }`}
+                              />
+                            )}
+                            <div className="font-medium">
+                              {h.instrument?.name ?? h.instrumentKey}
+                            </div>
+                          </div>
+                          <div
+                            className={`mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)] ${
+                              canExpand ? "pl-5" : ""
                             }`}
-                          />
-                        )}
-                        <div className="font-medium">
-                          {h.instrument?.name ?? h.instrumentKey}
+                          >
+                            {h.instrument && (
+                              <Badge tone="neutral">
+                                {instrumentTypeLabel[h.instrument.type]}
+                              </Badge>
+                            )}
+                            {h.accountCount > 1 && (
+                              <span>{h.accountCount} számlán</span>
+                            )}
+                            {(goalsByInstrument.get(h.instrumentKey) ?? []).map(
+                              (goalName) => (
+                                <span
+                                  key={goalName}
+                                  className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
+                                  title="Középtávú célhoz rendelve"
+                                >
+                                  <Target className="h-3 w-3" />
+                                  {goalName}
+                                </span>
+                              ),
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div
-                        className={`mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)] ${
-                          canExpand ? "pl-5" : ""
-                        }`}
-                      >
-                        {h.instrument && (
-                          <Badge tone="neutral">
-                            {instrumentTypeLabel[h.instrument.type]}
-                          </Badge>
-                        )}
-                        {h.accountCount > 1 && (
-                          <span>{h.accountCount} számlán</span>
-                        )}
-                        {(goalsByInstrument.get(h.instrumentKey) ?? []).map(
-                          (goalName) => (
-                            <span
-                              key={goalName}
-                              className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
-                              title="Középtávú célhoz rendelve"
-                            >
-                              <Target className="h-3 w-3" />
-                              {goalName}
-                            </span>
-                          ),
-                        )}
                       </div>
                     </td>
                     <td className="amt px-4 py-3 text-right tabular-nums">
