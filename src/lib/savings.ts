@@ -19,12 +19,13 @@ import {
 } from "./portfolio";
 
 /**
- * HUF a buy ACTUALLY cost: the gross amount at the buy-day conversion rate, not
- * today's FX on the net. A EUR WBIT buy is 109.65 € × the buy-day rate ≈ 40 003
- * Ft (what left the account), not 108.65 € × today's rate ≈ 39 200. Matches the
- * portfolio cost basis and the DCA-goal progress.
+ * HUF a trade actually moved: the gross amount at the trade-day conversion
+ * rate, not today's FX on the net. A EUR WBIT buy is 109.65 € × the buy-day
+ * rate ≈ 40 003 Ft (what left the account), not 108.65 € × today's rate ≈
+ * 39 200. For a sell it is the proceeds. Matches the portfolio cost basis and
+ * the DCA-goal progress.
  */
-function buyHufAtCost(
+function tradeHufAtCost(
   t: Transaction,
   fxHistory: FxHistory,
   fx: Record<string, number>,
@@ -112,13 +113,18 @@ export interface SavingsProgress {
   /** Shortfall on the target date (0 if already covered). */
   gapHuf: number;
   /**
-   * Months you can still save toward the goal: future pay days plus the current
-   * month while it is an open opportunity (no purchase into the goal yet this
-   * month). See contributionMonthsLeft. ≥ 0.
+   * Months to save in, counted from the start of the current effective month:
+   * the current month plus the future pay days up to the date. ≥ 0.
    */
   monthsLeft: number;
   daysLeft: number;
-  /** Monthly saving needed to close the gap by the date. */
+  /**
+   * This month's quota: the gap as it stood at the START of the current
+   * effective month (this month's buys/sells into the goal left out), spread
+   * over monthsLeft. Stable through the month — buying doesn't shrink it to
+   * the future months' figure, and selling doesn't hide the shortfall (the
+   * monthly status nets buys and sells against it).
+   */
   monthlyNeededHuf: number;
   /** The projection already covers the target. */
   reached: boolean;
@@ -129,11 +135,15 @@ export interface SavingsMonthlyStatus {
   name: string;
   /** Human label of the current effective month (e.g. "2026. július"). */
   monthLabel: string;
-  /** HUF bought this effective month toward the goal (assigned key OR type). */
+  /**
+   * NET HUF put into the goal this effective month: buys minus sells of the
+   * assigned instruments (or the same type). Can be negative if more was sold.
+   */
   boughtHuf: number;
   /**
-   * Base monthly amount needed to stay on track — the goal's gap divided by the
-   * months left, recomputed live (0 once the goal is already covered).
+   * This month's quota — the monthly-needed saving computed from the
+   * month-start position (see SavingsProgress.monthlyNeededHuf); 0 once the
+   * goal is already covered.
    */
   baseNeededHuf: number;
   /**
@@ -171,7 +181,6 @@ export function savingsMonthlyStatus(
 ): SavingsMonthlyStatus[] {
   const eff = effectiveMonth(now);
   const monthLabel = effectiveMonthLabel(now);
-  const fxHistory = buildFxHistory(transactions);
   const progressByGoal = new Map(
     computeSavingsProgress(
       goals,
@@ -186,28 +195,15 @@ export function savingsMonthlyStatus(
   const out: SavingsMonthlyStatus[] = [];
   for (const g of goals) {
     if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
-    const keys = new Set(g.instrumentKeys);
-    const types = new Set(
-      g.instrumentKeys
-        .map((k) => instruments.get(k)?.type)
-        .filter((t): t is Instrument["type"] => !!t),
+    const boughtHuf = netThisEffectiveMonth(
+      g,
+      transactions,
+      instruments,
+      fx,
+      now,
     );
-    let boughtHuf = 0;
-    for (const t of transactions) {
-      if (t.type !== "buy" || !t.instrumentKey) continue;
-      const inst = instruments.get(t.instrumentKey);
-      const match = keys.has(t.instrumentKey) || (inst && types.has(inst.type));
-      if (!match) continue;
-      const d = new Date(t.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const em = effectiveMonth(d);
-      if (em.year !== eff.year || em.month0 !== eff.month0) continue;
-      boughtHuf += buyHufAtCost(t, fxHistory, fx);
-    }
-    const baseNeededHuf = Math.max(
-      0,
-      progressByGoal.get(g.id)?.monthlyNeededHuf ?? 0,
-    );
+    const p = progressByGoal.get(g.id);
+    const baseNeededHuf = !p || p.reached ? 0 : Math.max(0, p.monthlyNeededHuf);
     // Coupons received THIS effective month — if the goal earmarks coupons
     // (includeCoupons), the user is expected to reinvest them into the goal's
     // instrument, so they add to what must be bought this month.
@@ -305,7 +301,7 @@ export function savingsGoalAlerts(
  *
  * The CURRENT effective month's pay day is already in the past (it is what put
  * the money in the account), so it is added separately — see
- * contributionMonthsLeft — and only while it is still an open opportunity.
+ * computeSavingsProgress, which counts the current month in.
  */
 function paydaysUntil(now: Date, targetMs: number): number {
   if (!Number.isFinite(targetMs)) return 0;
@@ -331,13 +327,44 @@ function paydaysUntil(now: Date, targetMs: number): number {
   return count;
 }
 
+/** Buy/sell of one of the goal's instruments, or the same type as one (so a
+ * fresh DKJ series counts without re-assigning it). */
+function goalTradeMatcher(
+  goal: SavingsGoal,
+  instruments: Map<string, Instrument>,
+): (t: Transaction) => boolean {
+  const keys = new Set(goal.instrumentKeys);
+  const types = new Set(
+    goal.instrumentKeys
+      .map((k) => instruments.get(k)?.type)
+      .filter((x): x is Instrument["type"] => !!x),
+  );
+  return (t) => {
+    if ((t.type !== "buy" && t.type !== "sell") || !t.instrumentKey)
+      return false;
+    const inst = instruments.get(t.instrumentKey);
+    return keys.has(t.instrumentKey) || (!!inst && types.has(inst.type));
+  };
+}
+
+/** The transaction falls in the given effective month (DCA month rule). */
+function inEffectiveMonth(
+  t: Transaction,
+  eff: { year: number; month0: number },
+): boolean {
+  const d = new Date(t.date);
+  if (Number.isNaN(d.getTime())) return false;
+  const em = effectiveMonth(d);
+  return em.year === eff.year && em.month0 === eff.month0;
+}
+
 /**
- * HUF already bought toward a goal in the CURRENT effective month (an assigned
- * instrument, or the same type as one — so a fresh DKJ series counts). Mirrors
- * the match rule used by savingsMonthlyStatus. 0 for goals with no assigned
- * instruments (nothing to match against).
+ * NET HUF put into a goal in the CURRENT effective month: buys minus sells of
+ * its instruments (see goalTradeMatcher). A purchase that was partly sold back
+ * in the same month only counts with what stayed in. 0 for goals with no
+ * assigned instruments.
  */
-function boughtThisEffectiveMonth(
+function netThisEffectiveMonth(
   goal: SavingsGoal,
   txs: Transaction[],
   instruments: Map<string, Instrument>,
@@ -347,46 +374,14 @@ function boughtThisEffectiveMonth(
   if (goal.instrumentKeys.length === 0) return 0;
   const eff = effectiveMonth(now);
   const fxHistory = buildFxHistory(txs);
-  const keys = new Set(goal.instrumentKeys);
-  const types = new Set(
-    goal.instrumentKeys
-      .map((k) => instruments.get(k)?.type)
-      .filter((t): t is Instrument["type"] => !!t),
-  );
+  const isTrade = goalTradeMatcher(goal, instruments);
   let sum = 0;
   for (const t of txs) {
-    if (t.type !== "buy" || !t.instrumentKey) continue;
-    const inst = instruments.get(t.instrumentKey);
-    if (!(keys.has(t.instrumentKey) || (inst && types.has(inst.type))))
-      continue;
-    const d = new Date(t.date);
-    if (Number.isNaN(d.getTime())) continue;
-    const em = effectiveMonth(d);
-    if (em.year !== eff.year || em.month0 !== eff.month0) continue;
-    sum += buyHufAtCost(t, fxHistory, fx);
+    if (!isTrade(t) || !inEffectiveMonth(t, eff)) continue;
+    const huf = tradeHufAtCost(t, fxHistory, fx);
+    sum += t.type === "buy" ? huf : -huf;
   }
   return sum;
-}
-
-/**
- * How many months you can still put money aside toward the goal: the future
- * pay days (paydaysUntil) PLUS the current effective month while it is still an
- * open opportunity — i.e. its pay day has landed but you have not yet bought
- * into the goal this month.
- *
- * On 4 Aug (August is the effective month, its 31 Jul pay day already banked,
- * no purchase yet) a gap to a 1 Nov target spreads over that open August plus
- * the 31 Aug / 30 Sep / 30 Oct pay days = 4. On 31 Aug — already September's
- * effective month, its pay day received today — an unspent month gives 1 + the
- * 30 Sep / 30 Oct pay days = 3, and once September's purchase is made only
- * those two remain = 2.
- */
-function contributionMonthsLeft(
-  now: Date,
-  targetMs: number,
-  currentMonthOpen: boolean,
-): number {
-  return paydaysUntil(now, targetMs) + (currentMonthOpen ? 1 : 0);
 }
 
 function parseDateMs(iso: string): number {
@@ -519,15 +514,41 @@ export function computeSavingsProgress(
     const targetHuf = goal.targetHuf;
     const gapHuf = Math.max(0, targetHuf - projectedHuf);
     const daysLeft = future ? Math.round((dateMs - nowMs) / 86_400_000) : 0;
-    // The current month still counts as a savings opportunity until you have
-    // actually bought into the goal this month — so a mid-month gap isn't
-    // crammed into only the FUTURE months (which over-states the monthly need).
-    const currentMonthOpen =
-      boughtThisEffectiveMonth(goal, txs, instruments, fx, now) <= 1;
-    const monthsLeft = future
-      ? contributionMonthsLeft(now, dateMs, currentMonthOpen)
-      : 0;
-    const monthlyNeededHuf = monthsLeft > 0 ? gapHuf / monthsLeft : gapHuf;
+
+    // Quota from the month-start position: replay the portfolio without this
+    // effective month's trades into the goal, and spread that gap over the
+    // current month + the pay days still ahead.
+    const isTrade = goalTradeMatcher(goal, instruments);
+    const eff = effectiveMonth(now);
+    const startTxs = txs.filter(
+      (t) => !(isTrade(t) && inEffectiveMonth(t, eff)),
+    );
+    let gapAtMonthStart = gapHuf;
+    if (startTxs.length !== txs.length) {
+      const nowStart = computePortfolio(
+        accounts,
+        startTxs,
+        instruments,
+        prices,
+        fx,
+        now,
+      );
+      const atStart = future
+        ? computePortfolio(
+            accounts,
+            startTxs,
+            instruments,
+            prices,
+            fx,
+            new Date(dateMs),
+          )
+        : nowStart;
+      const assignedStart = assignedValue(nowStart, atStart, keys, targetMs);
+      gapAtMonthStart = Math.max(0, targetHuf - (assignedStart + couponsHuf));
+    }
+    const monthsLeft = future ? paydaysUntil(now, dateMs) + 1 : 0;
+    const monthlyNeededHuf =
+      monthsLeft > 0 ? gapAtMonthStart / monthsLeft : gapHuf;
 
     return {
       goal,
