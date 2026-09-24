@@ -30,7 +30,7 @@ import {
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
-import HoldingsPanel from "../components/HoldingsPanel";
+import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import {
@@ -217,50 +217,71 @@ export default function Dashboard() {
     [summary, transactions],
   );
 
-  // Match the right rail's height to the left column so the events card ends
-  // flush with the Eszközeim card. Nested-flex min-content makes this impossible
-  // to pin purely in CSS (the column grows to its own content), so we measure
-  // the left column and cap the right one to it — only on the xl two-column
-  // layout; stacked below xl the cap is removed.
-  // The cap never squeezes the events card below EVENTS_MIN_PX: if the cards
-  // above it are taller than the left column allows, the rail grows instead.
+  // Equal-height columns on the xl two-column layout. Nested-flex min-content
+  // makes this impossible to pin purely in CSS, so we measure both columns'
+  // NATURAL heights and give both the larger one:
+  //  - left: its cards, the Eszközeim list counted up to its 26rem cap;
+  //  - right: the cards above the events card + EVENTS_MIN_PX for it (the
+  //    events list is never squeezed shut).
+  // The extra room goes into the Eszközeim list (left) and the events list
+  // (right), both scrolling past it. Stacked below xl nothing is fixed.
   const leftColRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
-  const [railMaxH, setRailMaxH] = useState<number | undefined>();
+  const [colH, setColH] = useState<number | undefined>();
   useEffect(() => {
-    const el = leftColRef.current;
-    if (!el) return;
+    const left = leftColRef.current;
+    const rail = railRef.current;
+    if (!left || !rail) return;
     const mq = window.matchMedia("(min-width: 1280px)");
+    const gapOf = (n: Element) => parseFloat(getComputedStyle(n).rowGap) || 0;
     const update = () => {
-      if (!mq.matches) return setRailMaxH(undefined);
-      const rail = railRef.current;
-      const eventsCard = rail?.querySelector<HTMLElement>(
+      if (!mq.matches) return setColH(undefined);
+
+      const holdings = left.querySelector<HTMLElement>(
+        `#${HOLDINGS_PANEL_ID}`,
+      );
+      const body = holdings?.querySelector<HTMLElement>(
+        "[data-holdings-body]",
+      );
+      const leftKids = [...left.children] as HTMLElement[];
+      let leftNatural = gapOf(left) * Math.max(0, leftKids.length - 1);
+      for (const c of leftKids) {
+        if (c === holdings && body) {
+          // Card chrome (header, borders) + the list at its natural height,
+          // capped like below xl. scrollHeight ignores the stretched box.
+          const chrome = holdings.offsetHeight - body.clientHeight;
+          leftNatural +=
+            chrome + Math.min(body.scrollHeight, HOLDINGS_BODY_MAX_PX);
+        } else leftNatural += c.offsetHeight;
+      }
+
+      const eventsCard = rail.querySelector<HTMLElement>(
         `#${UPCOMING_EVENTS_ID}`,
       );
-      let need = 0;
-      if (rail && eventsCard) {
-        const above = [...rail.children].filter((c) => c !== eventsCard);
-        const gap = parseFloat(getComputedStyle(rail).rowGap) || 0;
-        need =
-          above.reduce((s, c) => s + (c as HTMLElement).offsetHeight, 0) +
-          gap * above.length +
-          EVENTS_MIN_PX;
-      }
-      setRailMaxH(Math.max(el.offsetHeight, need));
+      const railKids = [...rail.children] as HTMLElement[];
+      let railNatural = gapOf(rail) * Math.max(0, railKids.length - 1);
+      for (const c of railKids)
+        railNatural += c === eventsCard ? EVENTS_MIN_PX : c.offsetHeight;
+
+      setColH(Math.ceil(Math.max(leftNatural, railNatural)));
     };
+    // Re-measure when any card resizes (live quotes, rows unfolding) or cards
+    // come and go as data loads. The stretched cards (holdings, events) are
+    // measured by their content, so only the rest is observed by size.
     const ro = new ResizeObserver(update);
-    ro.observe(el);
-    // The rail's other cards change height too (live quotes), and cards come
-    // and go as data loads (the events/goals cards mount after the first
-    // paint) — re-observe and re-measure on every change of the rail's children.
-    const observeRail = () => {
-      for (const c of railRef.current?.children ?? [])
-        if (c.id !== UPCOMING_EVENTS_ID) ro.observe(c);
+    const observeAll = () => {
+      for (const col of [left, rail])
+        for (const c of col.children)
+          if (c.id !== HOLDINGS_PANEL_ID && c.id !== UPCOMING_EVENTS_ID)
+            ro.observe(c);
+      const table = left.querySelector(`#${HOLDINGS_PANEL_ID} table`);
+      if (table) ro.observe(table);
       update();
     };
-    const mo = new MutationObserver(observeRail);
-    if (railRef.current) mo.observe(railRef.current, { childList: true });
-    observeRail();
+    const mo = new MutationObserver(observeAll);
+    mo.observe(left, { childList: true });
+    mo.observe(rail, { childList: true });
+    observeAll();
     mq.addEventListener("change", update);
     return () => {
       ro.disconnect();
@@ -349,7 +370,11 @@ export default function Dashboard() {
 
       <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-start">
         {/* Bal fő-oszlop: kártyák + grafikon + eszközeim */}
-        <div ref={leftColRef} className="min-w-0 flex-1 space-y-4">
+        <div
+          ref={leftColRef}
+          className="flex min-w-0 flex-1 flex-col gap-4"
+          style={colH ? { height: colH } : undefined}
+        >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
               label={
@@ -544,17 +569,17 @@ export default function Dashboard() {
 
           {/* Cap the holdings list so a long portfolio scrolls instead of
               stretching the column (and dragging the right rail down with it). */}
-          <HoldingsPanel maxBodyHeight="26rem" />
+          <HoldingsPanel maxBodyHeight="26rem" fill />
         </div>
 
         {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. Its height is
-            capped to the left column (railMaxH, measured above); overflow-hidden
+            sized with the left column (colH, measured above); overflow-hidden
             keeps the flex-1 events card inside that cap, its list scrolling — so
             the card ends flush with the Eszközeim card's bottom. */}
         <div
           ref={railRef}
           className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0 xl:overflow-hidden"
-          style={railMaxH ? { maxHeight: railMaxH } : undefined}
+          style={colH ? { height: colH } : undefined}
         >
           <LivePricesPanel />
           {/* Allocation donut */}
@@ -826,6 +851,8 @@ export default function Dashboard() {
 }
 
 const UPCOMING_EVENTS_ID = "upcoming-events";
+/** The Eszközeim list's height cap (26rem) — see its maxBodyHeight. */
+const HOLDINGS_BODY_MAX_PX = 26 * 16;
 /** Header + ~2 event rows: the events card is never squeezed below this. */
 const EVENTS_MIN_PX = 260;
 

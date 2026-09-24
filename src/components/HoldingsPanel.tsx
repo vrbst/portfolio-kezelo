@@ -21,14 +21,23 @@ const BOND_TYPES = new Set(["gov_bond", "tbill"]);
  * non-bond rows unfold to the individual purchases (lots). Amounts respect
  * privacy mode (.amt); percentages stay readable.
  */
+export const HOLDINGS_PANEL_ID = "holdings-panel";
+
 export default function HoldingsPanel({
   expandable = false,
   maxBodyHeight,
+  fill = false,
 }: {
   expandable?: boolean;
   /** Cap the table body's height and scroll it (with a sticky header) past this,
    * so a long holdings list doesn't stretch the card. e.g. "26rem". */
   maxBodyHeight?: string;
+  /**
+   * On the xl two-column dashboard: stretch the card to the height its column
+   * is given, the list taking the extra room (the cap above is lifted there).
+   * Tagged with HOLDINGS_PANEL_ID / data-holdings-body for the layout measure.
+   */
+  fill?: boolean;
 }) {
   const summary = usePortfolioSummary();
   const rows = consolidatedHoldings(summary);
@@ -62,7 +71,12 @@ export default function HoldingsPanel({
     });
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      id={fill ? HOLDINGS_PANEL_ID : undefined}
+      className={`overflow-hidden ${
+        fill ? "xl:flex xl:min-h-0 xl:flex-1 xl:flex-col" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 p-6 pb-3">
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 text-[var(--color-brand)]" />
@@ -75,7 +89,10 @@ export default function HoldingsPanel({
         </span>
       </div>
       <div
-        className={maxBodyHeight ? "overflow-auto" : "overflow-x-auto"}
+        data-holdings-body={fill || undefined}
+        className={`${maxBodyHeight ? "overflow-auto" : "overflow-x-auto"} ${
+          fill ? "xl:min-h-0 xl:flex-1 xl:!max-h-none" : ""
+        }`}
         style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
       >
         <table className="w-full text-sm">
