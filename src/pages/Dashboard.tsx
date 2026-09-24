@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { motion, useReducedMotion } from "motion/react";
 import {
   Wallet,
   TrendingUp,
@@ -41,6 +42,7 @@ import {
   Badge,
   Amt,
   Sparkline,
+  AnimatedAmount,
 } from "../components/ui";
 import {
   formatMoney,
@@ -153,6 +155,7 @@ export default function Dashboard() {
 
   const goalProgress = useGoalProgress();
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
 
   const [range, setRange] = useState<RangeKey>("max");
   const [chartMode, setChartMode] = useState<ChartMode>("value");
@@ -558,9 +561,14 @@ export default function Dashboard() {
                     outerRadius={100}
                     paddingAngle={3}
                     stroke="none"
-                    isAnimationActive={false}
+                    isAnimationActive={!reduceMotion}
+                    animationDuration={900}
+                    animationEasing="ease-out"
                     onMouseEnter={(_, i) => setActiveSlice(i)}
                     onMouseLeave={() => setActiveSlice(null)}
+                    onClick={(_, i) =>
+                      setActiveSlice((cur) => (cur === i ? null : i))
+                    }
                   >
                     {allocation.map((_, i) => (
                       <Cell
@@ -573,39 +581,72 @@ export default function Dashboard() {
                       />
                     ))}
                   </Pie>
-                  <Tooltip
-                    formatter={(v) =>
-                      privacy ? "•••" : formatMoney(Number(v))
-                    }
-                    contentStyle={tooltipStyle}
-                  />
+                  {/* Pop-out ring for the active slice: the same data gives the
+                      same angles, only the active cell is painted. */}
+                  {activeSlice != null && (
+                    <Pie
+                      data={allocation}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={98}
+                      outerRadius={106}
+                      paddingAngle={3}
+                      stroke="none"
+                      isAnimationActive={false}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {allocation.map((_, i) => (
+                        <Cell
+                          key={i}
+                          fill={
+                            i === activeSlice
+                              ? COLORS[i % COLORS.length]
+                              : "transparent"
+                          }
+                        />
+                      ))}
+                    </Pie>
+                  )}
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
-                {activeSlice != null && allocation[activeSlice] ? (
-                  <>
-                    <span className="max-w-full truncate text-xs text-[var(--color-muted)]">
-                      {allocation[activeSlice].name}
-                    </span>
-                    <span className="amt font-display text-lg font-semibold">
-                      {formatMoney(allocation[activeSlice].value)}
-                    </span>
-                    <span className="text-xs font-medium text-[var(--color-brand)]">
-                      {formatPercent(
-                        allocation[activeSlice].value / summary.totalValueHuf,
-                      ).replace("+", "")}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-xs text-[var(--color-muted)]">
-                      Összesen
-                    </span>
-                    <span className="amt font-display text-xl font-semibold">
-                      {formatMoney(summary.totalValueHuf)}
-                    </span>
-                  </>
-                )}
+                {(() => {
+                  const slice =
+                    activeSlice != null ? allocation[activeSlice] : undefined;
+                  return (
+                    <>
+                      {/* Keyed: the new label swaps in at once and fades up, so
+                          it can never lag behind the amount below it. */}
+                      <motion.span
+                        key={slice?.name ?? "__total"}
+                        initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="max-w-full truncate text-xs text-[var(--color-muted)]"
+                      >
+                        {slice?.name ?? "Összesen"}
+                      </motion.span>
+                      <span
+                        className={`amt font-display font-semibold ${
+                          slice ? "text-lg" : "text-xl"
+                        }`}
+                      >
+                        <AnimatedAmount
+                          value={slice?.value ?? summary.totalValueHuf}
+                          format={(n) => formatMoney(n)}
+                          duration={0.35}
+                        />
+                      </span>
+                      {slice && (
+                        <span className="text-xs font-medium text-[var(--color-brand)]">
+                          {formatPercent(
+                            slice.value / summary.totalValueHuf,
+                          ).replace("+", "")}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <div className="mt-4 space-y-2">
@@ -755,10 +796,3 @@ const EVENT_ICON: Record<EventKind, typeof CalendarClock> = {
   maturity: Landmark,
   coupon: CoinsIcon,
 };
-
-const tooltipStyle = {
-  background: "#141a2e",
-  border: "1px solid #232b45",
-  borderRadius: 12,
-  color: "#e8ecf8",
-} as const;
