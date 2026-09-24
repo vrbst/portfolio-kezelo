@@ -204,13 +204,27 @@ function PriceTile({
         </span>
       )}
       {quote?.intraday && (
-        <div className="mt-2 h-6 w-full" title="Mai árfolyam-alakulás">
-          <Sparkline
-            data={quote.intraday}
-            stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
-            className="h-full w-full"
-          />
-        </div>
+        <>
+          <div
+            className="mt-2 h-6 w-full"
+            title={
+              quote.intradayFrom
+                ? `Mai alakulás a(z) ${quote.intradayFrom} alapján (ennek a jegyzésnek nincs napközbeni adata)`
+                : "Mai árfolyam-alakulás"
+            }
+          >
+            <Sparkline
+              data={quote.intraday}
+              stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
+              className="h-full w-full"
+            />
+          </div>
+          {quote.intradayFrom && (
+            <div className="text-[10px] text-[var(--color-muted)]/80">
+              görbe: {quote.intradayFrom}
+            </div>
+          )}
+        </>
       )}
       <div className="mt-0.5 flex items-center gap-1.5">
         {manual && (

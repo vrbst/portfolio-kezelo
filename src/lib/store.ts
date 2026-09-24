@@ -542,11 +542,13 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // anything already set (incl. user edits like bond terms) is never overwritten.
     const instrumentByKey = new Map(state.instruments.map((i) => [i.key, i]));
     let instrumentsChanged = false;
+    let newInstruments = false;
     for (const i of parsed.instruments) {
       const existing = instrumentByKey.get(i.key);
       if (!existing) {
         instrumentByKey.set(i.key, i);
         instrumentsChanged = true;
+        newInstruments = true;
         continue;
       }
       const filled: Instrument = { ...existing };
@@ -579,6 +581,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
     set({ accounts, instruments, transactions, fx });
     if (newTxs.length > 0 || instrumentsChanged) scheduleAutoSync(set, get);
+    // A newly seen security has no live quote or chart history yet — fetch
+    // them now instead of waiting for the next 5-minute poll.
+    if (newInstruments) {
+      void get().refreshPrices();
+      void get().refreshHistory();
+    }
     return { added: newTxs.length, skipped };
   },
 

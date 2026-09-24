@@ -73,6 +73,14 @@ const CURATED_SYMBOLS: Record<string, string> = {
   GB00BJYDH287: "GB00BJYDH287.SG",
 };
 
+// Intraday-curve stand-ins for listings that report no intraday bars. WBIT's
+// EUR line (Stuttgart) only has a daily quote, but the ETP holds physical
+// bitcoin, so BTC-EUR (traded 24/7) has the same intraday shape. Only the
+// curve is borrowed — price and daily % stay the instrument's own.
+const INTRADAY_PROXY: Record<string, string> = {
+  GB00BJYDH287: "BTC-EUR",
+};
+
 // Manual overrides (ISIN/key -> Yahoo symbol), set in Settings when the
 // auto-resolved listing is wrong. Synced across devices as a planning pref.
 const OVERRIDES_KEY = "portfolio.symbolOverrides";
@@ -123,6 +131,8 @@ export interface LiveQuote {
   session?: { start: number; end: number };
   /** Exchange display name (e.g. "XETRA"). */
   exchange?: string;
+  /** Symbol the intraday curve was borrowed from (see INTRADAY_PROXY). */
+  intradayFrom?: string;
 }
 
 interface YahooQuote extends LiveQuote {
@@ -270,6 +280,14 @@ export async function fetchLivePrices(
       if (!r.trusted && quote.currency && quote.currency !== t.currency)
         return null;
       const { currency: _currency, ...live } = quote;
+      const proxy = INTRADAY_PROXY[t.isin] ?? INTRADAY_PROXY[t.key];
+      if (!live.intraday && proxy) {
+        const p = await fetchYahooQuote(proxy);
+        if (p?.intraday) {
+          live.intraday = p.intraday;
+          live.intradayFrom = proxy;
+        }
+      }
       return [t.key, live] as const;
     }),
   );
