@@ -6,6 +6,21 @@ import { createHashRouter, RouterProvider } from "react-router-dom";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/space-grotesk";
 import "./index.css";
+
+// Card spotlight (see .card::after in index.css): one passive listener feeds the
+// pointer position, relative to the hovered card, into two CSS variables.
+window.addEventListener(
+  "pointermove",
+  (e) => {
+    if (e.pointerType !== "mouse") return;
+    const card = (e.target as Element | null)?.closest?.(".card");
+    if (!(card instanceof HTMLElement)) return;
+    const r = card.getBoundingClientRect();
+    card.style.setProperty("--spot-x", `${e.clientX - r.left}px`);
+    card.style.setProperty("--spot-y", `${e.clientY - r.top}px`);
+  },
+  { passive: true },
+);
 import App from "./App";
 import Dashboard from "./pages/Dashboard";
 import Accounts from "./pages/Accounts";

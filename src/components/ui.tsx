@@ -282,12 +282,110 @@ export function Card({
   className?: string;
   hover?: boolean;
 }) {
+  const reduce = useReducedMotion();
+  // Glide in the first time the card scrolls into view.
   return (
-    <div className={`card ${hover ? "card-hover" : ""} ${className}`}>
+    <motion.div
+      className={`card ${hover ? "card-hover" : ""} ${className}`}
+      initial={reduce ? false : { opacity: 0, y: 14 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "0px 0px -40px 0px" }}
+      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+    >
       {children}
-    </div>
+    </motion.div>
   );
 }
+
+/**
+ * Odometer-style number: every digit is a 0–9 column that slides to its value,
+ * so a changing amount visibly "rolls" digit by digit. Non-digits (spaces,
+ * currency, sign) stay static. Digits are keyed from the right so they keep
+ * their identity when the length changes. `instant` (or reduced motion) skips
+ * the slide.
+ */
+export function RollingNumber({
+  value,
+  format,
+  instant = false,
+  gradient = false,
+}: {
+  value: number;
+  format: (n: number) => string;
+  instant?: boolean;
+  /**
+   * Brand-gradient text. background-clip:text on the root can't reach the
+   * transformed digit columns, so every glyph carries the gradient itself,
+   * sized to the whole number and shifted by the glyph's offset (measured after
+   * layout) — it reads as one continuous gradient.
+   */
+  gradient?: boolean;
+}) {
+  const reduce = useReducedMotion();
+  // First paint parks every column at 0, the next frame rolls them into place.
+  const [mounted, setMounted] = useState(reduce);
+  useEffect(() => {
+    if (mounted) return;
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, [mounted]);
+  const text = format(value);
+  const chars = text.split("");
+  const rootRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!gradient || !root) return;
+    root.style.setProperty("--gw", `${root.offsetWidth}px`);
+    for (const el of Array.from(root.children) as HTMLElement[])
+      el.style.setProperty("--gx", `${el.offsetLeft}px`);
+  }, [gradient, text]);
+  const glyph = gradient ? "rolling-gradient" : "";
+  const slide =
+    reduce || instant
+      ? "none"
+      : "transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)";
+  return (
+    <span ref={rootRef} className="relative inline-flex" aria-label={text}>
+      {chars.map((ch, i) => {
+        const key = chars.length - i;
+        if (!/\d/.test(ch))
+          return (
+            <span
+              key={`s${key}`}
+              className={`whitespace-pre ${glyph}`}
+              aria-hidden="true"
+            >
+              {ch}
+            </span>
+          );
+        const d = mounted ? Number(ch) : 0;
+        return (
+          <span
+            key={`d${key}`}
+            aria-hidden="true"
+            className="relative inline-block h-[1.15em] overflow-hidden leading-[1.15em]"
+          >
+            <span
+              className="flex flex-col"
+              style={{
+                transform: `translateY(-${d * 1.15}em)`,
+                transition: slide,
+              }}
+            >
+              {DIGITS.map((n) => (
+                <span key={n} className={`h-[1.15em] ${glyph}`}>
+                  {n}
+                </span>
+              ))}
+            </span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 /** Coloured delta value with arrow. */
 export function Delta({
@@ -393,15 +491,16 @@ export function StatCard({
   }, [numericValue, flashOnChange, reduce, scrubbing]);
 
   const numberCls = hero
-    ? "font-display mt-2 text-3xl font-bold tracking-tight text-gradient"
+    ? "font-display mt-2 text-3xl font-bold tracking-tight"
     : "font-display mt-2 text-2xl font-semibold tracking-tight";
   const flashCls = flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : "";
   const showValue =
     numericValue != null && format ? (
-      <AnimatedAmount
+      <RollingNumber
         value={numericValue}
         format={format}
-        duration={scrubbing ? 0 : undefined}
+        instant={scrubbing}
+        gradient={hero}
       />
     ) : (
       value

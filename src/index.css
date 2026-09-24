@@ -103,6 +103,32 @@ body::before {
       hover:shadow-[var(--shadow-glow)];
   }
 
+  /* Spotlight: a soft brand-tinted glow that follows the pointer over a card.
+   * --spot-x/--spot-y are set by the pointer tracker in main.tsx. Mouse-only
+   * (no hover on touch screens), purely decorative. */
+  @media (hover: hover) {
+    .card {
+      position: relative;
+    }
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background: radial-gradient(
+        420px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+        color-mix(in oklab, var(--color-brand) 14%, transparent),
+        transparent 45%
+      );
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .card:hover::after {
+      opacity: 1;
+    }
+  }
+
   .text-gradient {
     @apply bg-gradient-to-r from-[var(--color-brand)] via-[var(--color-brand-2)]
       to-[var(--color-accent)] bg-clip-text text-transparent;
@@ -328,4 +354,21 @@ body::before {
 .privacy-on .recharts-tooltip-wrapper {
   filter: blur(6px);
   -webkit-filter: blur(6px);
+}
+
+/* RollingNumber gradient: each glyph paints a slice of one number-wide
+ * gradient (--gw = number width, --gx = the glyph column's offset). */
+.rolling-gradient {
+  background-image: linear-gradient(
+    to right,
+    var(--color-brand),
+    var(--color-brand-2),
+    var(--color-accent)
+  );
+  background-size: var(--gw, 100%) 100%;
+  background-position: calc(var(--gx, 0px) * -1) 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
