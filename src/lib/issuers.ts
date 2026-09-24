@@ -1,43 +1,43 @@
 // ETF / ETP issuers, recognised from a security's full name, for the small
-// brand logo next to it. The logo itself is the issuer site's icon, fetched at
-// runtime (see InstrumentLogo) — nothing is bundled.
+// issuer mark next to it. The mark is drawn in the app's own style (tinted
+// tile + monogram in the issuer's brand hue) — no external images.
 
 export interface Issuer {
   name: string;
-  /** Site whose icon is shown as the logo. */
-  domain: string;
-  /** Brand-ish colour for the monogram fallback (offline / icon missing). */
+  /** Monogram shown on the tile (1–2 characters). */
+  mark: string;
+  /** Brand hue, lifted to read on the dark surfaces. */
   color: string;
 }
 
 const ISSUERS: { match: RegExp; issuer: Issuer }[] = [
   {
     match: /vanguard/i,
-    issuer: { name: "Vanguard", domain: "vanguard.com", color: "#96151d" },
+    issuer: { name: "Vanguard", mark: "V", color: "#f0525a" },
   },
   {
     match: /wisdomtree/i,
-    issuer: { name: "WisdomTree", domain: "wisdomtree.eu", color: "#0a5eb0" },
+    issuer: { name: "WisdomTree", mark: "WT", color: "#4d9bff" },
   },
   {
     match: /ishares|blackrock/i,
-    issuer: { name: "iShares", domain: "ishares.com", color: "#111111" },
+    issuer: { name: "iShares", mark: "iS", color: "#d4d4d8" },
   },
   {
     match: /xtrackers|\bdws\b/i,
-    issuer: { name: "Xtrackers", domain: "xtrackers.com", color: "#0018a8" },
+    issuer: { name: "Xtrackers", mark: "X", color: "#7b8cff" },
   },
   {
     match: /amundi|lyxor/i,
-    issuer: { name: "Amundi", domain: "amundietf.com", color: "#00a3a1" },
+    issuer: { name: "Amundi", mark: "A", color: "#2dd4bf" },
   },
   {
     match: /\bspdr\b|state street/i,
-    issuer: { name: "SPDR", domain: "ssga.com", color: "#0d2c6c" },
+    issuer: { name: "SPDR", mark: "S", color: "#fb923c" },
   },
   {
     match: /invesco/i,
-    issuer: { name: "Invesco", domain: "invesco.com", color: "#0a2a5e" },
+    issuer: { name: "Invesco", mark: "IV", color: "#60a5fa" },
   },
 ];
 
@@ -45,9 +45,4 @@ const ISSUERS: { match: RegExp; issuer: Issuer }[] = [
 export function issuerOf(name: string | undefined): Issuer | undefined {
   if (!name) return undefined;
   return ISSUERS.find((x) => x.match.test(name))?.issuer;
-}
-
-/** Icon URL for an issuer's site (Google's favicon service, 64px). */
-export function issuerLogoUrl(issuer: Issuer): string {
-  return `https://www.google.com/s2/favicons?domain=${issuer.domain}&sz=64`;
 }

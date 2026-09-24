@@ -1,16 +1,16 @@
-import { useState } from "react";
 import { Landmark } from "lucide-react";
 import { usePortfolio } from "../lib/store";
-import { issuerLogoUrl, issuerOf } from "../lib/issuers";
+import { issuerOf } from "../lib/issuers";
 import type { Instrument } from "../lib/model";
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 /**
- * Small round logo for a security: the ETF issuer's brand icon (recognised from
- * the full name — price file, then the live quote, then the instrument), a
- * treasury icon for government bonds, otherwise a monogram. The icon is loaded
- * from the issuer's site; offline or on error the monogram stays.
+ * Small issuer mark for a security, in the app's own icon style (the same
+ * tinted rounded tile as the event/treasury icons): the ETF issuer's monogram
+ * in its brand hue (issuer recognised from the full name — price file, live
+ * quote, then the instrument), a treasury icon for government bonds, otherwise
+ * the ticker's initials in the brand colour.
  */
 export default function InstrumentLogo({
   instrument,
@@ -22,62 +22,38 @@ export default function InstrumentLogo({
   const key = instrument?.key ?? "";
   const fileName = usePortfolio((s) => s.priceFile?.prices[key]?.name);
   const liveName = usePortfolio((s) => s.liveQuotes[key]?.name);
-  const [failed, setFailed] = useState(false);
 
-  const box = {
-    width: size,
-    height: size,
-    fontSize: Math.round(size * 0.38),
-  };
-  const base =
-    "grid shrink-0 place-items-center overflow-hidden rounded-full font-semibold";
-
-  if (instrument && BOND_TYPES.has(instrument.type)) {
-    return (
-      <span
-        className={`${base} bg-[var(--color-brand)]/15 text-[var(--color-brand)]`}
-        style={box}
-        aria-hidden="true"
-      >
-        <Landmark style={{ width: size * 0.55, height: size * 0.55 }} />
-      </span>
-    );
-  }
-
-  const issuer = issuerOf(fileName ?? liveName ?? instrument?.name);
-  const label = instrument?.ticker ?? instrument?.name ?? "?";
-  const monogram = label
-    .replace(/[^A-Za-z0-9]/g, "")
-    .slice(0, 2)
-    .toUpperCase();
-
-  if (issuer && !failed) {
-    return (
-      <span
-        className={`${base} bg-white ring-1 ring-[var(--color-border)]`}
-        style={box}
-        title={issuer.name}
-      >
-        <img
-          src={issuerLogoUrl(issuer)}
-          alt={issuer.name}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-          style={{ width: size * 0.7, height: size * 0.7 }}
-        />
-      </span>
-    );
-  }
+  const isBond = !!instrument && BOND_TYPES.has(instrument.type);
+  const issuer = isBond
+    ? undefined
+    : issuerOf(fileName ?? liveName ?? instrument?.name);
+  const color = issuer?.color ?? "var(--color-brand)";
+  const text =
+    issuer?.mark ??
+    (instrument?.ticker ?? instrument?.name ?? "?")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .slice(0, 2)
+      .toUpperCase();
 
   return (
     <span
-      className={`${base} text-white`}
-      style={{ ...box, background: issuer?.color ?? "var(--color-brand)" }}
+      className="font-display grid shrink-0 place-items-center rounded-lg font-bold tracking-tight"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * (text.length > 1 ? 0.36 : 0.46)),
+        color,
+        background: `color-mix(in oklab, ${color} 16%, transparent)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${color} 28%, transparent)`,
+      }}
       title={issuer?.name}
       aria-hidden="true"
     >
-      {monogram}
+      {isBond ? (
+        <Landmark style={{ width: size * 0.55, height: size * 0.55 }} />
+      ) : (
+        text
+      )}
     </span>
   );
 }
