@@ -107,7 +107,12 @@ export function AnimatedAmount({
   const prev = useRef(reduce ? value : 0);
 
   useEffect(() => {
-    if (reduce || prev.current === value || !Number.isFinite(value)) {
+    if (
+      reduce ||
+      duration === 0 ||
+      prev.current === value ||
+      !Number.isFinite(value)
+    ) {
       setDisplay(value);
       prev.current = value;
       return;
@@ -331,6 +336,7 @@ export function StatCard({
   hero = false,
   aurora = false,
   flashOnChange = false,
+  scrubbing = false,
   sparkline,
   sparkStroke = "var(--color-brand)",
 }: {
@@ -355,6 +361,11 @@ export function StatCard({
   aurora?: boolean;
   /** Briefly glows the number green/red when numericValue changes. */
   flashOnChange?: boolean;
+  /**
+   * The value is being scrubbed from a chart: follow it instantly (no count-up,
+   * no flash). On release it glides back to the live value.
+   */
+  scrubbing?: boolean;
   /** Tiny trend line drawn at the bottom of the card. */
   sparkline?: number[];
   sparkStroke?: string;
@@ -365,6 +376,9 @@ export function StatCard({
   const [flash, setFlash] = useState<null | "up" | "down">(null);
   const prevNum = useRef(numericValue);
   useEffect(() => {
+    // Scrubbed values are not price moves: leave prevNum at the live value so
+    // the release (back to it) doesn't flash either.
+    if (scrubbing) return;
     if (!flashOnChange || reduce || numericValue == null) {
       prevNum.current = numericValue;
       return;
@@ -376,7 +390,7 @@ export function StatCard({
       return () => clearTimeout(t);
     }
     prevNum.current = numericValue;
-  }, [numericValue, flashOnChange, reduce]);
+  }, [numericValue, flashOnChange, reduce, scrubbing]);
 
   const numberCls = hero
     ? "font-display mt-2 text-3xl font-bold tracking-tight text-gradient"
@@ -384,7 +398,11 @@ export function StatCard({
   const flashCls = flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : "";
   const showValue =
     numericValue != null && format ? (
-      <AnimatedAmount value={numericValue} format={format} />
+      <AnimatedAmount
+        value={numericValue}
+        format={format}
+        duration={scrubbing ? 0 : undefined}
+      />
     ) : (
       value
     );
@@ -427,7 +445,7 @@ export function StatCard({
         </div>
       )}
       {(delta != null || deltaPct != null) && (
-        <div className="relative mt-1.5 flex items-center gap-1.5 text-sm">
+        <div className="relative mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
           <Delta value={delta} pct={deltaPct} />
           {deltaNote && (
             <span className="text-xs text-[var(--color-muted)]">

@@ -25,6 +25,7 @@ import {
   buildValueSeries,
   allocationByClass,
   allocationByCurrency,
+  type ValuePoint,
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
@@ -174,6 +175,20 @@ export default function Dashboard() {
     return f.length >= 2 ? f : valueSeries;
   }, [valueSeries, range]);
 
+  // Chart scrubbing: while hovering the value chart the hero card shows that
+  // day's value and the market move since the range start (flows netted out).
+  const [scrub, setScrub] = useState<ValuePoint | null>(null);
+  const scrubDelta = useMemo(() => {
+    const base = rangedSeries[0];
+    if (!scrub || !base) return null;
+    const flows = scrub.invested - base.invested;
+    const abs = scrub.value - base.value - flows;
+    // Relative to the capital at stake (start value + money added since) — the
+    // start value alone can be near zero on "Max" and inflate the percentage.
+    const stake = base.value + Math.max(0, flows);
+    return { abs, pct: stake > 0 ? abs / stake : undefined };
+  }, [scrub, rangedSeries]);
+
   const [allocMode, setAllocMode] = useState<"class" | "currency" | "account">(
     "class",
   );
@@ -304,13 +319,19 @@ export default function Dashboard() {
         <div ref={leftColRef} className="min-w-0 flex-1 space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
             <StatCard
-              label="Teljes érték"
-              numericValue={summary.totalValueHuf}
+              label={
+                scrub ? `Érték · ${formatDate(scrub.date)}` : "Teljes érték"
+              }
+              numericValue={scrub ? scrub.value : summary.totalValueHuf}
               format={(n) => formatMoney(n)}
-              sub={eurEquivalent(summary.totalValueHuf, eurHuf)}
-              delta={dayChange?.abs}
-              deltaPct={dayChange?.pct}
-              deltaNote={dayChange?.note}
+              sub={eurEquivalent(
+                scrub ? scrub.value : summary.totalValueHuf,
+                eurHuf,
+              )}
+              delta={scrub ? scrubDelta?.abs : dayChange?.abs}
+              deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
+              deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}
+              scrubbing={scrub != null}
               icon={<Wallet className="h-5 w-5" />}
               index={0}
               hero
@@ -409,7 +430,11 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              <ValueChart data={rangedSeries} mode={chartMode} />
+              <ValueChart
+                data={rangedSeries}
+                mode={chartMode}
+                onScrub={setScrub}
+              />
             </Card>
           )}
 

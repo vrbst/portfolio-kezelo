@@ -111,9 +111,12 @@ export type ChartMode = "value" | "profit";
 export default function ValueChart({
   data,
   mode = "value",
+  onScrub,
 }: {
   data: ValuePoint[];
   mode?: ChartMode;
+  /** Hovered/touched sample while scrubbing the chart; null on release. */
+  onScrub?: (point: ValuePoint | null) => void;
 }) {
   // Privacy mode: SVG <text> doesn't reliably take a CSS blur filter, so we mask
   // the Y-axis amounts and the tooltip value at the formatter level instead.
@@ -152,6 +155,13 @@ export default function ValueChart({
         <AreaChart
           data={chartData}
           margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+          onMouseMove={(s) => {
+            if (!onScrub) return;
+            const i = Number(s.activeTooltipIndex);
+            onScrub(Number.isInteger(i) ? (data[i] ?? null) : null);
+          }}
+          onMouseLeave={() => onScrub?.(null)}
+          onTouchEnd={() => onScrub?.(null)}
         >
           <defs>
             {/* Richer fill: a brighter top, a soft mid-stop, fading to nothing. */}
