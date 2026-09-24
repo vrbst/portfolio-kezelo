@@ -15,6 +15,7 @@ import {
   fetchLiveHistory,
   type PriceFile,
   type HistoryFile,
+  type LiveQuote,
 } from "./prices";
 import {
   loadSyncConfig,
@@ -64,6 +65,11 @@ interface PortfolioState {
   historyFile: HistoryFile | null;
   /** Live quotes (Worker→Yahoo): instrument key -> price (instrument ccy). */
   livePrices: Record<string, number>;
+  /**
+   * Latest live quotes with daily-move context (previous close, intraday
+   * curve, trading session). Keyed by instrument key, FX by currency ("EUR").
+   */
+  liveQuotes: Record<string, LiveQuote>;
   /**
    * TEMPORARY manual price overrides (instrument key -> price, instrument ccy).
    * A manual price beats everything, but is dropped automatically as soon as a
@@ -429,6 +435,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   priceFile: null,
   historyFile: null,
   livePrices: {},
+  liveQuotes: {},
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
@@ -657,11 +664,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       }));
     // History is owned by refreshHistory (runs once on startup), so the 5-minute
     // price poll never clobbers the live-fetched chart series.
-    const [file, liveFx, livePrices] = await Promise.all([
+    const [file, fxQuotes, priceQuotes] = await Promise.all([
       loadPriceFile(),
       fetchLiveFx(),
       fetchLivePrices(targets),
     ]);
+    const priceOf = (q: Record<string, LiveQuote>) =>
+      Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.price]));
+    const liveFx = priceOf(fxQuotes);
+    const livePrices = priceOf(priceQuotes);
     set((s) => {
       const priceFile = file ?? s.priceFile;
       // Keep the last good live quote for any symbol that failed this round.
@@ -690,6 +701,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       return {
         priceFile,
         livePrices: live,
+        // FX quotes keyed by currency ("EUR"), security quotes by instrument key.
+        liveQuotes: { ...s.liveQuotes, ...fxQuotes, ...priceQuotes },
         manualPrices: manual,
         prices,
         fx,
@@ -1013,6 +1026,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       prices: new Map(),
       fx: {},
       livePrices: {},
+      liveQuotes: {},
       manualPrices: {},
       alertState: {},
       goals: [],

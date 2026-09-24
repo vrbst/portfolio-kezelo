@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LineChart, RefreshCw } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
-import { Card } from "./ui";
-import { formatMoney, formatDateTime } from "../lib/format";
+import { Card, Sparkline } from "./ui";
+import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
+import type { LiveQuote } from "../lib/prices";
 
 /** Security types we list as "ETF" tickers (tradable, market-priced). Bonds and
  * cash are excluded — they live on the treasury pages. */
@@ -19,6 +20,8 @@ interface Tile {
   /** Price is a temporary manual override (beats the live quote). */
   manual: boolean;
   hufEquiv?: number;
+  /** Live quote context (previous close, intraday curve), when available. */
+  quote?: LiveQuote;
 }
 
 /**
@@ -36,6 +39,7 @@ export default function LivePricesPanel() {
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const pricesLoading = usePortfolio((s) => s.pricesLoading);
+  const liveQuotes = usePortfolio((s) => s.liveQuotes);
 
   const tiles = useMemo<Tile[]>(() => {
     // Distinct held securities, aggregated value across accounts for ordering.
@@ -71,10 +75,15 @@ export default function LivePricesPanel() {
             manual,
             hufEquiv:
               inst.currency !== "HUF" && rate ? price * rate : undefined,
+            // A manual price has no market context to compare against.
+            quote: manual ? undefined : liveQuotes[inst.key],
           },
         ];
       });
-  }, [summary, prices, livePrices, manualPrices, fx]);
+  }, [summary, prices, livePrices, manualPrices, fx, liveQuotes]);
+
+  // The exchange status follows the largest held security's listing.
+  const session = tiles.find((t) => t.quote?.session)?.quote;
 
   if (!eurHuf && tiles.length === 0) return null;
 
@@ -106,6 +115,15 @@ export default function LivePricesPanel() {
         </button>
       </div>
 
+      {session?.session && (
+        <div className="-mt-2 mb-3">
+          <MarketStatus
+            session={session.session}
+            exchange={session.exchange}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         {eurHuf && (
           <PriceTile
@@ -113,6 +131,7 @@ export default function LivePricesPanel() {
             value={formatMoney(eurHuf, "HUF", { decimals: 2 })}
             sub="Euró árfolyam"
             live
+            quote={liveQuotes["EUR"]}
           />
         )}
         {tiles.map((t) => (
@@ -125,6 +144,7 @@ export default function LivePricesPanel() {
             }
             live={t.live}
             manual={t.manual}
+            quote={t.quote}
           />
         ))}
       </div>
@@ -138,13 +158,18 @@ function PriceTile({
   sub,
   live,
   manual,
+  quote,
 }: {
   label: string;
   value: string;
   sub?: string;
   live?: boolean;
   manual?: boolean;
+  quote?: LiveQuote;
 }) {
+  const change =
+    quote?.prevClose != null ? quote.price / quote.prevClose - 1 : undefined;
+  const up = (change ?? 0) >= 0;
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
       <div className="flex items-center gap-1.5">
@@ -166,6 +191,27 @@ function PriceTile({
         )}
       </div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+      {change != null && (
+        <span
+          className={`mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+            up
+              ? "bg-[var(--color-positive)]/12 text-[var(--color-positive)]"
+              : "bg-[var(--color-negative)]/12 text-[var(--color-negative)]"
+          }`}
+          title="Változás az előző záráshoz képest"
+        >
+          {formatPercent(change)}
+        </span>
+      )}
+      {quote?.intraday && (
+        <div className="mt-2 h-6 w-full" title="Mai árfolyam-alakulás">
+          <Sparkline
+            data={quote.intraday}
+            stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
+            className="h-full w-full"
+          />
+        </div>
+      )}
       <div className="mt-0.5 flex items-center gap-1.5">
         {manual && (
           <span className="shrink-0 text-[10px] font-medium text-[var(--color-warning,#fbbf24)]">
@@ -179,5 +225,58 @@ function PriceTile({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "XETRA nyitva · zárásig 2ó 15p" / "zárva" pill for the exchange the held ETFs
+ * trade on, from Yahoo's current regular session. Re-renders every 30s so the
+ * countdown stays current.
+ */
+function MarketStatus({
+  session,
+  exchange,
+}: {
+  session: { start: number; end: number };
+  exchange?: string;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const open = now >= session.start && now < session.end;
+  const fmtLeft = (ms: number) => {
+    const m = Math.max(0, Math.round(ms / 60_000));
+    return m >= 60 ? `${Math.floor(m / 60)}ó ${m % 60}p` : `${m}p`;
+  };
+  const opensToday = now < session.start;
+  const hhmm = new Intl.DateTimeFormat("hu-HU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(session.start);
+  const name = exchange ?? "Tőzsde";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        open
+          ? "border-[var(--color-positive)]/40 bg-[var(--color-positive)]/10 text-[var(--color-positive)]"
+          : "border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-muted)]"
+      }`}
+      title={`${name} kereskedési idő (helyi idő szerint)`}
+    >
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          open
+            ? "live-dot relative bg-[var(--color-positive)]"
+            : "bg-[var(--color-muted)]"
+        }`}
+      />
+      {open
+        ? `${name} nyitva · zárásig ${fmtLeft(session.end - now)}`
+        : opensToday
+          ? `${name} zárva · nyit ${hhmm}`
+          : `${name} zárva`}
+    </span>
   );
 }

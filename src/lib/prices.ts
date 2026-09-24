@@ -112,18 +112,32 @@ if (typeof window !== "undefined") {
   });
 }
 
-interface YahooQuote {
+/** A live quote plus the context for "today's move" displays. */
+export interface LiveQuote {
   price: number;
+  /** Previous session's close — the base of the daily change. */
+  prevClose?: number;
+  /** Today's intraday prices (5-minute bars), oldest first. */
+  intraday?: number[];
+  /** Regular trading session of the listing's exchange (epoch ms). */
+  session?: { start: number; end: number };
+  /** Exchange display name (e.g. "XETRA"). */
+  exchange?: string;
+}
+
+interface YahooQuote extends LiveQuote {
   currency?: string;
 }
 
 async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
   try {
+    // 5-minute bars for today: the same call carries the price, the previous
+    // close, the intraday curve and the exchange's session window.
     const res = await fetch(
       proxied(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
           symbol,
-        )}?range=1d&interval=1d`,
+        )}?range=1d&interval=5m`,
       ),
       { cache: "no-store" },
     );
@@ -131,23 +145,43 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
     const data = (await res.json()) as {
       chart?: {
         result?: {
-          meta?: { regularMarketPrice?: number; currency?: string };
+          meta?: {
+            regularMarketPrice?: number;
+            currency?: string;
+            previousClose?: number;
+            chartPreviousClose?: number;
+            fullExchangeName?: string;
+            currentTradingPeriod?: {
+              regular?: { start?: number; end?: number };
+            };
+          };
+          indicators?: { quote?: { close?: (number | null)[] }[] };
         }[];
       };
     };
-    const meta = data?.chart?.result?.[0]?.meta;
+    const r = data?.chart?.result?.[0];
+    const meta = r?.meta;
     const p = meta?.regularMarketPrice;
-    return typeof p === "number" && p > 0
-      ? { price: p, currency: meta?.currency }
-      : null;
+    if (typeof p !== "number" || p <= 0) return null;
+    const prev = meta?.previousClose ?? meta?.chartPreviousClose;
+    const intraday = (r?.indicators?.quote?.[0]?.close ?? []).filter(
+      (c): c is number => typeof c === "number" && c > 0,
+    );
+    const reg = meta?.currentTradingPeriod?.regular;
+    return {
+      price: p,
+      currency: meta?.currency,
+      prevClose: typeof prev === "number" && prev > 0 ? prev : undefined,
+      intraday: intraday.length >= 2 ? intraday : undefined,
+      session:
+        reg?.start && reg?.end
+          ? { start: reg.start * 1000, end: reg.end * 1000 }
+          : undefined,
+      exchange: meta?.fullExchangeName,
+    };
   } catch {
     return null;
   }
-}
-
-async function fetchYahooPrice(symbol: string): Promise<number | null> {
-  const q = await fetchYahooQuote(symbol);
-  return q ? q.price : null;
 }
 
 /** Best Yahoo symbol for an ISIN via Yahoo's search endpoint, or null. */
@@ -224,7 +258,7 @@ async function resolveSymbol(
 
 export async function fetchLivePrices(
   targets: LivePriceTarget[],
-): Promise<Record<string, number>> {
+): Promise<Record<string, LiveQuote>> {
   const overrides = loadSymbolOverrides();
   const results = await Promise.all(
     targets.map(async (t) => {
@@ -235,10 +269,11 @@ export async function fetchLivePrices(
       // An auto-resolved listing in the wrong currency is rejected.
       if (!r.trusted && quote.currency && quote.currency !== t.currency)
         return null;
-      return [t.key, quote.price] as const;
+      const { currency: _currency, ...live } = quote;
+      return [t.key, live] as const;
     }),
   );
-  const out: Record<string, number> = {};
+  const out: Record<string, LiveQuote> = {};
   for (const r of results) if (r) out[r[0]] = r[1];
   return out;
 }
@@ -321,16 +356,19 @@ export async function fetchLiveHistory(
  * actually moves through the day; falls back to frankfurter's ECB reference
  * rate (once-daily, business days only) if Yahoo is unavailable.
  */
-export async function fetchLiveFx(): Promise<Record<string, number>> {
-  const yahoo = await fetchYahooPrice("EURHUF=X");
-  if (yahoo != null) return { EUR: yahoo };
+export async function fetchLiveFx(): Promise<Record<string, LiveQuote>> {
+  const yahoo = await fetchYahooQuote("EURHUF=X");
+  if (yahoo) {
+    const { currency: _currency, ...live } = yahoo;
+    return { EUR: live };
+  }
   try {
     const res = await fetch(
       "https://api.frankfurter.app/latest?from=EUR&to=HUF",
     );
     if (!res.ok) return {};
     const data = (await res.json()) as { rates?: { HUF?: number } };
-    return data.rates?.HUF ? { EUR: data.rates.HUF } : {};
+    return data.rates?.HUF ? { EUR: { price: data.rates.HUF } } : {};
   } catch {
     return {};
   }
