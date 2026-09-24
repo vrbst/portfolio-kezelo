@@ -650,9 +650,33 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     }
     const accounts = [...accountById.values()];
 
+    // A known instrument only gets its EMPTY fields filled from the statement —
+    // anything already set (incl. user edits like bond terms) is never overwritten.
     const instrumentByKey = new Map(state.instruments.map((i) => [i.key, i]));
+    let instrumentsChanged = false;
     for (const i of parsed.instruments) {
-      if (!instrumentByKey.has(i.key)) instrumentByKey.set(i.key, i);
+      const existing = instrumentByKey.get(i.key);
+      if (!existing) {
+        instrumentByKey.set(i.key, i);
+        instrumentsChanged = true;
+        continue;
+      }
+      const filled: Instrument = { ...existing };
+      let changed = false;
+      for (const [field, value] of Object.entries(i) as [
+        keyof Instrument,
+        unknown,
+      ][]) {
+        const cur = existing[field];
+        if ((cur == null || cur === "") && value != null && value !== "") {
+          (filled as unknown as Record<string, unknown>)[field] = value;
+          changed = true;
+        }
+      }
+      if (changed) {
+        instrumentByKey.set(i.key, filled);
+        instrumentsChanged = true;
+      }
     }
     const instruments = [...instrumentByKey.values()];
 
@@ -666,7 +690,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     ]);
 
     set({ accounts, instruments, transactions, fx });
-    if (newTxs.length > 0) scheduleAutoSync(set, get);
+    if (newTxs.length > 0 || instrumentsChanged) scheduleAutoSync(set, get);
     return { added: newTxs.length, skipped };
   },
 
