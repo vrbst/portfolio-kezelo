@@ -509,7 +509,7 @@ export default function AccountDetail() {
                               ).map((goalName) => (
                                 <span
                                   key={goalName}
-                                  className="inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
+                                  className="priv inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
                                   title="Középtávú célhoz rendelve"
                                 >
                                   <Target className="h-3 w-3" />

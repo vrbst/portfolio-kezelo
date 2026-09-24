@@ -437,7 +437,7 @@ export default function Forecast() {
                       {huf(e.amountHuf)} Ft
                     </span>
                     {e.note && (
-                      <span className="truncate text-xs text-[var(--color-muted)]">
+                      <span className="priv truncate text-xs text-[var(--color-muted)]">
                         {e.note}
                       </span>
                     )}
@@ -460,7 +460,7 @@ export default function Forecast() {
                     <span className="amt font-medium tabular-nums">
                       {huf(e.amountHuf)} Ft
                     </span>
-                    <span className="truncate text-xs text-[var(--color-muted)]">
+                    <span className="priv truncate text-xs text-[var(--color-muted)]">
                       {e.note}
                     </span>
                     <Badge tone="brand">cél</Badge>

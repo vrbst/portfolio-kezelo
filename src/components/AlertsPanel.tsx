@@ -7,6 +7,7 @@ import {
   type AlertSeverity,
 } from "../lib/alerts";
 import { Card } from "./ui";
+import PrivateText from "./PrivateText";
 
 const SEV_DOT: Record<AlertSeverity, string> = {
   high: "bg-[var(--color-negative)]",
@@ -20,6 +21,7 @@ const SEV_DOT: Record<AlertSeverity, string> = {
  * or restore (dismissed).
  */
 export function AlertRow({
+  id,
   severity,
   title,
   detail,
@@ -29,6 +31,8 @@ export function AlertRow({
   onDismiss,
   onRestore,
 }: {
+  /** Alert id — lets savings-goal alerts blur their instrument names too. */
+  id?: string;
   severity: AlertSeverity;
   title: string;
   detail?: string;
@@ -49,7 +53,7 @@ export function AlertRow({
         <div
           className={`font-medium ${muted ? "text-[var(--color-muted)]" : ""}`}
         >
-          {title}
+          <PrivateText text={title} alertId={id} />
         </div>
         {detail && (
           <div className="amt mt-0.5 text-xs text-[var(--color-muted)]">
@@ -115,6 +119,7 @@ export default function AlertsPanel() {
         {visible.map((a: Alert) => (
           <AlertRow
             key={a.id}
+            id={a.id}
             severity={a.severity}
             title={a.title}
             detail={a.detail}

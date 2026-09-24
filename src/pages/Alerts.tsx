@@ -19,6 +19,7 @@ import { savingsMonthlyStatus } from "../lib/savings";
 import { PageHeader, Card, EmptyState } from "../components/ui";
 import { AlertRow } from "../components/AlertsPanel";
 import { formatDate, formatMoney } from "../lib/format";
+import PrivateText from "../components/PrivateText";
 
 export default function Alerts() {
   const summary = usePortfolioSummary();
@@ -134,6 +135,7 @@ export default function Alerts() {
                 {visibleActive.map((a) => (
                   <AlertRow
                     key={a.id}
+                    id={a.id}
                     severity={a.severity}
                     title={a.title}
                     detail={a.detail}
@@ -163,7 +165,9 @@ export default function Alerts() {
                   >
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-positive)]" />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium">{c.label}</div>
+                      <div className="font-medium">
+                        <PrivateText text={c.label} alertId={c.id} />
+                      </div>
                       {c.detail && (
                         <div className="amt mt-0.5 text-xs text-[var(--color-muted)]">
                           {c.detail}
@@ -197,6 +201,7 @@ export default function Alerts() {
                 {fulfilledShown.map((r) => (
                   <AlertRow
                     key={r.id}
+                    id={r.id}
                     severity={r.severity}
                     title={r.title}
                     detail={`Teljesült · először: ${formatDate(r.firstSeenAt)}`}
@@ -222,6 +227,7 @@ export default function Alerts() {
                   return (
                     <AlertRow
                       key={r.id}
+                      id={r.id}
                       severity={r.severity}
                       title={r.title}
                       detail={

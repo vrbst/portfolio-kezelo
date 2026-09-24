@@ -341,9 +341,12 @@ body::before {
 
 /* ----- Privacy mode ------------------------------------------------------ */
 /* When the root has `.privacy-on`, every element marked `.amt` (Ft/EUR
- * amounts and quantities) is blurred. Percentages are never marked, so they
- * stay readable. Chart axis numbers and tooltips blur via the recharts hooks. */
-.privacy-on .amt {
+ * amounts and quantities) or `.priv` (personal labels: savings-goal names and
+ * which instrument backs which goal) is blurred. Percentages are never marked,
+ * so they stay readable. Chart axis numbers and tooltips blur via the recharts
+ * hooks. */
+.privacy-on .amt,
+.privacy-on .priv {
   filter: blur(0.45em);
   -webkit-filter: blur(0.45em);
   user-select: none;

@@ -252,7 +252,7 @@ function GoalRow({
       ) : (
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="font-medium">{g.name}</div>
+            <div className="priv font-medium">{g.name}</div>
             <div className="text-xs text-[var(--color-muted)]">
               Cél: <span className="amt">{formatMoney(g.targetHuf)}</span> ·{" "}
               {formatDate(g.targetDate)}
@@ -378,7 +378,7 @@ function GoalRow({
               key={key}
               className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
             >
-              {nameOf(key)}
+              <span className="priv">{nameOf(key)}</span>
               <button
                 className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
                 onClick={() =>
@@ -400,7 +400,7 @@ function GoalRow({
         </div>
         {assignable.length > 0 && (
           <select
-            className="mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            className="priv mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
             value=""
             onChange={(e) => {
               if (!e.target.value) return;
