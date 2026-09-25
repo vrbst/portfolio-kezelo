@@ -727,7 +727,8 @@ function NextEventTile({
     <button
       onClick={onClick}
       disabled={!next}
-      className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 text-left transition enabled:hover:border-[var(--color-positive)]/50"
+      // Phones (2 tiles per row): ring above the text; wider: side by side.
+      className="flex flex-col items-start gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 text-left transition enabled:hover:border-[var(--color-positive)]/50 sm:flex-row sm:items-center sm:gap-3"
     >
       {next && (
         <svg width="52" height="52" viewBox="0 0 52 52" className="shrink-0">
@@ -768,13 +769,13 @@ function NextEventTile({
           </text>
         </svg>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 max-w-full">
         <div className="text-xs text-[var(--color-muted)]">
           Legközelebbi bevétel
         </div>
         {next ? (
           <>
-            <div className="amt mt-0.5 text-lg font-semibold tabular-nums text-[var(--color-positive)]">
+            <div className="amt mt-0.5 break-words text-base font-semibold tabular-nums text-[var(--color-positive)] sm:text-lg">
               {privacy ? "•••" : `+${formatMoney(next.amountHuf)}`}
             </div>
             <div className="text-xs text-[var(--color-muted)]">

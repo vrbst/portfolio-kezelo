@@ -116,6 +116,34 @@ function monthAdjective(month: string): string {
   return `${y}. ${MONTH_NAMES[m - 1]}i`;
 }
 
+/**
+ * One planned-expense row's text: date + amount never wrap inside themselves;
+ * on a phone the note drops to its own line instead of squeezing them.
+ */
+function ExpenseText({
+  date,
+  amount,
+  note,
+}: {
+  date: string;
+  amount: string;
+  note?: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-center sm:gap-2">
+      <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
+        <span className="text-[var(--color-muted)] tabular-nums">{date}</span>
+        <span className="amt font-medium tabular-nums">{amount} Ft</span>
+      </div>
+      {note && (
+        <span className="priv min-w-0 truncate text-xs text-[var(--color-muted)]">
+          {note}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function currentMonthKey(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -803,17 +831,11 @@ export default function Forecast() {
               <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto border-t border-[var(--color-border)] pt-3 text-sm">
                 {settings.expenses.map((e) => (
                   <li key={e.id} className="flex items-center gap-2">
-                    <span className="text-[var(--color-muted)] tabular-nums">
-                      {e.date}
-                    </span>
-                    <span className="amt font-medium tabular-nums">
-                      {huf(e.amountHuf)} Ft
-                    </span>
-                    {e.note && (
-                      <span className="priv truncate text-xs text-[var(--color-muted)]">
-                        {e.note}
-                      </span>
-                    )}
+                    <ExpenseText
+                      date={e.date}
+                      amount={huf(e.amountHuf)}
+                      note={e.note}
+                    />
                     <button
                       className="ml-auto text-[var(--color-muted)] hover:text-[var(--color-negative)]"
                       onClick={() => removeExpense(e.id)}
@@ -827,15 +849,11 @@ export default function Forecast() {
                     olvashatók, a Középtávú célok kártyán szerkeszthetők. */}
                 {goalExpenses.map((e) => (
                   <li key={e.id} className="flex items-center gap-2 opacity-80">
-                    <span className="text-[var(--color-muted)] tabular-nums">
-                      {e.date}
-                    </span>
-                    <span className="amt font-medium tabular-nums">
-                      {huf(e.amountHuf)} Ft
-                    </span>
-                    <span className="priv truncate text-xs text-[var(--color-muted)]">
-                      {e.note}
-                    </span>
+                    <ExpenseText
+                      date={e.date}
+                      amount={huf(e.amountHuf)}
+                      note={e.note}
+                    />
                     <Badge tone="brand">cél</Badge>
                   </li>
                 ))}
