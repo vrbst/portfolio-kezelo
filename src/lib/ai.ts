@@ -784,7 +784,15 @@ export async function runClaude(opts: {
       });
       stream.on("thinking", (d) => opts.onThinking?.(d));
       stream.on("contentBlock", (b) => {
-        if (b.type === "server_tool_use")
+        // Only real searches: dynamic filtering also runs internal code
+        // execution steps as server_tool_use blocks, without a query.
+        const query = (b as { input?: { query?: unknown } }).input?.query;
+        if (
+          b.type === "server_tool_use" &&
+          b.name === "web_search" &&
+          typeof query === "string" &&
+          query.trim()
+        )
           opts.onActivity?.({ kind: "search", name: b.name, input: b.input });
       });
       message = await stream.finalMessage();

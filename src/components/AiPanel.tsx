@@ -253,11 +253,13 @@ export default function AiPanel() {
 
   const [spend, setSpend] = useState<AiSpend>(loadSpend);
   const [toggles, setToggles] = useState<AiToggles>(loadAiToggles);
-  const setToggle = (k: keyof AiToggles, v: boolean) => {
-    const next = { ...toggles, [k]: v };
-    setToggles(next);
-    saveAiToggles(next);
-  };
+  // Functional update: two quick toggles must not overwrite each other.
+  const setToggle = (k: keyof AiToggles, v: boolean) =>
+    setToggles((t) => {
+      const next = { ...t, [k]: v };
+      saveAiToggles(next);
+      return next;
+    });
 
   // ---- analysis -------------------------------------------------------------
   const [analyses, setAnalyses] = useState<StoredAnalysis[]>(loadAnalyses);
