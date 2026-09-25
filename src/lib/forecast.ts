@@ -9,23 +9,22 @@ import { touchPref } from "./prefs";
 // Three legs, simulated month by month:
 //   • growth pot  — ETF/equity/fund + cash-in-securities, compounded at an
 //     assumed annual return (three scenarios). Recurring monthly savings land
-//     here (DCA into growth assets).
-//   • bond leg    — the CURRENT bond holdings, kept at their present accreted
-//     value ("carry") until they pay. Coupons are booked as income when paid;
-//     at maturity the bond's carry is removed and its FACE value is credited to
-//     the target pot. face − carry is exactly the remaining accretion yield
-//     (this is how a discount T-bill's discount→par gain is realised), so bond
-//     yield is captured without guessing a rate.
-//   • cash pot    — proceeds when "reinvest" is OFF; otherwise proceeds flow
-//     into the growth pot and compound too ("bent hagyom és VWCE-be teszem").
+//     here (DCA into growth assets), optionally raised every year.
+//   • bond leg    — the CURRENT bond holdings. Each bond's value moves linearly
+//     from its present value ("carry") to its FACE value at maturity, so the
+//     remaining accretion yield (e.g. a discount T-bill's discount→par gain)
+//     is earned smoothly instead of in one step. Coupons are booked as income
+//     when paid; at maturity the face value is credited to the target pot.
+//   • side pot    — proceeds when they are not routed into growth: rolled into
+//     new bonds at a fixed rate, or kept as idle cash.
 //
-// Planned, dated expenses are subtracted when they fall due (cash first, then
-// growth). The bond schedule and expenses are identical across scenarios; only
-// the growth rate differs, so we carry three growth/cash pots in one pass.
+// Planned, dated expenses and an optional recurring withdrawal phase are
+// subtracted when they fall due (side pot first, then growth). When that
+// liquid part goes below zero the plan is not coverable without selling bonds
+// early — reported as a shortfall.
 //
-// This is a projection, not a promise: bonds sit flat between now and maturity
-// (the accretion is realised in one step at maturity), and returns are an
-// assumption. The starting point and the post-maturity totals are exact.
+// The bond schedule and expenses are identical across scenarios; only the
+// growth return differs. This is a projection, not a promise.
 // ---------------------------------------------------------------------------
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
@@ -54,6 +53,12 @@ function monthKey(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+/** Whole calendar months from `fromMs`'s month to the YYYY-MM(-DD) `key`. */
+export function monthsUntil(key: string, from: Date = new Date()): number {
+  const m = key.match(/^(\d{4})-(\d{2})/);
+  if (!m) return NaN;
+  return (+m[1] - from.getFullYear()) * 12 + (+m[2] - 1 - from.getMonth());
+}
 
 // ---------------------------------------------------------------------------
 // Recurring-savings detection
@@ -66,15 +71,18 @@ export interface MonthlyInflow {
 }
 
 export interface RecurringSavings {
-  /** Detected typical monthly saving (HUF) — median of the "normal" months. */
+  /** Detected typical monthly saving (HUF) — mean of the recent window. */
   monthlyHuf: number;
-  /** How many months fed the median (one-offs excluded). */
+  /** How many completed months fed the mean (one-offs excluded). */
   monthsUsed: number;
   /** Every past net external inflow by month (ascending). */
   months: MonthlyInflow[];
-  /** Months flagged as one-off lump sums (excluded from the median). */
+  /** Months flagged as one-off lump sums (excluded from the mean). */
   oneOffs: MonthlyInflow[];
 }
+
+/** How many recent completed months the recurring saving is averaged over. */
+const SAVING_WINDOW = 12;
 
 function median(xs: number[]): number {
   if (xs.length === 0) return 0;
@@ -85,11 +93,15 @@ function median(xs: number[]): number {
 
 /**
  * Infer the recurring monthly saving from history. Net external inflow is
- * bucketed by calendar month; genuinely large one-off deposits (e.g. a 25M
- * lump sum in March) are detected as outliers via the median + MAD and excluded
- * so they don't get treated as a monthly habit. The recurring figure is the
- * median of the remaining contribution months. The current (partial) month is
- * shown but never used for the baseline.
+ * bucketed by calendar month. Genuinely large one-off movements (e.g. a 25M
+ * lump sum, or a big withdrawal for a purchase) are detected as outliers via
+ * the median + MAD of the contribution months and left out.
+ *
+ * The recurring figure is the MEAN of the last {@link SAVING_WINDOW} completed
+ * months — months without any deposit count as 0 — so a habit of paying in
+ * every other month reads as half the amount, not the full one, and old
+ * history doesn't outweigh the current habit. The current (partial) month is
+ * never used.
  */
 export function detectRecurringSavings(
   txs: Transaction[],
@@ -115,21 +127,38 @@ export function detectRecurringSavings(
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const curKey = monthKey(now.getTime());
-  // Only completed months with a positive net contribution count as evidence.
-  const contrib = months.filter((m) => m.month < curKey && m.huf > 0);
-  const values = contrib.map((m) => m.huf);
+  const done = months.filter((m) => m.month < curKey);
 
+  // Outlier threshold from the positive contribution months (whole history).
+  const values = done.filter((m) => m.huf > 0).map((m) => m.huf);
   const med = median(values);
   const mad = median(values.map((v) => Math.abs(v - med)));
   // A month is a one-off if it towers over the typical amount: beyond 3 scaled
   // MADs, but at least 3× the median (guards the mad≈0 case of steady sums).
   const upper = med + Math.max(3 * 1.4826 * mad, 2 * med);
+  const isOneOff = (huf: number) => Math.abs(huf) > upper;
 
-  const kept = contrib.filter((m) => m.huf <= upper);
-  const oneOffs = contrib.filter((m) => m.huf > upper);
+  // The window: the last N completed calendar months, but not before the
+  // first ever deposit month (a new user isn't diluted with empty months).
+  const firstKey = done[0]?.month;
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const window: string[] = [];
+  if (firstKey) {
+    for (let i = 1; i <= SAVING_WINDOW; i++) {
+      const k = monthKey(addMonths(startOfMonth, -i));
+      if (k < firstKey) break;
+      window.push(k);
+    }
+  }
+
+  const oneOffs = done.filter((m) => isOneOff(m.huf));
+  const kept = window
+    .map((k) => byMonth.get(k) ?? 0)
+    .filter((huf) => !isOneOff(huf));
+  const mean = kept.length ? kept.reduce((s, v) => s + v, 0) / kept.length : 0;
 
   return {
-    monthlyHuf: Math.round(median(kept.map((m) => m.huf))),
+    monthlyHuf: Math.max(0, Math.round(mean)),
     monthsUsed: kept.length,
     months,
     oneOffs,
@@ -160,17 +189,32 @@ export interface PlannedExpense {
  */
 export type ReinvestTarget = "growth" | "bond" | "cash";
 
+/** A recurring monthly withdrawal from a start month on (e.g. retirement). */
+export interface WithdrawalPlan {
+  enabled: boolean;
+  /** YYYY-MM — first month of the withdrawal. */
+  start: string;
+  /** Monthly amount in today's forint at the start. */
+  monthlyHuf: number;
+}
+
 export interface ForecastAssumptions {
   /** Annual expected return for growth assets per scenario (fraction, e.g. 0.06). */
   annualReturn: Record<ScenarioKey, number>;
   /** Recurring monthly saving added to growth assets (HUF). */
   monthlySavingHuf: number;
+  /** Yearly raise of the monthly saving (fraction), applied every 12 months. */
+  savingGrowth?: number;
   /** Where bond coupons + matured principal are reinvested. */
   reinvestTarget: ReinvestTarget;
   /** Annual rate for the "bond" reinvest target (fraction). */
   reinvestBondRate: number;
   /** Horizon length in months. */
   months: number;
+  /** Optional withdrawal phase — savings stop when it starts. */
+  withdrawal?: WithdrawalPlan;
+  /** Yearly indexation of the withdrawal (fraction, usually inflation). */
+  withdrawalIndex?: number;
 }
 
 export interface ForecastPoint {
@@ -184,6 +228,32 @@ export interface ForecastPoint {
   contributed: number;
 }
 
+export type ForecastEventKind = "maturity" | "expense" | "goal" | "withdrawal";
+
+/** Chart marker colour / legend label per event kind. */
+export const EVENT_COLORS: Record<ForecastEventKind, string> = {
+  maturity: "#22c55e",
+  expense: "#f59e0b",
+  goal: "#ec4899",
+  withdrawal: "#ef4444",
+};
+
+export const EVENT_LABELS: Record<ForecastEventKind, string> = {
+  maturity: "Kötvénylejárat",
+  expense: "Kiadás",
+  goal: "Cél",
+  withdrawal: "Kivét indul",
+};
+
+/** A notable dated item on the horizon, for chart markers. */
+export interface ForecastEvent {
+  /** YYYY-MM. */
+  month: string;
+  kind: ForecastEventKind;
+  label: string;
+  huf: number;
+}
+
 export interface ForecastResult {
   points: ForecastPoint[];
   /** Value now (t0), all scenarios equal. */
@@ -194,6 +264,20 @@ export interface ForecastResult {
   maturityHuf: number;
   /** Sum of planned expenses within the horizon (HUF). */
   expenseHuf: number;
+  /** Sum of recurring withdrawals within the horizon (HUF). */
+  withdrawalHuf: number;
+  /** Maturities, expenses and the withdrawal start, ascending. */
+  events: ForecastEvent[];
+  /**
+   * First month (YYYY-MM) the liquid part (growth + side pot) goes negative,
+   * per scenario — i.e. the plan needs bonds sold early or can't be covered.
+   * Monte Carlo: the month by which 10 / 50 / 90 % of the paths ran dry.
+   */
+  shortfall: Record<ScenarioKey, string | null>;
+  /** Monte Carlo only: share of paths that ever ran out of liquid money. */
+  shortfallProb?: number;
+  /** Monte Carlo only: per month, every path's total, ascending. */
+  dist?: Float64Array[];
 }
 
 interface BondLeg {
@@ -245,26 +329,39 @@ function bondLegs(summary: PortfolioSummary, nowMs: number): BondLeg[] {
 
 const monthlyRate = (annual: number) => Math.pow(1 + annual, 1 / 12) - 1;
 
-/** Shared prep for both projection engines: pots + event buckets by month. */
+/** Shared, scenario-independent part of a projection. */
 interface ProjectionPrep {
+  months: number;
   startOfMonth: number;
-  bondValue0: number;
   startValue: number;
   growth0: number;
-  couponByMonth: Map<string, number>;
-  maturityByMonth: Map<string, { face: number; carry: number }[]>;
-  expenseByMonth: Map<string, number>;
+  /** Month i → YYYY-MM and timestamp. */
+  keys: string[];
+  ts: number[];
+  /** Month i → value of the not-yet-matured bonds (accreting to face). */
+  bondValue: number[];
+  /** Month i → coupons + matured face paid in that month. */
+  bondIncome: number[];
+  /** Month i → planned expenses due that month. */
+  expense: number[];
+  /** Month i → recurring saving added (0 at i=0 and in the withdrawal phase). */
+  saving: number[];
+  /** Month i → recurring withdrawal taken. */
+  withdrawal: number[];
+  events: ForecastEvent[];
   couponHuf: number;
   maturityHuf: number;
   expenseHuf: number;
+  withdrawalHuf: number;
 }
 
 function prepareProjection(
   summary: PortfolioSummary,
-  months: number,
+  a: ForecastAssumptions,
   expenses: PlannedExpense[],
   now: Date,
 ): ProjectionPrep {
+  const months = a.months;
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const nowDayMs = new Date(
     now.getFullYear(),
@@ -272,55 +369,195 @@ function prepareProjection(
     now.getDate(),
   ).getTime();
 
+  const keys: string[] = [];
+  const ts: number[] = [];
+  const index = new Map<string, number>();
+  for (let i = 0; i <= months; i++) {
+    const ms = addMonths(startOfMonth, i);
+    ts.push(ms);
+    keys.push(monthKey(ms));
+    index.set(keys[i], i);
+  }
+  const zeros = () => new Array<number>(months + 1).fill(0);
+
   const legs = bondLegs(summary, nowDayMs);
   const bondValue0 = legs.reduce((s, l) => s + l.carry0, 0);
   const startValue = summary.totalValueHuf;
   const growth0 = startValue - bondValue0; // everything that compounds at r
 
-  // Bucket coupons, maturities and expenses by month key.
-  const couponByMonth = new Map<string, number>();
-  const maturityByMonth = new Map<string, { face: number; carry: number }[]>();
+  const bondValue = zeros();
+  const bondIncome = zeros();
+  const events: ForecastEvent[] = [];
+  const maturityByMonth = new Map<number, number>();
   let couponHuf = 0;
   let maturityHuf = 0;
-  const horizonMs = addMonths(startOfMonth, months + 1);
   for (const leg of legs) {
     for (const c of leg.coupons) {
-      if (c.ms >= horizonMs) continue;
-      const k = monthKey(c.ms);
-      couponByMonth.set(k, (couponByMonth.get(k) ?? 0) + c.huf);
+      const i = index.get(monthKey(c.ms));
+      if (i == null) continue;
+      bondIncome[i] += c.huf;
       couponHuf += c.huf;
     }
-    if (Number.isFinite(leg.maturityMs) && leg.maturityMs > nowDayMs) {
-      const k = monthKey(leg.maturityMs);
-      const arr = maturityByMonth.get(k) ?? [];
-      arr.push({ face: leg.face, carry: leg.carry0 });
-      maturityByMonth.set(k, arr);
-      if (leg.maturityMs < horizonMs) maturityHuf += leg.face;
+    const matures =
+      Number.isFinite(leg.maturityMs) && leg.maturityMs > nowDayMs;
+    const matIdx = matures ? index.get(monthKey(leg.maturityMs)) : undefined;
+    if (matIdx != null) {
+      bondIncome[matIdx] += leg.face;
+      maturityHuf += leg.face;
+      maturityByMonth.set(
+        matIdx,
+        (maturityByMonth.get(matIdx) ?? 0) + leg.face,
+      );
+    }
+    // Held value per month until the maturity month (then paid out as face).
+    const span = matures ? leg.maturityMs - nowDayMs : 0;
+    const lastHeld = matIdx != null ? matIdx - 1 : months;
+    for (let i = 0; i <= lastHeld; i++) {
+      const f =
+        span > 0 ? Math.min(1, Math.max(0, (ts[i] - nowDayMs) / span)) : 0;
+      bondValue[i] += leg.carry0 + (leg.face - leg.carry0) * f;
     }
   }
+  for (const [i, face] of maturityByMonth)
+    events.push({
+      month: keys[i],
+      kind: "maturity",
+      label: "Kötvénylejárat",
+      huf: face,
+    });
 
-  const expenseByMonth = new Map<string, number>();
+  const expense = zeros();
   let expenseHuf = 0;
   for (const e of expenses) {
     const ms = parseDayMs(e.date);
     // Already-past expenses (earlier this month) are in the balance already.
-    if (!Number.isFinite(ms) || ms < nowDayMs || ms >= horizonMs) continue;
-    const k = monthKey(ms);
-    expenseByMonth.set(k, (expenseByMonth.get(k) ?? 0) + e.amountHuf);
+    if (!Number.isFinite(ms) || ms < nowDayMs) continue;
+    const i = index.get(monthKey(ms));
+    if (i == null) continue;
+    expense[i] += e.amountHuf;
     expenseHuf += e.amountHuf;
+    const goal = e.id.startsWith("goal:");
+    events.push({
+      month: keys[i],
+      kind: goal ? "goal" : "expense",
+      label: e.note || (goal ? "Cél" : "Kiadás"),
+      huf: e.amountHuf,
+    });
   }
 
+  // Recurring flows: savings until the withdrawal starts, withdrawals after.
+  const saving = zeros();
+  const withdrawal = zeros();
+  let withdrawalHuf = 0;
+  const w = a.withdrawal;
+  const wStart =
+    w?.enabled && w.monthlyHuf > 0 && /^\d{4}-\d{2}/.test(w.start)
+      ? Math.max(1, monthsUntil(w.start, now))
+      : Infinity;
+  const g = a.savingGrowth ?? 0;
+  const wIdx = a.withdrawalIndex ?? 0;
+  for (let i = 1; i <= months; i++) {
+    if (i < wStart) {
+      // Raised every 12 months from now: months 1–12 at the base amount.
+      saving[i] =
+        a.monthlySavingHuf * Math.pow(1 + g, Math.floor((i - 1) / 12));
+    } else {
+      // Entered in today's forint, indexed yearly from now on.
+      withdrawal[i] =
+        w!.monthlyHuf * Math.pow(1 + wIdx, Math.floor((i - 1) / 12));
+      withdrawalHuf += withdrawal[i];
+    }
+  }
+  if (Number.isFinite(wStart) && wStart <= months)
+    events.push({
+      month: keys[wStart],
+      kind: "withdrawal",
+      label: "Rendszeres kivét indul",
+      huf: withdrawal[wStart],
+    });
+
+  events.sort((x, y) => x.month.localeCompare(y.month));
+
   return {
+    months,
     startOfMonth,
-    bondValue0,
     startValue,
     growth0,
-    couponByMonth,
-    maturityByMonth,
-    expenseByMonth,
+    keys,
+    ts,
+    bondValue,
+    bondIncome,
+    expense,
+    saving,
+    withdrawal,
+    events,
     couponHuf,
     maturityHuf,
     expenseHuf,
+    withdrawalHuf,
+  };
+}
+
+/**
+ * One path through the cashflow model. `step(i)` returns the growth pot's
+ * multiplier for month i (i ≥ 1). Writes the month totals into `out` and
+ * returns the first month index with a negative liquid part (−1 if none).
+ */
+function simulatePath(
+  p: ProjectionPrep,
+  a: ForecastAssumptions,
+  step: (i: number) => number,
+  out: Float64Array | number[],
+): number {
+  const toGrowth = a.reinvestTarget === "growth";
+  const sideMonthly =
+    a.reinvestTarget === "bond" ? monthlyRate(a.reinvestBondRate) : 0; // "cash" sits idle
+  let growth = p.growth0;
+  let side = 0;
+  let shortfall = -1;
+  for (let i = 0; i <= p.months; i++) {
+    if (i > 0) {
+      growth *= step(i);
+      side *= 1 + sideMonthly;
+      growth += p.saving[i];
+    }
+    // Events run at i=0 too: the buckets hold only future-dated items, so a
+    // coupon/maturity/expense still due this month lands in the first point.
+    if (p.bondIncome[i]) {
+      if (toGrowth) growth += p.bondIncome[i];
+      else side += p.bondIncome[i];
+    }
+    // Spending: side pot first, then growth.
+    const spend = p.expense[i] + p.withdrawal[i];
+    if (spend) {
+      const fromSide = Math.min(Math.max(side, 0), spend);
+      side -= fromSide;
+      growth -= spend - fromSide;
+    }
+    if (shortfall < 0 && growth + side < -1) shortfall = i;
+    out[i] = growth + side + p.bondValue[i];
+  }
+  return shortfall;
+}
+
+function contributedSeries(p: ProjectionPrep, start: number): number[] {
+  const out: number[] = [];
+  let c = start;
+  for (let i = 0; i <= p.months; i++) {
+    c += p.saving[i] - p.expense[i] - p.withdrawal[i];
+    out.push(c);
+  }
+  return out;
+}
+
+function resultShell(p: ProjectionPrep) {
+  return {
+    startValueHuf: p.startValue,
+    couponHuf: p.couponHuf,
+    maturityHuf: p.maturityHuf,
+    expenseHuf: p.expenseHuf,
+    withdrawalHuf: p.withdrawalHuf,
+    events: p.events,
   };
 }
 
@@ -334,107 +571,25 @@ export function projectForecast(
   expenses: PlannedExpense[],
   now: Date = new Date(),
 ): ForecastResult {
-  const {
-    startOfMonth,
-    bondValue0,
-    startValue,
-    growth0,
-    couponByMonth,
-    maturityByMonth,
-    expenseByMonth,
-    couponHuf,
-    maturityHuf,
-    expenseHuf,
-  } = prepareProjection(summary, assumptions.months, expenses, now);
-
-  // Per-scenario pots: `growth` compounds at the scenario return; `side` holds
-  // reinvested bond proceeds routed away from growth (bonds → fixed rate, cash →
-  // idle). Bond carry not yet matured is scenario-independent.
-  const growth: Record<ScenarioKey, number> = {
-    pess: growth0,
-    real: growth0,
-    opt: growth0,
-  };
-  const side: Record<ScenarioKey, number> = { pess: 0, real: 0, opt: 0 };
-  let bondRemaining = bondValue0;
-  const rMonthly: Record<ScenarioKey, number> = {
-    pess: monthlyRate(assumptions.annualReturn.pess),
-    real: monthlyRate(assumptions.annualReturn.real),
-    opt: monthlyRate(assumptions.annualReturn.opt),
-  };
-  const toGrowth = assumptions.reinvestTarget === "growth";
-  const sideMonthly =
-    assumptions.reinvestTarget === "bond"
-      ? monthlyRate(assumptions.reinvestBondRate)
-      : 0; // "cash" sits idle
-
-  const points: ForecastPoint[] = [];
-  let contributed = summary.netDepositedHuf;
-
-  for (let i = 0; i <= assumptions.months; i++) {
-    const ms = addMonths(startOfMonth, i);
-    const key = monthKey(ms);
-
-    if (i > 0) {
-      // 1) compound one month
-      for (const s of SCENARIOS) {
-        growth[s] *= 1 + rMonthly[s];
-        side[s] *= 1 + sideMonthly;
-      }
-      // 2) recurring savings → growth
-      for (const s of SCENARIOS) growth[s] += assumptions.monthlySavingHuf;
-      contributed += assumptions.monthlySavingHuf;
-    }
-
-    // Events run at i=0 too: the buckets hold only future-dated items, so a
-    // coupon/maturity/expense still due this month lands in the first point.
-    // 3) bond coupons (income) → growth or side pot
-    const coup = couponByMonth.get(key) ?? 0;
-    if (coup) {
-      for (const s of SCENARIOS) {
-        if (toGrowth) growth[s] += coup;
-        else side[s] += coup;
-      }
-    }
-    // 4) maturities: release carry, credit face → growth or side pot
-    const mats = maturityByMonth.get(key);
-    if (mats) {
-      for (const m of mats) {
-        bondRemaining -= m.carry;
-        for (const s of SCENARIOS) {
-          if (toGrowth) growth[s] += m.face;
-          else side[s] += m.face;
-        }
-      }
-    }
-    // 5) planned expenses (side pot first, then growth)
-    const exp = expenseByMonth.get(key) ?? 0;
-    if (exp) {
-      for (const s of SCENARIOS) {
-        const fromSide = Math.min(side[s], exp);
-        side[s] -= fromSide;
-        growth[s] -= exp - fromSide;
-      }
-      contributed -= exp;
-    }
-
-    points.push({
-      month: key,
-      ts: ms,
-      pess: growth.pess + side.pess + bondRemaining,
-      real: growth.real + side.real + bondRemaining,
-      opt: growth.opt + side.opt + bondRemaining,
-      contributed,
-    });
+  const p = prepareProjection(summary, assumptions, expenses, now);
+  const series = {} as Record<ScenarioKey, number[]>;
+  const shortfall = {} as Record<ScenarioKey, string | null>;
+  for (const s of SCENARIOS) {
+    const r = 1 + monthlyRate(assumptions.annualReturn[s]);
+    series[s] = new Array<number>(p.months + 1);
+    const at = simulatePath(p, assumptions, () => r, series[s]);
+    shortfall[s] = at >= 0 ? p.keys[at] : null;
   }
-
-  return {
-    points,
-    startValueHuf: startValue,
-    couponHuf,
-    maturityHuf,
-    expenseHuf,
-  };
+  const contributed = contributedSeries(p, summary.netDepositedHuf);
+  const points: ForecastPoint[] = p.keys.map((month, i) => ({
+    month,
+    ts: p.ts[i],
+    pess: series.pess[i],
+    real: series.real[i],
+    opt: series.opt[i],
+    contributed: contributed[i],
+  }));
+  return { ...resultShell(p), points, shortfall };
 }
 
 // ---------------------------------------------------------------------------
@@ -474,8 +629,8 @@ export function projectMonteCarlo(
   opts: MonteCarloOptions,
   now: Date = new Date(),
 ): ForecastResult {
-  const prep = prepareProjection(summary, assumptions.months, expenses, now);
-  const months = assumptions.months;
+  const p = prepareProjection(summary, assumptions, expenses, now);
+  const months = p.months;
   const runs = Math.max(50, opts.runs ?? 500);
   const rand = mulberry32(opts.seed ?? 1337);
 
@@ -501,80 +656,50 @@ export function projectMonteCarlo(
       return r * Math.cos(theta);
     };
   })();
+  const step = () =>
+    Math.exp(muM - (sigmaM * sigmaM) / 2 + sigmaM * drawNormal());
 
-  const toGrowth = assumptions.reinvestTarget === "growth";
-  const sideMonthly =
-    assumptions.reinvestTarget === "bond"
-      ? monthlyRate(assumptions.reinvestBondRate)
-      : 0;
-
-  // totals[i] = the simulated total across runs for month i.
-  const totals: Float64Array[] = Array.from(
+  // dist[i] = the simulated total across runs for month i.
+  const dist: Float64Array[] = Array.from(
     { length: months + 1 },
     () => new Float64Array(runs),
   );
-  const contributedArr = new Array<number>(months + 1);
-
+  const path = new Float64Array(months + 1);
+  const firstShort = new Array<number>(runs);
+  let short = 0;
   for (let run = 0; run < runs; run++) {
-    let growth = prep.growth0;
-    let side = 0;
-    let bondRemaining = prep.bondValue0;
-    let contributed = summary.netDepositedHuf;
-    for (let i = 0; i <= months; i++) {
-      const key = monthKey(addMonths(prep.startOfMonth, i));
-      if (i > 0) {
-        growth *= Math.exp(muM - (sigmaM * sigmaM) / 2 + sigmaM * drawNormal());
-        side *= 1 + sideMonthly;
-        growth += assumptions.monthlySavingHuf;
-        contributed += assumptions.monthlySavingHuf;
-      }
-      const coup = prep.couponByMonth.get(key) ?? 0;
-      if (coup) {
-        if (toGrowth) growth += coup;
-        else side += coup;
-      }
-      const mats = prep.maturityByMonth.get(key);
-      if (mats) {
-        for (const m of mats) {
-          bondRemaining -= m.carry;
-          if (toGrowth) growth += m.face;
-          else side += m.face;
-        }
-      }
-      const exp = prep.expenseByMonth.get(key) ?? 0;
-      if (exp) {
-        const fromSide = Math.min(side, exp);
-        side -= fromSide;
-        growth -= exp - fromSide;
-        contributed -= exp;
-      }
-      totals[i][run] = growth + side + bondRemaining;
-      if (run === 0) contributedArr[i] = contributed;
-    }
+    const at = simulatePath(p, assumptions, step, path);
+    firstShort[run] = at;
+    if (at >= 0) short++;
+    for (let i = 0; i <= months; i++) dist[i][run] = path[i];
   }
+  for (const d of dist) d.sort();
 
-  const points: ForecastPoint[] = [];
-  for (let i = 0; i <= months; i++) {
-    const sorted = Float64Array.from(totals[i]).sort();
-    const q = (p: number) =>
-      sorted[Math.min(runs - 1, Math.max(0, Math.round(p * (runs - 1))))];
-    const ms = addMonths(prep.startOfMonth, i);
-    points.push({
-      month: monthKey(ms),
-      ts: ms,
-      pess: q(0.1),
-      real: q(0.5),
-      opt: q(0.9),
-      contributed: contributedArr[i],
-    });
-  }
+  const contributed = contributedSeries(p, summary.netDepositedHuf);
+  const q = (sorted: Float64Array, x: number) =>
+    sorted[Math.min(runs - 1, Math.max(0, Math.round(x * (runs - 1))))];
+  const points: ForecastPoint[] = p.keys.map((month, i) => ({
+    month,
+    ts: p.ts[i],
+    pess: q(dist[i], 0.1),
+    real: q(dist[i], 0.5),
+    opt: q(dist[i], 0.9),
+    contributed: contributed[i],
+  }));
 
+  // Band "shortfall" months: the month by which 90 / 50 / 10 % of paths are
+  // still liquid — i.e. when the p10 / median / p90 path would run dry.
+  const shortIdx = firstShort.filter((x) => x >= 0).sort((x, y) => x - y);
+  const byShare = (share: number) => {
+    const n = Math.ceil(share * runs);
+    return n >= 1 && shortIdx.length >= n ? p.keys[shortIdx[n - 1]] : null;
+  };
   return {
+    ...resultShell(p),
     points,
-    startValueHuf: prep.startValue,
-    couponHuf: prep.couponHuf,
-    maturityHuf: prep.maturityHuf,
-    expenseHuf: prep.expenseHuf,
+    shortfall: { pess: byShare(0.1), real: byShare(0.5), opt: byShare(0.9) },
+    shortfallProb: short / runs,
+    dist,
   };
 }
 
@@ -588,8 +713,9 @@ export function deflateResult(
   annualInflation: number,
 ): ForecastResult {
   if (!annualInflation) return result;
+  const factor = (i: number) => Math.pow(1 + annualInflation, i / 12);
   const points = result.points.map((p, i) => {
-    const f = Math.pow(1 + annualInflation, i / 12);
+    const f = factor(i);
     return {
       ...p,
       pess: p.pess / f,
@@ -598,7 +724,69 @@ export function deflateResult(
       contributed: p.contributed / f,
     };
   });
-  return { ...result, points };
+  const dist = result.dist?.map((d, i) => {
+    const f = factor(i);
+    return d.map((v) => v / f);
+  });
+  return { ...result, points, dist };
+}
+
+// ---------------------------------------------------------------------------
+// Target finder
+// ---------------------------------------------------------------------------
+
+/** First month (YYYY-MM) a scenario's value reaches `target`, or null. */
+export function firstReach(
+  result: ForecastResult,
+  key: ScenarioKey,
+  target: number,
+): string | null {
+  for (const p of result.points) if (p[key] >= target) return p.month;
+  return null;
+}
+
+/** Monte Carlo: share of paths at or above `target` in month `i`. */
+export function probAtLeast(
+  result: ForecastResult,
+  i: number,
+  target: number,
+): number | null {
+  const d = result.dist?.[i];
+  if (!d || d.length === 0) return null;
+  // d is ascending: find the first index ≥ target.
+  let lo = 0;
+  let hi = d.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (d[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return (d.length - lo) / d.length;
+}
+
+/**
+ * The smallest starting monthly saving (HUF) for which `valueAt(saving)`
+ * reaches `target`. `valueAt` must grow with the saving (it does: every
+ * extra forint compounds). Returns 0 if already reached, null if not even
+ * 100M Ft/month would do it.
+ */
+export function requiredMonthlySaving(
+  valueAt: (saving: number) => number,
+  target: number,
+): number | null {
+  if (valueAt(0) >= target) return 0;
+  let hi = 100_000;
+  while (valueAt(hi) < target) {
+    hi *= 2;
+    if (hi > 100_000_000) return null;
+  }
+  let lo = 0;
+  for (let k = 0; k < 40 && hi - lo > 100; k++) {
+    const mid = (lo + hi) / 2;
+    if (valueAt(mid) >= target) hi = mid;
+    else lo = mid;
+  }
+  return Math.ceil(hi / 1000) * 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -633,6 +821,8 @@ export type ForecastEngine = "det" | "mc";
 export interface ForecastSettings {
   /** null → use the auto-detected recurring saving. */
   monthlySavingOverride: number | null;
+  /** Yearly raise of the monthly saving (fraction). */
+  savingGrowth: number;
   annualReturn: Record<ScenarioKey, number>;
   /** Where bond coupons + matured principal are reinvested. */
   reinvestTarget: ReinvestTarget;
@@ -640,27 +830,37 @@ export interface ForecastSettings {
   reinvestBondRate: number;
   months: number;
   expenses: PlannedExpense[];
+  /** Recurring withdrawal phase (indexed with `inflationPct`). */
+  withdrawal: WithdrawalPlan;
   /** det = 3 fixed scenarios; mc = Monte Carlo percentile fan. */
   engine: ForecastEngine;
   /** Annual volatility for the Monte Carlo engine (fraction). */
   mcSigma: number;
-  /** Annual inflation used by the real-value view (fraction). */
+  /** Annual inflation: real-value view + withdrawal indexation (fraction). */
   inflationPct: number;
   /** Show values deflated to today's forint. */
   realMode: boolean;
+  /** Target finder: amount (in the currently shown forint) and optional date. */
+  targetHuf: number | null;
+  /** YYYY-MM, or "" for "no deadline". */
+  targetMonth: string;
 }
 
 export const DEFAULT_SETTINGS: ForecastSettings = {
   monthlySavingOverride: null,
+  savingGrowth: 0,
   annualReturn: { pess: 0.03, real: 0.06, opt: 0.09 },
   reinvestTarget: "growth",
   reinvestBondRate: 0.06,
   months: 120,
   expenses: [],
+  withdrawal: { enabled: false, start: "", monthlyHuf: 0 },
   engine: "det",
   mcSigma: 0.15,
   inflationPct: 0.035,
   realMode: false,
+  targetHuf: null,
+  targetMonth: "",
 };
 
 export function loadForecastSettings(): ForecastSettings {
@@ -681,6 +881,10 @@ export function loadForecastSettings(): ForecastSettings {
         ...DEFAULT_SETTINGS.annualReturn,
         ...(parsed.annualReturn ?? {}),
       },
+      withdrawal: {
+        ...DEFAULT_SETTINGS.withdrawal,
+        ...(parsed.withdrawal ?? {}),
+      },
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
     };
   } catch {
@@ -697,5 +901,90 @@ export function saveForecastSettings(s: ForecastSettings) {
     touchPref("forecast");
   } catch {
     /* ignore */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Forecast snapshots — "előrejelzés vs. valóság". Once a month the page stores
+// the deterministic nominal projection for the next months; later months
+// compare what was expected with the actual value. Synced like the other
+// planning prefs, but merged as a union (see prefs.ts) so two devices never
+// wipe each other's history.
+// ---------------------------------------------------------------------------
+
+const SNAP_KEY = "pf-forecast-snapshots";
+/** How many months ahead each snapshot keeps. */
+const SNAP_AHEAD = 24;
+/** How many snapshots are kept (oldest dropped). */
+const SNAP_KEEP = 36;
+
+export interface ForecastSnapshot {
+  /** YYYY-MM the snapshot was taken in. */
+  month: string;
+  createdAt: string;
+  startValueHuf: number;
+  /** [YYYY-MM, pess, real, opt] for the following months, nominal HUF. */
+  points: [string, number, number, number][];
+}
+
+export function loadForecastSnapshots(): ForecastSnapshot[] {
+  try {
+    const raw = localStorage.getItem(SNAP_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as ForecastSnapshot[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Union by month (the earlier snapshot of a month wins), ascending, capped. */
+export function mergeForecastSnapshots(
+  a: ForecastSnapshot[] | null | undefined,
+  b: ForecastSnapshot[] | null | undefined,
+): ForecastSnapshot[] {
+  const byMonth = new Map<string, ForecastSnapshot>();
+  for (const s of [...(a ?? []), ...(b ?? [])]) {
+    if (!s || typeof s.month !== "string") continue;
+    const cur = byMonth.get(s.month);
+    if (!cur || s.createdAt < cur.createdAt) byMonth.set(s.month, s);
+  }
+  return [...byMonth.values()]
+    .sort((x, y) => x.month.localeCompare(y.month))
+    .slice(-SNAP_KEEP);
+}
+
+/**
+ * Store this month's snapshot from a NOMINAL deterministic result, unless one
+ * already exists for the month. Returns true when a snapshot was added.
+ */
+export function recordForecastSnapshot(
+  nominal: ForecastResult,
+  now: Date = new Date(),
+): boolean {
+  const month = monthKey(now.getTime());
+  const existing = loadForecastSnapshots();
+  if (existing.some((s) => s.month === month)) return false;
+  const snap: ForecastSnapshot = {
+    month,
+    createdAt: now.toISOString(),
+    startValueHuf: Math.round(nominal.startValueHuf),
+    points: nominal.points
+      .slice(1, SNAP_AHEAD + 1)
+      .map((p) => [
+        p.month,
+        Math.round(p.pess),
+        Math.round(p.real),
+        Math.round(p.opt),
+      ]),
+  };
+  try {
+    localStorage.setItem(
+      SNAP_KEY,
+      JSON.stringify(mergeForecastSnapshots(existing, [snap])),
+    );
+    touchPref("forecastSnapshots");
+    return true;
+  } catch {
+    return false;
   }
 }

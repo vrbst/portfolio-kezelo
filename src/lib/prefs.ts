@@ -5,7 +5,13 @@
 // and are NEVER part of this.
 
 import { loadAllocationSettings, type AllocationSettings } from "./allocation";
-import { loadForecastSettings, type ForecastSettings } from "./forecast";
+import {
+  loadForecastSettings,
+  loadForecastSnapshots,
+  mergeForecastSnapshots,
+  type ForecastSettings,
+  type ForecastSnapshot,
+} from "./forecast";
 import { loadSavingsGoals, type SavingsGoal } from "./savings";
 
 export interface StampedPref<T> {
@@ -18,24 +24,39 @@ export interface SyncedPrefs {
   /** null value = the user deleted the targets (the delete must sync too). */
   allocation?: StampedPref<AllocationSettings | null>;
   forecast?: StampedPref<ForecastSettings>;
+  /** Monthly forecast snapshots (előrejelzés vs. valóság) — merged as a union. */
+  forecastSnapshots?: StampedPref<ForecastSnapshot[]>;
   savings?: StampedPref<SavingsGoal[]>;
   /** Manual ISIN -> Yahoo symbol overrides for live prices. */
   symbols?: StampedPref<Record<string, string>>;
 }
 
-export type PrefKind = "allocation" | "forecast" | "savings" | "symbols";
+export type PrefKind =
+  | "allocation"
+  | "forecast"
+  | "forecastSnapshots"
+  | "savings"
+  | "symbols";
 
-const KINDS: PrefKind[] = ["allocation", "forecast", "savings", "symbols"];
+const KINDS: PrefKind[] = [
+  "allocation",
+  "forecast",
+  "forecastSnapshots",
+  "savings",
+  "symbols",
+];
 
 const VALUE_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation",
   forecast: "pf-forecast",
+  forecastSnapshots: "pf-forecast-snapshots",
   savings: "pf-savings",
   symbols: "portfolio.symbolOverrides",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
   forecast: "pf-forecast-updated",
+  forecastSnapshots: "pf-forecast-snapshots-updated",
   savings: "pf-savings-updated",
   symbols: "portfolio.symbolOverrides-updated",
 };
@@ -45,6 +66,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
 const LOADERS: Record<PrefKind, () => unknown> = {
   allocation: loadAllocationSettings,
   forecast: loadForecastSettings,
+  forecastSnapshots: loadForecastSnapshots,
   savings: loadSavingsGoals,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
@@ -121,6 +143,18 @@ function newer<T>(
   return a.updatedAt > b.updatedAt ? a : b;
 }
 
+/**
+ * Kinds merged as a UNION instead of last-write-wins: append-only histories
+ * where two devices each add entries and neither may wipe the other's.
+ */
+const UNION: Partial<Record<PrefKind, (a: unknown, b: unknown) => unknown>> = {
+  forecastSnapshots: (a, b) =>
+    mergeForecastSnapshots(
+      a as ForecastSnapshot[] | null,
+      b as ForecastSnapshot[] | null,
+    ),
+};
+
 /** Per-field last-write-wins merge; `over` wins timestamp ties. */
 export function mergePrefs(
   base: SyncedPrefs | undefined,
@@ -132,6 +166,17 @@ export function mergePrefs(
   const b = base as Record<string, StampedPref<unknown>>;
   const o = over as Record<string, StampedPref<unknown>>;
   for (const kind of KINDS) {
+    const union = UNION[kind];
+    if (union && b[kind] && o[kind]) {
+      out[kind] = {
+        updatedAt:
+          b[kind].updatedAt > o[kind].updatedAt
+            ? b[kind].updatedAt
+            : o[kind].updatedAt,
+        value: union(b[kind].value, o[kind].value),
+      };
+      continue;
+    }
     const merged = newer(b[kind], o[kind]);
     if (merged) out[kind] = merged;
   }
@@ -151,6 +196,26 @@ export function applyRemotePrefs(remote: SyncedPrefs | undefined): boolean {
     const pref = r[kind];
     if (!pref || typeof pref.updatedAt !== "string") continue;
     const local = stampOf(kind);
+    const union = UNION[kind];
+    if (union && local) {
+      // Union kinds: add whatever the remote has that we don't, regardless
+      // of which side is newer; keep the later stamp.
+      try {
+        const raw = localStorage.getItem(VALUE_KEY[kind]);
+        const merged = JSON.stringify(
+          union(raw ? JSON.parse(raw) : null, pref.value),
+        );
+        if (merged !== raw) {
+          localStorage.setItem(VALUE_KEY[kind], merged);
+          changed = true;
+        }
+        if (pref.updatedAt > local)
+          localStorage.setItem(STAMP_KEY[kind], pref.updatedAt);
+      } catch {
+        /* ignore */
+      }
+      continue;
+    }
     if (local && local >= pref.updatedAt) continue;
     try {
       if (pref.value == null) localStorage.removeItem(VALUE_KEY[kind]);

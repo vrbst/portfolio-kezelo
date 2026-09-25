@@ -414,7 +414,7 @@ export const ANALYSIS_PROMPT =
 
 /** Prompt for the forecast page's narrative — reasons over projected numbers. */
 export const FORECAST_PROMPT =
-  "A fenti számok egy determinisztikus előrejelzésből származnak (nem te számoltad). Írj rövid, személyes hangvételű értékelést 4–6 felsorolási pontban: mit mutat a reális pálya, mennyit tesz hozzá a havi megtakarítás vs. a meglévő tőke hozama, mekkora a bizonytalanság a pesszimista/optimista sáv alapján, hogyan hatnak a betervezett kiadások, és 1–2 gyakorlati megfontolás (pl. érdemes-e emelni a havi félretett összeget). Csak a megadott számokra támaszkodj, ne találj ki újakat. Ne adj konkrét vételi/eladási utasítást.";
+  "A fenti számok egy előrejelzésből származnak (nem te számoltad). Írj rövid, személyes hangvételű értékelést 4–6 felsorolási pontban: mit mutat a reális pálya, mennyit tesz hozzá a havi megtakarítás vs. a meglévő tőke hozama, mekkora a bizonytalanság a sáv alapján, hogyan hatnak a betervezett kiadások és a rendszeres kivét (ha van), elérhető-e a célösszeg (ha van), és 1–2 gyakorlati megfontolás (pl. érdemes-e emelni a havi félretett összeget). Ha a likvid rész elfogy, ezt emeld ki elsőként. Csak a megadott számokra támaszkodj, ne találj ki újakat. Ne adj konkrét vételi/eladási utasítást.";
 
 // ---- Claude API (streaming) ----------------------------------------------
 

@@ -7,8 +7,16 @@ import {
   Plus,
   Trash2,
   RotateCcw,
+  AlertTriangle,
+  Target,
+  SlidersHorizontal,
+  History,
 } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import {
+  usePortfolio,
+  usePortfolioSummary,
+  useValueSeries,
+} from "../lib/store";
 import {
   detectRecurringSavings,
   projectForecast,
@@ -17,6 +25,16 @@ import {
   forecastMilestones,
   loadForecastSettings,
   saveForecastSettings,
+  loadForecastSnapshots,
+  recordForecastSnapshot,
+  firstReach,
+  probAtLeast,
+  requiredMonthlySaving,
+  monthsUntil,
+  EVENT_COLORS,
+  EVENT_LABELS,
+  type ForecastAssumptions,
+  type ForecastResult,
   type ForecastSettings,
   type PlannedExpense,
   type ScenarioKey,
@@ -24,7 +42,7 @@ import {
 } from "../lib/forecast";
 import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
-import ForecastChart from "../components/ForecastChart";
+import ForecastChart, { type HistoryPoint } from "../components/ForecastChart";
 import { loadSavingsGoals } from "../lib/savings";
 import {
   PageHeader,
@@ -36,6 +54,7 @@ import {
 import { formatMoney } from "../lib/format";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
+const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
 
 const HORIZONS = [
   { months: 60, label: "5 év" },
@@ -76,6 +95,48 @@ function newId(): string {
 function formatMonthLabel(month: string): string {
   const [y, m] = month.split("-");
   return `${y}. ${m}.`;
+}
+
+function currentMonthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * A "% / év" field over a fraction. While typing it shows the raw text (no
+ * re-formatting → no caret jumps); only a parseable, non-empty value within
+ * [min, ∞) is committed, so clearing the field never zeroes the setting.
+ */
+function PctInput({
+  value,
+  onCommit,
+  min = -Infinity,
+  step = 0.5,
+}: {
+  value: number;
+  onCommit: (fraction: number) => void;
+  min?: number;
+  step?: number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <>
+      <input
+        type="number"
+        step={step}
+        className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+        value={draft ?? String(+(value * 100).toFixed(1))}
+        onChange={(e) => {
+          const v = e.target.value;
+          setDraft(v);
+          const p = Number(v.replace(",", "."));
+          if (v.trim() !== "" && Number.isFinite(p) && p >= min)
+            onCommit(p / 100);
+        }}
+        onBlur={() => setDraft(null)}
+      />
+      <span className="text-sm text-[var(--color-muted)]">% / év</span>
+    </>
+  );
 }
 
 export default function Forecast() {
@@ -148,20 +209,41 @@ export default function Forecast() {
     [settings.expenses, goalExpenses],
   );
 
-  const nominal = useMemo(() => {
-    const assumptions = {
+  const assumptions = useMemo<ForecastAssumptions>(
+    () => ({
       annualReturn: settings.annualReturn,
       monthlySavingHuf: monthlySaving,
+      savingGrowth: settings.savingGrowth,
       reinvestTarget: settings.reinvestTarget,
       reinvestBondRate: settings.reinvestBondRate,
       months: settings.months,
-    };
+      withdrawal: settings.withdrawal,
+      withdrawalIndex: settings.inflationPct,
+    }),
+    [settings, monthlySaving],
+  );
+
+  // Deterministic run in the SHOWN forint (nominal or today's) — the target
+  // finder and the sensitivity table vary one input of it at a time.
+  const runDet = useMemo(
+    () =>
+      (
+        over: Partial<ForecastAssumptions>,
+        expenses: PlannedExpense[] = allExpenses,
+      ): ForecastResult => {
+        const r = projectForecast(summary, { ...assumptions, ...over }, expenses);
+        return settings.realMode ? deflateResult(r, settings.inflationPct) : r;
+      },
+    [summary, assumptions, allExpenses, settings.realMode, settings.inflationPct],
+  );
+
+  const nominal = useMemo(() => {
     return settings.engine === "mc"
       ? projectMonteCarlo(summary, assumptions, allExpenses, {
           sigma: settings.mcSigma,
         })
       : projectForecast(summary, assumptions, allExpenses);
-  }, [summary, settings, monthlySaving, allExpenses]);
+  }, [summary, settings.engine, settings.mcSigma, assumptions, allExpenses]);
 
   // Real-value view: everything the user sees is deflated to today's forint.
   const result = useMemo(
@@ -174,6 +256,169 @@ export default function Forecast() {
 
   const milestones = useMemo(() => forecastMilestones(result), [result]);
   const last = result.points[result.points.length - 1];
+  const hasData = transactions.length > 0 && summary.totalValueHuf > 0;
+
+  // --- actual past values leading into the forecast -------------------------
+  const valueSeries = useValueSeries();
+  const startTs = result.points[0]?.ts;
+  const history = useMemo<HistoryPoint[]>(() => {
+    if (startTs == null) return [];
+    const back = Math.max(12, Math.round(settings.months / 4));
+    const from = new Date(startTs);
+    from.setMonth(from.getMonth() - back);
+    const fromKey = currentMonthKey(from);
+    const curKey = currentMonthKey(new Date(startTs));
+    // Last sample of every completed month in the window.
+    const byMonth = new Map<string, { date: string; value: number }>();
+    for (const p of valueSeries) {
+      const k = p.date.slice(0, 7);
+      if (k < fromKey || k >= curKey) continue;
+      byMonth.set(k, p);
+    }
+    const nowMs = startTs;
+    const yearMs = 365.25 * 24 * 3600 * 1000;
+    return [...byMonth.values()].map((p) => {
+      const [y, m, d] = p.date.split("-").map(Number);
+      const ts = new Date(y, m - 1, d).getTime();
+      // Today's-forint view: a past forint is worth more today.
+      const f = settings.realMode
+        ? Math.pow(1 + settings.inflationPct, (nowMs - ts) / yearMs)
+        : 1;
+      return { ts, actual: p.value * f };
+    });
+  }, [
+    valueSeries,
+    startTs,
+    settings.months,
+    settings.realMode,
+    settings.inflationPct,
+  ]);
+
+  // --- target finder --------------------------------------------------------
+  const targetHuf = settings.targetHuf ?? 0;
+  const target = useMemo(() => {
+    if (!hasData || targetHuf <= 0) return null;
+    const rawIdx = settings.targetMonth
+      ? monthsUntil(settings.targetMonth)
+      : NaN;
+    const idx = Number.isFinite(rawIdx) && rawIdx > 0 ? rawIdx : null;
+    const reach = {
+      pess: firstReach(result, "pess", targetHuf),
+      real: firstReach(result, "real", targetHuf),
+      opt: firstReach(result, "opt", targetHuf),
+    };
+    let valueAtDate: number | null = null;
+    let required: number | null = null;
+    if (idx != null) {
+      const months = Math.max(settings.months, idx);
+      const valueAt = (saving: number) =>
+        runDet({ monthlySavingHuf: saving, months }).points[idx].real;
+      valueAtDate = valueAt(monthlySaving);
+      required = requiredMonthlySaving(valueAt, targetHuf);
+    }
+    const probIdx = idx ?? settings.months;
+    const prob =
+      settings.engine === "mc" && probIdx <= settings.months
+        ? probAtLeast(result, probIdx, targetHuf)
+        : null;
+    return { idx, reach, valueAtDate, required, prob };
+  }, [
+    hasData,
+    targetHuf,
+    settings.targetMonth,
+    settings.months,
+    settings.engine,
+    result,
+    runDet,
+    monthlySaving,
+  ]);
+
+  // --- sensitivity: what moves the end value the most ----------------------
+  const sensitivity = useMemo(() => {
+    if (!hasData) return [];
+    const n = settings.months;
+    const base = runDet({}).points[n].real;
+    const endOf = (over: Partial<ForecastAssumptions>, i = n) =>
+      runDet(over).points[i].real - base;
+    const bump = monthlySaving > 0 ? Math.round(monthlySaving * 0.1) : 20_000;
+    const ret = settings.annualReturn;
+    const rows = [
+      {
+        label: `Havi megtakarítás +${huf(bump)} Ft`,
+        delta: endOf({ monthlySavingHuf: monthlySaving + bump }),
+      },
+      {
+        label: "Évi +2% emelés a havi összegen",
+        delta: endOf({ savingGrowth: settings.savingGrowth + 0.02 }),
+      },
+      {
+        label: "Hozam +1 százalékpont",
+        delta: endOf({ annualReturn: { ...ret, real: ret.real + 0.01 } }),
+      },
+      {
+        label: "Hozam −1 százalékpont",
+        delta: endOf({ annualReturn: { ...ret, real: ret.real - 0.01 } }),
+      },
+      {
+        label: "2 évvel tovább hagyod",
+        delta: endOf({ months: n + 24 }, n + 24),
+      },
+    ];
+    if (allExpenses.length > 0)
+      rows.push({
+        label: "Betervezett kiadások nélkül",
+        delta: runDet({}, []).points[n].real - base,
+      });
+    return rows
+      .filter((r) => Math.abs(r.delta) >= 1)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }, [
+    hasData,
+    runDet,
+    monthlySaving,
+    settings.months,
+    settings.annualReturn,
+    settings.savingGrowth,
+    allExpenses,
+  ]);
+  const sensMax = Math.max(1, ...sensitivity.map((r) => Math.abs(r.delta)));
+
+  // --- forecast vs. reality -------------------------------------------------
+  const [snapshots, setSnapshots] = useState(loadForecastSnapshots);
+  useEffect(() => {
+    const onPrefs = () => setSnapshots(loadForecastSnapshots());
+    window.addEventListener(PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
+  }, []);
+  // Once a month: store the nominal deterministic projection to compare with
+  // reality later. Waits for loaded data so an empty portfolio isn't recorded.
+  useEffect(() => {
+    if (!hasData) return;
+    const month = currentMonthKey();
+    if (loadForecastSnapshots().some((s) => s.month === month)) return;
+    const nominalDet = projectForecast(
+      summary,
+      { ...assumptions, months: Math.max(24, assumptions.months) },
+      allExpenses,
+    );
+    // The pref event it fires reloads `snapshots` via the listener above.
+    recordForecastSnapshot(nominalDet);
+  }, [hasData, summary, assumptions, allExpenses]);
+  const comparisons = useMemo(() => {
+    const curKey = currentMonthKey();
+    return snapshots
+      .filter((s) => s.month < curKey)
+      .map((s) => {
+        const p = s.points.find((x) => x[0] === curKey);
+        return p ? { month: s.month, pess: p[1], real: p[2], opt: p[3] } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null)
+      .reverse()
+      .slice(0, 6);
+  }, [snapshots]);
+
+  // --- shortfall warning ----------------------------------------------------
+  const shortfallMonth = result.shortfall.real ?? result.shortfall.pess;
 
   const isMc = settings.engine === "mc";
   const bandLabels = isMc
@@ -205,7 +450,16 @@ export default function Forecast() {
       : "nincs";
     return [
       `Jelenlegi összérték: ${huf(result.startValueHuf)} Ft`,
-      `Felismert havi rendszeres megtakarítás: ${huf(monthlySaving)} Ft`,
+      `Havi rendszeres megtakarítás: ${huf(monthlySaving)} Ft${settings.savingGrowth ? `, évente ${pct(settings.savingGrowth)}-kal emelve` : ""}`,
+      settings.withdrawal.enabled && settings.withdrawal.monthlyHuf > 0
+        ? `Rendszeres kivét ${settings.withdrawal.start}-tól: havi ${huf(settings.withdrawal.monthlyHuf)} Ft (mai forintban, évente ${pct(settings.inflationPct)} inflációval emelve); ettől a havi megtakarítás megszűnik. Összes kivét a horizonton: ${huf(result.withdrawalHuf)} Ft`
+        : null,
+      shortfallMonth
+        ? `FIGYELEM: a likvid rész (kötvények nélkül) ${shortfallMonth}-ban elfogy — a kiadások/kivét nem fedezhetők kötvény-eladás nélkül${result.shortfallProb != null ? ` (a szimulációk ${pct(result.shortfallProb, 0)}-ában fogy el valamikor)` : ""}`
+        : null,
+      target
+        ? `Célösszeg: ${huf(targetHuf)} Ft${settings.targetMonth ? ` ${settings.targetMonth}-ig` : ""}; reális pályán elérve: ${target.reach.real ?? "a horizonton belül nem"}${target.required != null ? `; a határidőre szükséges havi megtakarítás: ${huf(target.required)} Ft` : ""}${target.prob != null ? `; valószínűség: ${pct(target.prob, 0)}` : ""}`
+        : null,
       `Feltételezett éves hozam — pesszimista ${(ret.pess * 100).toFixed(1)}%, reális ${(ret.real * 100).toFixed(1)}%, optimista ${(ret.opt * 100).toFixed(1)}%`,
       `Kötvény-kamatok és lejáró tőke iránya: ${reinvestContextLabel(settings.reinvestTarget, settings.reinvestBondRate)}`,
       settings.engine === "mc"
@@ -223,7 +477,16 @@ export default function Forecast() {
     ]
       .filter((l): l is string => l != null)
       .join("\n");
-  }, [result, milestones, monthlySaving, settings, allExpenses]);
+  }, [
+    result,
+    milestones,
+    monthlySaving,
+    settings,
+    allExpenses,
+    shortfallMonth,
+    target,
+    targetHuf,
+  ]);
 
   async function runNarrative() {
     setAiLoading(true);
@@ -323,11 +586,11 @@ export default function Forecast() {
                 "Kézzel megadott havi összeg."
               ) : (
                 <>
-                  Felismerve az eddigi befizetésekből
-                  {detected.monthsUsed > 0
-                    ? ` (${detected.monthsUsed} hónap alapján)`
-                    : ""}
-                  . Az egyszeri nagy tételeket kihagytuk.
+                  Az utolsó{" "}
+                  {detected.monthsUsed > 0 ? `${detected.monthsUsed} ` : ""}
+                  lezárt hónap átlagos nettó befizetése. A befizetés nélküli
+                  hónapok 0-val számítanak, az egyszeri nagy tételeket
+                  kihagytuk.
                 </>
               )}
             </p>
@@ -366,12 +629,28 @@ export default function Forecast() {
                   </button>
                 )}
               </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-sm text-[var(--color-muted)]">
+                  Évente emelem
+                </span>
+                <PctInput
+                  value={settings.savingGrowth}
+                  min={-50}
+                  onCommit={(v) =>
+                    setSettings((s) => ({ ...s, savingGrowth: v }))
+                  }
+                />
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Ha a fizetéseddel együtt a félretett összeg is nő (pl. az
+                inflációval), az előrejelzés 12 havonta ennyivel emeli.
+              </p>
             </div>
 
             {detected.oneOffs.length > 0 && (
               <div className="mt-4 border-t border-[var(--color-border)] pt-3">
                 <p className="text-xs font-medium text-[var(--color-muted)]">
-                  Kihagyott egyszeri befizetések
+                  Kihagyott egyszeri tételek
                 </p>
                 <ul className="mt-1.5 space-y-1 text-xs tabular-nums text-[var(--color-muted)]">
                   {detected.oneOffs.map((o) => (
@@ -467,6 +746,64 @@ export default function Forecast() {
                   </li>
                 ))}
               </ul>
+            )}
+          </Card>
+
+          {/* Rendszeres kivét (pl. nyugdíjas évek) */}
+          <Card className="p-5">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.withdrawal.enabled}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    withdrawal: { ...s.withdrawal, enabled: e.target.checked },
+                  }))
+                }
+              />
+              <h2 className="text-lg font-semibold">Rendszeres kivét</h2>
+            </label>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Egy adott hónaptól havonta kiveszel (pl. nyugdíj mellé). Ettől
+              kezdve a havi megtakarítás megszűnik, a kivét pedig évente az
+              inflációval ({pct(settings.inflationPct)}) nő.
+            </p>
+            {settings.withdrawal.enabled && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input
+                  type="month"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+                  value={settings.withdrawal.start}
+                  onChange={(e) =>
+                    setSettings((s) => ({
+                      ...s,
+                      withdrawal: { ...s.withdrawal, start: e.target.value },
+                    }))
+                  }
+                />
+                <AmountInput
+                  placeholder="Havi összeg"
+                  className="w-32 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  value={
+                    settings.withdrawal.monthlyHuf
+                      ? String(settings.withdrawal.monthlyHuf)
+                      : ""
+                  }
+                  onValueChange={(digits) =>
+                    setSettings((s) => ({
+                      ...s,
+                      withdrawal: {
+                        ...s.withdrawal,
+                        monthlyHuf: digits ? Number(digits) : 0,
+                      },
+                    }))
+                  }
+                />
+                <span className="text-sm text-[var(--color-muted)]">
+                  Ft / hó (mai Ft)
+                </span>
+              </div>
             )}
           </Card>
         </div>
@@ -588,36 +925,22 @@ export default function Forecast() {
               />
               Mai forintban (infláció-korrigált)
             </label>
-            {settings.realMode && (
-              <div className="mt-2 flex items-center gap-2">
-                <span className="w-28 text-sm text-[var(--color-muted)]">
-                  Infláció
-                </span>
-                <input
-                  type="number"
-                  step="0.5"
-                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-                  value={
-                    rateDraft["infl"] ??
-                    String(+(settings.inflationPct * 100).toFixed(1))
-                  }
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setRateDraft((d) => ({ ...d, infl: v }));
-                    const p = Number(v.replace(",", "."));
-                    if (v.trim() !== "" && Number.isFinite(p) && p >= 0) {
-                      setSettings((s) => ({ ...s, inflationPct: p / 100 }));
-                    }
-                  }}
-                  onBlur={() =>
-                    setRateDraft((d) => ({ ...d, infl: undefined }))
-                  }
-                />
-                <span className="text-sm text-[var(--color-muted)]">
-                  % / év
-                </span>
-              </div>
-            )}
+            <div className="mt-2 flex items-center gap-2">
+              <span className="w-28 text-sm text-[var(--color-muted)]">
+                Infláció
+              </span>
+              <PctInput
+                value={settings.inflationPct}
+                min={0}
+                onCommit={(v) =>
+                  setSettings((s) => ({ ...s, inflationPct: v }))
+                }
+              />
+            </div>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              A mai forintos nézet és a rendszeres kivét emelése is ezzel
+              számol.
+            </p>
           </div>
 
           <div className="mt-4">
@@ -645,22 +968,13 @@ export default function Forecast() {
                 <span className="text-sm text-[var(--color-muted)]">
                   Állampapír hozam
                 </span>
-                <input
-                  type="number"
-                  step="0.5"
-                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
-                  value={+(settings.reinvestBondRate * 100).toFixed(1)}
-                  onChange={(e) => {
-                    const p = Number(e.target.value);
-                    setSettings((s) => ({
-                      ...s,
-                      reinvestBondRate: Number.isFinite(p) ? p / 100 : 0,
-                    }));
-                  }}
+                <PctInput
+                  value={settings.reinvestBondRate}
+                  min={0}
+                  onCommit={(v) =>
+                    setSettings((s) => ({ ...s, reinvestBondRate: v }))
+                  }
                 />
-                <span className="text-sm text-[var(--color-muted)]">
-                  % / év
-                </span>
               </div>
             )}
           </div>
@@ -718,8 +1032,232 @@ export default function Forecast() {
             </div>
           )}
         </div>
-        <ForecastChart points={result.points} centerLabel={bandLabels.mid} />
+        {shortfallMonth && (
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+            <p>
+              {isMc && result.shortfallProb != null ? (
+                <>
+                  A szimulációk{" "}
+                  <strong>{pct(result.shortfallProb, 0)}</strong>-ában
+                  valamikor elfogy a likvid pénz (a kötvényeken kívüli rész) —
+                  a mediánpályán {formatMonthLabel(shortfallMonth)}-kor.
+                </>
+              ) : (
+                <>
+                  A {result.shortfall.real ? "reális" : "pesszimista"} pályán{" "}
+                  <strong>{formatMonthLabel(shortfallMonth)}</strong>-kor
+                  elfogy a likvid pénz (a kötvényeken kívüli rész).
+                </>
+              )}{" "}
+              Onnantól a kiadások és a kivét csak a kötvények idő előtti
+              eladásával fedezhetők — érdemes csökkenteni vagy későbbre tenni
+              őket.
+            </p>
+          </div>
+        )}
+        <ForecastChart
+          points={result.points}
+          centerLabel={bandLabels.mid}
+          history={history}
+          events={result.events}
+        />
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
+          {history.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-0.5 w-4 bg-[#e8ecf8]/70" />
+              Tényleges múlt
+            </span>
+          )}
+          {(Object.keys(EVENT_COLORS) as (keyof typeof EVENT_COLORS)[])
+            .filter((k) => result.events.some((e) => e.kind === k))
+            .map((k) => (
+              <span key={k} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: EVENT_COLORS[k] }}
+                />
+                {EVENT_LABELS[k]}
+              </span>
+            ))}
+        </div>
       </Card>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Célösszeg-kereső */}
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Célösszeg</h2>
+          </div>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            Mikor éred el, mennyi kell hozzá havonta
+            {isMc ? ", és mekkora eséllyel jön össze" : ""}?
+            {settings.realMode ? " (mai forintban)" : ""}
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <AmountInput
+              placeholder="Célösszeg (Ft)"
+              className="w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-right text-sm tabular-nums"
+              value={settings.targetHuf ? String(settings.targetHuf) : ""}
+              onValueChange={(digits) =>
+                setSettings((s) => ({
+                  ...s,
+                  targetHuf: digits ? Number(digits) : null,
+                }))
+              }
+            />
+            <input
+              type="month"
+              title="Határidő (opcionális)"
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+              value={settings.targetMonth}
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, targetMonth: e.target.value }))
+              }
+            />
+            {settings.targetMonth && (
+              <button
+                className="btn-ghost"
+                title="Határidő törlése"
+                onClick={() => setSettings((s) => ({ ...s, targetMonth: "" }))}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {target && (
+            <dl className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <dt className="text-[var(--color-muted)]">
+                  Elérve ({bandLabels.mid.toLowerCase()})
+                </dt>
+                <dd className="font-semibold tabular-nums">
+                  {target.reach.real
+                    ? formatMonthLabel(target.reach.real)
+                    : "a horizonton belül nem"}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3 text-xs">
+                <dt className="text-[var(--color-muted)]">
+                  {bandLabels.high} / {bandLabels.low.toLowerCase()}
+                </dt>
+                <dd className="tabular-nums text-[var(--color-muted)]">
+                  {target.reach.opt ? formatMonthLabel(target.reach.opt) : "—"}{" "}
+                  /{" "}
+                  {target.reach.pess
+                    ? formatMonthLabel(target.reach.pess)
+                    : "—"}
+                </dd>
+              </div>
+              {target.idx != null && target.valueAtDate != null && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--color-muted)]">
+                      Várható érték {formatMonthLabel(settings.targetMonth)}
+                      -kor (reális)
+                    </dt>
+                    <dd className="amt tabular-nums">
+                      {privacy ? "•••" : `${huf(target.valueAtDate)} Ft`}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-[var(--color-muted)]">
+                      Ehhez szükséges havi megtakarítás
+                    </dt>
+                    <dd
+                      className={`amt font-semibold tabular-nums ${
+                        target.required != null &&
+                        target.required <= monthlySaving
+                          ? "text-[var(--color-positive)]"
+                          : "text-[var(--color-warning)]"
+                      }`}
+                    >
+                      {privacy
+                        ? "•••"
+                        : target.required == null
+                          ? "nem elérhető"
+                          : target.required === 0
+                            ? "már most is elég"
+                            : `${huf(target.required)} Ft / hó`}
+                    </dd>
+                  </div>
+                  {settings.savingGrowth !== 0 && target.required ? (
+                    <p className="text-xs text-[var(--color-muted)]">
+                      Kezdő összeg, évente {pct(settings.savingGrowth)}-kal
+                      emelve.
+                    </p>
+                  ) : null}
+                </>
+              )}
+              {target.prob != null && (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--color-muted)]">
+                    Esély{" "}
+                    {target.idx != null
+                      ? `${formatMonthLabel(settings.targetMonth)}-ig`
+                      : "a horizont végéig"}
+                  </dt>
+                  <dd className="font-semibold tabular-nums">
+                    {pct(target.prob, 0)}
+                  </dd>
+                </div>
+              )}
+              {isMc && target.idx != null && target.idx > settings.months && (
+                <p className="text-xs text-[var(--color-muted)]">
+                  Az esélyhez növeld az időtávot a határidőig.
+                </p>
+              )}
+            </dl>
+          )}
+        </Card>
+
+        {/* Érzékenység */}
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Mi számít a legtöbbet?</h2>
+          </div>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            Mennyivel változna a vagyonod {Math.round(settings.months / 12)} év
+            múlva (reális pálya{settings.realMode ? ", mai Ft" : ""}), ha egy
+            dolgot módosítasz.
+          </p>
+          <ul className="mt-3 space-y-2.5 text-sm">
+            {sensitivity.map((r) => (
+              <li key={r.label}>
+                <div className="flex justify-between gap-3">
+                  <span>{r.label}</span>
+                  <span
+                    className={`amt tabular-nums ${
+                      r.delta >= 0
+                        ? "text-[var(--color-positive)]"
+                        : "text-[var(--color-negative)]"
+                    }`}
+                  >
+                    {privacy
+                      ? "•••"
+                      : `${r.delta >= 0 ? "+" : ""}${huf(r.delta)} Ft`}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-[var(--color-surface-2)]">
+                  <div
+                    className={`h-1.5 rounded-full ${
+                      r.delta >= 0
+                        ? "bg-[var(--color-positive)]"
+                        : "bg-[var(--color-negative)]"
+                    }`}
+                    style={{
+                      width: `${(Math.abs(r.delta) / sensMax) * 100}%`,
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </div>
 
       {/* Mérföldkövek */}
       <Card className="mt-4 p-5">
@@ -793,6 +1331,97 @@ export default function Forecast() {
           )}
           .
         </p>
+      </Card>
+
+      {/* Előrejelzés vs. valóság */}
+      <Card className="mt-4 p-5">
+        <div className="flex items-center gap-2">
+          <History className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">Előrejelzés vs. valóság</h2>
+        </div>
+        {comparisons.length === 0 ? (
+          <p className="mt-2 text-sm text-[var(--color-muted)]">
+            Havonta automatikusan elmentjük az előrejelzést. Jövő hónaptól itt
+            látod, mennyire jött be: mit vártunk mára, és mennyi lett valójában.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Mire számított a korábbi hónapokban mentett előrejelzés mára
+              (névleges Ft), és mennyi a vagyonod most:{" "}
+              <span className="amt font-medium text-[var(--color-text)]">
+                {privacy ? "•••" : `${huf(summary.totalValueHuf)} Ft`}
+              </span>
+              .
+            </p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[480px] text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted)]">
+                    <th className="py-2 pr-3 font-medium">Mentve</th>
+                    <th className="py-2 pr-3 text-right font-medium">
+                      Várt (reális)
+                    </th>
+                    <th className="py-2 pr-3 text-right font-medium">Sáv</th>
+                    <th className="py-2 text-right font-medium">Eltérés</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {comparisons.map((c) => {
+                    const diff = summary.totalValueHuf - c.real;
+                    const inBand =
+                      summary.totalValueHuf >= c.pess &&
+                      summary.totalValueHuf <= c.opt;
+                    return (
+                      <tr
+                        key={c.month}
+                        className="border-b border-[var(--color-border)]/50"
+                      >
+                        <td className="py-2 pr-3">
+                          {formatMonthLabel(c.month)}
+                        </td>
+                        <td className="amt py-2 pr-3 text-right">
+                          {privacy ? "•••" : huf(c.real)}
+                        </td>
+                        <td className="amt py-2 pr-3 text-right text-[var(--color-muted)]">
+                          {privacy ? "•••" : `${huf(c.pess)}–${huf(c.opt)}`}
+                        </td>
+                        <td className="py-2 text-right">
+                          <span
+                            className={`amt ${
+                              diff >= 0
+                                ? "text-[var(--color-positive)]"
+                                : "text-[var(--color-negative)]"
+                            }`}
+                          >
+                            {privacy
+                              ? "•••"
+                              : `${diff >= 0 ? "+" : ""}${huf(diff)}`}
+                          </span>{" "}
+                          {c.real > 0 && (
+                            <span className="text-xs text-[var(--color-muted)]">
+                              ({diff >= 0 ? "+" : ""}
+                              {((diff / c.real) * 100).toFixed(1)}%)
+                            </span>
+                          )}
+                          {!inBand && (
+                            <span className="ml-1.5">
+                              <Badge tone="warning">sávon kívül</Badge>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              Az eltérés a piacból és abból is adódik, ha többet vagy kevesebbet
+              tettél félre, mint amivel az előrejelzés számolt.
+            </p>
+          </>
+        )}
       </Card>
 
       {/* AI narratíva */}
