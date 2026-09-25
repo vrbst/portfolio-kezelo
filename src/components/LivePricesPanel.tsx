@@ -176,6 +176,13 @@ function PriceTile({
   const change =
     quote?.prevClose != null ? quote.price / quote.prevClose - 1 : undefined;
   const up = (change ?? 0) >= 0;
+  // Green = a live quote from a market that is trading right now. A live quote
+  // from a closed market is just its last close: grey, not green. Without a
+  // known session (e.g. the frankfurter fallback) it stays green as before.
+  const now = useNow();
+  const trading =
+    !quote?.session ||
+    (now >= quote.session.start && now < quote.session.end);
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
       <div className="flex items-center gap-1.5">
@@ -189,12 +196,18 @@ function PriceTile({
             title="Kézi árfolyam — a következő frissítéskor visszaáll az élő értékre"
           />
         ) : (
-          live && (
+          live &&
+          (trading ? (
             <span
               className="live-dot relative h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
-              title="Élő árfolyam"
+              title="Élő árfolyam — a piac most nyitva"
             />
-          )
+          ) : (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-muted)]"
+              title={`Záróár — ${quote?.exchange ?? "a piac"} most zárva`}
+            />
+          ))
         )}
       </div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
@@ -261,11 +274,7 @@ function MarketStatus({
   session: { start: number; end: number };
   exchange?: string;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useNow();
   const open = now >= session.start && now < session.end;
   const fmtLeft = (ms: number) => {
     const m = Math.max(0, Math.round(ms / 60_000));
@@ -300,4 +309,14 @@ function MarketStatus({
           : `${name} zárva`}
     </span>
   );
+}
+
+/** Current time, re-rendering every 30 s (market open/closed, countdowns). */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
 }
