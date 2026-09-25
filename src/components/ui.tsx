@@ -536,9 +536,16 @@ export function StatCard({
           }`}
         />
       )}
-      <div className="relative flex items-center justify-between">
-        <span className="text-sm text-[var(--color-muted)]">{label}</span>
-        {icon && <span className="text-[var(--color-muted)]">{icon}</span>}
+      {/* Label and delta rows stay single-line: a longer text (e.g. the date
+          while scrubbing the value chart) truncates instead of wrapping, so
+          the card — and the whole column beside it — never changes height. */}
+      <div className="relative flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">
+          {label}
+        </span>
+        {icon && (
+          <span className="shrink-0 text-[var(--color-muted)]">{icon}</span>
+        )}
       </div>
       <div className={`amt relative ${numberCls} ${flashCls}`}>{showValue}</div>
       {sub != null && (
@@ -547,10 +554,12 @@ export function StatCard({
         </div>
       )}
       {(delta != null || deltaPct != null) && (
-        <div className="relative mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
-          <Delta value={delta} pct={deltaPct} />
+        <div className="relative mt-1.5 flex items-center gap-x-1.5 whitespace-nowrap text-sm">
+          <span className="shrink-0">
+            <Delta value={delta} pct={deltaPct} />
+          </span>
           {deltaNote && (
-            <span className="text-xs text-[var(--color-muted)]">
+            <span className="min-w-0 truncate text-xs text-[var(--color-muted)]">
               {deltaNote}
             </span>
           )}
