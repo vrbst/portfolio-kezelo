@@ -225,6 +225,19 @@ body::before {
   }
 }
 
+/* Bottom sheet (calendar day on mobile) sliding up into view. */
+.sheet-up {
+  animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 /* Ticker-style value flash: a brief coloured glow around the number when it
  * changes (works on gradient text via drop-shadow). */
 .flash-up {
@@ -331,6 +344,7 @@ body::before {
   .skeleton::after,
   .live-dot::before,
   .cal-ping,
+  .sheet-up,
   .aurora,
   .flash-up,
   .flash-down,
