@@ -2,7 +2,7 @@ import type { Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
 import { isInternalTransfer, toHuf, couponAmountHuf } from "./portfolio";
 import { touchPref } from "./prefs";
-import { effectiveMonth } from "./goals";
+import { effectiveMonth, effectiveMonthKey } from "./goals";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -106,18 +106,6 @@ function median(xs: number[]): number {
  * history doesn't outweigh the current habit. The current (partial) month is
  * never used.
  */
-/** YYYY-MM of a date's effective month (last working day → next month). */
-function effKey(d: Date): string {
-  const { year, month0 } = effectiveMonth(d);
-  return `${year}-${String(month0 + 1).padStart(2, "0")}`;
-}
-
-/** A stored date as a LOCAL calendar day (bare YYYY-MM-DD is local, not UTC). */
-function localDate(s: string): Date {
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s);
-}
-
 export function detectRecurringSavings(
   txs: Transaction[],
   fx: Record<string, number>,
@@ -132,7 +120,7 @@ export function detectRecurringSavings(
       t.currency,
       fx,
     );
-    const key = effKey(localDate(t.date));
+    const key = effectiveMonthKey(t.date);
     const signed = t.type === "deposit" ? huf : -huf;
     byMonth.set(key, (byMonth.get(key) ?? 0) + signed);
   }
@@ -141,7 +129,7 @@ export function detectRecurringSavings(
     .map(([month, huf]) => ({ month, huf }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
-  const curKey = effKey(now);
+  const curKey = effectiveMonthKey(now);
   const done = months.filter((m) => m.month < curKey);
 
   // Outlier threshold from the positive contribution months (whole history).

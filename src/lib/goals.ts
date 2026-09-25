@@ -84,6 +84,21 @@ export function effectiveMonth(date: Date): { year: number; month0: number } {
   return { year: y, month0: m };
 }
 
+/** A stored date string as a LOCAL calendar day (a bare YYYY-MM-DD is local,
+ *  not UTC; full ISO timestamps are parsed and read back in local time). */
+export function localDay(s: string): Date {
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s);
+}
+
+/** YYYY-MM of the effective month (payday = last working day → next month). */
+export function effectiveMonthKey(date: Date | string): string {
+  const { year, month0 } = effectiveMonth(
+    typeof date === "string" ? localDay(date) : date,
+  );
+  return `${year}-${String(month0 + 1).padStart(2, "0")}`;
+}
+
 /** Hungarian label for the effective month of a date (e.g. "2026. július"). */
 export function effectiveMonthLabel(date: Date): string {
   const { year, month0 } = effectiveMonth(date);

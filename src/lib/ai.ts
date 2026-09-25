@@ -5,7 +5,7 @@ import {
   assetClassOf,
 } from "./portfolio";
 import { assetClassLabel } from "./labels";
-import type { GoalProgress } from "./goals";
+import { localDay, type GoalProgress } from "./goals";
 import type { Alert } from "./alerts";
 import type { TbszStatus } from "./tbsz";
 import type { UpcomingEvent } from "./events";
@@ -373,6 +373,18 @@ export function buildAiPortfolioContext(
     })
     .join("\n");
 
+  // Instrument names, and which ones are earmarked for a savings goal.
+  const instName = new Map<string, string>();
+  for (const a of summary.accounts)
+    for (const h of a.holdings)
+      if (h.instrument) instName.set(h.instrumentKey, h.instrument.name);
+  const earmarked = new Map<string, string>();
+  for (const s of extras?.savings ?? [])
+    for (const k of s.goal.instrumentKeys) {
+      const n = instName.get(k);
+      if (n) earmarked.set(n, s.goal.name);
+    }
+
   const lines: (string | null)[] = [
     `Összérték: ${huf(summary.totalValueHuf)} Ft`,
     `Befektetett tőke: ${huf(summary.netDepositedHuf)} Ft`,
@@ -455,11 +467,18 @@ export function buildAiPortfolioContext(
 
   // --- Medium-term savings goals ---
   if (extras?.savings?.length) {
-    lines.push("", "Középtávú célok:");
-    for (const s of extras.savings)
+    lines.push(
+      "",
+      "Középtávú célok (a hozzájuk rendelt eszközök és azok kifizetései erre a célra vannak félretéve):",
+    );
+    for (const s of extras.savings) {
+      const assigned = s.goal.instrumentKeys
+        .map((k) => instName.get(k) ?? k)
+        .join(", ");
       lines.push(
-        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}`,
+        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}${s.goal.includeCoupons ? " (a kuponjai is a célé)" : ""}` : ""}`,
       );
+    }
   }
 
   // --- Savings goals (DCA) ---
@@ -488,7 +507,14 @@ export function buildAiPortfolioContext(
     lines.push("", "Közelgő események:");
     for (const e of extras.events.slice(0, 8)) {
       const amt = e.amountHuf ? ` (~${huf(e.amountHuf)} Ft)` : "";
-      lines.push(`- ${e.date} · ${e.daysUntil} nap múlva: ${e.title}${amt}`);
+      // A maturity/coupon of a goal-assigned instrument is earmarked money.
+      const goal = [...earmarked].find(([name]) => e.title.includes(name))?.[1];
+      const tag = goal
+        ? ` — a(z) ${goal} célhoz rendelt eszköz: ez a pénz a célra van félretéve, nem szabadon felhasználható`
+        : "";
+      const d = localDay(e.date);
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      lines.push(`- ${day} · ${e.daysUntil} nap múlva: ${e.title}${amt}${tag}`);
     }
   }
 
@@ -509,7 +535,7 @@ export function buildAiPortfolioContext(
   return lines.filter((l): l is string => l != null).join("\n");
 }
 
-const SYSTEM = `Magyar pénzügyi asszisztens vagy egy személyes, lakossági portfólió-követő appban. Megkapod a felhasználó portfóliójának számszerű pillanatképét (forintban), és ahol van adat, a megtakarítási céljait, aktív figyelmeztetéseit, közelgő eseményeit (kötvény-lejáratok, kuponok) és a TBSZ-számlái adózási állapotát is. Tömören, magyarul, közérthetően válaszolj. Kizárólag a megadott adatokra támaszkodj — soha ne találj ki számokat, és ha valami nem derül ki az adatokból, mondd ki őszintén. Használd ki a gazdagabb adatokat: ha van cél, értékeld hogy jó úton van-e; ha van figyelmeztetés vagy közelgő lejárat, térj ki rá; a trend és a TBSZ-adómentességi mérföldkövek relevánsak lehetnek. Ne adj konkrét vételi/eladási utasítást; inkább összefüggéseket, kockázatokat, koncentrációt és megfontolandó szempontokat emelj ki. Egyszerű szöveget használj: rövid bekezdések vagy "- " kezdetű felsorolás, NE használj markdown fejlécet vagy csillagos kiemelést. A forint/euró összegek a felhasználó valós egyenlegei — kezeld diszkréten.`;
+const SYSTEM = `Magyar pénzügyi asszisztens vagy egy személyes, lakossági portfólió-követő appban. Megkapod a felhasználó portfóliójának számszerű pillanatképét (forintban), és ahol van adat, a megtakarítási céljait, aktív figyelmeztetéseit, közelgő eseményeit (kötvény-lejáratok, kuponok) és a TBSZ-számlái adózási állapotát is. Tömören, magyarul, közérthetően válaszolj. Kizárólag a megadott adatokra támaszkodj — soha ne találj ki számokat, és ha valami nem derül ki az adatokból, mondd ki őszintén. Használd ki a gazdagabb adatokat: ha van cél, értékeld hogy jó úton van-e; ha van figyelmeztetés vagy közelgő lejárat, térj ki rá; a trend és a TBSZ-adómentességi mérföldkövek relevánsak lehetnek. A középtávú célhoz rendelt eszközök (és lejáratuk, kuponjaik) arra a célra vannak félretéve: ne kezeld őket szabadon felhasználható pénzként, és ne javasold máshová tenni őket. Ne adj konkrét vételi/eladási utasítást; inkább összefüggéseket, kockázatokat, koncentrációt és megfontolandó szempontokat emelj ki. Egyszerű szöveget használj: rövid bekezdések vagy "- " kezdetű felsorolás, NE használj markdown fejlécet vagy csillagos kiemelést. A forint/euró összegek a felhasználó valós egyenlegei — kezeld diszkréten.`;
 
 /** Prompt for the forecast page's narrative — reasons over projected numbers. */
 export const FORECAST_PROMPT =

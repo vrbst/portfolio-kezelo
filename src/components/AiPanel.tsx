@@ -39,6 +39,7 @@ import {
 import { upcomingEvents } from "../lib/events";
 import { tbszStatus } from "../lib/tbsz";
 import { computeSavingsProgress, savingsGoalExpenses } from "../lib/savings";
+import { effectiveMonthKey } from "../lib/goals";
 import { forecastMilestones, projectFromSettings } from "../lib/forecast";
 import {
   computeDrift,
@@ -158,7 +159,8 @@ export default function AiPanel() {
     );
     const alloc = loadAllocationSettings();
     const now = new Date();
-    const monthKey = now.toISOString().slice(0, 7);
+    // The effective month: payday deposits count toward the next month.
+    const monthKey = effectiveMonthKey(now);
     const yearAgo = new Date(now);
     yearAgo.setFullYear(yearAgo.getFullYear() - 1);
     const yearAgoIso = yearAgo.toISOString().slice(0, 10);
@@ -170,7 +172,7 @@ export default function AiPanel() {
     for (const t of transactions) {
       if (t.internal || isInternalTransfer(t)) continue;
       const huf = toHuf(Math.abs(t.grossAmount ?? t.netAmount ?? 0), t.currency, fx);
-      if (t.date.startsWith(monthKey)) {
+      if (effectiveMonthKey(t.date) === monthKey) {
         if (t.type === "deposit") thisMonthNet += huf;
         if (t.type === "withdrawal") thisMonthNet -= huf;
       }
