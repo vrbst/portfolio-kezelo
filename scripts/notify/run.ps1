@@ -1,4 +1,4 @@
-# Keeps the Telegram bot running: restarts it 30 s after any exit. Started by
+﻿# Keeps the Telegram bot running: restarts it 30 s after any exit. Started by
 # the "Portfolio Telegram bot" scheduled task at logon (see install-task.ps1).
 # Log: .notify\bot.log (rotated at 5 MB).
 

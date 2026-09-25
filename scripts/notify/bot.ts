@@ -23,6 +23,8 @@ import {
   eventsText,
   forecastText,
   ft,
+  mft,
+  shortName,
   goalsText,
   monthlyText,
   pct,
@@ -275,7 +277,7 @@ class Bot {
         // HUF move of the position today: value now minus value at prev close.
         const move = h.marketValueHuf - h.marketValueHuf / (1 + ch);
         posLines.push(
-          `${ch > 0 ? "🚀" : "🔻"} <b>${esc(h.instrument?.name ?? h.instrumentKey)}: ${pct(ch, 1)}</b> ma (${sft(move)}, pozíció: ${ft(h.marketValueHuf)})`,
+          `${ch > 0 ? "🚀" : "🔻"} <b>${shortName(h.instrument?.name ?? h.instrumentKey)}: ${pct(ch, 1)}</b> ma (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
         );
       }
     }

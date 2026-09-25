@@ -29,6 +29,32 @@ import { esc } from "./telegram";
 
 const nf = new Intl.NumberFormat("hu-HU", { maximumFractionDigits: 0 });
 export const ft = (n: number) => `${nf.format(Math.round(n))} Ft`;
+/**
+ * Compact amount for list lines on a phone screen: millions as "35,93 M Ft",
+ * smaller amounts in full. Headline totals keep the exact ft().
+ */
+export const mft = (n: number) =>
+  Math.abs(n) >= 1e6
+    ? `${(n / 1e6).toFixed(2).replace(".", ",")} M Ft`
+    : ft(n);
+
+// Long official names → the short forms used day to day, so a list line
+// (name + amount) fits one phone-width row.
+const NAME_SHORT: [RegExp, string][] = [
+  [/Fix Magyar Állampapír/i, "FixMÁP"],
+  [/Prémium Magyar Állampapír/i, "PMÁP"],
+  [/Bónusz Magyar Állampapír/i, "BMÁP"],
+  [/Magyar Állampapír Plusz/i, "MÁP Plusz"],
+  [/Diszkont Kincstárjegy/i, "DKJ"],
+];
+/** Short display name (escaped for HTML). */
+export function shortName(name: string): string {
+  let s = name;
+  for (const [re, short] of NAME_SHORT) s = s.replace(re, short);
+  // Trailing "(LY-8WRK5A8)"-style account refs add nothing on a phone.
+  return esc(s.replace(/\s*\([^)]*\)\s*$/, "").trim());
+}
+
 export const sft = (n: number) => `${n >= 0 ? "+" : "−"}${ft(Math.abs(n))}`;
 export const pct = (x: number | undefined, d = 1) =>
   x == null || !Number.isFinite(x)
@@ -119,7 +145,7 @@ export function statusText(ctx: Context): string {
   );
   for (const a of s.accounts) {
     if (Math.abs(a.totalValueHuf) < 1) continue;
-    lines.push(`• ${esc(a.account.name)}: ${ft(a.totalValueHuf)}`);
+    lines.push(`• ${shortName(a.account.name)}: ${mft(a.totalValueHuf)}`);
   }
   const top = consolidatedHoldings(s)
     .sort((a, b) => b.marketValueHuf - a.marketValueHuf)
@@ -131,7 +157,7 @@ export function statusText(ctx: Context): string {
       const day =
         q?.prevClose && q.price ? ` (ma ${pct(q.price / q.prevClose - 1)})` : "";
       lines.push(
-        `• ${esc(h.instrument?.name ?? h.instrumentKey)}: ${ft(h.marketValueHuf)}${day}`,
+        `• ${shortName(h.instrument?.name ?? h.instrumentKey)}: ${mft(h.marketValueHuf)}${day}`,
       );
     }
   }
@@ -162,7 +188,7 @@ export function goalsText(ctx: Context): string {
     lines.push("🎯 <b>Rendszeres vásárlások</b>");
     for (const g of ctx.goalProgress)
       lines.push(
-        `${g.done ? "✅" : "⏳"} ${esc(g.instrumentName)} (${esc(g.periodLabel)}): ${ft(g.investedHuf)} / ${ft(g.targetHuf)}${g.done ? "" : ` – még ${ft(g.remainingHuf)}`}`,
+        `${g.done ? "✅" : "⏳"} ${shortName(g.instrumentName)} (${esc(g.periodLabel)}): ${ft(g.investedHuf)} / ${ft(g.targetHuf)}${g.done ? "" : ` – még ${ft(g.remainingHuf)}`}`,
       );
   }
   if (ctx.savings.length) {
@@ -268,7 +294,7 @@ export function weeklyText(ctx: Context): string {
     .sort((a, b) => b.ch - a.ch);
   if (moves.length) {
     lines.push("", "<b>Pozíciók a héten</b>");
-    for (const m of moves) lines.push(`• ${esc(m.name)}: ${pct(m.ch)}`);
+    for (const m of moves) lines.push(`• ${shortName(m.name)}: ${pct(m.ch)}`);
   }
 
   const next = ctx.events.filter((e) => e.daysUntil <= 7);
@@ -279,7 +305,7 @@ export function weeklyText(ctx: Context): string {
       "",
       "<b>Még hiányzó vásárlások</b>",
       ...open.map(
-        (g) => `⏳ ${esc(g.instrumentName)}: még ${ft(g.remainingHuf)}`,
+        (g) => `⏳ ${shortName(g.instrumentName)}: még ${ft(g.remainingHuf)}`,
       ),
     );
   if (ctx.alerts.length)
