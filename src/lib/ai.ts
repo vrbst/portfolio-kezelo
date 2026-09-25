@@ -476,7 +476,7 @@ export function buildAiPortfolioContext(
         .map((k) => instName.get(k) ?? k)
         .join(", ");
       lines.push(
-        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}${s.goal.includeCoupons ? " (a kuponjai is a célé)" : ""}` : ""}`,
+        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}` : ""}${s.goal.includeCoupons ? `; a portfólió ÖSSZES kötvénykupona, amely a határidőig beérkezik, ennek a célnak a része (várhatóan ${huf(s.couponsHuf)} Ft, már benne van a várható teljesülésben)` : ""}`,
       );
     }
   }
@@ -509,10 +509,23 @@ export function buildAiPortfolioContext(
       const amt = e.amountHuf ? ` (~${huf(e.amountHuf)} Ft)` : "";
       // A maturity/coupon of a goal-assigned instrument is earmarked money.
       const goal = [...earmarked].find(([name]) => e.title.includes(name))?.[1];
+      const d = localDay(e.date);
+      // A coupon due by the deadline of a goal that earmarks coupons (any
+      // bond's coupon, not only the assigned instrument's) belongs to it too.
+      const couponGoal =
+        e.kind === "coupon"
+          ? (extras.savings ?? []).find(
+              (s) =>
+                s.goal.includeCoupons &&
+                !s.reached &&
+                localDay(s.goal.targetDate).getTime() >= d.getTime(),
+            )?.goal.name
+          : undefined;
       const tag = goal
         ? ` — a(z) ${goal} célhoz rendelt eszköz: ez a pénz a célra van félretéve, nem szabadon felhasználható`
-        : "";
-      const d = localDay(e.date);
+        : couponGoal
+          ? ` — ez a kupon a(z) ${couponGoal} célhoz tartozik (a cél a határidőig érkező kuponokat is magába foglalja), nem szabadon felhasználható`
+          : "";
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       lines.push(`- ${day} · ${e.daysUntil} nap múlva: ${e.title}${amt}${tag}`);
     }
