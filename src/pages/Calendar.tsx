@@ -20,7 +20,6 @@ import {
   usePortfolio,
   usePortfolioSummary,
   useSavingsGoals,
-  useGoalProgress,
 } from "../lib/store";
 import {
   buildFxHistory,
@@ -29,7 +28,7 @@ import {
   isInternalTransfer,
 } from "../lib/portfolio";
 import { tbszStatus } from "../lib/tbsz";
-import { lastWorkingDayOfMonth } from "../lib/goals";
+import { lastWorkingDayOfMonth, PERIOD_LABEL } from "../lib/goals";
 import { loadForecastSettings, type PlannedExpense } from "../lib/forecast";
 import { PREFS_EVENT } from "../lib/prefs";
 import { buildIcs, downloadIcs, type IcsEvent } from "../lib/ics";
@@ -113,7 +112,6 @@ export default function Calendar() {
   const dcaGoals = usePortfolio((s) => s.goals);
   const summary = usePortfolioSummary();
   const savingsGoals = useSavingsGoals();
-  const goalProgress = useGoalProgress();
   const plannedExpenses = usePlannedExpenses();
 
   // Stable for the component's lifetime: a fresh Date per render would defeat
@@ -241,12 +239,10 @@ export default function Calendar() {
       });
     }
 
-    // Recurring purchase (DCA) deadlines for the next 12 months: a buy on the
-    // last working day already counts toward the NEXT month, so the deadline
-    // is the working day before it. The current period is skipped once met.
-    const doneNow = new Set(
-      goalProgress.filter((p) => p.done).map((p) => p.goal.id),
-    );
+    // Planned recurring purchases (DCA) for the next 12 months. The buy is made
+    // on payday — the month's last working day — and (by the app's rule) that
+    // buy already counts toward the NEXT period, so the marker sits on the last
+    // working day of the month before each period starts.
     for (const g of dcaGoals) {
       const what = g.instrumentKey
         ? (instMap.get(g.instrumentKey)?.ticker ??
@@ -259,19 +255,20 @@ export default function Calendar() {
         const y = today.getFullYear();
         const m0 = today.getMonth() + k;
         const dt = new Date(y, m0, 1);
-        // Only the last month of each period has a deadline.
+        // Only the month before a period starts carries its purchase.
         if ((dt.getMonth() + 1) % g.periodMonths !== 0) continue;
-        if (k === 0 && doneNow.has(g.id)) continue;
-        const d = new Date(
+        const key = isoDay(
           dt.getFullYear(),
           dt.getMonth(),
-          lastWorkingDayOfMonth(dt.getFullYear(), dt.getMonth()) - 1,
+          lastWorkingDayOfMonth(dt.getFullYear(), dt.getMonth()),
         );
-        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
-        const key = isoDay(d.getFullYear(), d.getMonth(), d.getDate());
         if (key < todayIso) continue;
+        const portion =
+          g.periodMonths === 1
+            ? `${MONTHS[(dt.getMonth() + 1) % 12]}i adag`
+            : `következő ${PERIOD_LABEL[g.periodMonths].toLowerCase()} adag`;
         push(key, {
-          title: `Vásárlás határideje: ${what}`,
+          title: `Havi vásárlás: ${what} – ${portion}`,
           noteHuf: g.amountHuf,
           future: true,
           tag: "havi vásárlás",
@@ -295,7 +292,6 @@ export default function Calendar() {
     savingsGoals,
     plannedExpenses,
     dcaGoals,
-    goalProgress,
   ]);
 
   // Day gross flows of the viewed year, and the "large one-off" days: far above
@@ -440,7 +436,7 @@ export default function Calendar() {
           date: key,
           title: `${it.title}${amt != null ? ` – ${formatMoney(amt)}` : ""}`,
           description: `${MARKER_LABEL[it.cat] ?? it.tag} · Portfólió-kezelő`,
-          alarmDaysBefore: it.cat === "dca" ? 2 : 1,
+          alarmDaysBefore: 1,
         });
       });
     }

@@ -36,7 +36,7 @@ export type DayCat =
   | "goal"
   /** Planned expense from the forecast (marker). */
   | "expense"
-  /** Recurring purchase (DCA) deadline (marker). */
+  /** Planned recurring purchase (DCA) on payday (marker). */
   | "dca";
 
 export interface DayItem {
@@ -69,7 +69,7 @@ export const MARKER_LABEL: Partial<Record<DayCat, string>> = {
   tbsz: "TBSZ mérföldkő",
   goal: "Cél határideje",
   expense: "Betervezett kiadás",
-  dca: "Havi vásárlás határideje",
+  dca: "Havi vásárlás (fizetésnap)",
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
