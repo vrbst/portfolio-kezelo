@@ -11,6 +11,7 @@
     "prices": "node scripts/fetch-prices.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "clsx": "^2.1.1",

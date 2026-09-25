@@ -44,6 +44,7 @@ import {
 import type { Alert } from "./alerts";
 import { formatMoney } from "./format";
 import { touchPref } from "./prefs";
+import type { PlannedExpense } from "./forecast";
 
 export interface SavingsGoal {
   id: string;
@@ -575,4 +576,17 @@ export function computeSavingsProgress(
       reached: gapHuf <= 0,
     };
   });
+}
+
+/** Savings goals as planned expenses on their target dates (for projections:
+ *  the goal amount leaves the portfolio then). */
+export function savingsGoalExpenses(goals: SavingsGoal[]): PlannedExpense[] {
+  return goals
+    .filter((g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0)
+    .map((g) => ({
+      id: `goal:${g.id}`,
+      date: g.targetDate,
+      amountHuf: g.targetHuf,
+      note: g.name,
+    }));
 }

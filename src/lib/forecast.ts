@@ -1034,3 +1034,52 @@ export function recordForecastSnapshot(
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// The Forecast page's projection outside the page (AI context + AI tools)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the deterministic projection exactly as the Forecast page sets it up —
+ * saved settings, detected (or overridden) monthly saving, planned expenses
+ * plus `extraExpenses` (the savings-goal deadlines) — with optional overrides
+ * for what-if questions.
+ */
+export function projectFromSettings(
+  summary: PortfolioSummary,
+  transactions: Transaction[],
+  fx: Record<string, number>,
+  extraExpenses: PlannedExpense[] = [],
+  over: Partial<ForecastAssumptions> = {},
+  now: Date = new Date(),
+): {
+  settings: ForecastSettings;
+  assumptions: ForecastAssumptions;
+  result: ForecastResult;
+} {
+  const settings = loadForecastSettings();
+  const monthly =
+    settings.monthlySavingOverride ??
+    detectRecurringSavings(transactions, fx, now).monthlyHuf;
+  const assumptions: ForecastAssumptions = {
+    annualReturn: settings.annualReturn,
+    monthlySavingHuf: monthly,
+    savingGrowth: settings.savingGrowth,
+    reinvestTarget: settings.reinvestTarget,
+    reinvestBondRate: settings.reinvestBondRate,
+    months: settings.months,
+    withdrawal: settings.withdrawal,
+    withdrawalIndex: settings.inflationPct,
+    ...over,
+  };
+  return {
+    settings,
+    assumptions,
+    result: projectForecast(
+      summary,
+      assumptions,
+      [...settings.expenses, ...extraExpenses],
+      now,
+    ),
+  };
+}

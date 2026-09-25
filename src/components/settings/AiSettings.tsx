@@ -9,6 +9,10 @@ import {
   saveAiModel,
   loadSpend,
   resetSpend,
+  loadAiLimits,
+  saveAiLimits,
+  DEFAULT_LIMITS,
+  type AiLimits,
 } from "../../lib/ai";
 
 const usdSpend = (n: number) =>
@@ -19,6 +23,13 @@ export default function AiSettings() {
   const [model, setModel] = useState(loadAiModel());
   const [saved, setSaved] = useState(false);
   const [spend, setSpend] = useState(loadSpend);
+  const [limits, setLimits] = useState<AiLimits>(loadAiLimits);
+  const setLimit = (k: keyof AiLimits, v: number) => {
+    if (!Number.isFinite(v) || v < 0) return;
+    const next = { ...limits, [k]: v };
+    setLimits(next);
+    saveAiLimits(next);
+  };
 
   const connected = loadAiKey().length > 0;
 
@@ -58,8 +69,9 @@ export default function AiSettings() {
         >
           console.anthropic.com
         </a>{" "}
-        oldalon készíthetsz. Hívásonként csak aggregált pillanatkép megy el
-        (tranzakciók soha), így pár doll&aacute;r is sok lekérésre elég.
+        oldalon készíthetsz. Alapból csak összesített pillanatkép megy el;
+        részletes adatot csak az AI oldalon bekapcsolható eszközhasználat kér
+        le, célzottan.
       </p>
 
       <input
@@ -130,6 +142,60 @@ export default function AiSettings() {
       </div>
 
       <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+        <p className="text-sm font-medium">Költségkorlátok</p>
+        <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+          A becsült költség alapján: a havi keret felett nem indul új hívás; egy
+          kérdés a keretét elérve a már lekért adatokból válaszol.
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LimitInput
+            label="Havi keret"
+            unit="$"
+            step={1}
+            value={limits.monthlyUsd}
+            onChange={(v) => setLimit("monthlyUsd", v)}
+          />
+          <LimitInput
+            label="Kérdésenként legfeljebb"
+            unit="$"
+            step={0.1}
+            value={limits.perQuestionUsd}
+            onChange={(v) => setLimit("perQuestionUsd", v)}
+          />
+          <LimitInput
+            label="Eszközkörök kérdésenként"
+            unit="db"
+            step={1}
+            value={limits.maxToolRounds}
+            onChange={(v) => setLimit("maxToolRounds", Math.round(v))}
+          />
+          <LimitInput
+            label="Webes keresés kérdésenként"
+            unit="db"
+            step={1}
+            value={limits.webSearchMaxUses}
+            onChange={(v) => setLimit("webSearchMaxUses", Math.max(1, Math.round(v)))}
+          />
+          <LimitInput
+            label="Kérdés beszélgetésenként"
+            unit="db"
+            step={1}
+            value={limits.maxChatTurns}
+            onChange={(v) => setLimit("maxChatTurns", Math.max(1, Math.round(v)))}
+          />
+          <button
+            className="justify-self-start text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            onClick={() => {
+              setLimits({ ...DEFAULT_LIMITS });
+              saveAiLimits({ ...DEFAULT_LIMITS });
+            }}
+          >
+            Alapértékek visszaállítása
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-[var(--color-border)] pt-3">
         <p className="text-xs text-[var(--color-muted)]">
           Becsült költség (a tokenhasználatból, ezen az eszközön számolva —{" "}
           <strong>nem</strong> a maradék kredit, azt az API nem adja vissza):
@@ -157,5 +223,43 @@ export default function AiSettings() {
         </div>
       </div>
     </Card>
+  );
+}
+
+/** A small labelled number field; commits only parseable, non-negative values. */
+function LimitInput({
+  label,
+  unit,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  unit: string;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <label className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-3 py-2 text-sm">
+      <span className="text-[var(--color-muted)]">{label}</span>
+      <span className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={0}
+          step={step}
+          className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right tabular-nums"
+          value={draft ?? String(value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const v = Number(e.target.value.replace(",", "."));
+            if (e.target.value.trim() !== "" && Number.isFinite(v)) onChange(v);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+        <span className="w-5 text-xs text-[var(--color-muted)]">{unit}</span>
+      </span>
+    </label>
   );
 }
