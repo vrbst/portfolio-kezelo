@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LineChart, RefreshCw } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
-import { Card, Sparkline } from "./ui";
+import { Card } from "./ui";
 import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
 import type { LiveQuote } from "../lib/prices";
@@ -226,17 +226,24 @@ function PriceTile({
       {quote?.intraday && (
         <>
           <div
-            className="mt-2 h-6 w-full"
+            className="mt-2 h-8 w-full"
             title={
-              quote.intradayFrom
-                ? `Mai alakulás a(z) ${quote.intradayFrom} alapján (ennek a jegyzésnek nincs napközbeni adata)`
-                : "Mai árfolyam-alakulás"
+              (quote.intradayFrom
+                ? `Alakulás a(z) ${quote.intradayFrom} alapján (ennek a jegyzésnek nincs napközbeni adata)`
+                : "Árfolyam-alakulás") +
+              " — bal: előző nap, jobb: ma; szaggatott: előző napi zárás"
             }
           >
-            <Sparkline
-              data={quote.intraday}
+            <TwoDaySparkline
+              today={quote.intraday}
+              prevDay={quote.prevDay}
+              // A borrowed curve (intradayFrom) is in the proxy's own price
+              // scale: its previous close is its last bar of the prior day.
+              prevClose={
+                quote.intradayFrom ? quote.prevDay?.at(-1) : quote.prevClose
+              }
+              session={quote.session}
               stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
-              className="h-full w-full"
             />
           </div>
           {quote.intradayFrom && (
@@ -259,6 +266,106 @@ function PriceTile({
         )}
       </div>
     </div>
+  );
+}
+
+const BAR_MS = 5 * 60_000;
+
+/**
+ * Two-session mini chart: the previous session faded on the left half, today
+ * on the right half — laid out by time, so a half-finished trading day fills
+ * only part of its half — and the previous close as a dashed baseline. Makes
+ * "up on the day but sliding since the open" readable at a glance.
+ */
+function TwoDaySparkline({
+  today,
+  prevDay,
+  prevClose,
+  session,
+  stroke,
+}: {
+  today: number[];
+  prevDay?: number[];
+  prevClose?: number;
+  session?: { start: number; end: number };
+  stroke: string;
+}) {
+  const w = 100;
+  const h = 28;
+  const prev = prevDay ?? [];
+  const all = [...prev, ...today, ...(prevClose != null ? [prevClose] : [])];
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const range = max - min || 1;
+  const py = (v: number) => h - 1.5 - ((v - min) / range) * (h - 3);
+  // Bars a full "today" would have: the session length, else as many as the
+  // previous day had (24 h markets: FX, crypto), else a whole day of 5-min bars.
+  const fullDay = session
+    ? Math.max(2, Math.round((session.end - session.start) / BAR_MS))
+    : Math.max(prev.length, 288);
+  const split = prev.length ? w / 2 : 0;
+  const pxPrev = (i: number) => (i / (prev.length - 1)) * split;
+  const pxToday = (i: number) =>
+    split + Math.min(1, i / (fullDay - 1)) * (w - split);
+  const path = (vals: number[], px: (i: number) => number) =>
+    vals
+      .map(
+        (v, i) =>
+          `${i === 0 ? "M" : "L"}${px(i).toFixed(2)},${py(v).toFixed(2)}`,
+      )
+      .join(" ");
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      className="h-full w-full"
+      aria-hidden="true"
+    >
+      {prevClose != null && (
+        <line
+          x1={0}
+          x2={w}
+          y1={py(prevClose)}
+          y2={py(prevClose)}
+          stroke="var(--color-muted)"
+          strokeOpacity={0.7}
+          strokeWidth={1}
+          strokeDasharray="2 2"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+      {prev.length >= 2 && (
+        <>
+          <line
+            x1={split}
+            x2={split}
+            y1={0}
+            y2={h}
+            stroke="var(--color-border)"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+          <path
+            d={path(prev, pxPrev)}
+            fill="none"
+            stroke="var(--color-muted)"
+            strokeOpacity={0.6}
+            strokeWidth={1.25}
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        </>
+      )}
+      <path
+        d={path(today, pxToday)}
+        fill="none"
+        stroke={stroke}
+        strokeWidth={1.75}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
   );
 }
 

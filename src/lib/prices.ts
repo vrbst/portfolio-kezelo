@@ -127,6 +127,8 @@ export interface LiveQuote {
   prevClose?: number;
   /** Today's intraday prices (5-minute bars), oldest first. */
   intraday?: number[];
+  /** The previous session's 5-minute bars — the "yesterday" half of the chart. */
+  prevDay?: number[];
   /** Regular trading session of the listing's exchange (epoch ms). */
   session?: { start: number; end: number };
   /** Exchange display name (e.g. "XETRA"). */
@@ -143,13 +145,13 @@ interface YahooQuote extends LiveQuote {
 
 async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
   try {
-    // 5-minute bars for today: the same call carries the price, the previous
-    // close, the intraday curve and the exchange's session window.
+    // 5-minute bars for the last two sessions: the same call carries the
+    // price, the previous close, the intraday curves and the session window.
     const res = await fetch(
       proxied(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
           symbol,
-        )}?range=1d&interval=5m`,
+        )}?range=2d&interval=5m`,
       ),
       { cache: "no-store" },
     );
@@ -163,12 +165,15 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
             previousClose?: number;
             chartPreviousClose?: number;
             fullExchangeName?: string;
+            /** Exchange UTC offset, seconds — to split bars by local day. */
+            gmtoffset?: number;
             longName?: string;
             shortName?: string;
             currentTradingPeriod?: {
               regular?: { start?: number; end?: number };
             };
           };
+          timestamp?: number[];
           indicators?: { quote?: { close?: (number | null)[] }[] };
         }[];
       };
@@ -178,15 +183,30 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
     const p = meta?.regularMarketPrice;
     if (typeof p !== "number" || p <= 0) return null;
     const prev = meta?.previousClose ?? meta?.chartPreviousClose;
-    const intraday = (r?.indicators?.quote?.[0]?.close ?? []).filter(
-      (c): c is number => typeof c === "number" && c > 0,
-    );
+    // Group the bars by the exchange's local calendar day; the last group is
+    // the latest session (today, or the last one before the open), the one
+    // before it the previous session.
+    const closes = r?.indicators?.quote?.[0]?.close ?? [];
+    const stamps = r?.timestamp ?? [];
+    const offset = meta?.gmtoffset ?? 0;
+    const days: number[][] = [];
+    let lastDay: number | null = null;
+    closes.forEach((c, i) => {
+      if (typeof c !== "number" || c <= 0) return;
+      const day = Math.floor(((stamps[i] ?? 0) + offset) / 86_400);
+      if (day !== lastDay) days.push([]);
+      lastDay = day;
+      days[days.length - 1].push(c);
+    });
+    const intraday = days.at(-1) ?? [];
+    const prevDay = days.length >= 2 ? days[days.length - 2] : [];
     const reg = meta?.currentTradingPeriod?.regular;
     return {
       price: p,
       currency: meta?.currency,
       prevClose: typeof prev === "number" && prev > 0 ? prev : undefined,
       intraday: intraday.length >= 2 ? intraday : undefined,
+      prevDay: prevDay.length >= 2 ? prevDay : undefined,
       session:
         reg?.start && reg?.end
           ? { start: reg.start * 1000, end: reg.end * 1000 }
@@ -290,6 +310,7 @@ export async function fetchLivePrices(
         const p = await fetchYahooQuote(proxy);
         if (p?.intraday) {
           live.intraday = p.intraday;
+          live.prevDay = p.prevDay;
           live.intradayFrom = proxy;
         }
       }
