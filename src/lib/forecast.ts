@@ -2,6 +2,7 @@ import type { Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
 import { isInternalTransfer, toHuf, couponAmountHuf } from "./portfolio";
 import { touchPref } from "./prefs";
+import { effectiveMonth } from "./goals";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -93,7 +94,9 @@ function median(xs: number[]): number {
 
 /**
  * Infer the recurring monthly saving from history. Net external inflow is
- * bucketed by calendar month. Genuinely large one-off movements (e.g. a 25M
+ * bucketed by EFFECTIVE month: money paid in on a month's last working day
+ * (payday) is next month's saving, the same rule the savings goals use.
+ * Genuinely large one-off movements (e.g. a 25M
  * lump sum, or a big withdrawal for a purchase) are detected as outliers via
  * the median + MAD of the contribution months and left out.
  *
@@ -103,6 +106,18 @@ function median(xs: number[]): number {
  * history doesn't outweigh the current habit. The current (partial) month is
  * never used.
  */
+/** YYYY-MM of a date's effective month (last working day → next month). */
+function effKey(d: Date): string {
+  const { year, month0 } = effectiveMonth(d);
+  return `${year}-${String(month0 + 1).padStart(2, "0")}`;
+}
+
+/** A stored date as a LOCAL calendar day (bare YYYY-MM-DD is local, not UTC). */
+function localDate(s: string): Date {
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s);
+}
+
 export function detectRecurringSavings(
   txs: Transaction[],
   fx: Record<string, number>,
@@ -117,7 +132,7 @@ export function detectRecurringSavings(
       t.currency,
       fx,
     );
-    const key = t.date.slice(0, 7);
+    const key = effKey(localDate(t.date));
     const signed = t.type === "deposit" ? huf : -huf;
     byMonth.set(key, (byMonth.get(key) ?? 0) + signed);
   }
@@ -126,7 +141,7 @@ export function detectRecurringSavings(
     .map(([month, huf]) => ({ month, huf }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
-  const curKey = monthKey(now.getTime());
+  const curKey = effKey(now);
   const done = months.filter((m) => m.month < curKey);
 
   // Outlier threshold from the positive contribution months (whole history).
@@ -138,20 +153,25 @@ export function detectRecurringSavings(
   const upper = med + Math.max(3 * 1.4826 * mad, 2 * med);
   const isOneOff = (huf: number) => Math.abs(huf) > upper;
 
-  // The window: the last N completed calendar months, but not before the
-  // first ever deposit month (a new user isn't diluted with empty months).
+  const oneOffs = done.filter((m) => isOneOff(m.huf));
+
+  // The window: the last N completed months, but only AFTER the funding phase
+  // — the last one-off month — whose leftover smaller deposits would otherwise
+  // read as habit; and never before the first deposit month (a new user isn't
+  // diluted with empty months).
+  const lastOneOff = oneOffs.at(-1)?.month;
   const firstKey = done[0]?.month;
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const cur = effectiveMonth(now);
+  const startOfMonth = new Date(cur.year, cur.month0, 1).getTime();
   const window: string[] = [];
   if (firstKey) {
     for (let i = 1; i <= SAVING_WINDOW; i++) {
       const k = monthKey(addMonths(startOfMonth, -i));
-      if (k < firstKey) break;
+      if (k < firstKey || (lastOneOff && k <= lastOneOff)) break;
       window.push(k);
     }
   }
 
-  const oneOffs = done.filter((m) => isOneOff(m.huf));
   const kept = window
     .map((k) => byMonth.get(k) ?? 0)
     .filter((huf) => !isOneOff(huf));
@@ -705,8 +725,9 @@ export function projectMonteCarlo(
 
 /**
  * Convert a nominal projection to "today's forint": every month-i value is
- * divided by (1+inflation)^(i/12). The contributed baseline is deflated the
- * same way so the comparison stays apples-to-apples.
+ * divided by (1+inflation)^(i/12). The contributed capital is NOT deflated:
+ * it is the forint amount actually paid in, which doesn't change with the
+ * view — so the gap to it reads as "real gain over what I put in".
  */
 export function deflateResult(
   result: ForecastResult,
@@ -721,7 +742,6 @@ export function deflateResult(
       pess: p.pess / f,
       real: p.real / f,
       opt: p.opt / f,
-      contributed: p.contributed / f,
     };
   });
   const dist = result.dist?.map((d, i) => {

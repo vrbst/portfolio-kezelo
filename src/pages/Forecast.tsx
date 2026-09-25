@@ -588,7 +588,7 @@ export default function Forecast() {
         ? `Számítás: Monte Carlo szimuláció (500 útvonal, szórás ${(settings.mcSigma * 100).toFixed(0)}%/év); a sáv a 10–90. percentilis, a középérték a medián`
         : null,
       settings.realMode
-        ? `Minden érték MAI FORINTBAN értendő (${(settings.inflationPct * 100).toFixed(1)}% éves inflációval deflálva)`
+        ? `Minden vagyonérték MAI FORINTBAN értendő (${(settings.inflationPct * 100).toFixed(1)}% éves inflációval deflálva); a befektetett tőke viszont a ténylegesen befizetett névleges összeg`
         : null,
       `Horizont: ${Math.round(settings.months / 12)} év`,
       `Kötvény-cashflow a horizonton: kamat ${huf(result.couponHuf)} Ft, lejáró tőke ${huf(result.maturityHuf)} Ft`,
@@ -710,9 +710,10 @@ export default function Forecast() {
                 <>
                   Az utolsó{" "}
                   {detected.monthsUsed > 0 ? `${detected.monthsUsed} ` : ""}
-                  lezárt hónap átlagos nettó befizetése. A befizetés nélküli
-                  hónapok 0-val számítanak, az egyszeri nagy tételeket
-                  kihagytuk.
+                  lezárt hónap átlagos nettó befizetése. A hónap utolsó
+                  munkanapján befizetett összeg már a következő hónaphoz
+                  számít; a befizetés nélküli hónapok 0-val számítanak, az
+                  egyszeri nagy tételeket kihagytuk.
                 </>
               )}
             </p>
