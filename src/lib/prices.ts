@@ -129,6 +129,9 @@ export interface LiveQuote {
   intraday?: number[];
   /** The previous session's 5-minute bars — the "yesterday" half of the chart. */
   prevDay?: number[];
+  /** Bar times (epoch ms) for `intraday` / `prevDay`, index-aligned. */
+  intradayT?: number[];
+  prevDayT?: number[];
   /** Regular trading session of the listing's exchange (epoch ms). */
   session?: { start: number; end: number };
   /** Exchange display name (e.g. "XETRA"). */
@@ -189,17 +192,20 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
     const closes = r?.indicators?.quote?.[0]?.close ?? [];
     const stamps = r?.timestamp ?? [];
     const offset = meta?.gmtoffset ?? 0;
-    const days: number[][] = [];
+    const days: { c: number[]; t: number[] }[] = [];
     let lastDay: number | null = null;
     closes.forEach((c, i) => {
       if (typeof c !== "number" || c <= 0) return;
       const day = Math.floor(((stamps[i] ?? 0) + offset) / 86_400);
-      if (day !== lastDay) days.push([]);
+      if (day !== lastDay) days.push({ c: [], t: [] });
       lastDay = day;
-      days[days.length - 1].push(c);
+      days[days.length - 1].c.push(c);
+      days[days.length - 1].t.push((stamps[i] ?? 0) * 1000);
     });
-    const intraday = days.at(-1) ?? [];
-    const prevDay = days.length >= 2 ? days[days.length - 2] : [];
+    const today = days.at(-1);
+    const before = days.length >= 2 ? days[days.length - 2] : undefined;
+    const intraday = today?.c ?? [];
+    const prevDay = before?.c ?? [];
     const reg = meta?.currentTradingPeriod?.regular;
     return {
       price: p,
@@ -207,6 +213,8 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
       prevClose: typeof prev === "number" && prev > 0 ? prev : undefined,
       intraday: intraday.length >= 2 ? intraday : undefined,
       prevDay: prevDay.length >= 2 ? prevDay : undefined,
+      intradayT: intraday.length >= 2 ? today!.t : undefined,
+      prevDayT: prevDay.length >= 2 ? before!.t : undefined,
       session:
         reg?.start && reg?.end
           ? { start: reg.start * 1000, end: reg.end * 1000 }
@@ -311,6 +319,8 @@ export async function fetchLivePrices(
         if (p?.intraday) {
           live.intraday = p.intraday;
           live.prevDay = p.prevDay;
+          live.intradayT = p.intradayT;
+          live.prevDayT = p.prevDayT;
           live.intradayFrom = proxy;
         }
       }

@@ -6,6 +6,7 @@ import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
 import type { LiveQuote } from "../lib/prices";
 import InstrumentLogo from "./InstrumentLogo";
+import PriceChartDialog from "./PriceChartDialog";
 
 /** Security types we list as "ETF" tickers (tradable, market-priced). Bonds and
  * cash are excluded — they live on the treasury pages. */
@@ -42,6 +43,8 @@ export default function LivePricesPanel() {
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const pricesLoading = usePortfolio((s) => s.pricesLoading);
   const liveQuotes = usePortfolio((s) => s.liveQuotes);
+  // The tile whose enlarged two-day chart is open (by tile key).
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const tiles = useMemo<Tile[]>(() => {
     // Distinct held securities, aggregated value across accounts for ordering.
@@ -90,6 +93,31 @@ export default function LivePricesPanel() {
 
   if (!eurHuf && tiles.length === 0) return null;
 
+  const eurQuote = liveQuotes["EUR"];
+  const opened =
+    openKey === "EUR"
+      ? eurQuote && {
+          title: "EUR/HUF",
+          value: formatMoney(eurHuf, "HUF", { decimals: 2 }),
+          sub: "Euró árfolyam",
+          quote: eurQuote,
+        }
+      : (() => {
+          const t = tiles.find((x) => x.key === openKey);
+          return (
+            t?.quote && {
+              title:
+                t.sub && t.sub !== t.label ? `${t.label} · ${t.sub}` : t.label,
+              value: formatMoney(t.price, t.currency, { decimals: 2 }),
+              sub:
+                t.hufEquiv != null
+                  ? `≈ ${formatMoney(t.hufEquiv, "HUF")}`
+                  : undefined,
+              quote: t.quote,
+            }
+          );
+        })();
+
   return (
     <Card className="p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -134,7 +162,9 @@ export default function LivePricesPanel() {
             value={formatMoney(eurHuf, "HUF", { decimals: 2 })}
             sub="Euró árfolyam"
             live
-            quote={liveQuotes["EUR"]}
+            quote={eurQuote}
+            mark={<CurrencyMark symbol="€" />}
+            onOpen={() => setOpenKey("EUR")}
           />
         )}
         {tiles.map((t) => (
@@ -149,9 +179,13 @@ export default function LivePricesPanel() {
             manual={t.manual}
             quote={t.quote}
             instrument={t.instrument}
+            onOpen={() => setOpenKey(t.key)}
           />
         ))}
       </div>
+      {opened && opened.quote.intraday && (
+        <PriceChartDialog {...opened} onClose={() => setOpenKey(null)} />
+      )}
     </Card>
   );
 }
@@ -164,6 +198,8 @@ function PriceTile({
   manual,
   quote,
   instrument,
+  mark,
+  onOpen,
 }: {
   label: string;
   value: string;
@@ -172,6 +208,10 @@ function PriceTile({
   manual?: boolean;
   quote?: LiveQuote;
   instrument?: Instrument;
+  /** Icon in place of the instrument logo (e.g. the EUR/HUF tile's €). */
+  mark?: React.ReactNode;
+  /** Opens the enlarged chart; only offered when there is a curve to show. */
+  onOpen?: () => void;
 }) {
   const change =
     quote?.prevClose != null ? quote.price / quote.prevClose - 1 : undefined;
@@ -183,10 +223,30 @@ function PriceTile({
   const trading =
     !quote?.session ||
     (now >= quote.session.start && now < quote.session.end);
+  const clickable = !!onOpen && !!quote?.intraday;
   return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+    <div
+      className={`rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 ${
+        clickable
+          ? "cursor-pointer transition hover:border-[var(--color-brand)]/50 hover:bg-[var(--color-surface-2)]/70 focus-visible:outline-2 focus-visible:outline-[var(--color-brand)]"
+          : ""
+      }`}
+      {...(clickable && {
+        role: "button",
+        tabIndex: 0,
+        "aria-label": `${label} – nagyobb grafikon`,
+        onClick: onOpen,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen!();
+          }
+        },
+      })}
+    >
       <div className="flex items-center gap-1.5">
-        {instrument && <InstrumentLogo instrument={instrument} size={18} />}
+        {mark ??
+          (instrument && <InstrumentLogo instrument={instrument} size={18} />)}
         <span className="truncate text-xs font-medium text-[var(--color-muted)]">
           {label}
         </span>
@@ -246,11 +306,6 @@ function PriceTile({
               stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
             />
           </div>
-          {quote.intradayFrom && (
-            <div className="text-[10px] text-[var(--color-muted)]/80">
-              görbe: {quote.intradayFrom}
-            </div>
-          )}
         </>
       )}
       <div className="mt-0.5 flex items-center gap-1.5">
@@ -270,6 +325,37 @@ function PriceTile({
 }
 
 const BAR_MS = 5 * 60_000;
+
+/**
+ * Currency mark for FX tiles, in the same tinted rounded-tile style as
+ * InstrumentLogo (EU blue for the euro).
+ */
+function CurrencyMark({
+  symbol,
+  color = "#60a5fa",
+  size = 18,
+}: {
+  symbol: string;
+  color?: string;
+  size?: number;
+}) {
+  return (
+    <span
+      className="font-display grid shrink-0 place-items-center rounded-lg font-bold"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.55),
+        color,
+        background: `color-mix(in oklab, ${color} 16%, transparent)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${color} 28%, transparent)`,
+      }}
+      aria-hidden="true"
+    >
+      {symbol}
+    </span>
+  );
+}
 
 /**
  * Two-session mini chart: the previous session faded on the left half, today
