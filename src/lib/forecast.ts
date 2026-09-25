@@ -732,6 +732,49 @@ export function deflateResult(
 }
 
 // ---------------------------------------------------------------------------
+// Backtest — "what would the assumed returns have said, from a past point?"
+// ---------------------------------------------------------------------------
+
+/** An actual value sample (ascending), with the cumulative net capital in. */
+export interface ValueSample {
+  ts: number;
+  value: number;
+  invested: number;
+}
+
+export interface BacktestPoint {
+  ts: number;
+  pess: number;
+  real: number;
+  opt: number;
+}
+
+/**
+ * Replays the past from `samples[0]` with the scenario returns applied to the
+ * WHOLE portfolio and the ACTUAL net deposits/withdrawals between samples
+ * added as they happened. So the gap to the real line is purely "the market
+ * vs. the assumed return", not "saved more or less than planned".
+ */
+export function backtest(
+  samples: ValueSample[],
+  annualReturn: Record<ScenarioKey, number>,
+): BacktestPoint[] {
+  if (samples.length < 2) return [];
+  const yearMs = 365.25 * 24 * 3600 * 1000;
+  const v0 = samples[0].value;
+  const v = { pess: v0, real: v0, opt: v0 };
+  const out: BacktestPoint[] = [{ ts: samples[0].ts, ...v }];
+  for (let i = 1; i < samples.length; i++) {
+    const years = (samples[i].ts - samples[i - 1].ts) / yearMs;
+    const flow = samples[i].invested - samples[i - 1].invested;
+    for (const s of SCENARIOS)
+      v[s] = v[s] * Math.pow(1 + annualReturn[s], years) + flow;
+    out.push({ ts: samples[i].ts, ...v });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Target finder
 // ---------------------------------------------------------------------------
 
@@ -840,6 +883,8 @@ export interface ForecastSettings {
   inflationPct: number;
   /** Show values deflated to today's forint. */
   realMode: boolean;
+  /** Chart: backtest + earlier saved forecasts over the actual past. */
+  showPastForecast: boolean;
   /** Target finder: amount (in the currently shown forint) and optional date. */
   targetHuf: number | null;
   /** YYYY-MM, or "" for "no deadline". */
@@ -859,6 +904,7 @@ export const DEFAULT_SETTINGS: ForecastSettings = {
   mcSigma: 0.15,
   inflationPct: 0.035,
   realMode: false,
+  showPastForecast: true,
   targetHuf: null,
   targetMonth: "",
 };

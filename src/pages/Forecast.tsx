@@ -31,18 +31,25 @@ import {
   probAtLeast,
   requiredMonthlySaving,
   monthsUntil,
+  backtest,
   EVENT_COLORS,
   EVENT_LABELS,
   type ForecastAssumptions,
   type ForecastResult,
+  type BacktestPoint,
   type ForecastSettings,
+  type ValueSample,
   type PlannedExpense,
   type ScenarioKey,
   type ReinvestTarget,
 } from "../lib/forecast";
 import { PREFS_EVENT } from "../lib/prefs";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
-import ForecastChart, { type HistoryPoint } from "../components/ForecastChart";
+import ForecastChart, {
+  type HistoryPoint,
+  type PastForecast,
+} from "../components/ForecastChart";
+import type { ValuePoint } from "../lib/portfolio";
 import { loadSavingsGoals } from "../lib/savings";
 import {
   PageHeader,
@@ -55,6 +62,7 @@ import { formatMoney } from "../lib/format";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
 const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
+const YEAR_MS = 365.25 * 24 * 3600 * 1000;
 
 const HORIZONS = [
   { months: 60, label: "5 év" },
@@ -95,6 +103,17 @@ function newId(): string {
 function formatMonthLabel(month: string): string {
   const [y, m] = month.split("-");
   return `${y}. ${m}.`;
+}
+
+const MONTH_NAMES = [
+  "január", "február", "március", "április", "május", "június",
+  "július", "augusztus", "szeptember", "október", "november", "december",
+];
+
+/** "2026-06" → "2026. júniusi" (every Hungarian month name takes "-i"). */
+function monthAdjective(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${y}. ${MONTH_NAMES[m - 1]}i`;
 }
 
 function currentMonthKey(d: Date = new Date()): string {
@@ -261,37 +280,79 @@ export default function Forecast() {
   // --- actual past values leading into the forecast -------------------------
   const valueSeries = useValueSeries();
   const startTs = result.points[0]?.ts;
-  const history = useMemo<HistoryPoint[]>(() => {
-    if (startTs == null) return [];
+  const past = useMemo<{
+    points: HistoryPoint[];
+    backtestNow?: BacktestPoint;
+    backtestFrom?: number;
+  }>(() => {
+    if (startTs == null) return { points: [] };
     const back = Math.max(12, Math.round(settings.months / 4));
     const from = new Date(startTs);
     from.setMonth(from.getMonth() - back);
     const fromKey = currentMonthKey(from);
     const curKey = currentMonthKey(new Date(startTs));
     // Last sample of every completed month in the window.
-    const byMonth = new Map<string, { date: string; value: number }>();
+    const byMonth = new Map<string, ValuePoint>();
     for (const p of valueSeries) {
       const k = p.date.slice(0, 7);
       if (k < fromKey || k >= curKey) continue;
       byMonth.set(k, p);
     }
-    const nowMs = startTs;
-    const yearMs = 365.25 * 24 * 3600 * 1000;
-    return [...byMonth.values()].map((p) => {
-      const [y, m, d] = p.date.split("-").map(Number);
-      const ts = new Date(y, m - 1, d).getTime();
-      // Today's-forint view: a past forint is worth more today.
-      const f = settings.realMode
-        ? Math.pow(1 + settings.inflationPct, (nowMs - ts) / yearMs)
+    const dayTs = (date: string) => {
+      const [y, m, d] = date.split("-").map(Number);
+      return new Date(y, m - 1, d).getTime();
+    };
+
+    // Backtest from the month-end after the last one-off lump (the initial
+    // funding would swamp any return comparison), or the window start.
+    const months = [...byMonth.keys()];
+    const lastOneOff = detected.oneOffs.at(-1)?.month;
+    const startKey =
+      lastOneOff && byMonth.has(lastOneOff) ? lastOneOff : months[0];
+    const samples: ValueSample[] = months
+      .filter((k) => startKey != null && k >= startKey)
+      .map((k) => byMonth.get(k)!)
+      .map((p) => ({ ts: dayTs(p.date), value: p.value, invested: p.invested }));
+    const today = valueSeries.at(-1);
+    if (today && samples.length)
+      samples.push({
+        ts: dayTs(today.date),
+        value: today.value,
+        invested: today.invested,
+      });
+    const bt = backtest(samples, settings.annualReturn);
+    // The last backtest point sits on today's value → joins at the "ma" point.
+    if (bt.length) bt[bt.length - 1] = { ...bt[bt.length - 1], ts: startTs };
+    const btByTs = new Map(bt.map((b) => [b.ts, b]));
+
+    // Today's-forint view: a past forint is worth more today.
+    const f = (ts: number) =>
+      settings.realMode
+        ? Math.pow(1 + settings.inflationPct, (startTs - ts) / YEAR_MS)
         : 1;
-      return { ts, actual: p.value * f };
+    const out: HistoryPoint[] = [...byMonth.values()].map((p) => {
+      const ts = dayTs(p.date);
+      const b = btByTs.get(ts);
+      return {
+        ts,
+        actual: p.value * f(ts),
+        bt: b && {
+          pess: b.pess * f(ts),
+          real: b.real * f(ts),
+          opt: b.opt * f(ts),
+        },
+      };
     });
+    const last = btByTs.get(startTs);
+    return { points: out, backtestNow: last, backtestFrom: bt[0]?.ts };
   }, [
     valueSeries,
     startTs,
     settings.months,
     settings.realMode,
     settings.inflationPct,
+    settings.annualReturn,
+    detected.oneOffs,
   ]);
 
   // --- target finder --------------------------------------------------------
@@ -416,6 +477,39 @@ export default function Forecast() {
       .reverse()
       .slice(0, 6);
   }, [snapshots]);
+
+  // Earlier saved forecasts as lines over the past: from the month they were
+  // saved up to now (the "reális" path, nominal → today's Ft in real mode).
+  const pastForecasts = useMemo<PastForecast[]>(() => {
+    if (startTs == null) return [];
+    const curKey = currentMonthKey(new Date(startTs));
+    const monthTs = (key: string) => {
+      const [y, m] = key.split("-").map(Number);
+      return new Date(y, m - 1, 1).getTime();
+    };
+    const f = (ts: number) =>
+      settings.realMode
+        ? Math.pow(1 + settings.inflationPct, (startTs - ts) / YEAR_MS)
+        : 1;
+    return snapshots
+      .filter((s) => s.month < curKey)
+      .slice(-6)
+      .map((s) => {
+        const t0 = monthTs(s.month);
+        return {
+          label: `${monthAdjective(s.month)} előrejelzés`,
+          points: [
+            { ts: t0, value: s.startValueHuf * f(t0) },
+            ...s.points
+              .filter((p) => p[0] <= curKey)
+              .map((p) => {
+                const ts = monthTs(p[0]);
+                return { ts, value: p[2] * f(ts) };
+              }),
+          ],
+        };
+      });
+  }, [snapshots, startTs, settings.realMode, settings.inflationPct]);
 
   // --- shortfall warning ----------------------------------------------------
   const shortfallMonth = result.shortfall.real ?? result.shortfall.pess;
@@ -1059,14 +1153,29 @@ export default function Forecast() {
         <ForecastChart
           points={result.points}
           centerLabel={bandLabels.mid}
-          history={history}
+          history={past.points}
           events={result.events}
+          backtestNow={past.backtestNow}
+          pastForecasts={pastForecasts}
+          showPast={settings.showPastForecast}
         />
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-          {history.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
+          {past.points.length > 0 && (
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-0.5 w-4 bg-[#e8ecf8]/70" />
               Tényleges múlt
+            </span>
+          )}
+          {settings.showPastForecast && past.backtestNow && (
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-4 border-t-2 border-dashed border-[#a5b4fc]" />
+              Visszateszt
+            </span>
+          )}
+          {settings.showPastForecast && pastForecasts.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-0.5 w-4 bg-[#fbbf24]" />
+              Korábbi előrejelzések
             </span>
           )}
           {(Object.keys(EVENT_COLORS) as (keyof typeof EVENT_COLORS)[])
@@ -1080,7 +1189,55 @@ export default function Forecast() {
                 {EVENT_LABELS[k]}
               </span>
             ))}
+          {past.points.length > 0 && (
+            <label className="ml-auto flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={settings.showPastForecast}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    showPastForecast: e.target.checked,
+                  }))
+                }
+              />
+              Múltbeli előrejelzés
+            </label>
+          )}
         </div>
+        {settings.showPastForecast &&
+          (past.backtestNow && past.backtestFrom != null ? (
+            <p className="mt-2 text-xs text-[var(--color-muted)]">
+              <strong>Visszateszt</strong>{" "}
+              {new Date(past.backtestFrom).toLocaleDateString("hu-HU")}-tól:
+              a ténylegesen befizetett összegekkel és a feltételezett hozammal
+              (a teljes vagyonra) mára{" "}
+              <span className="amt">
+                {privacy ? "•••" : formatMoney(past.backtestNow.real)}
+              </span>{" "}
+              lenne a reális pályán (sáv{" "}
+              <span className="amt">
+                {privacy
+                  ? "•••"
+                  : `${formatMoney(past.backtestNow.pess)} – ${formatMoney(past.backtestNow.opt)}`}
+              </span>
+              ), a valóság{" "}
+              <span className="amt">
+                {privacy ? "•••" : formatMoney(result.points[0].real)}
+              </span>
+              .
+              {pastForecasts.length === 0 &&
+                " A havonta mentett előrejelzések a következő hónaptól sárga vonalként jelennek meg."}
+            </p>
+          ) : (
+            pastForecasts.length === 0 && (
+              <p className="mt-2 text-xs text-[var(--color-muted)]">
+                Visszateszthez legalább egy lezárt hónap kell a nagy egyszeri
+                befizetések után; a havonta mentett előrejelzések a következő
+                hónaptól jelennek meg.
+              </p>
+            )
+          ))}
       </Card>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">

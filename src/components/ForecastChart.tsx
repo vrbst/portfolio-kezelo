@@ -28,11 +28,24 @@ const tooltipStyle = {
   color: "#e8ecf8",
 } as const;
 
+type Band3 = { pess: number; real: number; opt: number };
+
 /** A past month-end value (already converted to the shown forint). */
 export interface HistoryPoint {
   ts: number;
   actual: number;
+  /** Backtest value on the same day, if the backtest covers it. */
+  bt?: Band3;
 }
+
+/** An earlier saved forecast's path from its month up to now. */
+export interface PastForecast {
+  label: string;
+  points: { ts: number; value: number }[];
+}
+
+const BT_COLOR = "#a5b4fc";
+const SNAP_COLOR = "#fbbf24";
 
 function formatYear(ms: number): string {
   const d = new Date(ms);
@@ -65,6 +78,10 @@ interface Row {
   contributed?: number;
   band?: [number, number];
   events?: ForecastEvent[];
+  btReal?: number;
+  btBand?: [number, number];
+  /** Saved-forecast values by line index ("snap0", "snap1", …). */
+  [snap: `snap${number}`]: number | undefined;
 }
 
 /**
@@ -72,6 +89,8 @@ interface Row {
  * scenarios, the realistic path as a solid line, and the contributed-capital
  * baseline dashed. The actual past values lead into "ma", and dated events
  * (maturities, expenses, goals, withdrawal start) sit as dots on the path.
+ * With `showPast`, the past also carries a backtest (dashed line + faint
+ * band) and the earlier saved forecasts (thin amber lines).
  * Privacy mode masks the amounts like the value chart.
  */
 export default function ForecastChart({
@@ -79,12 +98,19 @@ export default function ForecastChart({
   centerLabel = "Reális",
   history = [],
   events = [],
+  backtestNow,
+  pastForecasts = [],
+  showPast = false,
 }: {
   points: ForecastPoint[];
   /** Tooltip label of the highlighted middle line (det: Reális, MC: Medián). */
   centerLabel?: string;
   history?: HistoryPoint[];
   events?: ForecastEvent[];
+  /** Backtest value at the forecast start ("ma"), where its line ends. */
+  backtestNow?: Band3;
+  pastForecasts?: PastForecast[];
+  showPast?: boolean;
 }) {
   const privacy = usePortfolio((s) => s.privacy);
   const fmt = (v: number) => (privacy ? MASK : formatMoney(v));
@@ -96,24 +122,47 @@ export default function ForecastChart({
       arr.push(e);
       byMonth.set(e.month, arr);
     }
-    const rows: Row[] = history.map((h) => ({ ts: h.ts, actual: h.actual }));
+    // Rows keyed by timestamp: past samples, saved-forecast points and the
+    // forecast months can share a day and must merge into one row.
+    const byTs = new Map<number, Row>();
+    const row = (ts: number) => {
+      let r = byTs.get(ts);
+      if (!r) byTs.set(ts, (r = { ts }));
+      return r;
+    };
+    const withBt = (r: Row, b: Band3 | undefined) => {
+      if (!showPast || !b) return;
+      r.btReal = b.real;
+      r.btBand = [b.pess, b.opt];
+    };
+    for (const h of history) {
+      const r = row(h.ts);
+      r.actual = h.actual;
+      withBt(r, h.bt);
+    }
+    if (showPast)
+      pastForecasts.forEach((pf, k) => {
+        for (const p of pf.points) row(p.ts)[`snap${k}`] = p.value;
+      });
     const dots: { ts: number; y: number; color: string }[] = [];
     points.forEach((p, i) => {
       const evs = byMonth.get(p.month);
-      rows.push({
-        ts: p.ts,
-        real: p.real,
-        contributed: p.contributed,
-        band: [p.pess, p.opt],
-        events: evs,
-        // Join the past line to the forecast start.
-        actual: i === 0 && history.length ? p.real : undefined,
-      });
+      const r = row(p.ts);
+      r.real = p.real;
+      r.contributed = p.contributed;
+      r.band = [p.pess, p.opt];
+      r.events = evs;
+      if (i === 0 && history.length) {
+        // Join the past lines to the forecast start.
+        r.actual = p.real;
+        withBt(r, backtestNow);
+      }
       if (evs)
         dots.push({ ts: p.ts, y: p.real, color: EVENT_COLORS[evs[0].kind] });
     });
-    return { data: rows, dots };
-  }, [points, history, events]);
+    const data = [...byTs.values()].sort((a, b) => a.ts - b.ts);
+    return { data, dots };
+  }, [points, history, events, backtestNow, pastForecasts, showPast]);
 
   const min = data[0]?.ts ?? 0;
   const max = data[data.length - 1]?.ts ?? 0;
@@ -161,6 +210,26 @@ export default function ForecastChart({
                   {past && row.actual != null && (
                     <div>Tényleges érték: {fmt(row.actual)}</div>
                   )}
+                  {row.btReal != null && (
+                    <div style={{ color: BT_COLOR }}>
+                      Visszateszt: {fmt(row.btReal)}
+                      {row.btBand && (
+                        <span className="text-[#8b93a7]">
+                          {" "}
+                          ({fmt(row.btBand[0])} – {fmt(row.btBand[1])})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {showPast &&
+                    pastForecasts.map((pf, k) => {
+                      const v = row[`snap${k}`];
+                      return v == null ? null : (
+                        <div key={k} style={{ color: SNAP_COLOR }}>
+                          {pf.label}: {fmt(v)}
+                        </div>
+                      );
+                    })}
                   {!past && (
                     <>
                       <div className="font-semibold text-[#a5b4fc]">
@@ -219,9 +288,50 @@ export default function ForecastChart({
             dot={false}
             name="contributed"
           />
+          {showPast && (
+            <Area
+              type="monotone"
+              dataKey="btBand"
+              stroke="none"
+              fill={BT_COLOR}
+              fillOpacity={0.12}
+              connectNulls
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          )}
+          {showPast && (
+            <Line
+              type="monotone"
+              dataKey="btReal"
+              stroke={BT_COLOR}
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              connectNulls
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
+          {showPast &&
+            pastForecasts.map((_, k) => (
+              <Line
+                key={k}
+                type="monotone"
+                dataKey={`snap${k}`}
+                stroke={SNAP_COLOR}
+                // Older forecasts fade out, the latest is the most visible.
+                strokeOpacity={0.35 + (0.55 * (k + 1)) / pastForecasts.length}
+                strokeWidth={1.25}
+                connectNulls
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
           <Line
             type="monotone"
             dataKey="actual"
+            connectNulls
             stroke="#e8ecf8"
             strokeOpacity={0.7}
             strokeWidth={1.5}

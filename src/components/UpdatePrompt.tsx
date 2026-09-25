@@ -31,6 +31,10 @@ export default function UpdatePrompt() {
           /* offline / transient network error — try again next tick */
         }
       };
+      // Check right away too: the browser's own on-navigation check can be
+      // skipped or throttled, leaving a just-opened app on the old build (and
+      // without the toast) until the first interval tick, 30 minutes later.
+      void check();
       setInterval(check, CHECK_MS);
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") void check();
