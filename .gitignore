@@ -28,3 +28,6 @@ sample-data/
 *.njsproj
 *.sln
 *.sw?
+
+# Telegram-értesítő: titkok és állapot (helyi gép)
+.notify/

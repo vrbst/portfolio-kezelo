@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Account, Instrument, Transaction } from "./model";
+import type { LiveQuote } from "./prices";
 import {
   buildFxHistory,
   computePortfolio,
@@ -291,4 +292,77 @@ export function accountValueSpark(
     false,
   );
   return s.length >= 2 ? s.slice(-points).map((p) => p.value) : [];
+}
+
+export interface DayChange {
+  /**
+   * HUF market move between the last two samples — deposits/withdrawals in
+   * that window are netted out, so a transfer never reads as a daily gain.
+   */
+  abs: number;
+  /** Fraction vs the earlier sample (undefined if it was 0). */
+  pct?: number;
+  /** "ma" when the samples are ≤1 day apart, else the gap ("3 nap"). */
+  note: string;
+}
+
+/**
+ * The "ma" delta: today's live value vs. the end of yesterday, flows netted out.
+ *
+ * Yesterday is re-marked with the live feed's own previous closes (securities
+ * and EUR/HUF) instead of the history file: the live EUR/HUF is Yahoo's
+ * intraday rate while the history carries the ECB fixing, and the two can
+ * differ by a few tenths of a percent — noise the size of a whole day's move.
+ * Without live quotes it falls back to the last two series samples.
+ */
+export function computeDayChange(
+  series: ValuePoint[],
+  accounts: Account[],
+  transactions: Transaction[],
+  instruments: Instrument[],
+  fx: Record<string, number>,
+  history: ValueHistory | null | undefined,
+  liveQuotes: Record<string, LiveQuote>,
+): DayChange | null {
+  if (series.length < 2) return null;
+  const last = series[series.length - 1];
+
+  const instMap = new Map(instruments.map((i) => [i.key, i]));
+  const prices: Record<string, number> = {};
+  for (const [key, q] of Object.entries(liveQuotes)) {
+    if (instMap.has(key) && q.prevClose != null) prices[key] = q.prevClose;
+  }
+  const eurPrev = liveQuotes["EUR"]?.prevClose;
+  if (eurPrev != null || Object.keys(prices).length > 0) {
+    const d = new Date(`${last.date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    const prev = valueOnDay(
+      accounts,
+      transactions,
+      instMap,
+      fx,
+      history,
+      d.toISOString().slice(0, 10),
+      { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined },
+    );
+    // value − invested on both sides: flows (and the in-transit bridge the
+    // series adds to both) cancel out.
+    const abs = last.value - last.invested - (prev.value - prev.invested);
+    return {
+      abs,
+      pct: prev.value ? abs / prev.value : undefined,
+      note: "ma",
+    };
+  }
+
+  const prev = series[series.length - 2];
+  const abs = last.value - prev.value - (last.invested - prev.invested);
+  const gap = Math.round(
+    (Date.parse(last.date) - Date.parse(prev.date)) / 86_400_000,
+  );
+  return {
+    abs,
+    pct: prev.value ? abs / prev.value : undefined,
+    note: gap <= 1 ? "ma" : `${gap} nap`,
+  };
 }
