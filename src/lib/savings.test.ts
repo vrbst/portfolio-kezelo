@@ -133,3 +133,23 @@ describe("savings goal – which coupons the monthly status claims", () => {
     expect(s.find((x) => x.goalId === "g2")!.couponHuf).toBeCloseTo(100_000);
   });
 });
+
+describe("savings goal – coupon room is the actual shortfall", () => {
+  it("equals the gap, and this month's own buys into the goal shrink it", () => {
+    const before = progress([...BASE_TXS, COUPON], at("2026-10-20"));
+    expect(before.couponRoomHuf).toBeCloseTo(600_000);
+    expect(before.couponRoomHuf).toBe(before.gapHuf);
+    // 200 000 face of the goal's DKJ bought this month → room 400 000.
+    const buy = tx({ id: "b-dkj-2", date: "2026-10-15", type: "buy", instrumentKey: DKJ.key, quantity: 200_000, grossAmount: 195_000, netAmount: -195_000 });
+    const after = progress([...BASE_TXS, COUPON, buy], at("2026-10-20"));
+    expect(after.couponRoomHuf).toBeCloseTo(400_000);
+    expect(after.couponRoomHuf).toBe(after.gapHuf);
+  });
+
+  it("a goal whose room this month's buys have used up claims less of the coupon", () => {
+    // Room 600 000 − 450 000 bought = 150 000 → only that much of the 300 000 coupon.
+    const buy = tx({ id: "b-dkj-3", date: "2026-10-15", type: "buy", instrumentKey: DKJ.key, quantity: 450_000, grossAmount: 440_000, netAmount: -440_000 });
+    const s = status([...BASE_TXS, COUPON, buy], at("2026-10-20"));
+    expect(s.couponHuf).toBeCloseTo(150_000);
+  });
+});

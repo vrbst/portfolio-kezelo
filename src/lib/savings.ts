@@ -134,9 +134,8 @@ export interface SavingsProgress {
   monthlyNeededHuf: number;
   /**
    * How much of an arrived bond coupon the goal can still take (includeCoupons):
-   * the shortfall on the target date without the credited coupons and without
-   * this month's buys into the goal — so reinvesting a coupon doesn't shrink
-   * its own claim. See income.ts.
+   * its actual shortfall on the target date (= gapHuf) — this month's own buys
+   * into the goal shrink it too. See incomeFlow.ts.
    */
   couponRoomHuf: number;
   /**
@@ -593,9 +592,9 @@ export function computeSavingsProgress(
       0,
       targetHuf - (assignedStart + couponsHuf + creditedThisMonth),
     );
-    // Room for newly arrived coupons: the shortfall without them and without
-    // this month's own buys into the goal.
-    const couponRoomHuf = Math.max(0, targetHuf - (assignedStart + couponsHuf));
+    // Room for newly arrived coupons: the actual shortfall, this month's own
+    // buys into the goal included.
+    const couponRoomHuf = gapHuf;
     const monthsLeft = future ? paydaysUntil(now, dateMs) + 1 : 0;
     const monthlyNeededHuf =
       monthsLeft > 0 ? gapAtMonthStart / monthsLeft : gapHuf;
