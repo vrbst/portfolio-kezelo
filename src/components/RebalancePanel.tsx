@@ -4,9 +4,11 @@ import {
   usePortfolio,
   useGlideVersions,
   useGlideState,
+  useIncomeQueue,
   useMonthlyBudget,
   useToday,
 } from "../lib/store";
+import IncomeQueue, { CouponWarning } from "./IncomeQueue";
 import { latestConfig, type GlideConfig } from "../lib/glidePath";
 import {
   allocationState,
@@ -186,6 +188,8 @@ export default function RebalancePanel() {
   // Default: the glide path's own monthly amount (its slice of the budget);
   // overwritable for a coupon, dividend or extra deposit.
   const { breakdown, couponGoals } = useMonthlyBudget();
+  const income = useIncomeQueue();
+  const [pickedIncome, setPickedIncome] = useState<string | null>(null);
   const defaultAmount = breakdown.glideHuf;
   const source = glideAmountSource(breakdown, cfg);
   const [amountRaw, setAmountRaw] = useState<string | null>(null);
@@ -267,12 +271,15 @@ export default function RebalancePanel() {
               {amountRaw != null && " (most kézzel átírva)"}
             </p>
           )}
-          {couponGoals.length > 0 && (
-            <p className="mb-2 text-xs text-[var(--color-warning)]">
-              Figyelem: {couponGoals.map((n) => `„${n}”`).join(", ")} a
-              kötvénykuponokat is magának foglalja — ha itt kupont osztasz el,
-              az kétszer számolódik.
-            </p>
+          {amountRaw != null && (
+            <CouponWarning
+              goals={couponGoals}
+              allocations={income.allocations}
+              onPick={(id) => {
+                setAmountRaw(null);
+                setPickedIncome(id);
+              }}
+            />
           )}
           <p className="mb-2 text-xs text-[var(--color-muted)]">
             Célpont: {flow.label}
@@ -280,6 +287,7 @@ export default function RebalancePanel() {
           </p>
           <SuggestionList plan={flowPlan} targetNote={flowNote} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
           <SaveAsReminder plan={flowPlan} title={`Célpálya – ${formatMoney(amount)} elosztása (${today})`} />
+          <IncomeQueue allocations={income.allocations} since={income.since} highlightId={pickedIncome} />
         </section>
 
         <section>

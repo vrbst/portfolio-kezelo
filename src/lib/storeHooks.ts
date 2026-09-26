@@ -27,7 +27,16 @@ import {
   loadSavingsGoals,
   savingsGoalAlerts,
   type SavingsGoal,
+  type SavingsProgress,
 } from "./savings";
+import {
+  allocateIncome,
+  ensureIncomeState,
+  incomeEvents,
+  loadIncomeState,
+  pendingIncome,
+  type IncomeAllocation,
+} from "./incomeFlow";
 import {
   computeGoalProgress,
   goalAlerts,
@@ -477,6 +486,7 @@ const cachedBudget = sharedMemo(
         glide,
       }),
       couponGoals: couponClaimingGoals(savings),
+      savings,
     };
   },
 );
@@ -488,6 +498,8 @@ const cachedBudget = sharedMemo(
 export function useMonthlyBudget(): {
   breakdown: BudgetBreakdown;
   couponGoals: string[];
+  /** Medium-term goals' progress (shared with the incoming-money split). */
+  savings: SavingsProgress[];
   glide: GlideConfig | undefined;
 } {
   const savingsGoals = useSavingsGoals();
@@ -513,4 +525,67 @@ export function useMonthlyBudget(): {
     ),
     glide,
   };
+}
+
+const cachedIncome = sharedMemo(
+  (
+    transactions: Transaction[],
+    instruments: Instrument[],
+    accounts: Account[],
+    fx: Record<string, number>,
+    savings: SavingsProgress[],
+    glide: GlideConfig | undefined,
+    state: AllocationState | null,
+    prefsVersion: number,
+  ) => {
+    void prefsVersion; // the tracking state is a pref
+    const st = loadIncomeState();
+    const events = st
+      ? incomeEvents(
+          transactions,
+          new Map(instruments.map((i) => [i.key, i])),
+          accounts,
+          fx,
+          st.since,
+        )
+      : [];
+    return {
+      since: st?.since ?? null,
+      allocations: allocateIncome(pendingIncome(events, st), savings, glide, state),
+    };
+  },
+);
+
+/**
+ * Incoming money not yet distributed (coupons, interest, dividends,
+ * redemptions), each split goal-first then along the glide path. Switches
+ * the tracking on (with its look-back) the first time the store has loaded.
+ */
+export function useIncomeQueue(): {
+  since: string | null;
+  allocations: IncomeAllocation[];
+} {
+  const loaded = usePortfolio((s) => s.loaded);
+  const today = useToday();
+  useEffect(() => {
+    if (loaded) ensureIncomeState(today);
+  }, [loaded, today]);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const accounts = usePortfolio((s) => s.accounts);
+  const fx = usePortfolio((s) => s.fx);
+  const { savings, glide } = useMonthlyBudget();
+  const versions = useGlideVersions();
+  const state = useGlideState(versions);
+  const prefsVersion = usePrefsVersion();
+  return cachedIncome(
+    transactions,
+    instruments,
+    accounts,
+    fx,
+    savings,
+    glide,
+    state,
+    prefsVersion,
+  );
 }

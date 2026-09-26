@@ -864,7 +864,7 @@ export function bandRule(
   if (leftover >= Math.max(1, cfg.minTradeHuf)) {
     const plan = routeCashflow(
       cfg,
-      shiftState(state, [...sells, ...buys]),
+      applyTrades(state, [...sells, ...buys]),
       leftover,
       "band",
       flowTargets(cfg, state.day),
@@ -876,8 +876,11 @@ export function bandRule(
   return finishPlan(state, [...sells, ...buys, ...routed, ...redirects], notes);
 }
 
-/** The state after the "ok" trades (values moved, weights recomputed). */
-function shiftState(state: AllocationState, trades: Suggestion[]): AllocationState {
+/**
+ * The state after the "ok" trades (values moved, weights recomputed; buys
+ * with new money grow the total). Statuses are re-read against the same band.
+ */
+export function applyTrades(state: AllocationState, trades: Suggestion[]): AllocationState {
   const delta = new Map<string, number>();
   for (const t of trades) {
     if (t.status !== "ok" || !t.instrumentKey) continue;

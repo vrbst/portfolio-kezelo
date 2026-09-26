@@ -12,7 +12,6 @@ import {
   consolidatedHoldings,
   futureBondCashflows,
   histFxRate,
-  toHuf,
   type FxHistory,
   type PortfolioSummary,
   type PriceMap,
@@ -45,6 +44,12 @@ import type { Alert } from "./alerts";
 import { formatMoney } from "./format";
 import { touchPref } from "./prefs";
 import type { PlannedExpense } from "./forecast";
+import {
+  claimsCoupon,
+  incomeHuf,
+  isBondCoupon,
+  splitAmongGoals,
+} from "./incomeClaims";
 
 export interface SavingsGoal {
   id: string;
@@ -128,6 +133,13 @@ export interface SavingsProgress {
    */
   monthlyNeededHuf: number;
   /**
+   * How much of an arrived bond coupon the goal can still take (includeCoupons):
+   * the shortfall on the target date without the credited coupons and without
+   * this month's buys into the goal — so reinvesting a coupon doesn't shrink
+   * its own claim. See income.ts.
+   */
+  couponRoomHuf: number;
+  /**
    * NET HUF put into the goal this effective month (buys − sells of its
    * instruments) — what already counts against this month's quota. 0 for
    * goals without assigned instruments.
@@ -201,6 +213,27 @@ export function savingsMonthlyStatus(
       now,
     ).map((p) => [p.goal.id, p]),
   );
+  // This month's bond coupons, split among the goals that claim them.
+  const couponShares = new Map<string, number>();
+  const room = new Map(
+    [...progressByGoal.values()].map((p) => [p.goal.id, p.couponRoomHuf]),
+  );
+  const monthCoupons = transactions
+    .filter((t) => isBondCoupon(t, instruments) && inEffectiveMonth(t, eff))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (const t of monthCoupons) {
+    const day = t.date.slice(0, 10);
+    const shares = splitAmongGoals(
+      incomeHuf(t, fx),
+      [...progressByGoal.values()]
+        .filter((p) => claimsCoupon(p, day))
+        .map((p) => ({ goalId: p.goal.id, capHuf: room.get(p.goal.id) ?? 0 })),
+    );
+    for (const [id, x] of shares) {
+      couponShares.set(id, (couponShares.get(id) ?? 0) + x);
+      room.set(id, (room.get(id) ?? 0) - x);
+    }
+  }
   const out: SavingsMonthlyStatus[] = [];
   for (const g of goals) {
     if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
@@ -216,21 +249,9 @@ export function savingsMonthlyStatus(
     // Coupons received THIS effective month — if the goal earmarks coupons
     // (includeCoupons), the user is expected to reinvest them into the goal's
     // instrument, so they add to what must be bought this month.
-    let couponHuf = 0;
-    if (g.includeCoupons) {
-      for (const t of transactions) {
-        if (t.type !== "interest") continue;
-        const d = new Date(t.date);
-        if (Number.isNaN(d.getTime())) continue;
-        const em = effectiveMonth(d);
-        if (em.year !== eff.year || em.month0 !== eff.month0) continue;
-        couponHuf += toHuf(
-          Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-          t.currency,
-          fx,
-        );
-      }
-    }
+    // Only the goal's SHARE of them (see income.ts): none once the goal is
+    // past its date or needs nothing more, split with other claiming goals.
+    const couponHuf = couponShares.get(g.id) ?? 0;
     const neededHuf = baseNeededHuf + couponHuf;
     // Met once this month's purchases reach (1 − tolerance) × needed, so
     // rounding / FX drift doesn't leave it a few hundred Ft "short".
@@ -532,7 +553,7 @@ export function computeSavingsProgress(
     const startTxs = txs.filter(
       (t) => !(isTrade(t) && inEffectiveMonth(t, eff)),
     );
-    let gapAtMonthStart = gapHuf;
+    let assignedStart = assignedValueHuf;
     if (startTxs.length !== txs.length) {
       const nowStart = computePortfolio(
         accounts,
@@ -552,9 +573,29 @@ export function computeSavingsProgress(
             new Date(dateMs),
           )
         : nowStart;
-      const assignedStart = assignedValue(nowStart, atStart, keys, targetMs);
-      gapAtMonthStart = Math.max(0, targetHuf - (assignedStart + couponsHuf));
+      assignedStart = assignedValue(nowStart, atStart, keys, targetMs);
     }
+    // Coupons credited THIS effective month were still ahead at its start —
+    // counting them as projected there keeps a just-arrived coupon from also
+    // swelling the gap that is spread over the months (the monthly status
+    // adds the goal's share of them on top, as money to reinvest).
+    const creditedThisMonth = goal.includeCoupons
+      ? txs
+          .filter(
+            (t) =>
+              isBondCoupon(t, instruments) &&
+              inEffectiveMonth(t, eff) &&
+              t.date.slice(0, 10) <= goal.targetDate,
+          )
+          .reduce((s, t) => s + incomeHuf(t, fx), 0)
+      : 0;
+    const gapAtMonthStart = Math.max(
+      0,
+      targetHuf - (assignedStart + couponsHuf + creditedThisMonth),
+    );
+    // Room for newly arrived coupons: the shortfall without them and without
+    // this month's own buys into the goal.
+    const couponRoomHuf = Math.max(0, targetHuf - (assignedStart + couponsHuf));
     const monthsLeft = future ? paydaysUntil(now, dateMs) + 1 : 0;
     const monthlyNeededHuf =
       monthsLeft > 0 ? gapAtMonthStart / monthsLeft : gapHuf;
@@ -571,6 +612,7 @@ export function computeSavingsProgress(
       monthsLeft,
       daysLeft,
       monthlyNeededHuf,
+      couponRoomHuf,
       thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now),
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,

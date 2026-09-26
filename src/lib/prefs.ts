@@ -18,6 +18,7 @@ import {
   mergeGlideVersions,
   type GlideConfig,
 } from "./glidePath";
+import { loadIncomeState, mergeIncomeState, type IncomeState } from "./incomeFlow";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -36,6 +37,8 @@ export interface SyncedPrefs {
   symbols?: StampedPref<Record<string, string>>;
   /** Glide-path configuration versions — append-only, merged as a union. */
   glidePath?: StampedPref<GlideConfig[]>;
+  /** Incoming-money tracking: start day + ids marked distributed — a union. */
+  income?: StampedPref<IncomeState | null>;
 }
 
 export type PrefKind =
@@ -44,7 +47,8 @@ export type PrefKind =
   | "forecastSnapshots"
   | "savings"
   | "symbols"
-  | "glidePath";
+  | "glidePath"
+  | "income";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -53,6 +57,7 @@ const KINDS: PrefKind[] = [
   "savings",
   "symbols",
   "glidePath",
+  "income",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -62,6 +67,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   savings: "pf-savings",
   symbols: "portfolio.symbolOverrides",
   glidePath: "pf-glidepath",
+  income: "pf-income",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -70,6 +76,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   savings: "pf-savings-updated",
   symbols: "portfolio.symbolOverrides-updated",
   glidePath: "pf-glidepath-updated",
+  income: "pf-income-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -80,6 +87,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   forecastSnapshots: loadForecastSnapshots,
   savings: loadSavingsGoals,
   glidePath: loadGlideVersions,
+  income: loadIncomeState,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {
@@ -167,6 +175,8 @@ const UNION: Partial<Record<PrefKind, (a: unknown, b: unknown) => unknown>> = {
     ),
   glidePath: (a, b) =>
     mergeGlideVersions(a as GlideConfig[] | null, b as GlideConfig[] | null),
+  income: (a, b) =>
+    mergeIncomeState(a as IncomeState | null, b as IncomeState | null),
 };
 
 /** Per-field last-write-wins merge; `over` wins timestamp ties. */

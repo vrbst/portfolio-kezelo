@@ -43,6 +43,13 @@ import {
 } from "../../src/lib/savings";
 import { applyRemotePrefs } from "../../src/lib/prefs";
 import {
+  allocateIncome,
+  incomeAlerts,
+  incomeEvents,
+  loadIncomeState,
+  pendingIncome,
+} from "../../src/lib/incomeFlow";
+import {
   latestConfig,
   loadGlideVersions,
   type GlideConfig,
@@ -206,6 +213,28 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     toLocalDay(at.getTime()),
   );
   const glideConfig = latestConfig(glideVersions);
+  const savings = computeSavingsProgress(
+    savingsGoals,
+    accounts,
+    transactions,
+    instMap,
+    prices,
+    fx,
+  );
+  // Incoming money not yet distributed — only once the app has switched the
+  // tracking on (its start day and the "distributed" marks sync from there).
+  const incomeState = loadIncomeState();
+  const income = allocateIncome(
+    pendingIncome(
+      incomeState
+        ? incomeEvents(transactions, instMap, accounts, fx, incomeState.since)
+        : [],
+      incomeState,
+    ),
+    savings,
+    glideConfig,
+    glide,
+  );
   const baseAlerts = [
     ...computeAlerts(
       summary,
@@ -226,6 +255,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
       fx,
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
+    ...incomeAlerts(income),
   ].filter((a) => alertState[a.id]?.status !== "dismissed");
 
   return {
@@ -249,14 +279,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     glideConfig,
     baseAlerts,
     alertState,
-    savings: computeSavingsProgress(
-      savingsGoals,
-      accounts,
-      transactions,
-      instMap,
-      prices,
-      fx,
-    ),
+    savings,
   };
 }
 
