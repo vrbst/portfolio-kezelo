@@ -6,12 +6,14 @@ import {
   useGlideState,
   useToday,
 } from "../lib/store";
-import { latestConfig, isCashKey, type GlideConfig } from "../lib/glidePath";
+import { latestConfig, type GlideConfig } from "../lib/glidePath";
 import {
   allocationState,
   applyShock,
   bandRule,
+  freeCashHuf,
   routeCashflow,
+  suggestionText,
   type AllocationState,
   type BandStatus,
   type RebalancePlan,
@@ -38,15 +40,6 @@ const STATUS_LABEL: Record<BandStatus, string> = {
   above: "sáv fölött",
   empty: "nincs adat",
 };
-
-/** "Vétel: VWCE 3 db (≈ 30 000 Ft)" — one step as plain text (alerts, Telegram). */
-function stepText(s: Suggestion): string {
-  if (s.side === "redirect")
-    return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
-  const qty =
-    s.quantity != null && s.quantity !== s.amountHuf ? ` ${s.quantity} db` : "";
-  return `${SIDE[s.side].label}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})`;
-}
 
 function SuggestionList({ plan, empty }: { plan: RebalancePlan; empty: string }) {
   if (plan.suggestions.length === 0)
@@ -117,7 +110,7 @@ function SaveAsReminder({ plan, title }: { plan: RebalancePlan; title: string })
     void addReminder({
       severity: "info",
       title,
-      detail: steps.map(stepText).join("; ") + ".",
+      detail: steps.map(suggestionText).join("; ") + ".",
       to: "/goals",
       plan: steps.map(
         (s): PlannedTrade => ({
@@ -190,13 +183,7 @@ export default function RebalancePanel() {
   const amount = amountRaw != null ? Number(amountRaw) || 0 : monthlySaving;
 
   // Free cash = cash balances outside every bucket (the source of new money).
-  const freeCash = useMemo(
-    () =>
-      (state?.unassigned ?? [])
-        .filter((p) => isCashKey(p.key) && p.valueHuf > 0)
-        .reduce((s, p) => s + p.valueHuf, 0),
-    [state],
-  );
+  const freeCash = useMemo(() => (state ? freeCashHuf(state) : 0), [state]);
   const [useCash, setUseCash] = useState(true);
   const [shocks, setShocks] = useState<Record<string, number | undefined>>({});
 

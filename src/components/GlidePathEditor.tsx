@@ -12,6 +12,7 @@ import {
 } from "../lib/glidePath";
 import {
   bandLimits,
+  bandWidth,
   checkDays,
   pathTargets,
   resolveSnapshotStarts,
@@ -245,10 +246,30 @@ export default function GlidePathEditor({
     const from = previewCfg.buckets.reduce((m, x) => (x.startDate < m ? x.startDate : m), b.startDate);
     const to = previewCfg.buckets.reduce((m, x) => (x.endDate > m ? x.endDate : m), b.endDate);
     const days = [from, ...checkDays("monthly", from, addMonths(to, 3)).filter((d) => d > from)];
-    return previewRows(days, (day) =>
-      bandLimits(b, day, pathTargets(previewCfg, day).get(b.id) ?? 0),
-    );
+    return previewRows(days, (day) => {
+      const t = pathTargets(previewCfg, day).get(b.id) ?? 0;
+      const w = bandWidth(b, t);
+      return {
+        ...bandLimits(b, day, t),
+        computed: [Math.max(0, t - w.computed), Math.min(1, t + w.computed)],
+        minApplied: w.minApplied,
+      };
+    });
   }, [previewCfg, previewId]);
+
+  // Month ranges of the preview where the minimum band sets the width.
+  const minRanges = useMemo(() => {
+    if (!preview) return [];
+    const out: [string, string][] = [];
+    for (const r of preview) {
+      if (!r.minApplied) continue;
+      const last = out[out.length - 1];
+      const prevDay = preview[preview.indexOf(r) - 1]?.day;
+      if (last && last[1] === prevDay) last[1] = r.day;
+      else out.push([r.day, r.day]);
+    }
+    return out;
+  }, [preview]);
 
   // Validate the resolved copy, so snapshot starts are known.
   const check = useMemo(
@@ -393,8 +414,8 @@ export default function GlidePathEditor({
                           setBucket(b.id, {
                             band:
                               e.target.value === "abs"
-                                ? { kind: "abs", pp: 0.05 }
-                                : { kind: "rel", pct: 0.2 },
+                                ? { kind: "abs", pp: 0.05, minPp: b.band.minPp }
+                                : { kind: "rel", pct: 0.2, minPp: b.band.minPp },
                           })
                         }
                       >
@@ -408,13 +429,56 @@ export default function GlidePathEditor({
                           setBucket(b.id, {
                             band:
                               b.band.kind === "abs"
-                                ? { kind: "abs", pp: v ?? 0 }
-                                : { kind: "rel", pct: v ?? 0 },
+                                ? { ...b.band, pp: v ?? 0 }
+                                : { ...b.band, pct: v ?? 0 },
                           })
                         }
                         className="w-16"
                       />
                       <span className={LABEL}>{b.band.kind === "abs" ? "%pont" : "%"}</span>
+                      {b.band.kind === "rel" && (
+                        <select
+                          className={INPUT}
+                          value={b.band.base ?? "path"}
+                          title="Mihez képest számolja a relatív sávot"
+                          onChange={(e) =>
+                            b.band.kind === "rel" &&
+                            setBucket(b.id, {
+                              band: { ...b.band, base: e.target.value as "path" | "final" },
+                            })
+                          }
+                        >
+                          <option value="path">a mai pályacélé</option>
+                          <option value="final">a végső célsúlyé</option>
+                        </select>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={LABEL} title="A sáv soha nem keskenyebb ennél — kis pályacélnál a relatív sáv különben túl szűk lenne.">
+                        de legalább ±
+                      </span>
+                      <PctInput
+                        value={b.band.minPp}
+                        onChange={(v) => setBucket(b.id, { band: { ...b.band, minPp: v } })}
+                        className="w-16"
+                        placeholder="0"
+                      />
+                      <span className={LABEL}>%pont</span>
+                    </div>
+                  </label>
+
+                  <label className="space-y-1">
+                    <div className={LABEL} title="Ha a sávon kívüli eltérés az utolsó jelzés óta legalább ennyivel nő, újra jelez (az időszakon belül is). Üresen a globális érték él.">
+                      Újrajelzési lépcső (csoportra)
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <PctInput
+                        value={b.realertStepPp}
+                        onChange={(v) => setBucket(b.id, { realertStepPp: v })}
+                        className="w-16"
+                        placeholder={String(Math.round(draft.realertStepPp * 10000) / 100)}
+                      />
+                      <span className={LABEL}>%pont (üresen: globális)</span>
                     </div>
                   </label>
                 </div>
@@ -472,6 +536,12 @@ export default function GlidePathEditor({
             ))}
           </div>
           <GlideBucketChart rows={preview} color={bucketColor(previewId!)} height="h-44" />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Satírozva a tényleges sáv; szaggatott vonallal a minimum nélküli, számított sáv.{" "}
+            {minRanges.length
+              ? `A minimális sáv él: ${minRanges.map(([a, z]) => (a === z ? a.slice(0, 7) : `${a.slice(0, 7)} – ${z.slice(0, 7)}`)).join(", ")}.`
+              : "A minimális sáv sehol nem szélesíti a sávot."}
+          </p>
         </section>
       )}
 
@@ -636,6 +706,26 @@ export default function GlidePathEditor({
               onChange={(e) => setDraft((d) => ({ ...d, bondsAtFace: e.target.checked }))}
             />
             Állampapírok névértéken (nem a felhalmozott értéken)
+          </label>
+          <label className="space-y-1">
+            <div className={LABEL} title="Ha egy sávon kívüli csoport eltérése az utolsó jelzés óta legalább ennyivel nő, újra jelez — az időszakon belül és az elvetett jelzés után is. 0 = kikapcsolva.">
+              Újrajelzési lépcső (mélyülő eltérésnél)
+            </div>
+            <div className="flex items-center gap-1.5">
+              <PctInput
+                value={draft.realertStepPp}
+                onChange={(v) => setDraft((d) => ({ ...d, realertStepPp: v ?? 0 }))}
+              />
+              <span className={LABEL}>%pont (0 = ki)</span>
+            </div>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.deepAlertsInQuietHours}
+              onChange={(e) => setDraft((d) => ({ ...d, deepAlertsInQuietHours: e.target.checked }))}
+            />
+            Mélyülő jelzés a csendes órákban is (különben reggel jön)
           </label>
           <label className="space-y-1">
             <div className={LABEL}>Érvényes ettől a naptól</div>

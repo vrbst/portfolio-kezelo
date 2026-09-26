@@ -21,6 +21,22 @@ export interface Alert {
   /** Optional deep link (router path) to act on the alert. */
   to?: string;
   actionLabel?: string;
+  /** Send even during the bot's quiet hours (like a high-severity alert). */
+  bypassQuiet?: boolean;
+}
+
+/**
+ * Which alerts go out now and which wait for the morning: outside quiet hours
+ * everything goes; inside them only high-severity alerts and the ones marked
+ * `bypassQuiet` (e.g. deepening glide-path re-alerts, if the user allows).
+ */
+export function splitForQuietHours(
+  alerts: Alert[],
+  quiet: boolean,
+): { now: Alert[]; held: Alert[] } {
+  if (!quiet) return { now: alerts, held: [] };
+  const urgent = (a: Alert) => a.severity === "high" || !!a.bypassQuiet;
+  return { now: alerts.filter(urgent), held: alerts.filter((a) => !urgent(a)) };
 }
 
 export interface AlertConfig {

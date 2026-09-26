@@ -80,7 +80,13 @@ export function GlideBucketChart({
                   <div>Pályacél: {pct(row.target)}</div>
                   <div className="text-[#8b93a7]">
                     Sáv: {pct(row.band[0])} – {pct(row.band[1])}
+                    {row.minApplied && " (minimális sáv)"}
                   </div>
+                  {row.computed && row.minApplied && (
+                    <div className="text-[#8b93a7]">
+                      Számított sáv: {pct(row.computed[0])} – {pct(row.computed[1])}
+                    </div>
+                  )}
                 </div>
               );
             }}
@@ -92,6 +98,19 @@ export function GlideBucketChart({
             fillOpacity={0.14}
             isAnimationActive={false}
           />
+          {rows.some((r) => r.computed) &&
+            ([0, 1] as const).map((i) => (
+              <Line
+                key={i}
+                dataKey={(r: Row) => r.computed?.[i]}
+                stroke={color}
+                strokeOpacity={0.8}
+                strokeDasharray="2 3"
+                dot={false}
+                strokeWidth={1}
+                isAnimationActive={false}
+              />
+            ))}
           <Line
             dataKey="target"
             stroke="#e8ecf8"

@@ -13,7 +13,13 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnv, NOTIFY_DIR, type NotifyEnv } from "./env";
-import { loadContext, type Context } from "./data";
+import { loadContext, withGlideAlerts, type Context } from "./data";
+import {
+  isDeepGlideAlert,
+  updateGlideSignals,
+  type GlideSignals,
+} from "../../src/lib/rebalance";
+import { splitForQuietHours } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { Telegram, esc, type TgMessage } from "./telegram";
 import {
@@ -58,6 +64,11 @@ interface State {
   lastErrorAt?: string;
   /** Messages held back during quiet hours. */
   queue: string[];
+  /**
+   * Glide-path re-alert state (last alerted distance per out-of-band
+   * bucket). The app keeps its own copy; both run updateGlideSignals.
+   */
+  glideSignals?: GlideSignals;
 }
 
 function loadState(): State {
@@ -116,7 +127,19 @@ class Bot {
       this.loading = null;
     });
     this.ctx = await this.loading;
+    this.composeAlerts(this.ctx);
     return this.ctx;
+  }
+
+  /** ctx.alerts = base alerts + glide-path alerts from the bot's own state. */
+  private composeAlerts(ctx: Context) {
+    ctx.alerts = withGlideAlerts(
+      ctx.baseAlerts,
+      ctx.glide,
+      ctx.glideConfig,
+      ctx.alertState,
+      this.state.glideSignals ?? {},
+    );
   }
 
   private async say(html: string) {
@@ -233,18 +256,37 @@ class Bot {
       return;
     }
 
-    // 1) New alerts (the app's own rules, dismissed ones skipped).
+    // 0) Glide-path re-alert state: advance it to the current weights (the
+    //    same rule the app runs), then rebuild the alert list from it.
+    const sig = updateGlideSignals(st.glideSignals ?? {}, ctx.glide, ctx.glideConfig);
+    if (sig.changed) st.glideSignals = sig.signals;
+    this.composeAlerts(ctx);
+
+    // 1) New alerts (the app's own rules, dismissed ones skipped). Deepening
+    //    glide-path re-alerts go in their own message and may bypass the
+    //    quiet hours if the user allowed it.
     const active = new Set(ctx.alerts.map((a) => a.id));
     const fresh = ctx.alerts.filter((a) => !st.sentAlerts[a.id]);
-    if (fresh.length) {
+    const deep = fresh.filter(isDeepGlideAlert);
+    const normal = fresh.filter((a) => !isDeepGlideAlert(a));
+    if (normal.length) {
       const head =
-        fresh.length === 1 ? "⚠️ <b>Új teendő</b>" : `⚠️ <b>${fresh.length} új teendő</b>`;
+        normal.length === 1 ? "⚠️ <b>Új teendő</b>" : `⚠️ <b>${normal.length} új teendő</b>`;
       await this.notify(
-        [head, ...fresh.map(alertLine)].join("\n\n"),
-        fresh.some((a) => a.severity === "high"),
+        [head, ...normal.map(alertLine)].join("\n\n"),
+        normal.some((a) => a.severity === "high"),
       );
-      for (const a of fresh) st.sentAlerts[a.id] = now.toISOString();
     }
+    if (deep.length) {
+      const split = splitForQuietHours(deep, isQuiet(this.env, now));
+      for (const [group, urgent] of [[split.now, true], [split.held, false]] as const)
+        if (group.length)
+          await this.notify(
+            ["📉 <b>Tovább mélyült eltérés</b>", ...group.map(alertLine)].join("\n\n"),
+            urgent,
+          );
+    }
+    for (const a of fresh) st.sentAlerts[a.id] = now.toISOString();
     // Resolved alerts are forgotten, so a later re-trigger is new again.
     for (const id of Object.keys(st.sentAlerts))
       if (!active.has(id)) delete st.sentAlerts[id];

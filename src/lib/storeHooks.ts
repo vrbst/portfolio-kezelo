@@ -33,13 +33,14 @@ import {
   latestConfig,
   loadGlideVersions,
   migrateIfNeeded,
-  type CheckFrequency,
   type GlideConfig,
 } from "./glidePath";
 import {
   checkDays,
   glideAlerts,
   glideStateFrom,
+  updateGlideSignals,
+  type GlideSignals,
   positionsFromSummary,
   weightHistory,
   type AllocationState,
@@ -186,10 +187,11 @@ const cachedAlerts = sharedMemo(
     prices: PriceMap,
     fx: Record<string, number>,
     glide: AllocationState | null,
-    glideFreq: CheckFrequency,
+    glideCfg: GlideConfig | undefined,
+    glideSignals: GlideSignals,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions),
-    ...glideAlerts(glide, glideFreq),
+    ...glideAlerts(glide, glideCfg, glideSignals),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
     ...savingsGoalAlerts(
@@ -232,7 +234,8 @@ export function useActiveAlerts(): Alert[] {
   const fx = usePortfolio((s) => s.fx);
   const glideVersions = useGlideVersions();
   const glide = useGlideState(glideVersions);
-  const glideFreq = latestConfig(glideVersions)?.checkFrequency ?? "monthly";
+  const glideCfg = latestConfig(glideVersions);
+  const glideSignals = useGlideSignals(glide, glideCfg);
   return cachedAlerts(
     summary,
     config,
@@ -245,8 +248,31 @@ export function useActiveAlerts(): Alert[] {
     prices,
     fx,
     glide,
-    glideFreq,
+    glideCfg,
+    glideSignals,
   );
+}
+
+const cachedSignalUpdate = sharedMemo(updateGlideSignals);
+
+/**
+ * The glide-path re-alert state advanced to the current weights (pure, in
+ * render), persisted by an effect when it changed — so a deepening move shows
+ * its alert at once, and the stored baseline follows.
+ */
+export function useGlideSignals(
+  glide: AllocationState | null,
+  cfg: GlideConfig | undefined,
+): GlideSignals {
+  const stored = usePortfolio((s) => s.glideSignals);
+  const loaded = usePortfolio((s) => s.loaded);
+  const setSignals = usePortfolio((s) => s.setGlideSignals);
+  const next = cachedSignalUpdate(stored, glide, cfg);
+  useEffect(() => {
+    // Before the store has loaded, "no state" would wipe the saved baseline.
+    if (loaded && glide && next.changed) setSignals(next.signals);
+  }, [loaded, glide, next, setSignals]);
+  return next.signals;
 }
 
 /**

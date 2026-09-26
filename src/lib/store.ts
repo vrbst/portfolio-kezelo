@@ -40,6 +40,7 @@ import {
 } from "./alerts";
 import { collectPrefs, applyRemotePrefs, PREFS_EVENT } from "./prefs";
 import { type Goal } from "./goals";
+import type { GlideSignals } from "./rebalance";
 import {
   mergeTombstones,
   dropDeletedAccounts,
@@ -108,6 +109,14 @@ interface PortfolioState {
   deletedReminderIds: string[];
   addReminder: (r: Omit<Reminder, "id" | "createdAt">) => Promise<void>;
   removeReminder: (id: string) => Promise<void>;
+
+  /**
+   * Glide-path re-alert state (last alerted distance per out-of-band bucket).
+   * Device-local, NOT synced: the Telegram bot keeps its own copy and runs the
+   * same rule (rebalance.ts → updateGlideSignals).
+   */
+  glideSignals: GlideSignals;
+  setGlideSignals: (s: GlideSignals) => void;
 
   /** Privacy mode: blur all Ft/EUR amounts and quantities (percentages stay). */
   privacy: boolean;
@@ -446,6 +455,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   deletedAccounts: {},
   reminders: [],
   deletedReminderIds: [],
+  glideSignals: {},
+  setGlideSignals: (glideSignals) => {
+    set({ glideSignals });
+    void setMeta("glideSignals", glideSignals);
+  },
   privacy: loadPrivacy(),
   togglePrivacy: () => {
     const v = !get().privacy;
@@ -471,6 +485,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedReminderIds,
       manualPrices,
       deletedAccounts,
+      glideSignals,
     ] = await Promise.all([
       db.accounts.toArray(),
       db.instruments.toArray(),
@@ -483,6 +498,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       getMeta<string[]>("deletedReminderIds"),
       getMeta<Record<string, number>>("manualPriceOverrides"),
       getMeta<Record<string, string>>("deletedAccounts"),
+      getMeta<GlideSignals>("glideSignals"),
     ]);
     // The OLD (permanent) manual-price feature was removed — drop its leftover
     // meta so it can never override the automatic price again. The current
@@ -508,6 +524,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedAccounts: deletedAccounts ?? {},
       reminders: reminders ?? [],
       deletedReminderIds: deletedReminderIds ?? [],
+      glideSignals: glideSignals ?? {},
       loaded: true,
     });
     // Pull live prices in the background (non-blocking).
@@ -1042,6 +1059,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedAccounts: {},
       reminders: [],
       deletedReminderIds: [],
+      glideSignals: {},
       priceFile: null,
       priceUpdatedAt: undefined,
       syncConfig: null,

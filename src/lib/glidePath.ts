@@ -31,11 +31,24 @@ export interface CostRule {
   sell?: Cost;
 }
 
+/** Fields shared by both band kinds. */
+interface BandCommon {
+  /**
+   * Minimum half-width (fraction: 0.02 = ±2 percentage points). The band is
+   * never narrower than this — a relative band around a small target would
+   * otherwise be so tight that a volatile asset keeps leaving it. Default 0.
+   */
+  minPp?: number;
+}
+
 export type BandSpec =
   /** Absolute: target ± `pp` (fraction: 0.05 = ±5 percentage points). */
-  | { kind: "abs"; pp: number }
-  /** Relative: target × (1 ± `pct`) (0.2 = ±20% of the target weight). */
-  | { kind: "rel"; pct: number };
+  | ({ kind: "abs"; pp: number } & BandCommon)
+  /**
+   * Relative: ± `pct` of a base weight (0.2 = ±20%). The base is the day's
+   * path target (default) or the bucket's final weight.
+   */
+  | ({ kind: "rel"; pct: number; base?: "path" | "final" } & BandCommon);
 
 export type StartSpec =
   /** The actual weight on `date`, computed on save and frozen in `resolvedWeight`. */
@@ -55,6 +68,11 @@ export interface Bucket {
   band: BandSpec;
   /** Bucket-level cost; overrides the global default. */
   cost?: CostRule;
+  /**
+   * Re-alert step for this bucket (fraction: 0.005 = 0.5 pp); overrides the
+   * global `realertStepPp` — a small bucket needs a finer step.
+   */
+  realertStepPp?: number;
 }
 
 /** Per-instrument settings. Keyed by instrument key or a cash key (cashKey). */
@@ -96,6 +114,15 @@ export interface GlideConfig {
   /** Value government bonds / T-bills at face (nominal) instead of market. */
   bondsAtFace: boolean;
   defaultCost: CostRule;
+  /**
+   * Re-alert when an out-of-band bucket's distance from the band edge has
+   * grown by at least this much since the last alert (fraction: 0.02 = 2 pp),
+   * even within the check period and even if the last alert was dismissed.
+   * 0 = off. A bucket may override it.
+   */
+  realertStepPp: number;
+  /** Send deepening re-alerts during the bot's quiet hours too. */
+  deepAlertsInQuietHours: boolean;
 }
 
 /** Pseudo-instrument key for a cash balance in `ccy` (assignable to a bucket). */
@@ -120,7 +147,7 @@ export function loadGlideVersions(): GlideConfig[] {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as GlideConfig[]) : [];
+    return Array.isArray(parsed) ? (parsed as GlideConfig[]).map(normalizeConfig) : [];
   } catch {
     return [];
   }
@@ -292,6 +319,10 @@ export function validateConfig(
       errors.push({ ...at, message: `${label}: a sáv mérete 0 és 100 százalékpont közé essen.` });
     if (b.band.kind === "rel" && !(b.band.pct > 0 && b.band.pct < 1))
       errors.push({ ...at, message: `${label}: a relatív sáv 0 és 100% közé essen.` });
+    if (b.band.minPp != null && !(b.band.minPp >= 0 && b.band.minPp < 0.5))
+      errors.push({ ...at, message: `${label}: a minimális sáv 0 és 50 százalékpont közé essen.` });
+    if (b.realertStepPp != null && !(b.realertStepPp >= 0 && b.realertStepPp < 1))
+      errors.push({ ...at, message: `${label}: az újrajelzési lépcső nem lehet negatív.` });
 
     if (!validCostRule(b.cost))
       errors.push({ ...at, message: `${label}: a költség nem lehet negatív (és 100% alatt legyen).` });
@@ -319,6 +350,8 @@ export function validateConfig(
 
   if (!(cfg.minTradeHuf >= 0))
     errors.push({ message: "A minimális tranzakcióméret nem lehet negatív." });
+  if (!(cfg.realertStepPp >= 0 && cfg.realertStepPp < 1))
+    errors.push({ message: "Az újrajelzési lépcső nem lehet negatív." });
   if (!(cfg.maxCostRatio >= 0))
     errors.push({ message: "A költség/haszon küszöb nem lehet negatív." });
   if (!validCostRule(cfg.defaultCost))
@@ -349,6 +382,22 @@ export function defaultGlobals(): Omit<
     maxCostRatio: 0.01,
     bondsAtFace: true,
     defaultCost: {},
+    realertStepPp: 0.02,
+    deepAlertsInQuietHours: false,
+  };
+}
+
+/**
+ * Fill settings added after a version was saved with their defaults, so old
+ * versions keep working unchanged (a missing band minimum is 0, a missing
+ * relative base is the path target — exactly the earlier behaviour).
+ */
+export function normalizeConfig(cfg: GlideConfig): GlideConfig {
+  const d = defaultGlobals();
+  return {
+    ...cfg,
+    realertStepPp: cfg.realertStepPp ?? d.realertStepPp,
+    deepAlertsInQuietHours: cfg.deepAlertsInQuietHours ?? d.deepAlertsInQuietHours,
   };
 }
 

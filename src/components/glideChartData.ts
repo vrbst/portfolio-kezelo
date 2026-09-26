@@ -18,6 +18,10 @@ export interface Row {
   weight?: number;
   target: number;
   band: [number, number];
+  /** Band before the minimum width (preview only). */
+  computed?: [number, number];
+  /** The minimum band sets the width on this day (preview only). */
+  minApplied?: boolean;
 }
 
 export const dayTs = (day: string) => Date.parse(`${day}T00:00:00Z`);
@@ -25,10 +29,23 @@ export const dayTs = (day: string) => Date.parse(`${day}T00:00:00Z`);
 /** Rows for a path preview (path target + band only, no actual weight). */
 export function previewRows(
   days: string[],
-  targetAt: (day: string) => { target: number; low: number; high: number },
+  targetAt: (day: string) => {
+    target: number;
+    low: number;
+    high: number;
+    computed?: [number, number];
+    minApplied?: boolean;
+  },
 ): Row[] {
   return days.map((day) => {
     const l = targetAt(day);
-    return { ts: dayTs(day), day, target: l.target, band: [l.low, l.high] };
+    return {
+      ts: dayTs(day),
+      day,
+      target: l.target,
+      band: [l.low, l.high],
+      computed: l.computed,
+      minApplied: l.minApplied,
+    };
   });
 }

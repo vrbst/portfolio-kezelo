@@ -119,17 +119,44 @@ export interface BandLimits {
   high: number;
 }
 
+export interface BandWidth {
+  /** Half-width from the band setting alone (abs pp, or pct × base). */
+  computed: number;
+  /** What applies: max(computed, the bucket's minimum band). */
+  effective: number;
+  /** The minimum band is what sets the width. */
+  minApplied: boolean;
+}
+
 /**
- * Band around the path target: absolute (target ± pp) or relative
- * (target × (1 ± pct)), clipped to 0..100%. `target` defaults to the bucket's
- * raw path target; pass the normalised one when working with a whole config.
+ * Half-width of the band around `target`: absolute `pp`, or relative
+ * `pct` × base (the day's path target, or the bucket's final weight), never
+ * narrower than the bucket's minimum band.
+ */
+export function bandWidth(b: Bucket, target: number): BandWidth {
+  const computed =
+    b.band.kind === "abs"
+      ? b.band.pp
+      : (b.band.base === "final" ? b.finalWeight : target) * b.band.pct;
+  const min = b.band.minPp ?? 0;
+  return {
+    computed,
+    effective: Math.max(computed, min),
+    minApplied: min > computed,
+  };
+}
+
+/**
+ * Band around the path target (see {@link bandWidth}), clipped to 0..100%.
+ * `target` defaults to the bucket's raw path target; pass the normalised one
+ * when working with a whole config.
  */
 export function bandLimits(
   b: Bucket,
   day: string,
   target: number = pathTarget(b, day),
 ): BandLimits {
-  const half = b.band.kind === "abs" ? b.band.pp : target * b.band.pct;
+  const half = bandWidth(b, target).effective;
   return {
     target,
     low: Math.max(0, target - half),
@@ -927,27 +954,182 @@ export function checkPeriod(freq: CheckFrequency, day: string): string {
     : `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
 }
 
+// ---- Out-of-band alerts & deepening re-alerts ------------------------------
+
+/** How far the weight is beyond the band edge (fraction; 0 inside the band). */
+export function bandDeviation(b: BandLimits & { weight: number }): number {
+  if (b.weight < b.low) return b.low - b.weight;
+  if (b.weight > b.high) return b.weight - b.high;
+  return 0;
+}
+
+/** Stored alert state of one out-of-band bucket (per device / bot). */
+export interface GlideSignal {
+  status: "below" | "above";
+  /** Check period of the last alert ("2026-09" / "2026-Q3"). */
+  period: string;
+  /** Distance beyond the band edge at the last alert (fraction). */
+  deviation: number;
+  /** Distance at the alert before the last one (deepening re-alerts only). */
+  prevDeviation?: number;
+  /** 1 = the period's first alert, 2+ = deepening re-alerts. */
+  count: number;
+  /** Day of the last alert. */
+  day: string;
+}
+
+/** Bucket id → signal. A bucket inside its band has no entry. */
+export type GlideSignals = Record<string, GlideSignal>;
+
 /**
- * One alert per bucket outside its band. The id carries the check period, so
- * a dismissed alert comes back at the next check (month / quarter) if the
- * bucket is still out of band — the "ellenőrzés gyakorisága" in practice.
+ * One step of the re-alert state machine — the single rule the app and the
+ * Telegram bot both run:
+ *  - inside the band (or no data) → no signal: the stored state is cleared;
+ *  - first time out, flipped side, or a new check period → "first";
+ *  - distance beyond the band grew by ≥ `stepPp` since the LAST alert →
+ *    "deeper" (a new alert id, so dismissing the previous one doesn't hide it);
+ *  - otherwise nothing new; the baseline stays at the last alert's distance.
+ * `stepPp` = 0 turns deepening re-alerts off.
+ */
+export function nextGlideSignal(
+  prev: GlideSignal | undefined,
+  cur: { status: BandStatus; deviation: number; period: string; day: string },
+  stepPp: number,
+): { signal?: GlideSignal; event?: "first" | "deeper" } {
+  if (cur.status !== "below" && cur.status !== "above") return {};
+  if (!prev || prev.status !== cur.status || prev.period !== cur.period)
+    return {
+      event: "first",
+      signal: {
+        status: cur.status,
+        period: cur.period,
+        deviation: cur.deviation,
+        count: 1,
+        day: cur.day,
+      },
+    };
+  if (stepPp > 0 && cur.deviation - prev.deviation >= stepPp - EPS)
+    return {
+      event: "deeper",
+      signal: {
+        ...prev,
+        deviation: cur.deviation,
+        prevDeviation: prev.deviation,
+        count: prev.count + 1,
+        day: cur.day,
+      },
+    };
+  return { signal: prev };
+}
+
+/** The re-alert step of a bucket: its own, else the global one. */
+export function realertStep(cfg: GlideConfig, b: Bucket): number {
+  return b.realertStepPp ?? cfg.realertStepPp ?? 0;
+}
+
+/**
+ * Advance every bucket's signal to the current state. Buckets inside their
+ * band (or gone from the config) drop out. `changed` tells the caller
+ * whether there is anything new to persist.
+ */
+export function updateGlideSignals(
+  prev: GlideSignals,
+  state: AllocationState | null,
+  cfg: GlideConfig | undefined,
+): { signals: GlideSignals; changed: boolean } {
+  const signals: GlideSignals = {};
+  if (state && cfg && state.totalHuf > 0) {
+    const period = checkPeriod(cfg.checkFrequency, state.day);
+    for (const b of state.buckets) {
+      const next = nextGlideSignal(
+        prev[b.bucket.id],
+        { status: b.status, deviation: bandDeviation(b), period, day: state.day },
+        realertStep(cfg, b.bucket),
+      );
+      if (next.signal) signals[b.bucket.id] = next.signal;
+    }
+  }
+  return { signals, changed: JSON.stringify(signals) !== JSON.stringify(prev) };
+}
+
+/** Outside cash (cash balances in no bucket) — the default source of money. */
+export function freeCashHuf(state: AllocationState): number {
+  return state.unassigned
+    .filter((p) => isCashKey(p.key) && p.valueHuf > 0)
+    .reduce((s, p) => s + p.valueHuf, 0);
+}
+
+const SIDE_LABEL = { buy: "Vétel", sell: "Eladás", redirect: "Átirányítás" } as const;
+
+/** "Vétel: VWCE 3 db (≈ 30 000 Ft)" — one step as plain text (alerts, Telegram). */
+export function suggestionText(s: Suggestion): string {
+  if (s.side === "redirect")
+    return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
+  const qty =
+    s.quantity != null && s.quantity !== s.amountHuf ? ` ${s.quantity} db` : "";
+  return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})`;
+}
+
+/** Alert id prefix of a deepening re-alert ("…:n2", "…:n3"). */
+export function isDeepGlideAlert(a: Alert): boolean {
+  return /^glide:.*:n\d+$/.test(a.id);
+}
+
+/**
+ * One alert per bucket outside its band, from its signal (see
+ * {@link updateGlideSignals}; a bucket without one counts as a first alert).
+ * The first alert's id carries the check period, so a dismissed alert comes
+ * back at the next check; a deepening re-alert gets a numbered id and says how
+ * far the distance grew, with the band rule's updated steps. Deep alerts may
+ * bypass the bot's quiet hours (`deepAlertsInQuietHours`).
  */
 export function glideAlerts(
   state: AllocationState | null,
-  freq: CheckFrequency,
+  cfg: GlideConfig | undefined,
+  signals: GlideSignals = {},
 ): Alert[] {
-  if (!state || state.totalHuf <= 0) return [];
-  const period = checkPeriod(freq, state.day);
+  if (!state || !cfg || state.totalHuf <= 0) return [];
+  const period = checkPeriod(cfg.checkFrequency, state.day);
   const p = (v: number) =>
     `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
-  return state.buckets
-    .filter((b) => b.status === "below" || b.status === "above")
-    .map((b) => ({
-      id: `glide:${b.bucket.id}:${b.status}:${period}`,
+  const pp = (v: number) =>
+    `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })} %pont`;
+  const out = state.buckets.filter((b) => b.status === "below" || b.status === "above");
+  if (out.length === 0) return [];
+  let steps: string | undefined;
+  const planText = () => {
+    if (steps == null) {
+      const ok = bandRule(cfg, state, freeCashHuf(state)).suggestions.filter(
+        (s) => s.status === "ok",
+      );
+      steps = ok.length
+        ? ` Frissített javaslat: ${ok.slice(0, 4).map(suggestionText).join("; ")}${ok.length > 4 ? " …" : ""}.`
+        : "";
+    }
+    return steps;
+  };
+  return out.map((b) => {
+    const side = b.status === "below" ? "sáv alatt" : "sáv fölött";
+    const base = `glide:${b.bucket.id}:${b.status}:${period}`;
+    const sig = signals[b.bucket.id];
+    const now = `Tény ${p(b.weight)} · pályacél ${p(b.target)} (sáv ${p(b.low)}–${p(b.high)})`;
+    if (sig && sig.status === b.status && sig.period === period && sig.count > 1)
+      return {
+        id: `${base}:n${sig.count}`,
+        severity: "medium" as const,
+        title: `Célpálya – ${b.bucket.name}: tovább mélyült (${side})`,
+        detail: `Eltérés a sávhatártól: ${pp(sig.prevDeviation ?? 0)} → ${pp(sig.deviation)}. ${now}.${planText()}`,
+        to: "/goals",
+        actionLabel: "Teendők",
+        bypassQuiet: cfg.deepAlertsInQuietHours,
+      };
+    return {
+      id: base,
       severity: "medium" as const,
-      title: `Célpálya – ${b.bucket.name}: ${b.status === "below" ? "sáv alatt" : "sáv fölött"}`,
-      detail: `Tény ${p(b.weight)} · pályacél ${p(b.target)} (sáv ${p(b.low)}–${p(b.high)}). A Teendők panel javasolja a lépéseket.`,
+      title: `Célpálya – ${b.bucket.name}: ${side}`,
+      detail: `${now}, eltérés a sávhatártól ${pp(bandDeviation(b))}. A Teendők panel javasolja a lépéseket.`,
       to: "/goals",
       actionLabel: "Teendők",
-    }));
+    };
+  });
 }

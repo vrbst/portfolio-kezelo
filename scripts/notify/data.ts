@@ -42,11 +42,16 @@ import {
   type SavingsProgress,
 } from "../../src/lib/savings";
 import { applyRemotePrefs } from "../../src/lib/prefs";
-import { latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
+import {
+  latestConfig,
+  loadGlideVersions,
+  type GlideConfig,
+} from "../../src/lib/glidePath";
 import {
   glideAlerts,
   glideStateFrom,
   type AllocationState,
+  type GlideSignals,
 } from "../../src/lib/rebalance";
 import { toLocalDay } from "../../src/lib/portfolio";
 import { githubToken, installLocalStorage, type NotifyEnv } from "./env";
@@ -72,6 +77,12 @@ export interface Context {
   savings: SavingsProgress[];
   /** Glide path today (null = not set up), from the synced prefs. */
   glide: AllocationState | null;
+  /** The glide path's newest version (its re-alert settings). */
+  glideConfig: GlideConfig | undefined;
+  /** Every alert except the glide path's (those need the bot's own state). */
+  baseAlerts: Alert[];
+  /** Dismissed / seen history synced from the app. */
+  alertState: AlertState;
 }
 
 async function fetchJson<T>(
@@ -194,8 +205,8 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     fx,
     toLocalDay(at.getTime()),
   );
-  const alerts = [
-    ...glideAlerts(glide, latestConfig(glideVersions)?.checkFrequency ?? "monthly"),
+  const glideConfig = latestConfig(glideVersions);
+  const baseAlerts = [
     ...computeAlerts(
       summary,
       { ...DEFAULT_ALERT_CONFIG, idleCashHuf: env.idleCashHuf },
@@ -231,10 +242,13 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     summary,
     series,
     dayChange,
-    alerts,
+    alerts: withGlideAlerts(baseAlerts, glide, glideConfig, alertState, {}),
     events: upcomingEvents(summary, at, transactions),
     goalProgress,
     glide,
+    glideConfig,
+    baseAlerts,
+    alertState,
     savings: computeSavingsProgress(
       savingsGoals,
       accounts,
@@ -244,4 +258,24 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
       fx,
     ),
   };
+}
+
+/**
+ * The full alert list: the base alerts plus the glide path's, the latter from
+ * the bot's OWN re-alert state (the app keeps a separate copy; both run the
+ * same rule). Alerts dismissed in the app are left out.
+ */
+export function withGlideAlerts(
+  baseAlerts: Alert[],
+  glide: AllocationState | null,
+  cfg: GlideConfig | undefined,
+  alertState: AlertState,
+  signals: GlideSignals,
+): Alert[] {
+  return [
+    ...glideAlerts(glide, cfg, signals).filter(
+      (a) => alertState[a.id]?.status !== "dismissed",
+    ),
+    ...baseAlerts,
+  ];
 }

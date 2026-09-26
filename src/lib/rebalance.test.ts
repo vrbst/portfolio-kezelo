@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { defaultGlobals, type Bucket, type GlideConfig, type InstrumentRule } from "./glidePath";
+import {
+  defaultGlobals,
+  normalizeConfig,
+  type Bucket,
+  type GlideConfig,
+  type InstrumentRule,
+} from "./glidePath";
+import { splitForQuietHours, type Alert } from "./alerts";
 import {
   allocationState,
   applyShock,
   checkPeriod,
   glideAlerts,
+  bandDeviation,
   bandLimits,
+  bandWidth,
+  isDeepGlideAlert,
+  nextGlideSignal,
+  updateGlideSignals,
+  type GlideSignals,
   bandRule,
   checkDays,
   currentWeights,
@@ -509,20 +522,213 @@ describe("glideAlerts", () => {
 
   it("one alert per out-of-band bucket, keyed by the check period", () => {
     const s = allocationState(cfg, [etf("ETF-R", 700_000), bond("KOTV", 300_000)], "2026-08-20");
-    const monthly = glideAlerts(s, "monthly");
+    const monthly = glideAlerts(s, cfg);
     expect(monthly.map((a) => a.id)).toEqual(["glide:R:above:2026-08", "glide:K:below:2026-08"]);
-    expect(glideAlerts(s, "quarterly")[0].id).toBe("glide:R:above:2026-Q3");
+    expect(glideAlerts(s, { ...cfg, checkFrequency: "quarterly" })[0].id).toBe("glide:R:above:2026-Q3");
   });
 
   it("nothing when inside the band or empty", () => {
     const s = allocationState(cfg, [etf("ETF-R", 600_000), bond("KOTV", 400_000)], DAY);
-    expect(glideAlerts(s, "monthly")).toEqual([]);
-    expect(glideAlerts(allocationState(cfg, [], DAY), "monthly")).toEqual([]);
-    expect(glideAlerts(null, "monthly")).toEqual([]);
+    expect(glideAlerts(s, cfg)).toEqual([]);
+    expect(glideAlerts(allocationState(cfg, [], DAY), cfg)).toEqual([]);
+    expect(glideAlerts(null, cfg)).toEqual([]);
   });
 
   it("check periods", () => {
     expect(checkPeriod("monthly", "2026-01-31")).toBe("2026-01");
     expect(checkPeriod("quarterly", "2026-12-01")).toBe("2026-Q4");
+  });
+});
+
+describe("minimum band width", () => {
+  // A relative ±20% band around a small target is very narrow in absolute terms.
+  const small = bucket("K", 0.3, {
+    start: { mode: "manual", weight: 0.05 },
+    band: { kind: "rel", pct: 0.2, minPp: 0.02 },
+  });
+
+  it("the minimum applies around a small path target", () => {
+    // At the start the target is 5% → computed ±1 pp < minimum ±2 pp.
+    const w = bandWidth(small, 0.05);
+    expect(w.computed).toBeCloseTo(0.01);
+    expect(w.effective).toBeCloseTo(0.02);
+    expect(w.minApplied).toBe(true);
+    const l = bandLimits(small, "2026-01-01");
+    expect(l.low).toBeCloseTo(0.03);
+    expect(l.high).toBeCloseTo(0.07);
+  });
+
+  it("the computed band applies around a large path target", () => {
+    // At the end the target is 30% → computed ±6 pp > minimum ±2 pp.
+    const w = bandWidth(small, 0.3);
+    expect(w.effective).toBeCloseTo(0.06);
+    expect(w.minApplied).toBe(false);
+    expect(bandLimits(small, "2028-06-01").low).toBeCloseTo(0.24);
+  });
+
+  it("absolute band: the larger of the two", () => {
+    expect(bandWidth(bucket("A", 0.5, { band: { kind: "abs", pp: 0.01, minPp: 0.03 } }), 0.5).effective).toBeCloseTo(0.03);
+    expect(bandWidth(bucket("A", 0.5, { band: { kind: "abs", pp: 0.05, minPp: 0.03 } }), 0.5).effective).toBeCloseTo(0.05);
+  });
+
+  it("an old config without the new fields keeps its band exactly", () => {
+    const old = bucket("R", 0.6, { band: { kind: "rel", pct: 0.1 } });
+    const l = bandLimits(old, DAY);
+    expect([l.target, l.low, l.high].map((v) => Math.round(v * 1e9) / 1e9)).toEqual([0.6, 0.54, 0.66]);
+    const oldCfg = { ...config([old], {}) } as Partial<GlideConfig>;
+    delete oldCfg.realertStepPp;
+    delete oldCfg.deepAlertsInQuietHours;
+    const n = normalizeConfig(oldCfg as GlideConfig);
+    expect(n.realertStepPp).toBe(0.02);
+    expect(n.deepAlertsInQuietHours).toBe(false);
+  });
+});
+
+describe("relative band base", () => {
+  // Path 10% → 40%: on the start day the target is 10%, the final weight 40%.
+  const onPath = bucket("A", 0.4, {
+    start: { mode: "manual", weight: 0.1 },
+    band: { kind: "rel", pct: 0.25 },
+  });
+  const onFinal = { ...onPath, band: { kind: "rel" as const, pct: 0.25, base: "final" as const } };
+
+  it("path target: ± 25% of the day's target (10% → ±2.5 pp)", () => {
+    const l = bandLimits(onPath, "2026-01-01");
+    expect(l.high - l.target).toBeCloseTo(0.025);
+  });
+
+  it("final weight: ± 25% of the final weight (40% → ±10 pp) all along", () => {
+    expect(bandLimits(onFinal, "2026-01-01").high).toBeCloseTo(0.2);
+    expect(bandLimits(onFinal, "2028-01-01").high).toBeCloseTo(0.5);
+  });
+});
+
+describe("re-alert on a deepening deviation", () => {
+  const cur = (deviation: number, status: "below" | "above" | "within" = "below", period = "2026-09") => ({
+    status,
+    deviation,
+    period,
+    day: "2026-09-10",
+  });
+
+  it("first time out → 'first', baseline stored", () => {
+    const r = nextGlideSignal(undefined, cur(0.005), 0.02);
+    expect(r.event).toBe("first");
+    expect(r.signal).toMatchObject({ deviation: 0.005, count: 1 });
+  });
+
+  it("no new alert below the step", () => {
+    const first = nextGlideSignal(undefined, cur(0.005), 0.02).signal;
+    const r = nextGlideSignal(first, cur(0.024), 0.02);
+    expect(r.event).toBeUndefined();
+    expect(r.signal).toBe(first);
+  });
+
+  it("alerts again when the step is reached, measured from the LAST alert", () => {
+    const s1 = nextGlideSignal(undefined, cur(0.005), 0.02).signal;
+    const r2 = nextGlideSignal(s1, cur(0.025), 0.02);
+    expect(r2.event).toBe("deeper");
+    expect(r2.signal).toMatchObject({ deviation: 0.025, prevDeviation: 0.005, count: 2 });
+    // Next step counts from 2.5 pp, not from the first 0.5 pp.
+    expect(nextGlideSignal(r2.signal, cur(0.04), 0.02).event).toBeUndefined();
+    expect(nextGlideSignal(r2.signal, cur(0.045), 0.02).event).toBe("deeper");
+  });
+
+  it("back inside the band clears the state", () => {
+    const s1 = nextGlideSignal(undefined, cur(0.03), 0.02).signal;
+    expect(nextGlideSignal(s1, cur(0, "within"), 0.02)).toEqual({});
+    // …so leaving it again is a fresh 'first' with a new baseline.
+    expect(nextGlideSignal(undefined, cur(0.001), 0.02).signal?.deviation).toBe(0.001);
+  });
+
+  it("a new check period or a flipped side starts over", () => {
+    const s1 = nextGlideSignal(undefined, cur(0.03), 0.02).signal;
+    expect(nextGlideSignal(s1, cur(0.03, "below", "2026-10"), 0.02).event).toBe("first");
+    expect(nextGlideSignal(s1, cur(0.03, "above"), 0.02).event).toBe("first");
+  });
+
+  it("step 0 turns re-alerts off", () => {
+    const s1 = nextGlideSignal(undefined, cur(0.01), 0).signal;
+    expect(nextGlideSignal(s1, cur(0.2), 0).event).toBeUndefined();
+  });
+
+  // Whole flow on allocation states: R (60%, ±5 pp) falls step by step.
+  const buckets = [bucket("R", 0.6), bucket("K", 0.4)];
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K") };
+  const at = (rValue: number, cfg: GlideConfig) =>
+    allocationState(cfg, [etf("ETF-R", rValue), bond("KOTV", 400_000)], "2026-09-10");
+
+  it("fires after a dismissal: the deeper alert has a new id and says how far it grew", () => {
+    const cfg = config(buckets, rules);
+    const s1 = at(540_000, cfg); // R 57.4% → inside
+    let sig: GlideSignals = updateGlideSignals({}, s1, cfg).signals;
+    expect(sig).toEqual({});
+    const s2 = at(500_000, cfg); // R 55.6% → inside still (low 55%)
+    sig = updateGlideSignals(sig, s2, cfg).signals;
+    const s3 = at(480_000, cfg); // R 54.5% → below by 0.45 pp
+    sig = updateGlideSignals(sig, s3, cfg).signals;
+    const first = glideAlerts(s3, cfg, sig).find((a) => a.id.startsWith("glide:R"))!;
+    expect(first.id).toBe("glide:R:below:2026-09");
+    expect(isDeepGlideAlert(first)).toBe(false);
+    // The user dismisses it (in the app: alertState[first.id] = dismissed) —
+    // the market keeps falling: R 50% → 5 pp below the band.
+    const s4 = at(400_000, cfg);
+    expect(bandDeviation(s4.buckets[0])).toBeCloseTo(0.05);
+    const upd = updateGlideSignals(sig, s4, cfg);
+    expect(upd.changed).toBe(true);
+    const deep = glideAlerts(s4, cfg, upd.signals).find((a) => a.id.startsWith("glide:R"))!;
+    expect(deep.id).toBe("glide:R:below:2026-09:n2");
+    expect(deep.id).not.toBe(first.id);
+    expect(isDeepGlideAlert(deep)).toBe(true);
+    expect(deep.title).toContain("tovább mélyült");
+    expect(deep.detail).toContain("0,5 %pont → 5 %pont");
+    expect(deep.detail).toContain("Frissített javaslat");
+    // Recovery into the band clears the state.
+    expect(updateGlideSignals(upd.signals, at(600_000, cfg), cfg).signals).toEqual({});
+  });
+
+  it("a bucket's own step overrides the global one", () => {
+    const fine = config(
+      [bucket("R", 0.6, { realertStepPp: 0.005 }), bucket("K", 0.4)],
+      rules,
+      { realertStepPp: 0.02 },
+    );
+    const coarse = config(buckets, rules, { realertStepPp: 0.02 });
+    // R goes from 0.45 pp to 1.9 pp below the band: +1.45 pp.
+    for (const [cfg, expected] of [[fine, 2], [coarse, 1]] as const) {
+      let sig = updateGlideSignals({}, at(480_000, cfg), cfg).signals;
+      sig = updateGlideSignals(sig, at(452_000, cfg), cfg).signals;
+      expect(sig.R.count).toBe(expected);
+    }
+  });
+});
+
+describe("quiet hours", () => {
+  const cfg = (quiet: boolean) =>
+    config([bucket("R", 0.6), bucket("K", 0.4)], { "ETF-R": rule("R"), KOTV: rule("K") }, {
+      deepAlertsInQuietHours: quiet,
+    });
+  const deepAlert = (c: GlideConfig): Alert => {
+    const s1 = allocationState(c, [etf("ETF-R", 480_000), bond("KOTV", 400_000)], DAY);
+    const s2 = allocationState(c, [etf("ETF-R", 400_000), bond("KOTV", 400_000)], DAY);
+    let sig = updateGlideSignals({}, s1, c).signals;
+    sig = updateGlideSignals(sig, s2, c).signals;
+    return glideAlerts(s2, c, sig).find(isDeepGlideAlert)!;
+  };
+  const normal: Alert = { id: "x", severity: "medium", title: "Első jelzés" };
+
+  it("a deep re-alert goes out during quiet hours when allowed", () => {
+    const a = deepAlert(cfg(true));
+    expect(splitForQuietHours([a, normal], true)).toEqual({ now: [a], held: [normal] });
+  });
+
+  it("…and waits for the morning by default", () => {
+    const a = deepAlert(cfg(false));
+    expect(splitForQuietHours([a], true)).toEqual({ now: [], held: [a] });
+  });
+
+  it("outside quiet hours everything goes", () => {
+    const a = deepAlert(cfg(false));
+    expect(splitForQuietHours([a, normal], false).now).toHaveLength(2);
   });
 });
