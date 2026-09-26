@@ -111,6 +111,23 @@ export type MonthlyAmount =
   /** Whatever the DCA and medium-term goals leave free (never below 0). */
   | { kind: "remainder" };
 
+/**
+ * Which path target the cash-flow routing aims at. The path keeps moving, so
+ * money routed to today's target can land in a bucket whose weight is about
+ * to fall; looking ahead avoids that. Band, status and alerts always measure
+ * against today's target.
+ */
+export type FlowTarget =
+  /** Today's path target (the original behaviour). */
+  | { kind: "today" }
+  /** The path target on the next check day. */
+  | { kind: "nextCheck" }
+  /** The path target `days` days ahead. */
+  | { kind: "days"; days: number };
+
+/** Longest look-ahead for the `days` flow target. */
+export const MAX_FLOW_DAYS = 3650;
+
 /** One dated version of the whole glide-path configuration. */
 export interface GlideConfig {
   id: string;
@@ -152,6 +169,11 @@ export interface GlideConfig {
    * which collides with the other goals — the UI says so.
    */
   monthlyAmount?: MonthlyAmount;
+  /**
+   * The path target the cash-flow routing aims at (incoming money and the
+   * band rule's leftover). Missing on older versions = today's target.
+   */
+  flowTarget?: FlowTarget;
 }
 
 /** Pseudo-instrument key for a cash balance in `ccy` (assignable to a bucket). */
@@ -398,6 +420,14 @@ export function validateConfig(
     errors.push({ message: "A célpálya havi összege nem lehet negatív." });
   if (ma?.kind === "pct" && !(ma.pct >= 0 && ma.pct <= 1))
     errors.push({ message: "A célpálya havi összege a keret 0–100%-a lehet." });
+  const ft = cfg.flowTarget;
+  if (
+    ft?.kind === "days" &&
+    !(Number.isInteger(ft.days) && ft.days >= 1 && ft.days <= MAX_FLOW_DAYS)
+  )
+    errors.push({
+      message: `Az elosztás célpontja 1 és ${MAX_FLOW_DAYS} nap közötti egész szám lehet.`,
+    });
   if (!ma)
     warnings.push({
       message:

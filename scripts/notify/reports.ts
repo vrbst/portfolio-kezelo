@@ -23,7 +23,7 @@ import {
   glideAmountSource,
   savingsMonthlyHuf,
 } from "../../src/lib/budget";
-import { routeCashflow, suggestionText } from "../../src/lib/rebalance";
+import { planCashflow, suggestionText } from "../../src/lib/rebalance";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import type { Context } from "./data";
 import { esc } from "./telegram";
@@ -327,9 +327,9 @@ function glideAllocationLines(ctx: Context): string[] {
     `💶 ${esc(glideAmountSource(b, cfg) ?? "")}`,
   ];
   if (b.glideHuf > 0) {
-    const steps = routeCashflow(cfg, ctx.glide, b.glideHuf).suggestions.filter(
-      (s) => s.status === "ok",
-    );
+    const plan = planCashflow(cfg, ctx.glide, b.glideHuf);
+    const steps = plan.suggestions.filter((s) => s.status === "ok");
+    out.push(`Célpont: ${esc(plan.flow.label)}`);
     out.push(
       steps.length
         ? steps.map((s) => `→ ${esc(suggestionText(s))}`).join("\n")

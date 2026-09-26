@@ -138,6 +138,22 @@ describe("validateConfig", () => {
     expect(r.errors.some((e) => e.message.includes("havi összege"))).toBe(true);
   });
 
+  it.each([0, 1.5, NaN, 5000])("rejects a flow look-ahead of %s days", (days) => {
+    const r = validateConfig(
+      config([bucket("A", 1)], { monthlyAmount: { kind: "remainder" }, flowTarget: { kind: "days", days } }),
+    );
+    expect(r.errors.some((e) => e.message.includes("célpontja"))).toBe(true);
+  });
+
+  it.each([
+    [{ kind: "today" }],
+    [{ kind: "nextCheck" }],
+    [{ kind: "days", days: 90 }],
+  ] as const)("accepts the flow target %j", (flowTarget) => {
+    const r = validateConfig(config([bucket("A", 1)], { monthlyAmount: { kind: "remainder" }, flowTarget }));
+    expect(r.errors).toEqual([]);
+  });
+
   it.each([
     [{ kind: "fixed", huf: 150_000 }],
     [{ kind: "pct", pct: 0.2 }],

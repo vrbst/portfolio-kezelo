@@ -14,7 +14,7 @@ import {
   bandRule,
   formatQuantity,
   freeCashHuf,
-  routeCashflow,
+  planCashflow,
   suggestionText,
   type AllocationState,
   type BandStatus,
@@ -43,7 +43,16 @@ const STATUS_LABEL: Record<BandStatus, string> = {
   empty: "nincs adat",
 };
 
-function SuggestionList({ plan, empty }: { plan: RebalancePlan; empty: string }) {
+function SuggestionList({
+  plan,
+  empty,
+  targetNote,
+}: {
+  plan: RebalancePlan;
+  empty: string;
+  /** Extra text after the weight-after (the targets it compares to). */
+  targetNote?: (s: Suggestion) => string | null;
+}) {
   if (plan.suggestions.length === 0)
     return (
       <div className="text-sm text-[var(--color-muted)]">
@@ -84,6 +93,7 @@ function SuggestionList({ plan, empty }: { plan: RebalancePlan; empty: string })
                     </>
                   )}
                   {s.weightAfter != null && `utána ${pct(s.weightAfter)}`}
+                  {targetNote?.(s) && ` · ${targetNote(s)}`}
                 </span>
               </div>
             </li>
@@ -187,7 +197,7 @@ export default function RebalancePanel() {
   const [shocks, setShocks] = useState<Record<string, number | undefined>>({});
 
   const flowPlan = useMemo(
-    () => (cfg && state ? routeCashflow(cfg, state, amount) : null),
+    () => (cfg && state ? planCashflow(cfg, state, amount) : null),
     [cfg, state, amount],
   );
   const bandPlan = useMemo(
@@ -203,6 +213,16 @@ export default function RebalancePanel() {
   ]);
 
   if (!cfg || !state || !flowPlan || !bandPlan) return null;
+  const flow = flowPlan.flow;
+  const todayTarget = new Map(state.buckets.map((b) => [b.bucket.id, b.target]));
+  const flowNote = (s: Suggestion) => {
+    const today = todayTarget.get(s.bucketId);
+    if (today == null) return null;
+    const ahead = flow.weights.get(s.bucketId);
+    return flow.ahead && ahead != null
+      ? `mai pályacél ${pct(today)}, célpont ${pct(ahead)}`
+      : `pályacél ${pct(today)}`;
+  };
   const outOfBand = state.buckets.filter((b) => b.status === "below" || b.status === "above");
 
   return (
@@ -254,7 +274,11 @@ export default function RebalancePanel() {
               az kétszer számolódik.
             </p>
           )}
-          <SuggestionList plan={flowPlan} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
+          <p className="mb-2 text-xs text-[var(--color-muted)]">
+            Célpont: {flow.label}
+            {flow.ahead && " (előretekintés — a sáv és az állapot továbbra is a mai pályacélhoz mér)"}
+          </p>
+          <SuggestionList plan={flowPlan} targetNote={flowNote} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
           <SaveAsReminder plan={flowPlan} title={`Célpálya – ${formatMoney(amount)} elosztása (${today})`} />
         </section>
 

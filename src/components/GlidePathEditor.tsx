@@ -5,6 +5,7 @@ import {
   isCashKey,
   cashCurrency,
   DEFAULT_QTY_DECIMALS,
+  MAX_FLOW_DAYS,
   type Bucket,
   type Cost,
   type CostRule,
@@ -18,6 +19,7 @@ import {
   bandLimits,
   bandWidth,
   checkDays,
+  flowTargets,
   pathTargets,
   resolveSnapshotStarts,
   type Position,
@@ -854,6 +856,53 @@ export default function GlidePathEditor({
             />
           </label>
         </div>
+        <label className="mt-3 block space-y-1">
+          <div
+            className={LABEL}
+            title="A bejövő pénz (és a sáv helyreállítása után maradó pénz) melyik pályacélhoz igazodjon. A sáv, az állapot és a figyelmeztetések mindig a mai pályacélhoz mérnek."
+          >
+            Az elosztás célpontja
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className={INPUT}
+              value={draft.flowTarget?.kind ?? "today"}
+              onChange={(e) => {
+                const kind = e.target.value;
+                setDraft((d) => ({
+                  ...d,
+                  flowTarget:
+                    kind === "days"
+                      ? { kind, days: d.flowTarget?.kind === "days" ? d.flowTarget.days : 30 }
+                      : kind === "nextCheck"
+                        ? { kind }
+                        : { kind: "today" },
+                }));
+              }}
+            >
+              <option value="today">a mai pályacél</option>
+              <option value="nextCheck">a következő ellenőrzési nap pályacélja</option>
+              <option value="days">N nappal előre</option>
+            </select>
+            {draft.flowTarget?.kind === "days" && (
+              <>
+                <input
+                  type="number"
+                  min={1}
+                  max={MAX_FLOW_DAYS}
+                  step={1}
+                  className={`${INPUT} w-20 text-right`}
+                  value={Number.isFinite(draft.flowTarget.days) ? draft.flowTarget.days : ""}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, flowTarget: { kind: "days", days: e.target.valueAsNumber } }))
+                  }
+                />
+                <span className={LABEL}>nap</span>
+              </>
+            )}
+            <span className={LABEL}>ma: {flowTargets(draft, today).label}</span>
+          </div>
+        </label>
         <MonthlyAmountField
           value={draft.monthlyAmount}
           onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}

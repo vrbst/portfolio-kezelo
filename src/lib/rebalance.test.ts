@@ -22,6 +22,9 @@ import {
   bandRule,
   checkDays,
   currentWeights,
+  flowTargetDay,
+  flowTargets,
+  planCashflow,
   pathTarget,
   pathTargets,
   resolveSnapshotStarts,
@@ -806,5 +809,119 @@ describe("fractional units", () => {
     const cfg = config([bucket("R", 1)], { "ETF-R": frac("R") }, { minTradeHuf: 10_000 });
     const plan = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000)], DAY), 5_000);
     expect(plan.suggestions[0]).toMatchObject({ quantity: 0.5, status: "below-min" });
+  });
+});
+
+describe("flow target (look-ahead cash-flow routing)", () => {
+  // R rises 50% → 70%, K falls 50% → 30% over 2026–2028.
+  const rising = [
+    bucket("R", 0.7, { start: { mode: "manual", weight: 0.5 } }),
+    bucket("K", 0.3, { start: { mode: "manual", weight: 0.5 } }),
+  ];
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K") };
+  const cfgWith = (flowTarget?: GlideConfig["flowTarget"], patch: Partial<GlideConfig> = {}) =>
+    config(rising, rules, { ...(flowTarget ? { flowTarget } : {}), ...patch });
+  // Exactly on today's path, 1M in total (bond-like units of 1 Ft: no rounding).
+  const onPath = () => {
+    const t = pathTargets(cfgWith(), DAY);
+    return [bond("ETF-R", t.get("R")! * 1_000_000), bond("KOTV", t.get("K")! * 1_000_000)];
+  };
+  const amounts = (cfg: GlideConfig, amount: number) =>
+    Object.fromEntries(
+      planCashflow(cfg, allocationState(cfg, onPath(), DAY), amount).suggestions.map((s) => [
+        s.bucketId,
+        Math.round(s.amountHuf),
+      ]),
+    );
+
+  it("today mode (and an old config without the setting) routes exactly as before", () => {
+    for (const cfg of [cfgWith(), cfgWith({ kind: "today" }), normalizeConfig(cfgWith())]) {
+      const state = allocationState(cfg, onPath(), DAY);
+      const plan = planCashflow(cfg, state, 100_000);
+      const { flow, ...rest } = plan;
+      expect(rest).toEqual(routeCashflow(cfg, state, 100_000));
+      expect(flow).toMatchObject({ day: DAY, ahead: false, label: "a mai pályacél" });
+    }
+    // On the path today, the money follows the path weights — K gets its share.
+    expect(amounts(cfgWith(), 100_000)).toEqual({ R: 54_520, K: 45_479 });
+  });
+
+  it("next check day: an on-path portfolio's money goes to the rising bucket, not the falling one", () => {
+    const cfg = cfgWith({ kind: "nextCheck" }, { minTradeHuf: 0 });
+    expect(flowTargets(cfg, DAY)).toMatchObject({ day: "2026-07-01", ahead: true, label: "a 2026-07-01-i pályacél" });
+    const a = amounts(cfg, 5_000);
+    expect(a.R).toBe(5_000);
+    expect(a.K).toBeUndefined();
+  });
+
+  it("N days ahead: the same, with a bigger contribution", () => {
+    const cfg = cfgWith({ kind: "days", days: 365 }, { minTradeHuf: 0 });
+    expect(flowTargets(cfg, DAY).day).toBe("2027-06-15");
+    expect(amounts(cfg, 100_000)).toEqual({ R: 100_000 });
+    const plan = planCashflow(cfg, allocationState(cfg, onPath(), DAY), 100_000);
+    expect(plan.suggestions[0].reason).toBe(
+      "A 2027-06-15-i pályacélhoz képest alulsúlyozott — a bejövő pénz ide megy.",
+    );
+  });
+
+  it("never looks past the path end: beyond it the final weights apply", () => {
+    const cfg = cfgWith({ kind: "days", days: 3000 });
+    const f = flowTargets(cfg, DAY);
+    expect(f.label).toBe("a végső cél");
+    expect(f.weights.get("R")).toBeCloseTo(0.7);
+    expect(f.weights.get("K")).toBeCloseTo(0.3);
+    expect(f.weights).toEqual(pathTargets(cfg, "2028-01-01"));
+  });
+
+  it("quarterly checks look to the next quarter start", () => {
+    expect(flowTargetDay(cfgWith({ kind: "nextCheck" }, { checkFrequency: "quarterly" }), "2026-07-01")).toBe("2026-10-01");
+  });
+
+  it("an invalid N (while typing) falls back to today instead of throwing", () => {
+    expect(flowTargetDay(cfgWith({ kind: "days", days: NaN }), DAY)).toBe(DAY);
+  });
+
+  it("band, status and alerts still measure against today's path target", () => {
+    const pos = [bond("ETF-R", 300_000), bond("KOTV", 700_000)];
+    const today = cfgWith();
+    const ahead = cfgWith({ kind: "days", days: 365 });
+    const sa = allocationState(today, pos, DAY);
+    const sb = allocationState(ahead, pos, DAY);
+    expect(sb.buckets.map(({ bucket: _b, ...r }) => r)).toEqual(sa.buckets.map(({ bucket: _b, ...r }) => r));
+    const strip = (a: Alert[]) => a.map(({ id, title, severity }) => ({ id, title, severity }));
+    expect(strip(glideAlerts(sb, ahead))).toEqual(strip(glideAlerts(sa, today)));
+    expect(glideAlerts(sa, today).length).toBeGreaterThan(0);
+  });
+});
+
+describe("bandRule – leftover after the restore follows the flow target", () => {
+  // R rises 30% → 50%, K falls 40% → 20%, S flat 30%. K is above its band.
+  const buckets = [
+    bucket("R", 0.5, { start: { mode: "manual", weight: 0.3 } }),
+    bucket("K", 0.2, { start: { mode: "manual", weight: 0.4 } }),
+    bucket("S", 0.3),
+  ];
+  const rules = { R: rule("R"), K: rule("K"), S: rule("S") };
+  const pos = [bond("R", 300_000), bond("K", 440_000), bond("S", 260_000)];
+  const run = (flowTarget?: GlideConfig["flowTarget"]) => {
+    const cfg = config(buckets, rules, flowTarget ? { flowTarget } : {});
+    return bandRule(cfg, allocationState(cfg, pos, DAY)).suggestions;
+  };
+  const brief = (ss: ReturnType<typeof run>) =>
+    ss.map((s) => `${s.side} ${s.instrumentKey} ${Math.round(s.amountHuf)}`);
+
+  it("restores the band to TODAY's target in every mode", () => {
+    for (const ft of [undefined, { kind: "nextCheck" as const }, { kind: "days" as const, days: 365 }])
+      expect(brief(run(ft).filter((s) => s.side === "sell"))).toEqual(["sell K 85205"]);
+  });
+
+  it("today: the proceeds spread along today's path (R and S)", () => {
+    expect(brief(run().filter((s) => s.side === "buy"))).toEqual(["buy R 45205", "buy S 39999"]);
+  });
+
+  it("look-ahead: the proceeds go to the rising bucket", () => {
+    const buys = run({ kind: "days", days: 365 }).filter((s) => s.side === "buy");
+    expect(brief(buys)).toEqual(["buy R 85205"]);
+    expect(buys[0].reason).toContain("2027-06-15-i pályacélhoz");
   });
 });

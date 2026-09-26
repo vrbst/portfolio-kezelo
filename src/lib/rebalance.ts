@@ -114,6 +114,53 @@ export function pathTargets(cfg: GlideConfig, day: string): Map<string, number> 
   return new Map(raw.map(([id, t]) => [id, sum > 0 ? t / sum : 0]));
 }
 
+/** `day` + `n` calendar days (YYYY-MM-DD). */
+function addDays(day: string, n: number): string {
+  return new Date(dayMs(day) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The day whose path target the cash-flow routing aims at (see FlowTarget):
+ * today, the next check day strictly after today, or N days ahead. Past a
+ * bucket's end date its path target is simply the final weight.
+ */
+export function flowTargetDay(cfg: GlideConfig, day: string): string {
+  const ft = cfg.flowTarget;
+  if (!ft || ft.kind === "today") return day;
+  if (ft.kind === "days")
+    // An invalid N (being typed, rejected on save) falls back to today.
+    return Number.isFinite(ft.days) ? addDays(day, Math.max(0, Math.floor(ft.days))) : day;
+  return checkDays(cfg.checkFrequency, addDays(day, 1), addDays(day, 400))[0] ?? day;
+}
+
+export interface FlowTargets {
+  /** The day the targets are taken from. */
+  day: string;
+  /** Looks ahead of today (anything but the "today" mode). */
+  ahead: boolean;
+  /** "a mai pályacél", "a 2027-01-01-i pályacél" or "a végső cél". */
+  label: string;
+  /** Bucket id → target weight (normalised like pathTargets). */
+  weights: Map<string, number>;
+}
+
+/** The cash-flow routing's targets on `day` under the configured FlowTarget. */
+export function flowTargets(cfg: GlideConfig, day: string): FlowTargets {
+  const target = flowTargetDay(cfg, day);
+  const ahead = target > day;
+  const final = cfg.buckets.length > 0 && cfg.buckets.every((b) => target >= b.endDate);
+  return {
+    day: target,
+    ahead,
+    label: !ahead
+      ? "a mai pályacél"
+      : final
+        ? "a végső cél"
+        : `a ${target}-i pályacél`,
+    weights: pathTargets(cfg, target),
+  };
+}
+
 export interface BandLimits {
   target: number;
   low: number;
@@ -569,13 +616,19 @@ function finishPlan(
  * path targets as possible — buying only. Only instruments that accept
  * contributions receive money; a bucket slice below the minimum trade is
  * dropped and its money re-routed to the others (unless it's the only one).
+ * `targets` (see flowTargets) aims the money at a look-ahead path target
+ * instead of today's; omitted = today's, as stored on the state.
  */
 export function routeCashflow(
   cfg: GlideConfig,
   state: AllocationState,
   amountHuf: number,
   source: Suggestion["source"] = "cashflow",
+  targets?: FlowTargets,
 ): RebalancePlan {
+  const ahead = targets?.ahead ? targets : undefined;
+  const targetOf = (b: BucketState) =>
+    ahead ? (ahead.weights.get(b.bucket.id) ?? 0) : b.target;
   const notes: string[] = [];
   if (!(amountHuf > 0)) return finishPlan(state, [], notes);
   const accepting = (id: string) =>
@@ -593,7 +646,7 @@ export function routeCashflow(
   let alloc: Map<string, number>;
   for (;;) {
     alloc = waterFill(
-      eligible.map((b) => ({ id: b.bucket.id, valueHuf: b.valueHuf, target: b.target })),
+      eligible.map((b) => ({ id: b.bucket.id, valueHuf: b.valueHuf, target: targetOf(b) })),
       amountHuf,
       newTotal,
     );
@@ -606,13 +659,16 @@ export function routeCashflow(
 
   // Why a bucket gets money. Measured against the total WITH the new money:
   // a bucket exactly on its path is still short of target × new total.
-  const onPath = eligible.every((b) => Math.abs(b.weight - b.target) < 0.001);
+  const onPath = eligible.every((b) => Math.abs(b.weight - targetOf(b)) < 0.001);
+  const to = ahead ? `${ahead.label}hoz` : "a pályához";
   const reason = (b: BucketState) =>
     onPath
-      ? "A pályán van — a bejövő pénz a pályacélok arányában oszlik el."
-      : b.target - b.valueHuf / newTotal > EPS
-        ? "A pályához képest alulsúlyozott — a bejövő pénz ide megy."
-        : "Az alulsúlyozott csoportok nem fogadnak pénzt — a maradék ide kerül, a pályához legközelebb.";
+      ? ahead
+        ? `A portfólió ${ahead.label}nak megfelelő — a bejövő pénz annak arányában oszlik el.`
+        : "A pályán van — a bejövő pénz a pályacélok arányában oszlik el."
+      : targetOf(b) - b.valueHuf / newTotal > EPS
+        ? `${to[0].toUpperCase()}${to.slice(1)} képest alulsúlyozott — a bejövő pénz ide megy.`
+        : `Az alulsúlyozott csoportok nem fogadnak pénzt — a maradék ide kerül, ${to} legközelebb.`;
 
   const suggestions: Suggestion[] = [];
   for (const b of state.buckets) {
@@ -632,6 +688,20 @@ export function routeCashflow(
       );
   }
   return finishPlan(state, suggestions, notes);
+}
+
+/**
+ * Incoming money routed to the configured target (FlowTarget) — what the
+ * Teendők panel and the bot use. Returns the targets alongside the plan so
+ * the caller can show where it aimed.
+ */
+export function planCashflow(
+  cfg: GlideConfig,
+  state: AllocationState,
+  amountHuf: number,
+): RebalancePlan & { flow: FlowTargets } {
+  const flow = flowTargets(cfg, state.day);
+  return { ...routeCashflow(cfg, state, amountHuf, "cashflow", flow), flow };
 }
 
 /**
@@ -782,7 +852,9 @@ export function bandRule(
   }
 
   // Sale proceeds the buys don't use are reinvested along the path (cash-flow
-  // routing on the post-trade state), so selling never leaves money idle.
+  // routing on the post-trade state), so selling never leaves money idle. The
+  // restore above aims at TODAY's target; this leftover follows the configured
+  // look-ahead target, like incoming money.
   const spent = buys
     .filter((s) => s.status === "ok")
     .reduce((a, s) => a + s.amountHuf + s.costHuf, 0);
@@ -790,7 +862,13 @@ export function bandRule(
   let routed: Suggestion[] = [];
   // Rounding change below the minimum trade isn't worth another ticket.
   if (leftover >= Math.max(1, cfg.minTradeHuf)) {
-    const plan = routeCashflow(cfg, shiftState(state, [...sells, ...buys]), leftover, "band");
+    const plan = routeCashflow(
+      cfg,
+      shiftState(state, [...sells, ...buys]),
+      leftover,
+      "band",
+      flowTargets(cfg, state.day),
+    );
     // Change that doesn't buy a single unit is just left as cash.
     routed = plan.suggestions.filter((s) => s.quantity !== 0);
     notes.push(...plan.notes);
