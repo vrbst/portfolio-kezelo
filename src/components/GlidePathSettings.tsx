@@ -26,6 +26,7 @@ import {
   type Position,
 } from "../lib/rebalance";
 import { formatMoney } from "../lib/format";
+import { BOND_TYPES } from "../lib/bonds";
 import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
 import { BUCKET_COLORS, previewRows } from "./glideChartData";
@@ -93,6 +94,10 @@ export default function GlidePathSettings() {
   );
   const names = useMemo(
     () => new Map(instruments.map((i) => [i.key, i.name])),
+    [instruments],
+  );
+  const bondKeys = useMemo(
+    () => new Set(instruments.filter((i) => BOND_TYPES.has(i.type)).map((i) => i.key)),
     [instruments],
   );
 
@@ -185,6 +190,7 @@ export default function GlidePathSettings() {
           initial={editing}
           held={held}
           names={names}
+          bondKeys={bondKeys}
           positionsAt={positionsAt}
           today={today}
           onSave={save}

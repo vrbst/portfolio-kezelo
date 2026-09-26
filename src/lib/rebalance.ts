@@ -17,6 +17,7 @@ import { BOND_TYPES, DEFAULT_BOND_SALE_COST } from "./bonds";
 import { formatMoney } from "./format";
 import {
   cashKey,
+  DEFAULT_QTY_DECIMALS,
   isCashKey,
   type Bucket,
   type CheckFrequency,
@@ -398,6 +399,18 @@ export interface RebalancePlan {
 
 const fmtHuf = (n: number) => formatMoney(n);
 
+/** Decimals a suggested quantity is rounded (down) to: 0 unless fractional. */
+export function quantityDecimals(rule: InstrumentRule): number {
+  if (!rule.fractional) return 0;
+  const d = rule.qtyDecimals ?? DEFAULT_QTY_DECIMALS;
+  return Math.min(8, Math.max(0, Math.round(d)));
+}
+
+/** A quantity in Hungarian format ("3,6912"), up to 8 decimals. */
+export function formatQuantity(q: number): string {
+  return q.toLocaleString("hu-HU", { maximumFractionDigits: 8 });
+}
+
 /** Round to whole units, price the cost, and decide whether it's worth doing. */
 function makeTrade(
   cfg: GlideConfig,
@@ -411,9 +424,13 @@ function makeTrade(
   let amount = rawHuf;
   let quantity: number | undefined;
   if (!isCashKey(pos.key) && pos.unitPriceHuf && pos.unitPriceHuf > 0) {
-    quantity = Math.floor(rawHuf / pos.unitPriceHuf + 1e-9);
+    // Whole units, or — for a fractional instrument — down to its decimals
+    // (never more than planned when buying, never more than held when selling).
+    const f = 10 ** quantityDecimals(pos.rule);
+    const down = (q: number) => Math.floor(q * f + 1e-9) / f;
+    quantity = down(rawHuf / pos.unitPriceHuf);
     if (side === "sell" && pos.quantity != null)
-      quantity = Math.min(quantity, Math.floor(pos.quantity + 1e-9));
+      quantity = Math.min(quantity, down(pos.quantity));
     amount = quantity * pos.unitPriceHuf;
   }
   const costHuf = estimateCost(costFor(cfg, pos, side), amount);
@@ -1074,7 +1091,7 @@ export function suggestionText(s: Suggestion): string {
   if (s.side === "redirect")
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
   const qty =
-    s.quantity != null && s.quantity !== s.amountHuf ? ` ${s.quantity} db` : "";
+    s.quantity != null && s.quantity !== s.amountHuf ? ` ${formatQuantity(s.quantity)} db` : "";
   return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})`;
 }
 

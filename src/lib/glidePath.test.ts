@@ -210,3 +210,17 @@ describe("validateConfig – mixed starts", () => {
     expect(r.warnings.some((w) => w.message.includes("kezdő súlyok"))).toBe(true);
   });
 });
+
+describe("validateConfig – fractional decimals", () => {
+  it("accepts 0–8 whole decimals and rejects anything else", () => {
+    const cfg = config([bucket("A", 1)]);
+    const withDec = (d: number) => ({
+      ...cfg,
+      instruments: { "INST-A": { ...cfg.instruments["INST-A"], fractional: true, qtyDecimals: d } },
+    });
+    expect(validateConfig(withDec(4)).errors).toEqual([]);
+    expect(validateConfig(withDec(0)).errors).toEqual([]);
+    expect(validateConfig(withDec(9)).errors).toHaveLength(1);
+    expect(validateConfig(withDec(2.5)).errors).toHaveLength(1);
+  });
+});

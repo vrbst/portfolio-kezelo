@@ -4,6 +4,7 @@ import {
   validateConfig,
   isCashKey,
   cashCurrency,
+  DEFAULT_QTY_DECIMALS,
   type Bucket,
   type Cost,
   type CostRule,
@@ -145,6 +146,7 @@ export default function GlidePathEditor({
   initial,
   held,
   names,
+  bondKeys,
   positionsAt,
   today,
   onSave,
@@ -155,6 +157,8 @@ export default function GlidePathEditor({
   held: Position[];
   /** Instrument key → display name (for assigned-but-not-held rows). */
   names: Map<string, string>;
+  /** Bonds / T-bills: units are face HUF, so "fractional" makes no sense. */
+  bondKeys: Set<string>;
   positionsAt: PositionsAt;
   today: string;
   onSave: (cfg: GlideConfig) => void;
@@ -554,7 +558,7 @@ export default function GlidePathEditor({
           készpénz a bejövő pénz forrása.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="text-left text-xs text-[var(--color-muted)]">
                 <th className="py-1 pr-2 font-medium">Tétel</th>
@@ -562,6 +566,7 @@ export default function GlidePathEditor({
                 <th className="py-1 pr-2 font-medium">Csoport</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Eladható újrasúlyozáshoz">Eladható</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Fogad befizetést (kupon, osztalék, megtakarítás)">Befizetés</th>
+                <th className="py-1 pr-2 font-medium" title="A bróker tört darabot is kezel: a javaslat nem kerekít egészre, csak a megadott tizedesjegyig (lefelé)">Tört darab</th>
                 <th className="py-1 font-medium">Költség</th>
               </tr>
             </thead>
@@ -583,12 +588,9 @@ export default function GlidePathEditor({
                           setRule(
                             r.key,
                             e.target.value
-                              ? {
-                                  sellable: rule?.sellable ?? true,
-                                  acceptsContributions: rule?.acceptsContributions ?? true,
-                                  cost: rule?.cost,
-                                  bucketId: e.target.value,
-                                }
+                              ? rule
+                                ? { ...rule, bucketId: e.target.value }
+                                : { sellable: true, acceptsContributions: true, bucketId: e.target.value }
                               : undefined,
                           )
                         }
@@ -618,6 +620,42 @@ export default function GlidePathEditor({
                           rule && setRule(r.key, { ...rule, acceptsContributions: e.target.checked })
                         }
                       />
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      {(() => {
+                        const na = !rule || isCashKey(r.key) || bondKeys.has(r.key);
+                        return (
+                          <span className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              disabled={na}
+                              checked={!na && !!rule?.fractional}
+                              onChange={(e) =>
+                                rule && setRule(r.key, { ...rule, fractional: e.target.checked })
+                              }
+                            />
+                            {!na && rule?.fractional && (
+                              <>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={8}
+                                  step={1}
+                                  className={`${INPUT} w-14 text-right`}
+                                  value={rule.qtyDecimals ?? DEFAULT_QTY_DECIMALS}
+                                  onChange={(e) =>
+                                    setRule(r.key, {
+                                      ...rule,
+                                      qtyDecimals: e.target.value === "" ? undefined : Number(e.target.value),
+                                    })
+                                  }
+                                />
+                                <span className={LABEL}>tizedes</span>
+                              </>
+                            )}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-1.5">
                       {rule && !isCashKey(r.key) && (

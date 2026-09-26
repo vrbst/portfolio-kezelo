@@ -760,3 +760,51 @@ describe("routeCashflow – reasons", () => {
     expect(rs.some((r) => r.includes("Az alulsúlyozott csoportok nem fogadnak pénzt"))).toBe(true);
   });
 });
+
+describe("fractional units", () => {
+  const frac = (bucketId: string, patch: Partial<InstrumentRule> = {}) =>
+    rule(bucketId, { fractional: true, ...patch });
+
+  it("buys are rounded DOWN to the decimals, not to whole units", () => {
+    const buckets = [bucket("R", 0.5), bucket("K", 0.3), bucket("A", 0.2)];
+    const cfg = config(buckets, { "ETF-R": rule("R"), KOTV: rule("K"), "ETF-A": frac("A") });
+    const pos = [etf("ETF-R", 600_000), bond("KOTV", 200_000), etf("ETF-A", 200_000, 5_000)];
+    const plan = routeCashflow(cfg, allocationState(cfg, pos, DAY), 150_000);
+    // Whole units gave 3 db = 15 000 Ft of the planned 17 500; fractional: 3,5 db.
+    expect(plan.suggestions.find((s) => s.instrumentKey === "ETF-A")).toMatchObject({ quantity: 3.5, amountHuf: 17_500 });
+    // No rounding change left over: the whole 150 000 is placed.
+    expect(plan.suggestions.reduce((a, s) => a + s.amountHuf, 0)).toBeCloseTo(150_000);
+  });
+
+  it("an amount between the decimals is floored (never more than planned)", () => {
+    const cfg = config([bucket("R", 1)], { "ETF-R": frac("R") });
+    const plan = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000)], DAY), 12_345.67);
+    expect(plan.suggestions[0]).toMatchObject({ quantity: 1.2345, amountHuf: 12_345 });
+  });
+
+  it("qtyDecimals = 0 behaves like whole units; a non-fractional rule is unchanged", () => {
+    for (const r of [frac("R", { qtyDecimals: 0 }), rule("R")]) {
+      const cfg = config([bucket("R", 1)], { "ETF-R": r });
+      const plan = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000)], DAY), 25_000);
+      expect(plan.suggestions[0]).toMatchObject({ quantity: 2, amountHuf: 20_000 });
+    }
+  });
+
+  it("a whole fractional position can be sold, but never more than held", () => {
+    const cfg = config(
+      [bucket("R", 0), bucket("K", 1)],
+      { "ETF-R": frac("R"), KOTV: rule("K") },
+    );
+    const held: Position = { key: "ETF-R", name: "ETF-R", valueHuf: 31_415.9, quantity: 3.14159, unitPriceHuf: 10_000 };
+    const plan = bandRule(cfg, allocationState(cfg, [held, bond("KOTV", 500_000)], DAY));
+    const sell = plan.suggestions.find((s) => s.side === "sell")!;
+    expect(sell.quantity).toBe(3.1415);
+    expect(sell.quantity!).toBeLessThanOrEqual(held.quantity!);
+  });
+
+  it("the minimum trade size still applies", () => {
+    const cfg = config([bucket("R", 1)], { "ETF-R": frac("R") }, { minTradeHuf: 10_000 });
+    const plan = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000)], DAY), 5_000);
+    expect(plan.suggestions[0]).toMatchObject({ quantity: 0.5, status: "below-min" });
+  });
+});

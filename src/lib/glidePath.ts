@@ -84,7 +84,17 @@ export interface InstrumentRule {
   acceptsContributions: boolean;
   /** Instrument-level cost; overrides the bucket and the global default. */
   cost?: CostRule;
+  /**
+   * The broker trades fractional units of it: suggestions are not rounded
+   * to whole units but down to `qtyDecimals` decimals. Default off.
+   */
+  fractional?: boolean;
+  /** Decimals of a fractional quantity (0–8). Default 4. */
+  qtyDecimals?: number;
 }
+
+/** Default decimals of a fractional quantity. */
+export const DEFAULT_QTY_DECIMALS = 4;
 
 export type CheckFrequency = "monthly" | "quarterly";
 
@@ -339,6 +349,14 @@ export function validateConfig(
       errors.push({
         instrumentKey: key,
         message: `Érvénytelen instrumentum-költség (${key}).`,
+      });
+    if (
+      rule.qtyDecimals != null &&
+      !(Number.isInteger(rule.qtyDecimals) && rule.qtyDecimals >= 0 && rule.qtyDecimals <= 8)
+    )
+      errors.push({
+        instrumentKey: key,
+        message: `A tört darab tizedesjegyeinek száma 0 és 8 közötti egész legyen (${key}).`,
       });
   }
   for (const b of cfg.buckets)

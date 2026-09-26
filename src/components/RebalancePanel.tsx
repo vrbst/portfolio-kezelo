@@ -11,6 +11,7 @@ import {
   allocationState,
   applyShock,
   bandRule,
+  formatQuantity,
   freeCashHuf,
   routeCashflow,
   suggestionText,
@@ -69,7 +70,7 @@ function SuggestionList({ plan, empty }: { plan: RebalancePlan; empty: string })
                 <span className="tabular-nums">
                   <Amt className="font-medium">{formatMoney(s.amountHuf)}</Amt>
                   {s.quantity != null && s.quantity !== s.amountHuf && (
-                    <span className="text-xs text-[var(--color-muted)]"> · <Amt>{s.quantity} db</Amt></span>
+                    <span className="text-xs text-[var(--color-muted)]"> · <Amt>{formatQuantity(s.quantity)} db</Amt></span>
                   )}
                 </span>
               </div>
