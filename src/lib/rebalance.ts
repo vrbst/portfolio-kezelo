@@ -587,6 +587,16 @@ export function routeCashflow(
     eligible = eligible.filter((b) => b.bucket.id !== small[0][0]);
   }
 
+  // Why a bucket gets money. Measured against the total WITH the new money:
+  // a bucket exactly on its path is still short of target × new total.
+  const onPath = eligible.every((b) => Math.abs(b.weight - b.target) < 0.001);
+  const reason = (b: BucketState) =>
+    onPath
+      ? "A pályán van — a bejövő pénz a pályacélok arányában oszlik el."
+      : b.target - b.valueHuf / newTotal > EPS
+        ? "A pályához képest alulsúlyozott — a bejövő pénz ide megy."
+        : "Az alulsúlyozott csoportok nem fogadnak pénzt — a maradék ide kerül, a pályához legközelebb.";
+
   const suggestions: Suggestion[] = [];
   for (const b of state.buckets) {
     const x = alloc.get(b.bucket.id);
@@ -600,9 +610,7 @@ export function routeCashflow(
           "buy",
           s.amount,
           source,
-          b.weight < b.target
-            ? "A pályához képest alulsúlyozott — a bejövő pénz ide megy."
-            : "A többi csoport nem fogad pénzt — a maradék ide kerül, a pályához legközelebb.",
+          reason(b),
         ),
       );
   }

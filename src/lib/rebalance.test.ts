@@ -732,3 +732,31 @@ describe("quiet hours", () => {
     expect(splitForQuietHours([a, normal], false).now).toHaveLength(2);
   });
 });
+
+describe("routeCashflow – reasons", () => {
+  const buckets = [bucket("R", 0.5), bucket("K", 0.3), bucket("A", 0.2)];
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K"), "ETF-A": rule("A") };
+  const reasons = (pos: Position[], r = rules) => {
+    const cfg = config(buckets, r);
+    return routeCashflow(cfg, allocationState(cfg, pos, DAY), 150_000).suggestions.map((s) => s.reason);
+  };
+
+  it("every bucket on its path → split by the path targets", () => {
+    const rs = reasons([etf("ETF-R", 500_000), bond("KOTV", 300_000), etf("ETF-A", 200_000, 5_000)]);
+    expect(rs.length).toBe(3);
+    for (const r of rs) expect(r).toContain("A pályán van");
+  });
+
+  it("an underweight bucket is named as such", () => {
+    const rs = reasons([etf("ETF-R", 600_000), bond("KOTV", 200_000), etf("ETF-A", 200_000, 5_000)]);
+    expect(rs.every((r) => r.includes("alulsúlyozott — a bejövő pénz ide megy"))).toBe(true);
+  });
+
+  it("only when the underweight buckets can't take money does the rest go elsewhere", () => {
+    const rs = reasons(
+      [etf("ETF-R", 600_000), bond("KOTV", 200_000), etf("ETF-A", 200_000, 5_000)],
+      { ...rules, KOTV: rule("K", { acceptsContributions: false }) },
+    );
+    expect(rs.some((r) => r.includes("Az alulsúlyozott csoportok nem fogadnak pénzt"))).toBe(true);
+  });
+});
