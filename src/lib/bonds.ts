@@ -11,7 +11,7 @@ export const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
 
-const DEFAULT_BOND_SALE_COST = 0.01; // FixMÁP early-sale cost (1% of par)
+export const DEFAULT_BOND_SALE_COST = 0.01; // FixMÁP early-sale cost (1% of par)
 
 /**
  * Parse a bond date to LOCAL midnight ms. Coupon boundaries are date-only, so
@@ -36,7 +36,7 @@ function addMonths(ms: number, months: number): number {
 }
 
 /** Local-midnight ms -> "YYYY-MM-DD" (avoids the UTC shift of toISOString). */
-function toLocalDay(ms: number): string {
+export function toLocalDay(ms: number): string {
   const d = new Date(ms);
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");

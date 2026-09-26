@@ -34,8 +34,12 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
 - **Előrejelzés** – a meglévő vagyon, a kötvényhozamok és a havi megtakarítás
   alapján vetített pálya pesszimista/reális/optimista sávval, betervezett
   kiadásokkal.
-- **Célok** – cél-allokáció, középtávú célok és rendszeres (DCA)
-  megtakarítási célok.
+- **Célok** – célpálya (saját eszközcsoportok, amelyek célsúlya egy pálya
+  mentén mozog, sávval; verziózott beállítások, idősoros grafikon), Teendők
+  panel (hová menjen a bejövő pénz, sávkorrekció költséggel és minimális
+  tranzakciómérettel, „mi lenne, ha” szimuláció — az app semmit nem hajt
+  végre, a javaslat teendőként rögzíthető), középtávú célok és rendszeres
+  (DCA) megtakarítási célok.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz
@@ -58,6 +62,7 @@ Vite · React 19 · TypeScript · Tailwind CSS v4 · Motion · Recharts · Dexie
 npm install
 npm run dev      # fejlesztői szerver (http://localhost:5173)
 npm run lint     # ESLint (a deploy is lefuttatja)
+npm test         # unit tesztek (Vitest; a deploy is lefuttatja)
 npm run build    # produkciós build a dist/ mappába
 ```
 

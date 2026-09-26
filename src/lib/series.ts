@@ -11,6 +11,7 @@ import {
   histFxRate,
   isInternalTransfer,
   toHuf,
+  type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
 
@@ -115,7 +116,7 @@ function makeDayMarker(
     // bond would still carry a full period of accrued interest while the coupon
     // is already in cash → the coupon double-counts for one sample (a phantom
     // spike on the coupon day). Aligning both to `dayEnd` keeps them consistent.
-    const s = computePortfolio(
+    const summary = computePortfolio(
       accounts,
       txsUpTo,
       instruments,
@@ -123,8 +124,39 @@ function makeDayMarker(
       fxAtD,
       new Date(dayEnd),
     );
-    return { value: s.totalValueHuf, invested: s.netDepositedHuf };
+    return { summary, fx: fxAtD };
   };
+}
+
+/**
+ * The full portfolio summary at the end of each requested day, marked exactly
+ * like the value series (history closes/FX, trade-price fallback, bonds
+ * accrued to the day's end) — plus the FX used, for converting cash. Shares
+ * one marker across all days, so a long list of samples stays cheap to set up.
+ */
+export function summariesOnDays(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+  history: ValueHistory | null | undefined,
+  days: string[],
+): { day: string; summary: PortfolioSummary; fx: Record<string, number> }[] {
+  const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
+  const mark = makeDayMarker(accounts, sorted, instruments, fx, history);
+  return days.map((day) => ({ day, ...mark(day) }));
+}
+
+/** {@link summariesOnDays} for a single day. */
+export function summaryOnDay(
+  accounts: Account[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+  history: ValueHistory | null | undefined,
+  day: string,
+): { summary: PortfolioSummary; fx: Record<string, number> } {
+  return summariesOnDays(accounts, txs, instruments, fx, history, [day])[0];
 }
 
 /**
@@ -142,10 +174,14 @@ export function valueOnDay(
   overrides?: DayOverrides,
 ): { value: number; invested: number } {
   const sorted = [...txs].sort((a, b) => a.date.localeCompare(b.date));
-  return makeDayMarker(accounts, sorted, instruments, fx, history)(
-    day,
-    overrides,
-  );
+  const { summary } = makeDayMarker(
+    accounts,
+    sorted,
+    instruments,
+    fx,
+    history,
+  )(day, overrides);
+  return { value: summary.totalValueHuf, invested: summary.netDepositedHuf };
 }
 
 /**
@@ -242,12 +278,12 @@ export function buildValueSeries(
 
   const points: ValuePoint[] = [];
   for (const day of days) {
-    const s = markDay(day);
+    const { summary: s } = markDay(day);
     const transit = bridge ? inTransitOn(day) : 0;
     points.push({
       date: day,
-      value: s.value + transit,
-      invested: s.invested + transit,
+      value: s.totalValueHuf + transit,
+      invested: s.netDepositedHuf + transit,
     });
   }
 

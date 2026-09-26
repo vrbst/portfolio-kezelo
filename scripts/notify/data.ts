@@ -42,6 +42,13 @@ import {
   type SavingsProgress,
 } from "../../src/lib/savings";
 import { applyRemotePrefs } from "../../src/lib/prefs";
+import { latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
+import {
+  glideAlerts,
+  glideStateFrom,
+  type AllocationState,
+} from "../../src/lib/rebalance";
+import { toLocalDay } from "../../src/lib/portfolio";
 import { githubToken, installLocalStorage, type NotifyEnv } from "./env";
 
 export interface Context {
@@ -63,6 +70,8 @@ export interface Context {
   events: UpcomingEvent[];
   goalProgress: GoalProgress[];
   savings: SavingsProgress[];
+  /** Glide path today (null = not set up), from the synced prefs. */
+  glide: AllocationState | null;
 }
 
 async function fetchJson<T>(
@@ -178,7 +187,15 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
   const savingsGoals = loadSavingsGoals();
   const alertState: AlertState = snapshot.alertState ?? {};
   const deletedReminders = new Set(snapshot.deletedReminderIds ?? []);
+  const glideVersions = loadGlideVersions();
+  const glide = glideStateFrom(
+    glideVersions,
+    summary,
+    fx,
+    toLocalDay(at.getTime()),
+  );
   const alerts = [
+    ...glideAlerts(glide, latestConfig(glideVersions)?.checkFrequency ?? "monthly"),
     ...computeAlerts(
       summary,
       { ...DEFAULT_ALERT_CONFIG, idleCashHuf: env.idleCashHuf },
@@ -217,6 +234,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     alerts,
     events: upcomingEvents(summary, at, transactions),
     goalProgress,
+    glide,
     savings: computeSavingsProgress(
       savingsGoals,
       accounts,

@@ -28,6 +28,25 @@ import {
   type SavingsGoal,
 } from "./savings";
 import { computeGoalProgress, goalAlerts, type GoalProgress } from "./goals";
+import { loadAllocationSettings } from "./allocation";
+import {
+  latestConfig,
+  loadGlideVersions,
+  migrateIfNeeded,
+  type CheckFrequency,
+  type GlideConfig,
+} from "./glidePath";
+import {
+  checkDays,
+  glideAlerts,
+  glideStateFrom,
+  positionsFromSummary,
+  weightHistory,
+  type AllocationState,
+  type WeightPoint,
+} from "./rebalance";
+import { summariesOnDays, summaryOnDay, toLocalDay } from "./portfolio";
+import type { Position, PositionsAt } from "./rebalance";
 import { usePortfolio } from "./store";
 
 /**
@@ -166,8 +185,11 @@ const cachedAlerts = sharedMemo(
     instruments: Instrument[],
     prices: PriceMap,
     fx: Record<string, number>,
+    glide: AllocationState | null,
+    glideFreq: CheckFrequency,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions),
+    ...glideAlerts(glide, glideFreq),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
     ...savingsGoalAlerts(
@@ -208,6 +230,9 @@ export function useActiveAlerts(): Alert[] {
   const instruments = usePortfolio((s) => s.instruments);
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
+  const glideVersions = useGlideVersions();
+  const glide = useGlideState(glideVersions);
+  const glideFreq = latestConfig(glideVersions)?.checkFrequency ?? "monthly";
   return cachedAlerts(
     summary,
     config,
@@ -219,5 +244,155 @@ export function useActiveAlerts(): Alert[] {
     instruments,
     prices,
     fx,
+    glide,
+    glideFreq,
   );
+}
+
+/**
+ * Glide-path configuration versions (a synced pref in localStorage), reloaded
+ * on every pref change — a local save or a sync pull. On first use it seeds
+ * the glide path from the old per-asset-class target allocation (once, and
+ * only while no version exists anywhere).
+ */
+export function useGlideVersions(): GlideConfig[] {
+  const [versions, setVersions] = useState<GlideConfig[]>(loadGlideVersions);
+  const loaded = usePortfolio((s) => s.loaded);
+  const instruments = usePortfolio((s) => s.instruments);
+  const summary = usePortfolioSummary();
+  useEffect(() => {
+    const on = () => setVersions(loadGlideVersions());
+    window.addEventListener(PREFS_EVENT, on);
+    return () => window.removeEventListener(PREFS_EVENT, on);
+  }, []);
+  useEffect(() => {
+    if (!loaded || instruments.length === 0) return;
+    const cash = [
+      ...new Set(summary.accounts.flatMap((a) => Object.keys(a.cash))),
+    ];
+    // Saving fires PREFS_EVENT, which reloads `versions` above.
+    migrateIfNeeded(
+      loadAllocationSettings,
+      instruments,
+      cash,
+      toLocalDay(Date.now()),
+    );
+  }, [loaded, instruments, summary]);
+  return versions;
+}
+
+const cachedGlideState = sharedMemo(glideStateFrom);
+
+/** Today's bucket weights, targets, bands and statuses (null = no glide path). */
+export function useGlideState(versions: GlideConfig[]): AllocationState | null {
+  const summary = usePortfolioSummary();
+  const fx = usePortfolio((s) => s.fx);
+  const day = useToday();
+  return cachedGlideState(versions, summary, fx, day);
+}
+
+const cachedWeightHistory = sharedMemo(
+  (
+    versions: GlideConfig[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    fx: Record<string, number>,
+    history: HistoryFile | null | undefined,
+    summary: PortfolioSummary,
+  ): WeightPoint[] => {
+    if (!versions.length || !transactions.length) return [];
+    const today = toLocalDay(Date.now());
+    const first = transactions.reduce(
+      (m, t) => (t.date < m ? t.date : m),
+      transactions[0].date,
+    );
+    // Month starts across the whole ledger history, then today at live prices.
+    const days = checkDays("monthly", first.slice(0, 10), today).filter(
+      (d) => d < today,
+    );
+    const samples = new Map(
+      summariesOnDays(
+        accounts,
+        transactions,
+        new Map(instruments.map((i) => [i.key, i])),
+        fx,
+        history,
+        days,
+      ).map((s) => [s.day, s]),
+    );
+    return weightHistory(versions, [...days, today], (day, atFace) => {
+      const s = samples.get(day);
+      return s
+        ? positionsFromSummary(s.summary, s.fx, atFace, day)
+        : positionsFromSummary(summary, fx, atFace, day);
+    });
+  },
+);
+
+/** Monthly bucket-weight history with each day's path target and band. */
+export function useGlideHistory(versions: GlideConfig[]): WeightPoint[] {
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
+  const history = usePortfolio((s) => s.historyFile);
+  const summary = usePortfolioSummary();
+  return cachedWeightHistory(
+    versions,
+    accounts,
+    transactions,
+    instruments,
+    fx,
+    history,
+    summary,
+  );
+}
+
+/** Today as a local YYYY-MM-DD, fixed for the component's lifetime. */
+export function useToday(): string {
+  const [today] = useState(() => toLocalDay(Date.now()));
+  return today;
+}
+
+const cachedPositionsAt = sharedMemo(
+  (
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    fx: Record<string, number>,
+    history: HistoryFile | null | undefined,
+    summary: PortfolioSummary,
+    today: string,
+  ): PositionsAt => {
+    // Each past-day lookup marks a whole portfolio, and the editor re-resolves
+    // snapshot starts on every keystroke — so memoise per (day, bonds at face).
+    const cache = new Map<string, Position[]>();
+    const instMap = new Map(instruments.map((i) => [i.key, i]));
+    return (day, atFace) => {
+      const key = `${day}|${atFace}`;
+      let p = cache.get(key);
+      if (!p) {
+        if (day >= today) p = positionsFromSummary(summary, fx, atFace, today);
+        else {
+          const s = summaryOnDay(accounts, transactions, instMap, fx, history, day);
+          p = positionsFromSummary(s.summary, s.fx, atFace, day);
+        }
+        cache.set(key, p);
+      }
+      return p;
+    };
+  },
+);
+
+/** Positions on any day (today = live prices), for snapshot starts / history. */
+export function usePositionsAt(): PositionsAt {
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
+  const history = usePortfolio((s) => s.historyFile);
+  const summary = usePortfolioSummary();
+  const today = useToday();
+  return cachedPositionsAt(accounts, transactions, instruments, fx, history, summary, today);
 }

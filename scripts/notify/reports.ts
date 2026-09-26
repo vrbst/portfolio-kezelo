@@ -5,7 +5,6 @@ import type { UpcomingEvent } from "../../src/lib/events";
 import {
   asOf,
   consolidatedHoldings,
-  type AssetClass,
   type ValuePoint,
 } from "../../src/lib/portfolio";
 import {
@@ -17,11 +16,6 @@ import {
   type PlannedExpense,
 } from "../../src/lib/forecast";
 import { loadSavingsGoals } from "../../src/lib/savings";
-import {
-  computeDrift,
-  includedClasses,
-  loadAllocationSettings,
-} from "../../src/lib/allocation";
 import type { Context } from "./data";
 import { esc } from "./telegram";
 
@@ -78,14 +72,6 @@ const monthLabel = (ym: string) => {
 };
 const localDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-const CLASS_LABEL: Record<AssetClass, string> = {
-  equity: "Részvény/ETF",
-  crypto: "Kripto",
-  bond: "Állampapír",
-  tbill: "DKJ",
-  cash: "Készpénz",
-};
 
 const SEVERITY_ICON: Record<Alert["severity"], string> = {
   high: "🔴",
@@ -346,17 +332,15 @@ export function monthlyText(ctx: Context): string {
     }
   }
 
-  // Allocation vs target.
-  const alloc = loadAllocationSettings();
-  if (alloc) {
-    const rows = computeDrift(ctx.summary, alloc.targets, includedClasses(alloc));
-    if (rows.length) {
-      lines.push("", "<b>Allokáció (cél / tény)</b>");
-      for (const r of rows)
-        lines.push(
-          `• ${CLASS_LABEL[r.key]}: ${Math.round(r.targetPct * 100)}% / ${Math.round(r.actualPct * 100)}% (${sft(r.driftHuf)})`,
-        );
-    }
+  // Glide path: bucket weights vs. today's path target and band.
+  if (ctx.glide?.buckets.length) {
+    const icon = { within: "✅", below: "⬇️", above: "⬆️", empty: "▫️" };
+    const p = (v: number) => `${Math.round(v * 100)}%`;
+    lines.push("", "<b>Célpálya (tény / pálya, sáv)</b>");
+    for (const b of ctx.glide.buckets)
+      lines.push(
+        `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
+      );
   }
 
   // Forecast vs. reality: what earlier snapshots expected for this month.

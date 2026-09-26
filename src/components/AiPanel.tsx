@@ -35,17 +35,15 @@ import {
   futureBondCashflows,
   isInternalTransfer,
   toHuf,
+  toLocalDay,
 } from "../lib/portfolio";
 import { upcomingEvents } from "../lib/events";
 import { tbszStatus } from "../lib/tbsz";
 import { computeSavingsProgress, savingsGoalExpenses } from "../lib/savings";
 import { effectiveMonthKey } from "../lib/goals";
 import { forecastMilestones, projectFromSettings } from "../lib/forecast";
-import {
-  computeDrift,
-  includedClasses,
-  loadAllocationSettings,
-} from "../lib/allocation";
+import { loadGlideVersions } from "../lib/glidePath";
+import { glideStateFrom } from "../lib/rebalance";
 import { Card } from "./ui";
 import {
   loadAiKey,
@@ -157,7 +155,6 @@ export default function AiPanel() {
       fx,
       goalExpenses,
     );
-    const alloc = loadAllocationSettings();
     const now = new Date();
     // The effective month: payday deposits count toward the next month.
     const monthKey = effectiveMonthKey(now);
@@ -207,9 +204,12 @@ export default function AiPanel() {
           })),
         shortfall: result.shortfall.real ?? result.shortfall.pess,
       },
-      drift: alloc
-        ? computeDrift(summary, alloc.targets, includedClasses(alloc))
-        : undefined,
+      glide: glideStateFrom(
+        loadGlideVersions(),
+        summary,
+        fx,
+        toLocalDay(now.getTime()),
+      ),
       budget: {
         monthlyHuf: assumptions.monthlySavingHuf,
         thisMonthNetHuf: thisMonthNet,

@@ -249,6 +249,23 @@ export interface Reminder {
   detail?: string;
   /** Optional deep link (router path). */
   to?: string;
+  /**
+   * A planned rebalancing transaction saved from a glide-path suggestion. It
+   * is only a plan: nothing is executed — the real trade arrives through the
+   * usual statement import. `detail` carries the same steps as text, so the
+   * alert list and the Telegram bot show them without knowing this field.
+   */
+  plan?: PlannedTrade[];
+}
+
+export interface PlannedTrade {
+  side: "buy" | "sell" | "redirect";
+  bucketName: string;
+  instrumentKey?: string;
+  instrumentName?: string;
+  amountHuf: number;
+  quantity?: number;
+  costHuf?: number;
 }
 
 export const REMINDER_ALERT_PREFIX = "reminder:";

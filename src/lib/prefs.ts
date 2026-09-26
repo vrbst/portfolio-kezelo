@@ -1,5 +1,5 @@
-// Syncable planning preferences: target allocation, forecast settings,
-// savings goals and price-symbol overrides.
+// Syncable planning preferences: target allocation, glide path, forecast
+// settings, savings goals and price-symbol overrides.
 // Each field carries an updatedAt stamp and merges last-write-wins across
 // devices. Secrets (sync token, AI key) live under separate localStorage keys
 // and are NEVER part of this.
@@ -13,6 +13,11 @@ import {
   type ForecastSnapshot,
 } from "./forecast";
 import { loadSavingsGoals, type SavingsGoal } from "./savings";
+import {
+  loadGlideVersions,
+  mergeGlideVersions,
+  type GlideConfig,
+} from "./glidePath";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -29,6 +34,8 @@ export interface SyncedPrefs {
   savings?: StampedPref<SavingsGoal[]>;
   /** Manual ISIN -> Yahoo symbol overrides for live prices. */
   symbols?: StampedPref<Record<string, string>>;
+  /** Glide-path configuration versions — append-only, merged as a union. */
+  glidePath?: StampedPref<GlideConfig[]>;
 }
 
 export type PrefKind =
@@ -36,7 +43,8 @@ export type PrefKind =
   | "forecast"
   | "forecastSnapshots"
   | "savings"
-  | "symbols";
+  | "symbols"
+  | "glidePath";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -44,6 +52,7 @@ const KINDS: PrefKind[] = [
   "forecastSnapshots",
   "savings",
   "symbols",
+  "glidePath",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -52,6 +61,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   forecastSnapshots: "pf-forecast-snapshots",
   savings: "pf-savings",
   symbols: "portfolio.symbolOverrides",
+  glidePath: "pf-glidepath",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -59,6 +69,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   forecastSnapshots: "pf-forecast-snapshots-updated",
   savings: "pf-savings-updated",
   symbols: "portfolio.symbolOverrides-updated",
+  glidePath: "pf-glidepath-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -68,6 +79,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   forecast: loadForecastSettings,
   forecastSnapshots: loadForecastSnapshots,
   savings: loadSavingsGoals,
+  glidePath: loadGlideVersions,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {
@@ -153,6 +165,8 @@ const UNION: Partial<Record<PrefKind, (a: unknown, b: unknown) => unknown>> = {
       a as ForecastSnapshot[] | null,
       b as ForecastSnapshot[] | null,
     ),
+  glidePath: (a, b) =>
+    mergeGlideVersions(a as GlideConfig[] | null, b as GlideConfig[] | null),
 };
 
 /** Per-field last-write-wins merge; `over` wins timestamp ties. */

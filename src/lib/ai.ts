@@ -10,7 +10,7 @@ import type { Alert } from "./alerts";
 import type { TbszStatus } from "./tbsz";
 import type { UpcomingEvent } from "./events";
 import type { SavingsProgress } from "./savings";
-import type { DriftRow } from "./allocation";
+import type { AllocationState } from "./rebalance";
 import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
 // The SDK is loaded on first use (dynamic import → its own chunk), so it
@@ -278,8 +278,8 @@ export interface AiContextExtras {
     milestones: { years: number; real: number; pess: number; opt: number }[];
     shortfall: string | null;
   };
-  /** Target allocation vs. actual. */
-  drift?: DriftRow[];
+  /** Glide path: today's bucket weights vs. path target and band. */
+  glide?: AllocationState | null;
   /** This month's net deposits against the monthly saving budget. */
   budget?: { monthlyHuf: number; thisMonthNetHuf: number };
   /** Passive income: last 12 months realised, next 12 months expected. */
@@ -427,12 +427,13 @@ export function buildAiPortfolioContext(
     accountsTxt || "- (nincs számla)",
   ];
 
-  // --- Target allocation drift ---
-  if (extras?.drift?.length) {
-    lines.push("", "Cél-allokáció vs. tény (a kezelt eszközosztályokon belül):");
-    for (const r of extras.drift)
+  // --- Glide path (target allocation along a path, with a band) ---
+  if (extras?.glide?.buckets.length) {
+    const status = { within: "sávon belül", below: "SÁV ALATT", above: "SÁV FÖLÖTT", empty: "nincs adat" };
+    lines.push("", "Célpálya (eszközcsoportok; tény / mai pályacél, sáv, végső cél):");
+    for (const b of extras.glide.buckets)
       lines.push(
-        `- ${assetClassLabel[r.key] ?? r.key}: cél ${pct(r.targetPct)}, tény ${pct(r.actualPct)} (${signedHuf(r.driftHuf)} Ft)`,
+        `- ${b.bucket.name}: tény ${pct(b.weight)}, pályacél ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig (${signedHuf(b.valueHuf - b.target * extras.glide.totalHuf)} Ft a pályához képest)`,
       );
   }
 
