@@ -10,7 +10,10 @@ import {
   type CostRule,
   type GlideConfig,
   type InstrumentRule,
+  type MonthlyAmount,
 } from "../lib/glidePath";
+import { glideMonthlyHuf } from "../lib/budget";
+import { useMonthlyBudget } from "../lib/store";
 import {
   bandLimits,
   bandWidth,
@@ -118,6 +121,82 @@ function CostFields({
     <div className="space-y-1.5">
       {row("buy", "Vétel")}
       {row("sell", "Eladás / visszaváltás")}
+    </div>
+  );
+}
+
+/**
+ * The glide path's monthly amount: fixed HUF, a share of the monthly budget,
+ * or what the other goals leave — with the resulting amount and whether the
+ * budget is overspent, from today's budget split.
+ */
+function MonthlyAmountField({
+  value,
+  onChange,
+}: {
+  value: MonthlyAmount | undefined;
+  onChange: (v: MonthlyAmount | undefined) => void;
+}) {
+  const { breakdown: b } = useMonthlyBudget();
+  const other = b.dcaHuf + b.savingsHuf;
+  const amount = glideMonthlyHuf(value, b.budgetHuf, other);
+  const over = Math.max(0, other + amount - b.budgetHuf);
+  const setKind = (kind: string) =>
+    onChange(
+      kind === "fixed"
+        ? { kind, huf: value?.kind === "fixed" ? value.huf : amount }
+        : kind === "pct"
+          ? { kind, pct: value?.kind === "pct" ? value.pct : 1 }
+          : kind === "remainder"
+            ? { kind }
+            : undefined,
+    );
+  return (
+    <div className="mt-3 space-y-1">
+      <div className={LABEL}>
+        Célpálya havi összege (a havi keretből; a Teendők ezt osztja el)
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          className={INPUT}
+          value={value?.kind ?? "legacy"}
+          onChange={(e) => setKind(e.target.value)}
+        >
+          {!value && <option value="legacy">nincs beállítva (teljes keret)</option>}
+          <option value="fixed">fix összeg</option>
+          <option value="pct">a havi keret %-a</option>
+          <option value="remainder">ami a többi cél után marad</option>
+        </select>
+        {value?.kind === "fixed" && (
+          <>
+            <AmountInput
+              value={String(value.huf)}
+              onValueChange={(raw) => onChange({ kind: "fixed", huf: Number(raw) || 0 })}
+              className={`${INPUT} w-32 text-right`}
+            />
+            <span className={LABEL}>Ft</span>
+          </>
+        )}
+        {value?.kind === "pct" && (
+          <>
+            <PctInput
+              value={value.pct}
+              onChange={(v) => onChange({ kind: "pct", pct: v ?? 0 })}
+            />
+            <span className={LABEL}>%</span>
+          </>
+        )}
+      </div>
+      <div className={`text-xs ${over > 0 || !value ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]"}`}>
+        Ma: <Amt>{formatMoney(amount)}</Amt> / hó · keret <Amt>{formatMoney(b.budgetHuf)}</Amt>,
+        többi cél <Amt>{formatMoney(other)}</Amt>
+        {over > 0 && (
+          <>
+            {" "}— túllépés <Amt>{formatMoney(over)}</Amt>
+          </>
+        )}
+        {!value && " — a teljes keretet használja, ütközik a többi céllal"}
+      </div>
     </div>
   );
 }
@@ -775,6 +854,10 @@ export default function GlidePathEditor({
             />
           </label>
         </div>
+        <MonthlyAmountField
+          value={draft.monthlyAmount}
+          onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
+        />
         <div className="mt-3">
           <div className={`${LABEL} mb-1`}>
             Alapértelmezett költség (ha a csoport vagy az instrumentum nem ad meg

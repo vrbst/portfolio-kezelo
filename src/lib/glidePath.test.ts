@@ -115,9 +115,37 @@ describe("validateConfig", () => {
   });
 
   it("warns about held positions outside every bucket", () => {
-    const r = validateConfig(config([bucket("A", 1)]), ["INST-A", "MÁSIK"]);
+    const r = validateConfig(
+      config([bucket("A", 1)], { monthlyAmount: { kind: "remainder" } }),
+      ["INST-A", "MÁSIK"],
+    );
     expect(r.errors).toEqual([]);
     expect(r.warnings).toHaveLength(1);
+  });
+
+  it("warns while the monthly amount is unset (old versions: whole budget)", () => {
+    const r = validateConfig(config([bucket("A", 1)]));
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.some((w) => w.message.includes("havi összege"))).toBe(true);
+  });
+
+  it.each([
+    [{ kind: "fixed", huf: -1 }],
+    [{ kind: "pct", pct: 1.2 }],
+    [{ kind: "pct", pct: -0.1 }],
+  ] as const)("rejects an invalid monthly amount %j", (monthlyAmount) => {
+    const r = validateConfig(config([bucket("A", 1)], { monthlyAmount }));
+    expect(r.errors.some((e) => e.message.includes("havi összege"))).toBe(true);
+  });
+
+  it.each([
+    [{ kind: "fixed", huf: 150_000 }],
+    [{ kind: "pct", pct: 0.2 }],
+    [{ kind: "remainder" }],
+  ] as const)("accepts a valid monthly amount %j", (monthlyAmount) => {
+    const r = validateConfig(config([bucket("A", 1)], { monthlyAmount }));
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual([]);
   });
 
   it("treats a config without buckets as switched off", () => {

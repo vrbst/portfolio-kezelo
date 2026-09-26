@@ -7,8 +7,10 @@ import {
   useGlideState,
   useGlideHistory,
   usePositionsAt,
+  useMonthlyBudget,
   useToday,
 } from "../lib/store";
+import { glideAmountSource } from "../lib/budget";
 import {
   defaultGlobals,
   isActive,
@@ -83,6 +85,8 @@ export default function GlidePathSettings() {
   const cfg = latestConfig(versions);
   const active = isActive(cfg);
   const today = useToday();
+  const { breakdown } = useMonthlyBudget();
+  const amountSource = glideAmountSource(breakdown, cfg);
 
   const [editing, setEditing] = useState<GlideConfig | null>(null);
   const [showVersions, setShowVersions] = useState(false);
@@ -248,6 +252,15 @@ export default function GlidePathSettings() {
               <Amt>{formatMoney(cfg.minTradeHuf)}</Amt> · visszaállítás{" "}
               {cfg.restoreTo === "path" ? "a pályacélig" : "a sávhatárig"} · érvényes{" "}
               {cfg.validFrom}-tól
+            </p>
+          )}
+          {amountSource && (
+            <p
+              className={`mt-1 text-xs ${
+                breakdown.glideMode === "legacy" ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]"
+              }`}
+            >
+              {amountSource}
             </p>
           )}
 

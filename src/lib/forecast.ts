@@ -946,6 +946,22 @@ export function loadForecastSettings(): ForecastSettings {
   }
 }
 
+/**
+ * The monthly budget ("havi keret"): the Forecast page's manual override,
+ * else the detected recurring saving. The one definition every consumer
+ * (Forecast, budget bar, Teendők, bot) uses.
+ */
+export function monthlyBudgetHuf(
+  transactions: Transaction[],
+  fx: Record<string, number>,
+  now: Date = new Date(),
+): number {
+  return Math.round(
+    loadForecastSettings().monthlySavingOverride ??
+      detectRecurringSavings(transactions, fx, now).monthlyHuf,
+  );
+}
+
 export function saveForecastSettings(s: ForecastSettings) {
   try {
     const json = JSON.stringify(s);

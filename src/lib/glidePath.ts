@@ -98,6 +98,19 @@ export const DEFAULT_QTY_DECIMALS = 4;
 
 export type CheckFrequency = "monthly" | "quarterly";
 
+/**
+ * The glide path's own share of the monthly budget ("havi keret") — the
+ * default amount the Teendők panel routes, and the "Célpálya" slice of the
+ * budget bar, so it doesn't collide with the DCA and medium-term goals.
+ */
+export type MonthlyAmount =
+  /** A fixed HUF amount. */
+  | { kind: "fixed"; huf: number }
+  /** A fraction of the monthly budget (0.2 = 20%). */
+  | { kind: "pct"; pct: number }
+  /** Whatever the DCA and medium-term goals leave free (never below 0). */
+  | { kind: "remainder" };
+
 /** One dated version of the whole glide-path configuration. */
 export interface GlideConfig {
   id: string;
@@ -133,6 +146,12 @@ export interface GlideConfig {
   realertStepPp: number;
   /** Send deepening re-alerts during the bot's quiet hours too. */
   deepAlertsInQuietHours: boolean;
+  /**
+   * The glide path's monthly amount. Missing on versions saved before it
+   * existed: then the whole monthly budget is used (the earlier behaviour),
+   * which collides with the other goals — the UI says so.
+   */
+  monthlyAmount?: MonthlyAmount;
 }
 
 /** Pseudo-instrument key for a cash balance in `ccy` (assignable to a bucket). */
@@ -374,6 +393,16 @@ export function validateConfig(
     errors.push({ message: "A költség/haszon küszöb nem lehet negatív." });
   if (!validCostRule(cfg.defaultCost))
     errors.push({ message: "Érvénytelen alapértelmezett költség." });
+  const ma = cfg.monthlyAmount;
+  if (ma?.kind === "fixed" && !(Number.isFinite(ma.huf) && ma.huf >= 0))
+    errors.push({ message: "A célpálya havi összege nem lehet negatív." });
+  if (ma?.kind === "pct" && !(ma.pct >= 0 && ma.pct <= 1))
+    errors.push({ message: "A célpálya havi összege a keret 0–100%-a lehet." });
+  if (!ma)
+    warnings.push({
+      message:
+        "Nincs beállítva a célpálya havi összege — a teljes havi keretet használja, ami ütközik a DCA és a középtávú célokkal.",
+    });
   if (!DAY_RE.test(cfg.validFrom))
     errors.push({ message: "Add meg, mikortól érvényes a beállítás." });
 

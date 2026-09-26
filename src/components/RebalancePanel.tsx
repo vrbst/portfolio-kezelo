@@ -4,6 +4,7 @@ import {
   usePortfolio,
   useGlideVersions,
   useGlideState,
+  useMonthlyBudget,
   useToday,
 } from "../lib/store";
 import { latestConfig, type GlideConfig } from "../lib/glidePath";
@@ -21,7 +22,7 @@ import {
   type Suggestion,
 } from "../lib/rebalance";
 import type { PlannedTrade } from "../lib/alerts";
-import { detectRecurringSavings, loadForecastSettings } from "../lib/forecast";
+import { glideAmountSource } from "../lib/budget";
 import { formatMoney } from "../lib/format";
 import { AmountInput, Amt, Badge, Card } from "./ui";
 import { PctInput } from "./GlidePathEditor";
@@ -170,18 +171,15 @@ export default function RebalancePanel() {
   const versions = useGlideVersions();
   const cfg = latestConfig(versions);
   const state = useNamed(useGlideState(versions));
-  const transactions = usePortfolio((s) => s.transactions);
-  const fx = usePortfolio((s) => s.fx);
   const today = useToday();
 
-  // Same monthly saving as the Forecast page: manual override, else detected.
-  const monthlySaving = useMemo(() => {
-    const fs = loadForecastSettings();
-    const det = detectRecurringSavings(transactions, fx);
-    return Math.round(fs.monthlySavingOverride ?? det.monthlyHuf);
-  }, [transactions, fx]);
+  // Default: the glide path's own monthly amount (its slice of the budget);
+  // overwritable for a coupon, dividend or extra deposit.
+  const { breakdown, couponGoals } = useMonthlyBudget();
+  const defaultAmount = breakdown.glideHuf;
+  const source = glideAmountSource(breakdown, cfg);
   const [amountRaw, setAmountRaw] = useState<string | null>(null);
-  const amount = amountRaw != null ? Number(amountRaw) || 0 : monthlySaving;
+  const amount = amountRaw != null ? Number(amountRaw) || 0 : defaultAmount;
 
   // Free cash = cash balances outside every bucket (the source of new money).
   const freeCash = useMemo(() => (state ? freeCashHuf(state) : 0), [state]);
@@ -235,10 +233,27 @@ export default function RebalancePanel() {
             <span className="text-[var(--color-muted)]">Ft</span>
             {amountRaw != null && (
               <button className="text-xs text-[var(--color-muted)] underline" onClick={() => setAmountRaw(null)}>
-                havi megtakarítás (<Amt>{formatMoney(monthlySaving)}</Amt>)
+                vissza a célpálya havi összegére (<Amt>{formatMoney(defaultAmount)}</Amt>)
               </button>
             )}
           </div>
+          {source && (
+            <p
+              className={`mb-2 text-xs ${
+                breakdown.glideMode === "legacy" ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]"
+              }`}
+            >
+              Alapérték — {source}
+              {amountRaw != null && " (most kézzel átírva)"}
+            </p>
+          )}
+          {couponGoals.length > 0 && (
+            <p className="mb-2 text-xs text-[var(--color-warning)]">
+              Figyelem: {couponGoals.map((n) => `„${n}”`).join(", ")} a
+              kötvénykuponokat is magának foglalja — ha itt kupont osztasz el,
+              az kétszer számolódik.
+            </p>
+          )}
           <SuggestionList plan={flowPlan} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
           <SaveAsReminder plan={flowPlan} title={`Célpálya – ${formatMoney(amount)} elosztása (${today})`} />
         </section>

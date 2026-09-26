@@ -23,11 +23,25 @@ import {
 } from "./alerts";
 import { PREFS_EVENT } from "./prefs";
 import {
+  computeSavingsProgress,
   loadSavingsGoals,
   savingsGoalAlerts,
   type SavingsGoal,
 } from "./savings";
-import { computeGoalProgress, goalAlerts, type GoalProgress } from "./goals";
+import {
+  computeGoalProgress,
+  goalAlerts,
+  type Goal,
+  type GoalProgress,
+} from "./goals";
+import { monthlyBudgetHuf } from "./forecast";
+import {
+  budgetBreakdown,
+  couponClaimingGoals,
+  dcaMonthlyHuf,
+  savingsMonthlyHuf,
+  type BudgetBreakdown,
+} from "./budget";
 import { loadAllocationSettings } from "./allocation";
 import {
   latestConfig,
@@ -421,4 +435,82 @@ export function usePositionsAt(): PositionsAt {
   const summary = usePortfolioSummary();
   const today = useToday();
   return cachedPositionsAt(accounts, transactions, instruments, fx, history, summary, today);
+}
+
+/** Bumps on every pref change (local save or sync pull). */
+function usePrefsVersion(): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const on = () => setN((v) => v + 1);
+    window.addEventListener(PREFS_EVENT, on);
+    return () => window.removeEventListener(PREFS_EVENT, on);
+  }, []);
+  return n;
+}
+
+const cachedBudget = sharedMemo(
+  (
+    savingsGoals: SavingsGoal[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    prices: PriceMap,
+    fx: Record<string, number>,
+    dcaGoals: Goal[],
+    glide: GlideConfig | undefined,
+    prefsVersion: number,
+  ) => {
+    void prefsVersion; // the budget override is a pref: recompute on change
+    const savings = computeSavingsProgress(
+      savingsGoals,
+      accounts,
+      transactions,
+      new Map(instruments.map((i) => [i.key, i])),
+      prices,
+      fx,
+    );
+    return {
+      breakdown: budgetBreakdown({
+        budgetHuf: monthlyBudgetHuf(transactions, fx),
+        dcaHuf: dcaMonthlyHuf(dcaGoals),
+        savingsHuf: savingsMonthlyHuf(savings),
+        glide,
+      }),
+      couponGoals: couponClaimingGoals(savings),
+    };
+  },
+);
+
+/**
+ * The monthly budget split between the goals (budget bar, Teendők). Uses the
+ * newest glide-path version, like the Teendők panel.
+ */
+export function useMonthlyBudget(): {
+  breakdown: BudgetBreakdown;
+  couponGoals: string[];
+  glide: GlideConfig | undefined;
+} {
+  const savingsGoals = useSavingsGoals();
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
+  const fx = usePortfolio((s) => s.fx);
+  const dcaGoals = usePortfolio((s) => s.goals);
+  const glide = latestConfig(useGlideVersions());
+  const prefsVersion = usePrefsVersion();
+  return {
+    ...cachedBudget(
+      savingsGoals,
+      accounts,
+      transactions,
+      instruments,
+      prices,
+      fx,
+      dcaGoals,
+      glide,
+      prefsVersion,
+    ),
+    glide,
+  };
 }

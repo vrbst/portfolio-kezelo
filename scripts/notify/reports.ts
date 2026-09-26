@@ -12,9 +12,18 @@ import {
   forecastMilestones,
   loadForecastSettings,
   loadForecastSnapshots,
+  monthlyBudgetHuf,
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
+import {
+  budgetBreakdown,
+  couponClaimingGoals,
+  dcaMonthlyHuf,
+  glideAmountSource,
+  savingsMonthlyHuf,
+} from "../../src/lib/budget";
+import { routeCashflow, suggestionText } from "../../src/lib/rebalance";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import type { Context } from "./data";
 import { esc } from "./telegram";
@@ -299,6 +308,44 @@ export function weeklyText(ctx: Context): string {
   return lines.join("\n");
 }
 
+/**
+ * The glide path's monthly amount — the same default the Teendők panel
+ * routes — and where it should go this month.
+ */
+function glideAllocationLines(ctx: Context): string[] {
+  const cfg = ctx.glideConfig;
+  if (!ctx.glide || !cfg) return [];
+  const b = budgetBreakdown({
+    budgetHuf: monthlyBudgetHuf(ctx.transactions, ctx.fx, ctx.at),
+    dcaHuf: dcaMonthlyHuf(ctx.snapshot.goals ?? []),
+    savingsHuf: savingsMonthlyHuf(ctx.savings),
+    glide: cfg,
+  });
+  if (b.glideMode == null) return [];
+  const out = [
+    "",
+    `💶 ${esc(glideAmountSource(b, cfg) ?? "")}`,
+  ];
+  if (b.glideHuf > 0) {
+    const steps = routeCashflow(cfg, ctx.glide, b.glideHuf).suggestions.filter(
+      (s) => s.status === "ok",
+    );
+    out.push(
+      steps.length
+        ? steps.map((s) => `→ ${esc(suggestionText(s))}`).join("\n")
+        : "→ nincs javasolt vétel",
+    );
+  } else if (b.glideMode === "remainder") {
+    out.push("→ a többi cél lefoglalja a teljes havi keretet, nincs mit elosztani");
+  }
+  const coupons = couponClaimingGoals(ctx.savings);
+  if (coupons.length)
+    out.push(
+      `⚠️ ${esc(coupons.join(", "))}: a kötvénykuponokat is foglalja — kupont ne oszd el a célpályán is.`,
+    );
+  return out;
+}
+
 /** Report on the month before `ctx.at`. */
 export function monthlyText(ctx: Context): string {
   const endPrev = new Date(ctx.at.getFullYear(), ctx.at.getMonth(), 0);
@@ -341,6 +388,7 @@ export function monthlyText(ctx: Context): string {
       lines.push(
         `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
       );
+    lines.push(...glideAllocationLines(ctx));
   }
 
   // Forecast vs. reality: what earlier snapshots expected for this month.

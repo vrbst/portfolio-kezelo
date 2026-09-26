@@ -1,87 +1,32 @@
-import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PiggyBank, ArrowRight } from "lucide-react";
-import {
-  usePortfolio,
-  usePortfolioSummary,
-  useSavingsGoals,
-} from "../lib/store";
-import { computeSavingsProgress } from "../lib/savings";
-import { detectRecurringSavings, loadForecastSettings } from "../lib/forecast";
-import { PREFS_EVENT } from "../lib/prefs";
+import { useMonthlyBudget } from "../lib/store";
+import { glideModeLabel } from "../lib/budget";
 import { Card } from "./ui";
 import { formatMoney } from "../lib/format";
+
+const SEGMENTS = [
+  { key: "savingsHuf", label: "Középtávú célok", title: "Középtávú célok havi igénye", color: "var(--color-brand)" },
+  { key: "dcaHuf", label: "DCA célok", title: "Rendszeres (DCA) célok havi összege", color: "var(--color-accent)" },
+  { key: "glideHuf", label: "Célpálya", title: "A célpálya havi összege (Teendők: bejövő pénz elosztása)", color: "var(--color-brand-2)" },
+] as const;
 
 /**
  * "Havi keret" summary strip on the Goals page: the monthly saving (same
  * source as the Forecast page — manual override, else detected), how much of
- * it the goals below already commit (DCA goals' monthly equivalent + the
- * medium-term goals' required monthly saving), and what remains free. Pure
- * display — it changes no calculation, it only makes the relationship between
- * the three "monthly amount" concepts visible in one place.
+ * it the goals commit (medium-term goals' required monthly saving, DCA goals'
+ * monthly equivalent, the glide path's own monthly amount), and what remains
+ * free — or how far the goals overshoot it.
  */
 export default function MonthlyBudgetBar() {
-  const summary = usePortfolioSummary();
-  const accounts = usePortfolio((s) => s.accounts);
-  const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
-  const prices = usePortfolio((s) => s.prices);
-  const fx = usePortfolio((s) => s.fx);
-  const dcaGoals = usePortfolio((s) => s.goals);
-  const savingsGoals = useSavingsGoals();
-
-  // Re-read the forecast settings when any pref changes (e.g. a sync pull
-  // brings a new monthly override from another device).
-  const [prefsBump, setPrefsBump] = useState(0);
-  useEffect(() => {
-    const on = () => setPrefsBump((n) => n + 1);
-    window.addEventListener(PREFS_EVENT, on);
-    return () => window.removeEventListener(PREFS_EVENT, on);
-  }, []);
-
-  // Same monthly saving as the Forecast page and the allocation card.
-  const budget = useMemo(() => {
-    void prefsBump;
-    const fs = loadForecastSettings();
-    const det = detectRecurringSavings(transactions, fx);
-    return Math.round(fs.monthlySavingOverride ?? det.monthlyHuf);
-  }, [transactions, fx, prefsBump]);
-
-  // DCA goals as monthly equivalents (a quarterly 300k goal is 100k/month).
-  const dcaMonthly = useMemo(
-    () =>
-      Math.round(
-        dcaGoals.reduce((s, g) => s + g.amountHuf / g.periodMonths, 0),
-      ),
-    [dcaGoals],
-  );
-
-  // Medium-term goals: the required monthly saving of every goal still ahead.
-  const savingsMonthly = useMemo(() => {
-    const map = new Map(instruments.map((i) => [i.key, i]));
-    const progress = computeSavingsProgress(
-      savingsGoals,
-      accounts,
-      transactions,
-      map,
-      prices,
-      fx,
-    );
-    return Math.round(
-      progress.reduce(
-        (s, p) => s + (p.daysLeft > 0 && !p.reached ? p.monthlyNeededHuf : 0),
-        0,
-      ),
-    );
-  }, [savingsGoals, accounts, transactions, instruments, prices, fx]);
-
-  void summary; // subscribes the strip to portfolio changes like the cards below
-
-  const committed = dcaMonthly + savingsMonthly;
-  const free = budget - committed;
-  const over = budget > 0 && free < 0;
+  const { breakdown: b, glide } = useMonthlyBudget();
+  const budget = b.budgetHuf;
+  const over = budget > 0 && b.overHuf > 0;
+  // Over budget: scale to the total commitment so every slice stays visible,
+  // and mark where the budget ends.
+  const scale = Math.max(budget, b.committedHuf);
   const pct = (n: number) =>
-    budget > 0 ? Math.max(0, Math.min(100, (n / budget) * 100)) : 0;
+    scale > 0 ? Math.max(0, Math.min(100, (n / scale) * 100)) : 0;
 
   return (
     <Card className="mb-4 p-5">
@@ -110,36 +55,36 @@ export default function MonthlyBudgetBar() {
         </p>
       ) : (
         <>
-          <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--color-surface-2)]">
-            <div
-              className="h-full bg-[var(--color-brand)]"
-              style={{ width: `${pct(savingsMonthly)}%` }}
-              title="Középtávú célok havi igénye"
-            />
-            <div
-              className="h-full bg-[var(--color-accent,#22d3ee)]"
-              style={{ width: `${pct(dcaMonthly)}%` }}
-              title="Rendszeres (DCA) célok havi összege"
-            />
+          <div className="relative mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+            {SEGMENTS.map((s) => (
+              <div
+                key={s.key}
+                className="h-full"
+                style={{ width: `${pct(b[s.key])}%`, background: s.color }}
+                title={s.title}
+              />
+            ))}
+            {over && (
+              <div
+                className="absolute inset-y-0 w-0.5 bg-[var(--color-negative)]"
+                style={{ left: `${pct(budget)}%` }}
+                title="A havi keret vége"
+              />
+            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-            {savingsMonthly > 0 && (
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-[var(--color-brand)]" />
-                Középtávú célok{" "}
-                <span className="amt tabular-nums">
-                  {formatMoney(savingsMonthly)}
-                </span>
-              </span>
-            )}
-            {dcaMonthly > 0 && (
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-[var(--color-accent,#22d3ee)]" />
-                DCA célok{" "}
-                <span className="amt tabular-nums">
-                  {formatMoney(dcaMonthly)}
-                </span>
-              </span>
+            {SEGMENTS.map(
+              (s) =>
+                b[s.key] > 0 && (
+                  <span key={s.key} className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+                    {s.label}{" "}
+                    <span className="amt tabular-nums">{formatMoney(b[s.key])}</span>
+                    {s.key === "glideHuf" && b.glideMode && b.glideMode !== "legacy" && (
+                      <span>({glideModeLabel(b.glideMode, glide?.monthlyAmount)})</span>
+                    )}
+                  </span>
+                ),
             )}
             <span
               className={`ml-auto tabular-nums ${
@@ -150,16 +95,24 @@ export default function MonthlyBudgetBar() {
             >
               {over ? (
                 <>
-                  Túllépés: <span className="amt">{formatMoney(-free)}</span> —
+                  Túllépés: <span className="amt">{formatMoney(b.overHuf)}</span> —
                   a célok többet kívánnak, mint a havi keret
                 </>
               ) : (
                 <>
-                  Szabad: <span className="amt">{formatMoney(free)}</span>
+                  Szabad: <span className="amt">{formatMoney(b.freeHuf)}</span>
                 </>
               )}
             </span>
           </div>
+          {b.glideMode === "legacy" && (
+            <p className="mt-2 text-xs text-[var(--color-warning)]">
+              A célpálya havi összege nincs beállítva, ezért a teljes havi
+              keretet használja — ez ütközik a DCA és a középtávú célokkal.
+              Állítsd be a Célpálya szerkesztőjében (fix összeg, a keret
+              %-a, vagy ami a többi cél után marad).
+            </p>
+          )}
         </>
       )}
     </Card>
