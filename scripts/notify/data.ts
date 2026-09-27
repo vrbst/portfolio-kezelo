@@ -235,18 +235,6 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
   );
   // Incoming money not yet distributed — only once the app has switched the
   // tracking on (its start day and the "distributed" marks sync from there).
-  const incomeState = loadIncomeState();
-  const income = allocateIncome(
-    pendingIncome(
-      incomeState
-        ? incomeEvents(transactions, instMap, accounts, fx, incomeState.since)
-        : [],
-      incomeState,
-    ),
-    savings,
-    glideConfig,
-    glide,
-  );
   const day = toLocalDay(at.getTime());
   const purchase = loadPurchaseAccounts();
   const accountCtx = accountContext({
@@ -258,6 +246,19 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     purchase,
     fees: loadBrokerFees(),
   });
+  const incomeState = loadIncomeState();
+  const income = allocateIncome(
+    pendingIncome(
+      incomeState
+        ? incomeEvents(transactions, instMap, accounts, fx, incomeState.since)
+        : [],
+      incomeState,
+    ),
+    savings,
+    glideConfig,
+    glide,
+    accountCtx,
+  );
   const baseAlerts = [
     ...missingVenueAlerts(purchase, accounts, day, (k) => instMap.get(k)?.name ?? k),
     ...computeAlerts(
@@ -296,7 +297,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     summary,
     series,
     dayChange,
-    alerts: withGlideAlerts(baseAlerts, glide, glideConfig, alertState, {}),
+    alerts: withGlideAlerts(baseAlerts, glide, glideConfig, alertState, {}, accountCtx),
     events: upcomingEvents(summary, at, transactions),
     goalProgress,
     glide,
@@ -319,9 +320,10 @@ export function withGlideAlerts(
   cfg: GlideConfig | undefined,
   alertState: AlertState,
   signals: GlideSignals,
+  accounts?: AccountContext,
 ): Alert[] {
   return [
-    ...glideAlerts(glide, cfg, signals).filter(
+    ...glideAlerts(glide, cfg, signals, accounts).filter(
       (a) => alertState[a.id]?.status !== "dismissed",
     ),
     ...baseAlerts,

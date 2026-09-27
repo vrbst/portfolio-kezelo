@@ -236,6 +236,7 @@ const cachedAlerts = sharedMemo(
     glideSignals: GlideSignals,
     purchase: PurchaseAccounts,
     day: string,
+    accountCtx: AccountContext,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions),
     ...missingVenueAlerts(
@@ -244,7 +245,7 @@ const cachedAlerts = sharedMemo(
       day,
       (k) => instruments.find((i) => i.key === k)?.name ?? k,
     ),
-    ...glideAlerts(glide, glideCfg, glideSignals),
+    ...glideAlerts(glide, glideCfg, glideSignals, accountCtx),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
     ...savingsGoalAlerts(
@@ -311,6 +312,7 @@ export function useActiveAlerts(): Alert[] {
   const glideSignals = useGlideSignals(glide, glideCfg);
   const purchase = usePurchaseAccounts();
   const day = useToday();
+  const accountCtx = useAccountContext();
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -328,6 +330,7 @@ export function useActiveAlerts(): Alert[] {
     glideSignals,
     purchase,
     day,
+    accountCtx,
   );
 }
 
@@ -598,6 +601,7 @@ const cachedIncome = sharedMemo(
     glide: GlideConfig | undefined,
     state: AllocationState | null,
     prefsVersion: number,
+    accountCtx: AccountContext,
   ) => {
     void prefsVersion; // the tracking state is a pref
     const st = loadIncomeState();
@@ -612,7 +616,7 @@ const cachedIncome = sharedMemo(
       : [];
     return {
       since: st?.since ?? null,
-      allocations: allocateIncome(pendingIncome(events, st), savings, glide, state),
+      allocations: allocateIncome(pendingIncome(events, st), savings, glide, state, accountCtx),
     };
   },
 );
@@ -639,6 +643,7 @@ export function useIncomeQueue(): {
   const versions = useGlideVersions();
   const state = useGlideState(versions);
   const prefsVersion = usePrefsVersion();
+  const accountCtx = useAccountContext();
   return cachedIncome(
     transactions,
     instruments,
@@ -648,6 +653,7 @@ export function useIncomeQueue(): {
     glide,
     state,
     prefsVersion,
+    accountCtx,
   );
 }
 

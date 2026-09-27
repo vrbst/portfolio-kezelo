@@ -15,8 +15,12 @@ import { touchPref } from "./prefs";
 import { isActive, type GlideConfig } from "./glidePath";
 import type { Alert } from "./alerts";
 import { formatMoney } from "./format";
+import { providerLabel } from "./labels";
+import type { AccountContext } from "./accountRules";
 import {
   applyTrades,
+  incomingBuyOptions,
+  placeIncoming,
   planCashflow,
   suggestionText,
   type AllocationState,
@@ -120,6 +124,8 @@ export function allocateIncome(
   progress: SavingsProgress[],
   glide: GlideConfig | undefined,
   state: AllocationState | null,
+  /** Accounts: buys go where the money can reach, transfers are listed. */
+  accounts?: AccountContext,
 ): IncomeAllocation[] {
   const room = new Map(progress.map((p) => [p.goal.id, p.couponRoomHuf]));
   let cur = state;
@@ -160,7 +166,13 @@ export function allocateIncome(
     const glideHuf = Math.max(0, event.amountHuf - goals.reduce((s, g) => s + g.huf, 0));
     let plan: IncomeAllocation["plan"] = null;
     if (glideHuf > 0 && isActive(glide) && cur) {
-      plan = planCashflow(glide, cur, glideHuf);
+      plan = planCashflow(
+        glide,
+        cur,
+        glideHuf,
+        accounts ? incomingBuyOptions(accounts, event.accountId, event.currency) : {},
+      );
+      if (accounts) plan = { ...placeIncoming(plan, accounts, event.accountId), flow: plan.flow };
       cur = applyTrades(cur, plan.suggestions);
     }
     out.push({ event, goals, glideHuf, plan });
@@ -249,14 +261,8 @@ export function pendingIncome(
 
 // ---- Text (panel, alerts, Telegram) -----------------------------------------
 
-const PROVIDER_LABEL: Record<string, string> = {
-  allamkincstar: "Kincstár",
-  lightyear: "Lightyear",
-};
-
-export function providerLabel(provider: string): string {
-  return PROVIDER_LABEL[provider] ?? provider;
-}
+// Kept here for existing importers; defined in labels.ts (no import cycle).
+export { providerLabel };
 
 /** "Kupon – Fix 2031 · 2026-10-22 · 700 000 Ft (Kincstár, HUF)". */
 export function incomeEventTitle(e: IncomeEvent): string {

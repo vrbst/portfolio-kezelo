@@ -9,7 +9,7 @@ import {
 } from "../lib/monthlyPlan";
 import { blockedText } from "../lib/accountRules";
 import { savePlanOrder } from "../lib/planPrefs";
-import { formatQuantity, suggestionText } from "../lib/rebalance";
+import { formatQuantity, plannedTrade, suggestionText } from "../lib/rebalance";
 import type { PlannedTrade } from "../lib/alerts";
 import { effectiveMonthLabel } from "../lib/goals";
 import { formatMoney } from "../lib/format";
@@ -36,19 +36,7 @@ function plannedTrades(plan: MonthlyPlan): PlannedTrade[] {
       accountLabel: l.venue && l.venue.source !== "none" ? l.venue.label : undefined,
     });
   }
-  for (const s of plan.glidePlan?.suggestions ?? []) {
-    if (s.status !== "ok") continue;
-    out.push({
-      side: s.side,
-      bucketName: s.bucketName,
-      instrumentKey: s.instrumentKey,
-      instrumentName: s.instrumentName,
-      amountHuf: Math.round(s.amountHuf),
-      quantity: s.quantity,
-      costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
-      accountLabel: s.accountLabel,
-    });
-  }
+  for (const s of plan.glidePlan?.suggestions ?? []) if (s.status === "ok") out.push(plannedTrade(s));
   return out;
 }
 

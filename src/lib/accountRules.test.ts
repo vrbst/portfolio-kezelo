@@ -85,7 +85,7 @@ describe("purchase venue", () => {
   });
 
   it("without a setting: where most of it is, else the latest buy's account", () => {
-    expect(purchaseVenue(ctx(), "BOND")).toMatchObject({ source: "largest", label: "treasury-p Államkincstár" });
+    expect(purchaseVenue(ctx(), "BOND")).toMatchObject({ source: "largest", label: "Államkincstár" });
     expect(purchaseVenue(ctx(), "OLD")).toMatchObject({ source: "last" });
     expect(purchaseVenue(ctx(), "NEW")).toMatchObject({ source: "none" });
   });
@@ -189,7 +189,7 @@ describe("monthly plan with accounts", () => {
     expect(total).toBeLessThanOrEqual(100_000 + 1);
     expect(total).toBeGreaterThan(95_000);
     expect(p.deposits.map((d) => d.label).sort()).toEqual(
-      ["broker TBSZ 2025 (T-25)", "treasury-p Államkincstár"].sort(),
+      ["broker TBSZ 2025 (T-25)", "Államkincstár"].sort(),
     );
   });
 
@@ -213,7 +213,7 @@ describe("monthly plan with accounts", () => {
     const buys = p.glidePlan!.suggestions.filter((s) => s.status === "ok");
     expect(buys.every((s) => s.instrumentKey === "BOND")).toBe(true);
     expect(p.glidePlan!.notes.join(" ")).toContain("ETF: nem vehető");
-    expect(p.deposits.map((d) => d.label)).toEqual(["treasury-p Államkincstár"]);
+    expect(p.deposits.map((d) => d.label)).toEqual(["Államkincstár"]);
   });
 
   it("shows a scheduled account change and a pending account in the text", () => {

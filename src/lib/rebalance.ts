@@ -10,7 +10,7 @@
 // output is a list of suggestions.
 
 import type { Instrument } from "./model";
-import type { Alert } from "./alerts";
+import type { Alert, PlannedTrade } from "./alerts";
 import type { PortfolioSummary } from "./portfolio";
 import { toHuf, toLocalDay } from "./portfolio";
 import { BOND_TYPES, DEFAULT_BOND_SALE_COST } from "./bonds";
@@ -28,6 +28,16 @@ import {
   type OutOfBandMode,
 } from "./glidePath";
 import { loadBrokerFees, type BrokerFees } from "./planPrefs";
+import {
+  accountById,
+  accountCashHuf,
+  accountLabel,
+  blockedText,
+  feeOf,
+  outflowBlocked,
+  purchaseVenue,
+  type AccountContext,
+} from "./accountRules";
 
 // ---- Dates ------------------------------------------------------------------
 
@@ -441,7 +451,7 @@ export function costFor(
 
 // ---- Suggestions ------------------------------------------------------------
 
-export type SuggestionStatus = "ok" | "below-min" | "cost-exceeds";
+export type SuggestionStatus = "ok" | "below-min" | "cost-exceeds" | "account-locked";
 
 export interface Suggestion {
   source: "cashflow" | "band";
@@ -449,7 +459,7 @@ export interface Suggestion {
   bucketName: string;
   instrumentKey?: string;
   instrumentName?: string;
-  side: "buy" | "sell" | "redirect";
+  side: "buy" | "sell" | "redirect" | "transfer";
   /**
    * A redirect that asks for incoming money (an underweight bucket under the
    * "redirect" mode); otherwise a redirect steers money AWAY from the bucket.
@@ -466,6 +476,11 @@ export interface Suggestion {
   accountId?: string;
   /** Its display name ("Lightyear TBSZ 2026 (LY-…)"). */
   accountLabel?: string;
+  /** Transfer: money moves between these accounts. */
+  fromAccountId?: string;
+  fromLabel?: string;
+  toAccountId?: string;
+  toLabel?: string;
   /** "ok" = suggested; otherwise shown as a note, but not suggested. */
   status: SuggestionStatus;
   reason: string;
@@ -650,7 +665,7 @@ function finishPlan(
   const value = new Map(state.buckets.map((b) => [b.bucket.id, b.valueHuf]));
   let cashUsed = 0;
   for (const s of suggestions) {
-    if (s.status !== "ok" || s.side === "redirect") continue;
+    if (s.status !== "ok" || (s.side !== "buy" && s.side !== "sell")) continue;
     const d = s.side === "buy" ? s.amountHuf : -s.amountHuf;
     value.set(s.bucketId, (value.get(s.bucketId) ?? 0) + d);
     cashUsed += d;
@@ -802,6 +817,8 @@ export function bandRule(
   cfg: GlideConfig,
   state: AllocationState,
   cashAvailableHuf = 0,
+  /** Accounts, limits and accounts for new buys (omitted: not account-aware). */
+  accounts?: AccountContext,
 ): RebalancePlan {
   const notes: string[] = [];
   const T = state.totalHuf;
@@ -992,7 +1009,42 @@ export function bandRule(
     routed = plan.suggestions.filter((s) => s.quantity !== 0);
     notes.push(...plan.notes);
   }
-  const trades = netTrades(cfg, state, [...sells, ...buys, ...routed]);
+  let trades = netTrades(cfg, state, [...sells, ...buys, ...routed]);
+  if (accounts) {
+    const settled = settleAccounts(cfg, state, trades, cashUse, accounts);
+    trades = settled.trades;
+    notes.push(...settled.notes);
+    // A bucket the account limits keep out of its band: the c) way instead —
+    // steer incoming money until it is back.
+    for (const b of out) {
+      const hit =
+        b.status === "above"
+          ? settled.blockedSell.has(b.bucket.id)
+          : settled.blockedBuy.has(b.bucket.id);
+      if (!hit) continue;
+      const moved = trades
+        .filter((t) => t.status === "ok" && t.bucketId === b.bucket.id)
+        .reduce((a, t) => a + (t.side === "buy" ? t.amountHuf : t.side === "sell" ? -t.amountHuf : 0), 0);
+      const value = b.valueHuf + moved;
+      for (let i = redirects.length - 1; i >= 0; i--)
+        if (redirects[i].bucketId === b.bucket.id) redirects.splice(i, 1);
+      if (b.status === "above") {
+        const amount = awayTo(value, b.high);
+        if (amount >= 1)
+          redirect(b, amount,
+            "A számlakorlát miatt nem adható el — helyette: a következő befizetések menjenek a többi csoportba, amíg vissza nem ér a sávba.");
+      } else if (b.low < 1) {
+        const amount = (b.low * T - value) / (1 - b.low);
+        if (amount >= 1)
+          redirect(b, amount,
+            "A számlakorlát miatt nem vehető — helyette: a következő befizetések ide menjenek, amíg vissza nem ér a sávba.",
+            true);
+      }
+      notes.push(
+        `${b.bucket.name}: a számlakorlát miatt nem hajtható végre — javaslat: állítsd a csoportot „kereskedés nélkül” (c) módra (Célpálya → Kezelés sávon kívül).`,
+      );
+    }
+  }
   return finishPlan(state, [...trades, ...redirects], notes);
 }
 
@@ -1250,6 +1302,378 @@ export function checkPeriod(freq: CheckFrequency, day: string): string {
     : `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
 }
 
+// ---- Accounts: where each trade happens, what money may move ----------------
+
+/** Does `accountId` hold `key` (so money inside it may buy more of it)? */
+function heldIn(ctx: AccountContext, accountId: string, key: string): boolean {
+  return (ctx.holdings.get(key) ?? []).some((h) => h.accountId === accountId);
+}
+
+/** The account label, or "ismeretlen számla". */
+function labelOf(ctx: AccountContext, id: string | undefined): string {
+  const a = accountById(ctx, id);
+  return a ? accountLabel(a) : "ismeretlen számla";
+}
+
+/**
+ * Conversion rate when money in `from` currency buys something in `to`
+ * currency: the fxPct of the broker on the foreign-currency side.
+ */
+function conversionPct(
+  ctx: AccountContext,
+  from: { ccy: string; provider?: string },
+  to: { ccy: string; provider?: string },
+): number {
+  if (from.ccy === to.ccy) return 0;
+  const provider = from.ccy !== "HUF" ? from.provider : to.provider;
+  return feeOf(ctx, provider)?.fxPct ?? 0;
+}
+
+function lockedText(ctx: AccountContext, id: string): string {
+  const l = ctx.limits[id];
+  return `${labelOf(ctx, id)}: a pénz ${l?.noOutflowUntil}-ig nem hagyhatja el a számlát${l?.noOutflowNote ? ` (${l.noOutflowNote})` : ""}`;
+}
+
+/**
+ * Routing options for incoming money arriving on `sourceId` (undefined: from
+ * outside, e.g. the monthly saving): an instrument is buyable when the money
+ * can reach its account for new buys — or, for money on an account it may not
+ * leave, when that account holds it (reinvested inside).
+ */
+export function incomingBuyOptions(
+  ctx: AccountContext,
+  sourceId?: string,
+  sourceCcy = "HUF",
+): BuyOptions {
+  const src = accountById(ctx, sourceId);
+  const locked = !!sourceId && outflowBlocked(ctx.limits, sourceId, ctx.day);
+  // Money already on an account holding the instrument stays there.
+  const placeOf = (k: string) =>
+    sourceId && heldIn(ctx, sourceId, k)
+      ? { internal: true as const, provider: src?.provider }
+      : { internal: false as const, venue: purchaseVenue(ctx, k) };
+  return {
+    canBuy: (k) => {
+      const p = placeOf(k);
+      if (p.internal) return true;
+      if (locked) return false;
+      return !p.venue.depositBlocked;
+    },
+    fxPct: (k) => {
+      const p = placeOf(k);
+      const ccy = ctx.currency.get(k) ?? "HUF";
+      return conversionPct(
+        ctx,
+        { ccy: sourceCcy, provider: src?.provider },
+        { ccy, provider: p.internal ? p.provider : p.venue.provider },
+      );
+    },
+  };
+}
+
+/**
+ * Put incoming money's buys on their accounts: on the source account when it
+ * holds the instrument (or the money may not leave it), else on the
+ * instrument's account for new buys — with one transfer per destination when
+ * the money arrived on another account.
+ */
+export function placeIncoming(
+  plan: RebalancePlan,
+  ctx: AccountContext,
+  sourceId?: string,
+): RebalancePlan {
+  const flows = new Map<string, { to?: string; label: string; amount: number }>();
+  const suggestions = plan.suggestions.map((s) => {
+    if (s.side !== "buy" || !s.instrumentKey) return s;
+    if (sourceId && heldIn(ctx, sourceId, s.instrumentKey)) return { ...s, accountId: sourceId, accountLabel: labelOf(ctx, sourceId) };
+    const v = purchaseVenue(ctx, s.instrumentKey);
+    const out = { ...s, accountId: v.account?.id, accountLabel: v.label };
+    if (sourceId && s.status === "ok" && v.account?.id !== sourceId) {
+      const key = v.account?.id ?? v.label;
+      const f = flows.get(key) ?? { to: v.account?.id, label: v.label, amount: 0 };
+      f.amount += s.amountHuf + s.costHuf + (s.fxCostHuf ?? 0);
+      flows.set(key, f);
+    }
+    return out;
+  });
+  const fee = sourceId
+    ? (feeOf(ctx, accountById(ctx, sourceId)?.provider)?.transferFixedHuf ?? 0)
+    : 0;
+  const transfers: Suggestion[] = [...flows.values()].map((f) => ({
+    source: "cashflow",
+    bucketId: "",
+    bucketName: "",
+    side: "transfer",
+    amountHuf: f.amount,
+    costHuf: fee,
+    status: "ok",
+    reason: "A beérkezett pénz a vételi számlára.",
+    fromAccountId: sourceId,
+    fromLabel: labelOf(ctx, sourceId),
+    toAccountId: f.to,
+    toLabel: f.label,
+  }));
+  return { ...plan, suggestions: [...transfers, ...suggestions] };
+}
+
+interface Pool {
+  accountId?: string;
+  provider?: string;
+  ccy: string;
+  locked: boolean;
+  /** Money left (HUF). */
+  left: number;
+  /** Of which sale proceeds (the rest is outside cash). */
+  proceeds: number;
+}
+
+interface SellLeg {
+  sell: Suggestion;
+  accountId?: string;
+  quantity?: number;
+  amount: number;
+}
+
+/**
+ * Account-level settlement of a band-rule plan: sells are taken from
+ * accounts (those without an outflow limit first), buys are placed on the
+ * instrument's account for new buys — or, for money on an account it may not
+ * leave, inside that account when it holds the instrument — and funded from
+ * the same account, then the same broker, then any other account the money
+ * may leave. Money that can't reach any buy un-does its sale (the sale is
+ * listed as blocked); buys without money shrink. Transfers between accounts
+ * are listed with their fee and currency conversion.
+ */
+function settleAccounts(
+  cfg: GlideConfig,
+  state: AllocationState,
+  trades: Suggestion[],
+  cashUse: number,
+  ctx: AccountContext,
+): { trades: Suggestion[]; notes: string[]; blockedSell: Set<string>; blockedBuy: Set<string> } {
+  const notes: string[] = [];
+  const blockedSell = new Set<string>();
+  const blockedBuy = new Set<string>();
+  const posOf = (key: string) => state.positions.find((p) => p.key === key)!;
+  const ccyOf = (key: string) => ctx.currency.get(key) ?? "HUF";
+
+  // 1) Sells → legs per account; proceeds into that account's pool.
+  const pools = new Map<string, Pool>();
+  const poolOf = (id: string | undefined, ccy: string): Pool => {
+    const k = id ?? "?";
+    let p = pools.get(k);
+    if (!p) {
+      p = {
+        accountId: id,
+        provider: accountById(ctx, id)?.provider,
+        ccy,
+        locked: !!id && outflowBlocked(ctx.limits, id, ctx.day),
+        left: 0,
+        proceeds: 0,
+      };
+      pools.set(k, p);
+    }
+    return p;
+  };
+  const legs: SellLeg[] = [];
+  for (const s of trades) {
+    if (s.side !== "sell" || s.status !== "ok" || !s.instrumentKey) continue;
+    const hold = [...(ctx.holdings.get(s.instrumentKey) ?? [])].sort(
+      (a, b) =>
+        Number(outflowBlocked(ctx.limits, a.accountId, ctx.day)) -
+          Number(outflowBlocked(ctx.limits, b.accountId, ctx.day)) || b.valueHuf - a.valueHuf,
+    );
+    const unit = s.quantity && s.quantity > 0 ? s.amountHuf / s.quantity : undefined;
+    let qLeft = s.quantity;
+    let aLeft = s.amountHuf;
+    for (const h of hold) {
+      if (aLeft <= EPS) break;
+      const q = qLeft != null && unit ? Math.min(qLeft, h.quantity) : undefined;
+      const amount = q != null && unit ? q * unit : Math.min(aLeft, h.valueHuf);
+      if (amount <= EPS) continue;
+      legs.push({ sell: s, accountId: h.accountId, quantity: q, amount });
+      if (qLeft != null && q != null) qLeft -= q;
+      aLeft -= amount;
+    }
+    if (aLeft > 1) legs.push({ sell: s, amount: aLeft, quantity: qLeft });
+  }
+  for (const l of legs) {
+    const net = l.amount - (l.sell.costHuf * l.amount) / l.sell.amountHuf;
+    const p = poolOf(l.accountId, ccyOf(l.sell.instrumentKey!));
+    p.left += net;
+    p.proceeds += net;
+  }
+  // Outside cash, spread over the accounts holding cash.
+  if (cashUse > 0) {
+    const cashHuf = ctx.accounts
+      .map((a) => ({ a, huf: Math.max(0, accountCashHuf(ctx, a.id)) }))
+      .filter((x) => x.huf > 0);
+    const sum = cashHuf.reduce((s, x) => s + x.huf, 0);
+    for (const x of cashHuf) poolOf(x.a.id, "HUF").left += (cashUse * x.huf) / sum;
+  }
+
+  // 2) Buys: place and fund.
+  type Flow = { from: Pool; to?: string; toLabel: string; amount: number; fx: number };
+  const flows: Flow[] = [];
+  const out: Suggestion[] = [];
+  for (const s of trades) {
+    if (s.side === "sell" && s.status === "ok") continue; // → the legs
+    if (s.side !== "buy" || s.status !== "ok" || !s.instrumentKey) {
+      out.push(s);
+      continue;
+    }
+    const key = s.instrumentKey;
+    const buyCcy = ccyOf(key);
+    let need = s.amountHuf + s.costHuf;
+    const parts: { accountId?: string; label: string; money: number; fx: number }[] = [];
+    const draw = (p: Pool, toId: string | undefined, toLabel: string, toProvider: string | undefined) => {
+      if (need <= EPS || p.left <= EPS) return;
+      const pct = conversionPct(ctx, { ccy: p.ccy, provider: p.provider }, { ccy: buyCcy, provider: toProvider });
+      const take = Math.min(p.left, need * (1 + pct));
+      const covered = take / (1 + pct);
+      p.left -= take;
+      need -= covered;
+      const cross = p.accountId !== toId;
+      const part = parts.find((x) => x.accountId === toId);
+      if (part) {
+        part.money += covered;
+        if (!cross) part.fx += take - covered;
+      } else parts.push({ accountId: toId, label: toLabel, money: covered, fx: cross ? 0 : take - covered });
+      if (cross) flows.push({ from: p, to: toId, toLabel, amount: take, fx: take - covered });
+    };
+    // a) Money that may not leave its account buys inside it.
+    for (const p of pools.values())
+      if (p.locked && p.accountId && heldIn(ctx, p.accountId, key))
+        draw(p, p.accountId, labelOf(ctx, p.accountId), p.provider);
+    // b) The account for new buys, funded same account → same broker → others.
+    const v = purchaseVenue(ctx, key);
+    const vid = v.account?.id;
+    const ordered = [...pools.values()]
+      .filter((p) => !p.locked || p.accountId === vid)
+      .filter((p) => !v.depositBlocked || p.accountId === vid)
+      .sort(
+        (a, b) =>
+          Number(b.accountId === vid) - Number(a.accountId === vid) ||
+          Number(b.provider === v.provider) - Number(a.provider === v.provider),
+      );
+    for (const p of ordered) draw(p, vid, v.label, v.provider);
+
+    const funded = s.amountHuf + s.costHuf - need;
+    if (need > 1 && funded < 1) {
+      blockedBuy.add(s.bucketId);
+      out.push({
+        ...s,
+        accountId: vid,
+        accountLabel: v.label,
+        status: "account-locked",
+        reason: v.depositBlocked
+          ? `${blockedText(v)} — nem javasolt oda vétel.`
+          : "Nincs pénz, amely erre a számlára juthatna (számlakorlát).",
+      });
+      continue;
+    }
+    for (const part of parts) {
+      const t =
+        need > 1 || parts.length > 1
+          ? makeTrade(cfg, posOf(key), s.bucketName, "buy", part.money, "band", s.reason, true)
+          : { ...s };
+      out.push({
+        ...t,
+        accountId: part.accountId,
+        accountLabel: part.label,
+        fxCostHuf: part.fx >= 1 ? part.fx : undefined,
+      });
+    }
+    if (need > 1) {
+      blockedBuy.add(s.bucketId);
+      notes.push(
+        `${s.instrumentName ?? key}: a vétel csak részben finanszírozható a számlakorlátok miatt.`,
+      );
+    }
+  }
+
+  // 3) Sale proceeds no buy could use: the sale isn't worth doing — undo it
+  //    (from the legs of that account), and say why.
+  const unusedBy = new Map<string, number>();
+  for (const [k, p] of pools) {
+    const unused = Math.min(p.left, p.proceeds);
+    if (unused > Math.max(1, cfg.minTradeHuf / 10)) unusedBy.set(k, unused);
+  }
+  const sellOut: Suggestion[] = [];
+  const bySell = new Map<Suggestion, SellLeg[]>();
+  for (const l of legs) bySell.set(l.sell, [...(bySell.get(l.sell) ?? []), l]);
+  for (const [s, ls] of bySell) {
+    const pos = posOf(s.instrumentKey!);
+    for (const l of ls) {
+      const k = l.accountId ?? "?";
+      const cut = unusedBy.get(k) ?? 0;
+      const netRatio = 1 - s.costHuf / s.amountHuf;
+      const cutGross = Math.min(l.amount, cut / Math.max(EPS, netRatio));
+      if (cut > 0) unusedBy.set(k, Math.max(0, cut - cutGross * netRatio));
+      const keep = l.amount - cutGross;
+      const label = labelOf(ctx, l.accountId);
+      const locked = !!l.accountId && outflowBlocked(ctx.limits, l.accountId, ctx.day);
+      if (cutGross > 1) {
+        blockedSell.add(s.bucketId);
+        sellOut.push({
+          ...s,
+          amountHuf: cutGross,
+          quantity: l.quantity != null && pos.unitPriceHuf ? cutGross / pos.unitPriceHuf : undefined,
+          costHuf: 0,
+          accountId: l.accountId,
+          accountLabel: label,
+          status: "account-locked",
+          reason: locked
+            ? `A számlakorlát miatt nem hajtható végre — ${lockedText(ctx, l.accountId!)}, és ott nincs mit venni belőle.`
+            : "A bevétel nem fektethető be (a vételi számlák nem fogadnak befizetést).",
+        });
+      }
+      if (keep > 1) {
+        const t =
+          cutGross > 1 || ls.length > 1
+            ? makeTrade(cfg, pos, s.bucketName, "sell", keep, "band", s.reason)
+            : { ...s };
+        sellOut.push({ ...t, accountId: l.accountId, accountLabel: label });
+      }
+    }
+  }
+
+  // 4) Transfers, one per account pair.
+  const pairs = new Map<string, Suggestion>();
+  for (const f of flows) {
+    const key = `${f.from.accountId ?? "?"}>${f.to ?? f.toLabel}`;
+    const cur =
+      pairs.get(key) ??
+      ({
+        source: "band",
+        bucketId: "",
+        bucketName: "",
+        side: "transfer",
+        amountHuf: 0,
+        costHuf: feeOf(ctx, f.from.provider)?.transferFixedHuf ?? 0,
+        fxCostHuf: 0,
+        status: "ok",
+        reason: "Az eladás bevétele a vételi számlára.",
+        fromAccountId: f.from.accountId,
+        fromLabel: labelOf(ctx, f.from.accountId),
+        toAccountId: f.to,
+        toLabel: f.toLabel,
+      } satisfies Suggestion);
+    cur.amountHuf += f.amount;
+    cur.fxCostHuf = (cur.fxCostHuf ?? 0) + f.fx;
+    pairs.set(key, cur);
+  }
+  // (Undone sales only freed money that never flowed anywhere.)
+  const transfers = [...pairs.values()].filter((t) => t.amountHuf >= 1);
+  for (const t of transfers) if ((t.fxCostHuf ?? 0) < 1) delete t.fxCostHuf;
+  return {
+    trades: [...sellOut, ...transfers, ...out],
+    notes,
+    blockedSell,
+    blockedBuy,
+  };
+}
+
 // ---- Out-of-band alerts & deepening re-alerts ------------------------------
 
 /** How far the weight is beyond the band edge (fraction; 0 inside the band). */
@@ -1355,18 +1779,39 @@ export function freeCashHuf(state: AllocationState): number {
     .reduce((s, p) => s + p.valueHuf, 0);
 }
 
-const SIDE_LABEL = { buy: "Vétel", sell: "Eladás", redirect: "Átirányítás" } as const;
+const SIDE_LABEL = { buy: "Vétel", sell: "Eladás", redirect: "Átirányítás", transfer: "Utalás" } as const;
 
 /** "Vétel: VWCE 3 db (≈ 30 000 Ft) → Lightyear TBSZ 2026" — one step as plain text (alerts, Telegram). */
 export function suggestionText(s: Suggestion): string {
   if (s.side === "redirect" && s.redirectIn)
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés ide menjen`;
+  if (s.side === "transfer") {
+    const fx = s.fxCostHuf && s.fxCostHuf >= 1 ? `, váltás ≈ ${formatMoney(s.fxCostHuf)}` : "";
+    const fee = s.costHuf >= 1 ? `, díj ${formatMoney(s.costHuf)}` : "";
+    return `Utalás: ${s.fromLabel ?? "?"} → ${s.toLabel ?? "?"} (≈ ${formatMoney(s.amountHuf)}${fee}${fx})`;
+  }
   if (s.side === "redirect")
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
   const qty =
     s.quantity != null && s.quantity !== s.amountHuf ? ` ${formatQuantity(s.quantity)} db` : "";
   const at = s.accountLabel ? `${s.side === "buy" ? " → " : " · "}${s.accountLabel}` : "";
   return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})${at}`;
+}
+
+/** A suggested step as a planned trade (saved reminders). */
+export function plannedTrade(s: Suggestion): PlannedTrade {
+  return {
+    side: s.side,
+    redirectIn: s.redirectIn,
+    bucketName: s.bucketName,
+    instrumentKey: s.instrumentKey,
+    instrumentName: s.instrumentName,
+    amountHuf: Math.round(s.amountHuf),
+    quantity: s.quantity,
+    costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
+    accountLabel:
+      s.side === "transfer" ? `${s.fromLabel ?? "?"} → ${s.toLabel ?? "?"}` : s.accountLabel,
+  };
 }
 
 /** Alert id prefix of a deepening re-alert ("…:n2", "…:n3"). */
@@ -1408,6 +1853,8 @@ export function glideAlerts(
   state: AllocationState | null,
   cfg: GlideConfig | undefined,
   signals: GlideSignals = {},
+  /** Account-aware steps in the re-alert text (see bandRule). */
+  accounts?: AccountContext,
 ): Alert[] {
   if (!state || !cfg || state.totalHuf <= 0) return [];
   const period = checkPeriod(cfg.checkFrequency, state.day);
@@ -1420,7 +1867,7 @@ export function glideAlerts(
   let steps: string | undefined;
   const planText = () => {
     if (steps == null) {
-      const ok = bandRule(cfg, state, freeCashHuf(state)).suggestions.filter(
+      const ok = bandRule(cfg, state, freeCashHuf(state), accounts).suggestions.filter(
         (s) => s.status === "ok",
       );
       steps = ok.length

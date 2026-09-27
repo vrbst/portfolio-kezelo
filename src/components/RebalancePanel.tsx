@@ -7,24 +7,28 @@ import {
   useIncomeQueue,
   useMonthlyBudget,
   useToday,
+  useAccountContext,
 } from "../lib/store";
 import IncomeQueue, { CouponWarning } from "./IncomeQueue";
 import MonthlyPlanPanel from "./MonthlyPlanPanel";
 import { latestConfig, type GlideConfig } from "../lib/glidePath";
+import type { AccountContext } from "../lib/accountRules";
 import {
   allocationState,
   applyShock,
   bandRule,
   formatQuantity,
   freeCashHuf,
+  incomingBuyOptions,
+  placeIncoming,
   planCashflow,
+  plannedTrade,
   suggestionText,
   type AllocationState,
   type BandStatus,
   type RebalancePlan,
   type Suggestion,
 } from "../lib/rebalance";
-import type { PlannedTrade } from "../lib/alerts";
 import { formatMoney } from "../lib/format";
 import { AmountInput, Amt, Badge, Card } from "./ui";
 import { PctInput } from "./GlidePathEditor";
@@ -36,6 +40,7 @@ const SIDE: Record<Suggestion["side"], { label: string; tone: "positive" | "warn
   buy: { label: "Vétel", tone: "positive" },
   sell: { label: "Eladás", tone: "warning" },
   redirect: { label: "Átirányítás", tone: "neutral" },
+  transfer: { label: "Utalás", tone: "neutral" },
 };
 
 const STATUS_LABEL: Record<BandStatus, string> = {
@@ -79,9 +84,14 @@ function SuggestionList({
                       ? s.redirectIn
                         ? "Jövőbeli befizetések ide"
                         : "Jövőbeli befizetések máshová"
-                      : (s.instrumentName ?? "—")}
+                      : s.side === "transfer"
+                        ? `${s.fromLabel ?? "?"} → ${s.toLabel ?? "?"}`
+                        : (s.instrumentName ?? "—")}
                   </span>
-                  <span className="text-xs text-[var(--color-muted)]">{s.bucketName}</span>
+                  <span className="text-xs text-[var(--color-muted)]">
+                    {s.side === "transfer" ? "" : s.bucketName}
+                    {s.accountLabel && s.side !== "transfer" && ` · ${s.accountLabel}`}
+                  </span>
                 </span>
                 <span className="tabular-nums">
                   <Amt className="font-medium">{formatMoney(s.amountHuf)}</Amt>
@@ -96,6 +106,11 @@ function SuggestionList({
                   {s.costHuf > 0 && (
                     <>
                       költség ≈ <Amt>{formatMoney(s.costHuf)}</Amt> ·{" "}
+                    </>
+                  )}
+                  {s.fxCostHuf != null && s.fxCostHuf >= 1 && (
+                    <>
+                      váltás ≈ <Amt>{formatMoney(s.fxCostHuf)}</Amt> ·{" "}
                     </>
                   )}
                   {s.weightAfter != null && `utána ${pct(s.weightAfter)}`}
@@ -130,18 +145,7 @@ function SaveAsReminder({ plan, title }: { plan: RebalancePlan; title: string })
       title,
       detail: steps.map(suggestionText).join("; ") + ".",
       to: "/goals",
-      plan: steps.map(
-        (s): PlannedTrade => ({
-          side: s.side,
-          redirectIn: s.redirectIn,
-          bucketName: s.bucketName,
-          instrumentKey: s.instrumentKey,
-          instrumentName: s.instrumentName,
-          amountHuf: Math.round(s.amountHuf),
-          quantity: s.quantity,
-          costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
-        }),
-      ),
+      plan: steps.map(plannedTrade),
     });
   return (
     <button
@@ -203,22 +207,23 @@ export default function RebalancePanel() {
   const freeCash = useMemo(() => (state ? freeCashHuf(state) : 0), [state]);
   const [useCash, setUseCash] = useState(true);
   const [shocks, setShocks] = useState<Record<string, number | undefined>>({});
+  const accounts = useAccountContext();
 
-  const flowPlan = useMemo(
-    () => (cfg && state ? planCashflow(cfg, state, amount) : null),
-    [cfg, state, amount],
-  );
+  // Extra money arrives from outside: each buy goes to its account for new
+  // buys (none into an account that takes no deposits).
+  const flowPlan = useMemo(() => {
+    if (!cfg || !state) return null;
+    const p = planCashflow(cfg, state, amount, incomingBuyOptions(accounts));
+    return { ...placeIncoming(p, accounts), flow: p.flow };
+  }, [cfg, state, amount, accounts]);
   const bandPlan = useMemo(
-    () => (cfg && state ? bandRule(cfg, state, useCash ? freeCash : 0) : null),
-    [cfg, state, useCash, freeCash],
+    () => (cfg && state ? bandRule(cfg, state, useCash ? freeCash : 0, accounts) : null),
+    [cfg, state, useCash, freeCash, accounts],
   );
-  const sim = useMemo(() => simulate(cfg, state, shocks, useCash ? freeCash : 0), [
-    cfg,
-    state,
-    shocks,
-    useCash,
-    freeCash,
-  ]);
+  const sim = useMemo(
+    () => simulate(cfg, state, shocks, useCash ? freeCash : 0, accounts),
+    [cfg, state, shocks, useCash, freeCash, accounts],
+  );
 
   if (!cfg || !state || !flowPlan || !bandPlan) return null;
   const flow = flowPlan.flow;
@@ -374,6 +379,7 @@ function simulate(
   state: AllocationState | null,
   shocks: Record<string, number | undefined>,
   cash: number,
+  accounts: AccountContext,
 ): { state: AllocationState; plan: RebalancePlan } | null {
   if (!cfg || !state) return null;
   const clean: Record<string, number> = {};
@@ -382,5 +388,5 @@ function simulate(
   if (Object.keys(clean).length === 0) return null;
   const held = [...state.positions.filter((p) => p.valueHuf !== 0), ...state.unassigned];
   const shocked = allocationState(cfg, applyShock(cfg, held, clean), state.day);
-  return { state: shocked, plan: bandRule(cfg, shocked, cash) };
+  return { state: shocked, plan: bandRule(cfg, shocked, cash, accounts) };
 }

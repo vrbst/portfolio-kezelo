@@ -9,8 +9,7 @@
 import type { Account, AccountKind, Provider, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
 import { toHuf } from "./portfolio";
-import { accountKindLabel } from "./labels";
-import { providerLabel } from "./incomeFlow";
+import { accountKindLabel, providerLabel } from "./labels";
 import type { BrokerFee, BrokerFees } from "./planPrefs";
 import type { Alert } from "./alerts";
 
@@ -78,14 +77,20 @@ export function tbszLimitSuggestion(account: Account): AccountLimit | null {
 
 // ---- Labels -----------------------------------------------------------------
 
-/** "Lightyear TBSZ 2026 (LY-8WRK5A8)". */
+/** "Lightyear TBSZ 2026 (LY-8WRK5A8)", "Államkincstár (60179832)". */
 export function accountLabel(a: Account): string {
-  return `${providerLabel(a.provider)} ${accountKindLabel(a)}${a.externalRef ? ` (${a.externalRef})` : ""}`;
+  return `${kindWithProvider(a.provider, a)}${a.externalRef ? ` (${a.externalRef})` : ""}`;
 }
 
 /** "Lightyear TBSZ 2027". */
 export function pendingLabel(p: PendingAccount): string {
-  return `${providerLabel(p.provider)} ${accountKindLabel({ kind: p.kind, tbszYear: p.tbszYear } as Account)}`;
+  return kindWithProvider(p.provider, { kind: p.kind, tbszYear: p.tbszYear } as Account);
+}
+
+/** The treasury account names its provider already. */
+function kindWithProvider(provider: string, a: Account): string {
+  const kind = accountKindLabel(a);
+  return a.kind === "treasury" ? kind : `${providerLabel(provider)} ${kind}`;
 }
 
 /** The ledger account a pending one binds to (provider + kind + TBSZ year). */

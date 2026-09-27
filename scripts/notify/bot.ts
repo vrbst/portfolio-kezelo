@@ -139,6 +139,7 @@ class Bot {
       ctx.glideConfig,
       ctx.alertState,
       this.state.glideSignals ?? {},
+      ctx.accountCtx,
     );
   }
 

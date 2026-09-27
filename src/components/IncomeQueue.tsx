@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { BellPlus, CheckCheck } from "lucide-react";
 import { usePortfolio } from "../lib/store";
-import type { PlannedTrade, Reminder } from "../lib/alerts";
+import type { Reminder } from "../lib/alerts";
+import { plannedTrade } from "../lib/rebalance";
 import {
   incomeEventTitle,
   incomeSplitText,
@@ -23,15 +24,7 @@ function saveAsPlan(
     detail: incomeSplitText(a) + ".",
     to: "/goals",
     plan: steps.length
-      ? steps.map((s): PlannedTrade => ({
-          side: s.side,
-          bucketName: s.bucketName,
-          instrumentKey: s.instrumentKey,
-          instrumentName: s.instrumentName,
-          amountHuf: Math.round(s.amountHuf),
-          quantity: s.quantity,
-          costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
-        }))
+      ? steps.map(plannedTrade)
       : undefined,
   });
   markIncomeAllocated([a.event.id]);

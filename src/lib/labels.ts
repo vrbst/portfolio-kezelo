@@ -9,6 +9,15 @@ export const assetClassLabel: Record<AssetClass, string> = {
   cash: "Készpénz",
 };
 
+const PROVIDER_LABEL: Record<string, string> = {
+  allamkincstar: "Kincstár",
+  lightyear: "Lightyear",
+};
+
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABEL[provider] ?? provider;
+}
+
 export function accountKindLabel(account: Account): string {
   if (account.kind === "tbsz") {
     return account.tbszYear ? `TBSZ ${account.tbszYear}` : "TBSZ";
