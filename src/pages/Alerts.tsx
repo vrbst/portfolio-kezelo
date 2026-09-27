@@ -13,9 +13,12 @@ import {
   usePortfolioSummary,
   useGoalProgress,
   useSavingsGoals,
+  useGlideVersions,
 } from "../lib/store";
 import { categorizeAlerts, computeStatusChecks } from "../lib/alerts";
 import { PERIOD_LABEL } from "../lib/goals";
+import { latestConfig } from "../lib/glidePath";
+import { glideRecordFulfilled } from "../lib/rebalance";
 import { holdCashAdvice, savingsMonthlyStatus } from "../lib/savings";
 import { PageHeader, Card, EmptyState } from "../components/ui";
 import { AlertRow, AlertsSyncNote } from "../components/AlertsPanel";
@@ -30,6 +33,7 @@ export default function Alerts() {
   const alertState = usePortfolio((s) => s.alertState);
   const goalProgress = useGoalProgress();
   const savingsGoals = useSavingsGoals();
+  const glideCfg = latestConfig(useGlideVersions());
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
@@ -92,12 +96,15 @@ export default function Alerts() {
   // Goal + savings-goal alerts live in "Rendben" once met, so keep them out of
   // the "Teljesült" history. A live reminder is always active, so any reminder
   // record here is an orphan of a removed to-do — hide it too (the store prunes
-  // these on reconcile).
+  // these on reconcile). A glide record only counts once its bucket is back in
+  // band — not when a re-alert or a new period re-keyed it, or a plan edit
+  // replaced the bucket.
   const fulfilledShown = fulfilled.filter(
     (r) =>
       !r.id.startsWith("goal:") &&
       !r.id.startsWith("savings-goal:") &&
-      !r.id.startsWith("reminder:"),
+      !r.id.startsWith("reminder:") &&
+      glideRecordFulfilled(r.id, active, glideCfg),
   );
 
   const activeById = new Map(active.map((a) => [a.id, a]));

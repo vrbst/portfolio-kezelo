@@ -12,6 +12,7 @@ import {
   applyShock,
   checkPeriod,
   glideAlerts,
+  glideRecordFulfilled,
   bandDeviation,
   bandLimits,
   bandWidth,
@@ -958,5 +959,28 @@ describe("buy cost of routed money (buyCostMode)", () => {
     const s = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000, 1_000)], DAY), 50_000)
       .suggestions[0];
     expect(s).toMatchObject({ quantity: 49, amountHuf: 49_000, costHuf: 1_000 });
+  });
+});
+
+describe("glideRecordFulfilled", () => {
+  const cfg = config([bucket("R", 0.6), bucket("K", 0.4)], {});
+  const alert = (id: string): Alert => ({ id, severity: "medium", title: id });
+
+  it("fulfilled once the bucket has no active glide alert", () => {
+    expect(glideRecordFulfilled("glide:R:below:2026-09", [], cfg)).toBe(true);
+  });
+  it("not fulfilled while a re-alert or a later period keeps the bucket out", () => {
+    const active = [alert("glide:R:below:2026-09:n2")];
+    expect(glideRecordFulfilled("glide:R:below:2026-09", active, cfg)).toBe(false);
+    const later = [alert("glide:R:below:2026-10")];
+    expect(glideRecordFulfilled("glide:R:below:2026-09:n2", later, cfg)).toBe(false);
+    expect(glideRecordFulfilled("glide:K:above:2026-09", active, cfg)).toBe(true);
+  });
+  it("not fulfilled for a bucket no longer in the plan", () => {
+    expect(glideRecordFulfilled("glide:X:below:2026-09", [], cfg)).toBe(false);
+    expect(glideRecordFulfilled("glide:R:below:2026-09", [], undefined)).toBe(false);
+  });
+  it("other alerts are unaffected", () => {
+    expect(glideRecordFulfilled("idle-cash:a", [], undefined)).toBe(true);
   });
 });

@@ -1217,6 +1217,28 @@ export function isDeepGlideAlert(a: Alert): boolean {
   return /^glide:.*:n\d+$/.test(a.id);
 }
 
+/** Bucket id of a glide alert id ("glide:<bucket>:<status>:<period>[:nN]"). */
+export function glideAlertBucket(id: string): string | undefined {
+  return /^glide:([^:]+):/.exec(id)?.[1];
+}
+
+/**
+ * Whether a stored glide alert really resolved: its bucket is still in the
+ * plan and back in its band (no active glide alert for it). A deepening
+ * re-alert or a new check period re-keys the alert while the drift persists,
+ * and a plan edit can replace the bucket ids — none of these is "fulfilled".
+ */
+export function glideRecordFulfilled(
+  id: string,
+  active: Alert[],
+  cfg: GlideConfig | undefined,
+): boolean {
+  const bucket = glideAlertBucket(id);
+  if (!bucket) return true;
+  if (!cfg?.buckets.some((b) => b.id === bucket)) return false;
+  return !active.some((a) => glideAlertBucket(a.id) === bucket);
+}
+
 /**
  * One alert per bucket outside its band, from its signal (see
  * {@link updateGlideSignals}; a bucket without one counts as a first alert).
