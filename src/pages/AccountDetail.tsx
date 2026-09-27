@@ -29,6 +29,7 @@ import {
   EmptyState,
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
+import AccountLimitsCard from "../components/AccountLimitsCard";
 import InstrumentLogo from "../components/InstrumentLogo";
 import TbszExitValue from "../components/TbszExitValue";
 import HoldingPriceChart, {
@@ -405,6 +406,8 @@ export default function AccountDetail() {
           />
         </div>
       )}
+
+      <AccountLimitsCard account={account} />
 
       {/* Holdings */}
       <div className="mt-6">

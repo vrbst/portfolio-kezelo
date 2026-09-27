@@ -20,11 +20,14 @@ import {
 } from "./glidePath";
 import { loadIncomeState, mergeIncomeState, type IncomeState } from "./incomeFlow";
 import {
+  loadAccountLimits,
   loadBrokerFees,
   loadPlanOrder,
+  loadPurchaseAccounts,
   type BrokerFees,
   type PlanOrder,
 } from "./planPrefs";
+import type { AccountLimits, PurchaseAccounts } from "./accountRules";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -49,6 +52,10 @@ export interface SyncedPrefs {
   brokerFees?: StampedPref<BrokerFees>;
   /** The monthly plan's goal order. */
   planOrder?: StampedPref<PlanOrder>;
+  /** Per-account limits (no outflow until / no deposit from). */
+  accountLimits?: StampedPref<AccountLimits>;
+  /** Dated account for new buys, per instrument. */
+  purchaseAccounts?: StampedPref<PurchaseAccounts>;
 }
 
 export type PrefKind =
@@ -60,7 +67,9 @@ export type PrefKind =
   | "glidePath"
   | "income"
   | "brokerFees"
-  | "planOrder";
+  | "planOrder"
+  | "accountLimits"
+  | "purchaseAccounts";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -72,6 +81,8 @@ const KINDS: PrefKind[] = [
   "income",
   "brokerFees",
   "planOrder",
+  "accountLimits",
+  "purchaseAccounts",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -84,6 +95,8 @@ const VALUE_KEY: Record<PrefKind, string> = {
   income: "pf-income",
   brokerFees: "pf-broker-fees",
   planOrder: "pf-plan-order",
+  accountLimits: "pf-account-limits",
+  purchaseAccounts: "pf-purchase-accounts",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -95,6 +108,8 @@ const STAMP_KEY: Record<PrefKind, string> = {
   income: "pf-income-updated",
   brokerFees: "pf-broker-fees-updated",
   planOrder: "pf-plan-order-updated",
+  accountLimits: "pf-account-limits-updated",
+  purchaseAccounts: "pf-purchase-accounts-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -108,6 +123,8 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   income: loadIncomeState,
   brokerFees: loadBrokerFees,
   planOrder: loadPlanOrder,
+  accountLimits: loadAccountLimits,
+  purchaseAccounts: loadPurchaseAccounts,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

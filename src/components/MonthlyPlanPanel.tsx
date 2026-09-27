@@ -7,6 +7,7 @@ import {
   type MonthlyPlan,
   type PlanLine,
 } from "../lib/monthlyPlan";
+import { blockedText } from "../lib/accountRules";
 import { savePlanOrder } from "../lib/planPrefs";
 import { formatQuantity, suggestionText } from "../lib/rebalance";
 import type { PlannedTrade } from "../lib/alerts";
@@ -32,6 +33,7 @@ function plannedTrades(plan: MonthlyPlan): PlannedTrade[] {
       amountHuf: Math.round(l.trade?.amountHuf ?? l.allocatedHuf),
       quantity: l.trade?.quantity,
       costHuf: l.trade?.costHuf ? Math.round(l.trade.costHuf) : undefined,
+      accountLabel: l.venue && l.venue.source !== "none" ? l.venue.label : undefined,
     });
   }
   for (const s of plan.glidePlan?.suggestions ?? []) {
@@ -44,6 +46,7 @@ function plannedTrades(plan: MonthlyPlan): PlannedTrade[] {
       amountHuf: Math.round(s.amountHuf),
       quantity: s.quantity,
       costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
+      accountLabel: s.accountLabel,
     });
   }
   return out;
@@ -89,7 +92,13 @@ function LineRow({
           )}
         </span>
       </div>
-      {!done && (
+      {!done && line.blocked && line.venue && (
+        <div className="mt-0.5 text-xs text-[var(--color-warning)]">
+          Nem vehető — {blockedText(line.venue)}. Állíts be új vételi számlát
+          (Beállítások → Vételi számlák); a pénz a sorrendben továbbment.
+        </div>
+      )}
+      {!done && !line.blocked && (
         <div className="mt-0.5 flex flex-wrap justify-between gap-2 text-xs text-[var(--color-muted)]">
           <span>
             {n.holdCash
@@ -97,6 +106,17 @@ function LineRow({
               : line.trade
                 ? `${n.target} vétel`
                 : `${n.target}`}
+            {line.venue && line.venue.source !== "none" && (
+              <>
+                {" → "}
+                {line.venue.label}
+                {line.venue.pending && (
+                  <span className="text-[var(--color-warning)]">
+                    {" "}(még nincs a nyilvántartásban — nyisd meg; az első import után ide kötődik)
+                  </span>
+                )}
+              </>
+            )}
           </span>
           <span className="tabular-nums">
             {line.trade?.quantity != null && (
@@ -107,9 +127,19 @@ function LineRow({
             {line.trade && (
               <>
                 díj ≈ <Amt>{formatMoney(line.trade.costHuf)}</Amt>
+                {line.trade.fxCostHuf != null && line.trade.fxCostHuf >= 1 && (
+                  <>
+                    {" "}+ váltás <Amt>{formatMoney(line.trade.fxCostHuf)}</Amt>
+                  </>
+                )}
               </>
             )}
           </span>
+        </div>
+      )}
+      {line.upcoming && (
+        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+          {line.upcoming.from}-tól: {line.upcoming.label}
         </div>
       )}
       {line.shortHuf >= 1 && (
@@ -207,6 +237,13 @@ export default function MonthlyPlanPanel() {
               "A célok után nem marad rá pénz."
             )}
           </div>
+          {plan.glidePlan && plan.glidePlan.notes.length > 0 && (
+            <ul className="mt-0.5 text-xs text-[var(--color-warning)]">
+              {plan.glidePlan.notes.map((n, i) => (
+                <li key={i}>• {n}</li>
+              ))}
+            </ul>
+          )}
         </li>
         {plan.freeHuf >= 1 && (
           <li className="px-3 text-xs text-[var(--color-muted)]">
@@ -214,6 +251,33 @@ export default function MonthlyPlanPanel() {
           </li>
         )}
       </ul>
+      {plan.deposits.length > 0 && (
+        <div className="mt-3 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
+          <div className="mb-1 text-xs font-medium text-[var(--color-muted)]">
+            Befizetések számlánként (vétel + díj + váltás)
+          </div>
+          <ul className="space-y-0.5">
+            {plan.deposits.map((d) => (
+              <li key={d.label} className="flex flex-wrap justify-between gap-2">
+                <span>
+                  {d.label}
+                  {d.pending && (
+                    <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
+                  )}
+                </span>
+                <span className="tabular-nums">
+                  <Amt className="font-medium">{formatMoney(d.totalHuf)}</Amt>
+                  {d.fxCostHuf >= 1 && (
+                    <span className="text-xs text-[var(--color-muted)]">
+                      {" "}(ebből váltás <Amt>{formatMoney(d.fxCostHuf)}</Amt>)
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {plan.shortHuf >= 1 && (
         <p className="mt-2 text-xs text-[var(--color-negative)]">
           Nem elég a pénz minden célra — összesen <Amt>{formatMoney(plan.shortHuf)}</Amt> hiányzik

@@ -1,9 +1,9 @@
 import { Percent } from "lucide-react";
 import { usePortfolio, useBrokerFees } from "../../lib/store";
-import { saveBrokerFees } from "../../lib/planPrefs";
 import { providerLabel } from "../../lib/incomeFlow";
+import { saveBrokerFees, type BrokerFee } from "../../lib/planPrefs";
 import type { Cost } from "../../lib/glidePath";
-import { Card } from "../ui";
+import { AmountInput, Card } from "../ui";
 import { PctInput } from "../GlidePathEditor";
 
 /**
@@ -25,10 +25,24 @@ export default function BrokerFeeSettings() {
     const cost: Cost | undefined = pct == null ? undefined : { pct };
     if (cost) cur[side] = cost;
     else delete cur[side];
+    store(provider, cur);
+  };
+
+  /** Keep a provider only while it has any fee set. */
+  const store = (provider: string, fee: BrokerFee) => {
     const next = { ...fees };
-    if (cur.buy || cur.sell) next[provider] = cur;
-    else delete next[provider];
+    const empty = !fee.buy && !fee.sell && fee.fxPct == null && fee.transferFixedHuf == null;
+    if (empty) delete next[provider];
+    else next[provider] = fee;
     saveBrokerFees(next);
+  };
+  const setMove = (provider: string, patch: Pick<BrokerFee, "fxPct" | "transferFixedHuf">) => {
+    const v = "fxPct" in patch ? patch.fxPct : patch.transferFixedHuf;
+    if (v != null && !(Number.isFinite(v) && v >= 0)) return;
+    const cur: BrokerFee = { ...(fees[provider] ?? {}), ...patch };
+    if (cur.fxPct == null) delete cur.fxPct;
+    if (cur.transferFixedHuf == null) delete cur.transferFixedHuf;
+    store(provider, cur);
   };
 
   return (
@@ -41,7 +55,10 @@ export default function BrokerFeeSettings() {
         Vételi és eladási díj brókerenként. Akkor számít, ha a célpálya
         csoportszabálya (vagy az állampapír saját visszaváltási díja) nem ad
         díjat — pl. a célpályán kívüli DCA-vételeknél. Sorrend: csoportszabály →
-        bróker → a célpálya általános díja → 0. Üres = nincs megadva.
+        bróker → a célpálya általános díja → 0. Üres = nincs megadva. A
+        devizaváltás akkor számít, ha a pénz devizája eltér a vett papírétól
+        (pl. forint-befizetésből EUR-os ETF) — ha a vételi díjad eddig ezt is
+        tartalmazta, csökkentsd. Az utalási díj a számláról kiutalt pénzre jár.
       </p>
       <div className="space-y-3">
         {providers.map((p) => (
@@ -64,6 +81,26 @@ export default function BrokerFeeSettings() {
                 placeholder="–"
               />
               <span className="text-xs text-[var(--color-muted)]">%</span>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-[var(--color-muted)]">devizaváltás</span>
+              <PctInput
+                value={fees[p]?.fxPct}
+                onChange={(v) => setMove(p, { fxPct: v })}
+                placeholder="–"
+              />
+              <span className="text-xs text-[var(--color-muted)]">%</span>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-[var(--color-muted)]">utalás</span>
+              <AmountInput
+                value={fees[p]?.transferFixedHuf != null ? String(fees[p].transferFixedHuf) : ""}
+                onValueChange={(raw) =>
+                  setMove(p, { transferFixedHuf: raw === "" ? undefined : Number(raw) })
+                }
+                className="w-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+              />
+              <span className="text-xs text-[var(--color-muted)]">Ft</span>
             </label>
           </div>
         ))}

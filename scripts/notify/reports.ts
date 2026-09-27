@@ -339,6 +339,7 @@ function monthlyPlanLines(ctx: Context): string[] {
       localDay(ctx.at),
     ),
     instruments: ctx.instMap,
+    accounts: ctx.accountCtx,
   });
   if (plan.lines.length === 0 && !plan.glidePlan) return [];
   const out = [

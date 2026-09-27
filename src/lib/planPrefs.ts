@@ -3,13 +3,24 @@
 //  - broker fees: a buy / sell cost per broker (account provider), used when
 //    neither the glide path's bucket rule nor the bond's own redemption cost
 //    applies (e.g. a DCA buy of an ETF outside the glide path);
-//  - the monthly plan's order: which goal gets the monthly saving first.
+//  - the monthly plan's order: which goal gets the monthly saving first;
+//  - account limits and the dated "account for new buys" per instrument
+//    (see accountRules).
 
 import { touchPref } from "./prefs";
 import type { CostRule } from "./glidePath";
+import type { AccountLimits, PurchaseAccounts } from "./accountRules";
 
-/** Provider (e.g. "lightyear", "allamkincstar") → its buy / sell cost. */
-export type BrokerFees = Record<string, CostRule>;
+/** A broker's buy / sell cost, plus what moving money through it costs. */
+export interface BrokerFee extends CostRule {
+  /** Currency conversion (fraction of the converted amount). */
+  fxPct?: number;
+  /** Fixed fee of sending money out of an account there (HUF). */
+  transferFixedHuf?: number;
+}
+
+/** Provider (e.g. "lightyear", "allamkincstar") → its fees. */
+export type BrokerFees = Record<string, BrokerFee>;
 
 const FEES_KEY = "pf-broker-fees";
 
@@ -62,4 +73,46 @@ export function savePlanOrder(order: PlanOrder) {
   } catch {
     /* ignore */
   }
+}
+
+function loadObject<T>(key: string): T {
+  try {
+    const raw = localStorage.getItem(key);
+    const v = raw ? JSON.parse(raw) : {};
+    return (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as T;
+  } catch {
+    return {} as T;
+  }
+}
+
+function saveObject(key: string, kind: "accountLimits" | "purchaseAccounts", v: unknown) {
+  try {
+    const json = JSON.stringify(v);
+    if (localStorage.getItem(key) === json) return;
+    localStorage.setItem(key, json);
+    touchPref(kind);
+  } catch {
+    /* ignore */
+  }
+}
+
+const LIMITS_KEY = "pf-account-limits";
+const PURCHASE_KEY = "pf-purchase-accounts";
+
+/** Account id → limits (no outflow until / no deposit from). */
+export function loadAccountLimits(): AccountLimits {
+  return loadObject<AccountLimits>(LIMITS_KEY);
+}
+
+export function saveAccountLimits(v: AccountLimits) {
+  saveObject(LIMITS_KEY, "accountLimits", v);
+}
+
+/** Instrument key → dated account for new buys. */
+export function loadPurchaseAccounts(): PurchaseAccounts {
+  return loadObject<PurchaseAccounts>(PURCHASE_KEY);
+}
+
+export function savePurchaseAccounts(v: PurchaseAccounts) {
+  saveObject(PURCHASE_KEY, "purchaseAccounts", v);
 }

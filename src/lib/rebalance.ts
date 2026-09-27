@@ -460,6 +460,12 @@ export interface Suggestion {
   /** Whole units (bonds: face HUF). Undefined for cash / unknown price. */
   quantity?: number;
   costHuf: number;
+  /** Currency conversion cost of a buy (money in another currency). */
+  fxCostHuf?: number;
+  /** The account the trade happens on (account-aware plans). */
+  accountId?: string;
+  /** Its display name ("Lightyear TBSZ 2026 (LY-…)"). */
+  accountLabel?: string;
   /** "ok" = suggested; otherwise shown as a note, but not suggested. */
   status: SuggestionStatus;
   reason: string;
@@ -504,12 +510,14 @@ function makeTrade(
   reason: string,
   /** Buy: `rawHuf` is all the money there is — the cost comes out of it. */
   costIncluded = false,
+  /** Buy: currency conversion on the way in (fraction of the amount). */
+  fxPct = 0,
 ): Suggestion {
   let target = rawHuf;
   if (costIncluded && side === "buy") {
-    // amount + pct·amount + fixed = rawHuf
+    // amount + (pct + fx)·amount + fixed = rawHuf
     const c = costFor(cfg, pos, "buy");
-    target = Math.max(0, (rawHuf - (c?.fixedHuf ?? 0)) / (1 + (c?.pct ?? 0)));
+    target = Math.max(0, (rawHuf - (c?.fixedHuf ?? 0)) / (1 + (c?.pct ?? 0) + fxPct));
   }
   let amount = target;
   let quantity: number | undefined;
@@ -524,6 +532,7 @@ function makeTrade(
     amount = quantity * pos.unitPriceHuf;
   }
   const costHuf = estimateCost(costFor(cfg, pos, side), amount);
+  const fxCostHuf = side === "buy" && fxPct > 0 ? amount * fxPct : undefined;
   let status: SuggestionStatus = "ok";
   let why = reason;
   if (quantity === 0) {
@@ -546,6 +555,7 @@ function makeTrade(
     amountHuf: amount,
     quantity,
     costHuf,
+    fxCostHuf,
     status,
     reason: why,
   };
@@ -668,6 +678,7 @@ export function routeCashflow(
   amountHuf: number,
   source: Suggestion["source"] = "cashflow",
   targets?: FlowTargets,
+  opts: BuyOptions = {},
 ): RebalancePlan {
   const ahead = targets?.ahead ? targets : undefined;
   const targetOf = (b: BucketState) =>
@@ -675,7 +686,12 @@ export function routeCashflow(
   const notes: string[] = [];
   if (!(amountHuf > 0)) return finishPlan(state, [], notes);
   const accepting = (id: string) =>
-    state.positions.filter((p) => p.rule.bucketId === id && p.rule.acceptsContributions);
+    state.positions.filter(
+      (p) =>
+        p.rule.bucketId === id &&
+        p.rule.acceptsContributions &&
+        (opts.canBuy?.(p.key) ?? true),
+    );
   let eligible = state.buckets.filter((b) => accepting(b.bucket.id).length > 0);
   for (const b of state.buckets)
     if (!eligible.includes(b) && b.status === "below")
@@ -728,6 +744,7 @@ export function routeCashflow(
           source,
           reason(b),
           cfg.buyCostMode !== "extra",
+          opts.fxPct?.(s.pos.key) ?? 0,
         ),
       );
   }
@@ -743,9 +760,18 @@ export function planCashflow(
   cfg: GlideConfig,
   state: AllocationState,
   amountHuf: number,
+  opts: BuyOptions = {},
 ): RebalancePlan & { flow: FlowTargets } {
   const flow = flowTargets(cfg, state.day);
-  return { ...routeCashflow(cfg, state, amountHuf, "cashflow", flow), flow };
+  return { ...routeCashflow(cfg, state, amountHuf, "cashflow", flow, opts), flow };
+}
+
+/** Where new money may go (account-aware callers; omitted = anywhere). */
+export interface BuyOptions {
+  /** False: the instrument can't be bought now (its account takes no deposits). */
+  canBuy?: (key: string) => boolean;
+  /** Currency conversion on the way in, per instrument (fraction). */
+  fxPct?: (key: string) => number;
 }
 
 /**
@@ -1331,7 +1357,7 @@ export function freeCashHuf(state: AllocationState): number {
 
 const SIDE_LABEL = { buy: "Vétel", sell: "Eladás", redirect: "Átirányítás" } as const;
 
-/** "Vétel: VWCE 3 db (≈ 30 000 Ft)" — one step as plain text (alerts, Telegram). */
+/** "Vétel: VWCE 3 db (≈ 30 000 Ft) → Lightyear TBSZ 2026" — one step as plain text (alerts, Telegram). */
 export function suggestionText(s: Suggestion): string {
   if (s.side === "redirect" && s.redirectIn)
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés ide menjen`;
@@ -1339,7 +1365,8 @@ export function suggestionText(s: Suggestion): string {
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
   const qty =
     s.quantity != null && s.quantity !== s.amountHuf ? ` ${formatQuantity(s.quantity)} db` : "";
-  return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})`;
+  const at = s.accountLabel ? `${s.side === "buy" ? " → " : " · "}${s.accountLabel}` : "";
+  return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})${at}`;
 }
 
 /** Alert id prefix of a deepening re-alert ("…:n2", "…:n3"). */

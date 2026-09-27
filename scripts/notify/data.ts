@@ -43,6 +43,16 @@ import {
 } from "../../src/lib/savings";
 import { applyRemotePrefs } from "../../src/lib/prefs";
 import {
+  loadAccountLimits,
+  loadBrokerFees,
+  loadPurchaseAccounts,
+} from "../../src/lib/planPrefs";
+import {
+  accountContext,
+  missingVenueAlerts,
+  type AccountContext,
+} from "../../src/lib/accountRules";
+import {
   allocateIncome,
   incomeAlerts,
   incomeEvents,
@@ -86,6 +96,8 @@ export interface Context {
   glide: AllocationState | null;
   /** The glide path's newest version (its re-alert settings). */
   glideConfig: GlideConfig | undefined;
+  /** Accounts, their limits and the accounts for new buys — today. */
+  accountCtx: AccountContext;
   /** Every alert except the glide path's (those need the bot's own state). */
   baseAlerts: Alert[];
   /** Dismissed / seen history synced from the app. */
@@ -235,7 +247,19 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     glideConfig,
     glide,
   );
+  const day = toLocalDay(at.getTime());
+  const purchase = loadPurchaseAccounts();
+  const accountCtx = accountContext({
+    summary,
+    transactions,
+    fx,
+    day,
+    limits: loadAccountLimits(),
+    purchase,
+    fees: loadBrokerFees(),
+  });
   const baseAlerts = [
+    ...missingVenueAlerts(purchase, accounts, day, (k) => instMap.get(k)?.name ?? k),
     ...computeAlerts(
       summary,
       { ...DEFAULT_ALERT_CONFIG, idleCashHuf: env.idleCashHuf },
@@ -277,6 +301,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     goalProgress,
     glide,
     glideConfig,
+    accountCtx,
     baseAlerts,
     alertState,
     savings,

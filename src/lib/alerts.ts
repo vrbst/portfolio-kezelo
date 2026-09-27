@@ -285,6 +285,8 @@ export interface PlannedTrade {
   amountHuf: number;
   quantity?: number;
   costHuf?: number;
+  /** The account the trade happens on. */
+  accountLabel?: string;
 }
 
 export const REMINDER_ALERT_PREFIX = "reminder:";

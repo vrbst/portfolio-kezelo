@@ -73,11 +73,20 @@ import { summariesOnDays, summaryOnDay, toLocalDay } from "./portfolio";
 import type { Position, PositionsAt } from "./rebalance";
 import { usePortfolio } from "./store";
 import {
+  loadAccountLimits,
   loadBrokerFees,
   loadPlanOrder,
+  loadPurchaseAccounts,
   type BrokerFees,
   type PlanOrder,
 } from "./planPrefs";
+import {
+  accountContext,
+  missingVenueAlerts,
+  type AccountContext,
+  type AccountLimits,
+  type PurchaseAccounts,
+} from "./accountRules";
 import {
   buildMonthlyPlan,
   computePlanNeeds,
@@ -225,8 +234,16 @@ const cachedAlerts = sharedMemo(
     glide: AllocationState | null,
     glideCfg: GlideConfig | undefined,
     glideSignals: GlideSignals,
+    purchase: PurchaseAccounts,
+    day: string,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions),
+    ...missingVenueAlerts(
+      purchase,
+      accounts,
+      day,
+      (k) => instruments.find((i) => i.key === k)?.name ?? k,
+    ),
     ...glideAlerts(glide, glideCfg, glideSignals),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(reminders),
@@ -292,6 +309,8 @@ export function useActiveAlerts(): Alert[] {
   const glide = useGlideState(glideVersions);
   const glideCfg = latestConfig(glideVersions);
   const glideSignals = useGlideSignals(glide, glideCfg);
+  const purchase = usePurchaseAccounts();
+  const day = useToday();
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -307,6 +326,8 @@ export function useActiveAlerts(): Alert[] {
     glide,
     glideCfg,
     glideSignals,
+    purchase,
+    day,
   );
 }
 
@@ -653,6 +674,41 @@ export function usePlanOrder(): PlanOrder {
   return usePref(loadPlanOrder);
 }
 
+/** Per-account limits (Számla oldal). */
+export function useAccountLimits(): AccountLimits {
+  return usePref(loadAccountLimits);
+}
+
+/** Dated account for new buys, per instrument (Beállítások). */
+export function usePurchaseAccounts(): PurchaseAccounts {
+  return usePref(loadPurchaseAccounts);
+}
+
+const cachedAccountContext = sharedMemo(
+  (
+    summary: PortfolioSummary,
+    transactions: Transaction[],
+    fx: Record<string, number>,
+    day: string,
+    limits: AccountLimits,
+    purchase: PurchaseAccounts,
+    fees: BrokerFees,
+  ) => accountContext({ summary, transactions, fx, day, limits, purchase, fees }),
+);
+
+/** Accounts, their limits and the accounts for new buys — today. */
+export function useAccountContext(): AccountContext {
+  return cachedAccountContext(
+    usePortfolioSummary(),
+    usePortfolio((s) => s.transactions),
+    usePortfolio((s) => s.fx),
+    useToday(),
+    useAccountLimits(),
+    usePurchaseAccounts(),
+    useBrokerFees(),
+  );
+}
+
 const cachedPlanNeeds = sharedMemo(
   (
     savingsGoals: SavingsGoal[],
@@ -721,6 +777,7 @@ export function useMonthlyPlan(amountHuf: number | null): {
   const fees = useBrokerFees();
   const positions = cachedMarketPositions(summary, fx, day, fees);
   const instMap = cachedInstMap(instruments);
+  const accounts = useAccountContext();
   const defaultAmount = defaultPlanAmount(breakdown.budgetHuf, needs);
   const plan = cachedPlanFor(
     amountHuf ?? defaultAmount,
@@ -730,6 +787,7 @@ export function useMonthlyPlan(amountHuf: number | null): {
     breakdown.budgetHuf,
     positions,
     instMap,
+    accounts,
   );
   return { plan, needs, budgetHuf: breakdown.budgetHuf, defaultAmount };
 }
@@ -747,6 +805,16 @@ const cachedPlanFor = sharedMemo(
     budgetHuf: number,
     positions: Position[],
     instruments: Map<string, Instrument>,
+    accounts: AccountContext,
   ) =>
-    buildMonthlyPlan({ amountHuf, needs, glide, state, budgetHuf, positions, instruments }),
+    buildMonthlyPlan({
+      amountHuf,
+      needs,
+      glide,
+      state,
+      budgetHuf,
+      positions,
+      instruments,
+      accounts,
+    }),
 );

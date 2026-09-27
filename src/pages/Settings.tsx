@@ -12,6 +12,7 @@ import PriceSettings from "../components/settings/PriceSettings";
 import BondSeriesSettings from "../components/settings/BondSeriesSettings";
 import AlertSettings from "../components/settings/AlertSettings";
 import BrokerFeeSettings from "../components/settings/BrokerFeeSettings";
+import PurchaseAccountSettings from "../components/settings/PurchaseAccountSettings";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -97,6 +98,8 @@ export default function Settings() {
       <AlertSettings />
 
       <BrokerFeeSettings />
+
+      <PurchaseAccountSettings />
 
       <PriceSettings />
 
