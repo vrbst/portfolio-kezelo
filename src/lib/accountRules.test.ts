@@ -112,7 +112,7 @@ describe("purchase venue", () => {
       expect(v).toMatchObject({ pending: { tbszYear: 2026 }, depositBlocked: false });
       expect(v.label).toBe("broker TBSZ 2026");
       const alerts = missingVenueAlerts(future, [TBSZ25, REG], "2026-06-15", () => "ETF");
-      expect(alerts.map((a) => a.id)).toEqual(["venue-missing:ETF:2026-01-01"]);
+      expect(alerts.map((a) => a.id)).toEqual(["venue-missing:broker:tbsz:2026:2026-01-01"]);
       // Not yet in force → no alert.
       expect(missingVenueAlerts(future, [TBSZ25], "2025-12-31", () => "ETF")).toEqual([]);
     });
@@ -242,5 +242,20 @@ describe("monthly plan with accounts", () => {
     });
     expect(p.lines[0].venue).toBeUndefined();
     expect(p.deposits).toEqual([]);
+  });
+});
+
+describe("missing-venue alert – one per missing account", () => {
+  it("two instruments waiting for the same new account raise ONE alert naming both", () => {
+    const pending = { pending: { provider: "broker", kind: "tbsz" as const, tbszYear: 2027 } };
+    const purchase: PurchaseAccounts = {
+      ETF: [{ from: "2027-01-01", target: pending }],
+      BTC: [{ from: "2027-01-01", target: pending }],
+    };
+    const alerts = missingVenueAlerts(purchase, [TBSZ25], "2027-01-15", (k) => `${k} papír`);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].title).toBe("Hiányzó vételi számla – broker TBSZ 2027");
+    expect(alerts[0].detail).toContain("ETF papír");
+    expect(alerts[0].detail).toContain("BTC papír");
   });
 });
