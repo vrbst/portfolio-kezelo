@@ -203,3 +203,68 @@ describe("savings goal – maturity stored as an ISO timestamp", () => {
     expect(suitableForGoalBuy(dkj, goal, "2026-09-28")).toBe(false);
   });
 });
+
+describe("savings goal – money already the goal's but not in a security (hold-cash window)", () => {
+  // The Babaváró shape: the goal's DKJ matures 1 Dec, 14 days before the
+  // target date, so from 1 Nov (30 days before maturity) nothing is buyable
+  // any more — the advice is to hold cash. A bond pays a 300 000 coupon on
+  // 10 Nov, inside that window, and the DKJ pays out its face on 1 Dec.
+  const BOND_N: Instrument = {
+    ...BOND,
+    key: "fix-nov",
+    name: "Fix nov",
+    bond: { ...BOND.bond!, firstCouponDate: "2025-11-10" },
+  };
+  const insts = new Map([BOND_N, DKJ].map((i) => [i.key, i]));
+  const TXS: Transaction[] = [
+    BASE_TXS[0],
+    tx({ id: "b-bond-n", date: "2025-01-10", type: "buy", instrumentKey: BOND_N.key, quantity: 3_000_000, grossAmount: 3_000_000, netAmount: -3_000_000 }),
+    BASE_TXS[2],
+    // Last year's coupon, long before the window: not the goal's money.
+    tx({ id: "kupon-2025", date: "2025-11-10", type: "interest", instrumentKey: BOND_N.key, grossAmount: 300_000, netAmount: 300_000 }),
+  ];
+  const HOLD_COUPON = tx({ id: "kupon-nov", date: "2026-11-10", type: "interest", instrumentKey: BOND_N.key, grossAmount: 300_000, netAmount: 300_000 });
+  const REDEEM = tx({ id: "lejarat", date: "2026-12-01", type: "redemption", instrumentKey: DKJ.key, quantity: 400_000, grossAmount: 400_000, netAmount: 400_000 });
+  const prog = (day: string, extra: Transaction[] = []) =>
+    computeSavingsProgress([GOAL], [ACC], [...TXS, ...extra], insts, new Map(), {}, at(day))[0];
+  const stat = (day: string, extra: Transaction[] = []) =>
+    savingsMonthlyStatus([GOAL], [ACC], [...TXS, ...extra], insts, new Map(), {}, at(day))[0];
+
+  it("fixture: before the coupon — DKJ 400 000 + coupon 300 000 projected, gap 300 000", () => {
+    expect(stat("2026-11-05").holdCash).toBe(true);
+    const p = prog("2026-11-05");
+    expect(p.projectedHuf).toBeCloseTo(700_000);
+    expect(p.gapHuf).toBeCloseTo(300_000);
+  });
+
+  it("a coupon credited in the hold-cash window still counts for the goal", () => {
+    const p = prog("2026-11-12", [HOLD_COUPON]);
+    expect(p.projectedHuf).toBeCloseTo(700_000);
+    expect(p.gapHuf).toBeCloseTo(300_000);
+  });
+
+  it("the matured DKJ's payout still counts for the goal", () => {
+    const p = prog("2026-12-02", [HOLD_COUPON, REDEEM]);
+    expect(p.assignedValueHuf).toBeCloseTo(700_000);
+    expect(p.projectedHuf).toBeCloseTo(700_000);
+    expect(p.gapHuf).toBeCloseTo(300_000);
+  });
+
+  it("the quota does not jump when the coupon or the payout arrives", () => {
+    const before = prog("2026-11-05").monthlyNeededHuf;
+    expect(prog("2026-11-12", [HOLD_COUPON]).monthlyNeededHuf).toBeCloseTo(before);
+    expect(prog("2026-12-02", [HOLD_COUPON, REDEEM]).monthlyNeededHuf).toBeCloseTo(
+      prog("2026-12-02", [HOLD_COUPON]).monthlyNeededHuf,
+    );
+  });
+
+  it("the arrived hold-window coupon is claimed in full by the goal (not split off to the glide path)", () => {
+    // Room for the coupon being distributed = the shortfall without it.
+    expect(prog("2026-11-12", [HOLD_COUPON]).couponRoomHuf).toBeCloseTo(600_000);
+    expect(stat("2026-11-12", [HOLD_COUPON]).couponHuf).toBeCloseTo(300_000);
+  });
+
+  it("outside the window nothing changes: a credited, not reinvested coupon is still missing", () => {
+    expect(progress([...BASE_TXS, COUPON], at("2026-10-20")).gapHuf).toBeCloseTo(600_000);
+  });
+});

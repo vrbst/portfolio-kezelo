@@ -590,6 +590,89 @@ function assignedValue(
 }
 
 /**
+ * First day of the goal's "hold cash" window: from then on none of its
+ * instruments can still be bought for it (each matures within minDays, or
+ * after the target date), so money for the goal waits in cash. Undefined when
+ * an instrument without a maturity (e.g. an ETF) keeps it buyable for good.
+ */
+function holdCashFrom(
+  goal: SavingsGoal,
+  instruments: Map<string, Instrument>,
+): string | undefined {
+  const created = goal.createdAt.slice(0, 10);
+  const target = goal.targetDate.slice(0, 10);
+  const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
+  let last = "";
+  for (const k of goal.instrumentKeys) {
+    const mat = maturityDay(instruments.get(k));
+    if (!mat) return undefined;
+    if (mat > target) continue; // never buyable for the goal
+    // Buyable while mat > today + n days → not any more from mat − n.
+    const stop = toLocalDay(dayMsOf(mat) - n * DAY_MS);
+    if (stop > last) last = stop;
+  }
+  return last > created ? last : created;
+}
+
+/**
+ * Money that is already the goal's although it is not in a security:
+ *  - the payout of its instruments that matured by the target date (the DKJ
+ *    bought for the goal pays its face into the account — still the goal's),
+ *  - bond coupons credited inside its hold-cash window (includeCoupons): there
+ *    is nothing to reinvest them in, so they wait in cash like the payout.
+ * Without this, the goal "lost" that money the day it arrived: a coupon fell
+ * out of the projection, a matured DKJ took the goal to 0 %. Coupons are
+ * split among the goals claiming them, like the monthly status does.
+ */
+function goalCash(
+  goals: SavingsGoal[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+): Map<string, { cashHuf: number; coupons: { day: string; huf: number }[] }> {
+  const out = new Map<string, { cashHuf: number; coupons: { day: string; huf: number }[] }>(
+    goals.map((g) => [g.id, { cashHuf: 0, coupons: [] }]),
+  );
+  for (const g of goals) {
+    const keys = new Set(g.instrumentKeys);
+    const created = g.createdAt.slice(0, 10);
+    const target = g.targetDate.slice(0, 10);
+    for (const t of txs) {
+      if (t.type !== "redemption" || !t.instrumentKey || !keys.has(t.instrumentKey)) continue;
+      const day = toLocalDay(dayMsOf(t.date));
+      if (day >= created && day <= target) out.get(g.id)!.cashHuf += incomeHuf(t, fx);
+    }
+  }
+  const windows = goals
+    .filter((g) => g.includeCoupons)
+    .map((g) => ({ g, from: holdCashFrom(g, instruments), to: g.targetDate.slice(0, 10) }))
+    .filter((w): w is { g: SavingsGoal; from: string; to: string } => !!w.from);
+  const used = new Map<string, number>();
+  const coupons = txs
+    .filter((t) => isBondCoupon(t, instruments))
+    .map((t) => ({ t, day: toLocalDay(dayMsOf(t.date)) }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+  for (const { t, day } of coupons) {
+    const claim = windows.filter((w) => day >= w.from && day <= w.to);
+    if (claim.length === 0) continue;
+    const shares = splitAmongGoals(
+      incomeHuf(t, fx),
+      claim.map((w) => ({
+        goalId: w.g.id,
+        capHuf: Math.max(0, w.g.targetHuf - (used.get(w.g.id) ?? 0)),
+      })),
+    );
+    for (const [id, huf] of shares) {
+      used.set(id, (used.get(id) ?? 0) + huf);
+      const o = out.get(id)!;
+      o.cashHuf += huf;
+      o.coupons.push({ day, huf });
+    }
+  }
+  return out;
+}
+
+/**
  * Progress for each goal: assigned value today, the value projected to the
  * target date (bond accretion + optional coupons), and the monthly saving still
  * needed. Recomputes the portfolio at each distinct target date so a DKJ's
@@ -619,6 +702,7 @@ export function computeSavingsProgress(
   const coupons = futureBondCashflows(summaryNow, now, txs).filter(
     (c) => c.kind === "coupon",
   );
+  const cashByGoal = goalCash(goals, txs, instruments, fx);
   const summaryAtCache = new Map<string, PortfolioSummary>();
   const summaryAt = (dateMs: number): PortfolioSummary => {
     const key = String(dateMs);
@@ -646,12 +730,12 @@ export function computeSavingsProgress(
     // Face value for bonds that mature by the target date, target-date value for
     // everything else — see assignedValue. Today's discounted mark never applies:
     // a DKJ held for a dated goal is realised at par, not sold at market.
-    const assignedValueHuf = assignedValue(
-      summaryNow,
-      future ? summaryAt(dateMs) : summaryNow,
-      keys,
-      targetMs,
-    );
+    // Plus the money already the goal's in cash (a matured instrument's
+    // payout, coupons credited in the hold-cash window) — see goalCash.
+    const cash = cashByGoal.get(goal.id)!;
+    const assignedValueHuf =
+      assignedValue(summaryNow, future ? summaryAt(dateMs) : summaryNow, keys, targetMs) +
+      cash.cashHuf;
     const assignedAtDate = assignedValueHuf;
 
     const couponsHuf = goal.includeCoupons
@@ -693,29 +777,38 @@ export function computeSavingsProgress(
             new Date(dateMs),
           )
         : nowStart;
-      assignedStart = assignedValue(nowStart, atStart, keys, targetMs);
+      assignedStart = assignedValue(nowStart, atStart, keys, targetMs) + cash.cashHuf;
     }
     // Coupons credited THIS effective month were still ahead at its start —
     // counting them as projected there keeps a just-arrived coupon from also
     // swelling the gap that is spread over the months (the monthly status
-    // adds the goal's share of them on top, as money to reinvest).
+    // adds the goal's share of them on top, as money to reinvest). Those in
+    // the hold-cash window are already in the goal's cash (assignedStart).
+    const holdFrom = goal.includeCoupons ? holdCashFrom(goal, instruments) : undefined;
     const creditedThisMonth = goal.includeCoupons
       ? txs
           .filter(
             (t) =>
               isBondCoupon(t, instruments) &&
               inEffectiveMonth(t, eff) &&
-              t.date.slice(0, 10) <= goal.targetDate,
+              t.date.slice(0, 10) <= goal.targetDate &&
+              !(holdFrom && toLocalDay(dayMsOf(t.date)) >= holdFrom),
           )
           .reduce((s, t) => s + incomeHuf(t, fx), 0)
       : 0;
+    // This month's hold-window coupons, still to be distributed: the room for
+    // them is the shortfall WITHOUT them (they are counted in the cash above).
+    const holdThisMonth = cash.coupons
+      .filter((c) => inEffectiveMonth({ date: `${c.day}T12:00:00` } as Transaction, eff))
+      .reduce((s, c) => s + c.huf, 0);
     const gapAtMonthStart = Math.max(
       0,
       targetHuf - (assignedStart + couponsHuf + creditedThisMonth),
     );
     // Room for newly arrived coupons: the actual shortfall, this month's own
-    // buys into the goal included.
-    const couponRoomHuf = gapHuf;
+    // buys into the goal included (hold-window coupons being distributed
+    // don't shrink their own room).
+    const couponRoomHuf = gapHuf + holdThisMonth;
     const monthsLeft = future ? paydaysUntil(now, dateMs) + 1 : 0;
     const monthlyNeededHuf =
       monthsLeft > 0 ? gapAtMonthStart / monthsLeft : gapHuf;
