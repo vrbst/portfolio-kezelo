@@ -1,0 +1,248 @@
+import { useState } from "react";
+import { ArrowDown, ArrowUp, BellPlus, CalendarCheck } from "lucide-react";
+import { usePortfolio, useMonthlyPlan, useToday } from "../lib/store";
+import {
+  moveInOrder,
+  planTextLines,
+  type MonthlyPlan,
+  type PlanLine,
+} from "../lib/monthlyPlan";
+import { savePlanOrder } from "../lib/planPrefs";
+import { formatQuantity, suggestionText } from "../lib/rebalance";
+import type { PlannedTrade } from "../lib/alerts";
+import { effectiveMonthLabel } from "../lib/goals";
+import { formatMoney } from "../lib/format";
+import { AmountInput, Amt, Badge } from "./ui";
+
+/** The whole plan as planned trades (goal buys, hold-cash lines, glide buys). */
+function plannedTrades(plan: MonthlyPlan): PlannedTrade[] {
+  const out: PlannedTrade[] = [];
+  for (const l of plan.lines) {
+    if (l.allocatedHuf < 1) continue;
+    const n = l.need;
+    if (n.holdCash) {
+      out.push({ side: "hold", bucketName: n.name, amountHuf: Math.round(l.allocatedHuf) });
+      continue;
+    }
+    out.push({
+      side: "buy",
+      bucketName: n.name,
+      instrumentKey: n.instrumentKey,
+      instrumentName: n.target,
+      amountHuf: Math.round(l.trade?.amountHuf ?? l.allocatedHuf),
+      quantity: l.trade?.quantity,
+      costHuf: l.trade?.costHuf ? Math.round(l.trade.costHuf) : undefined,
+    });
+  }
+  for (const s of plan.glidePlan?.suggestions ?? []) {
+    if (s.status !== "ok") continue;
+    out.push({
+      side: s.side,
+      bucketName: s.bucketName,
+      instrumentKey: s.instrumentKey,
+      instrumentName: s.instrumentName,
+      amountHuf: Math.round(s.amountHuf),
+      quantity: s.quantity,
+      costHuf: s.costHuf ? Math.round(s.costHuf) : undefined,
+    });
+  }
+  return out;
+}
+
+function LineRow({
+  line,
+  first,
+  last,
+  onMove,
+}: {
+  line: PlanLine;
+  first: boolean;
+  last: boolean;
+  onMove: (dir: -1 | 1) => void;
+}) {
+  const n = line.need;
+  const done = n.needHuf < 1;
+  const arrow =
+    "rounded p-0.5 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] disabled:opacity-30";
+  return (
+    <li className={`rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm ${done ? "opacity-60" : ""}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="flex flex-col">
+            <button className={arrow} disabled={first} onClick={() => onMove(-1)} title="Előrébb a sorrendben">
+              <ArrowUp className="h-3 w-3" />
+            </button>
+            <button className={arrow} disabled={last} onClick={() => onMove(1)} title="Hátrébb a sorrendben">
+              <ArrowDown className="h-3 w-3" />
+            </button>
+          </span>
+          <Badge tone={n.kind === "savings" ? "warning" : "neutral"}>
+            {n.kind === "savings" ? "Határidős cél" : "DCA"}
+          </Badge>
+          <span className="truncate font-medium">{n.name}</span>
+        </span>
+        <span className="tabular-nums">
+          {done ? (
+            <span className="text-xs text-[var(--color-positive)]">e havi rész teljesítve ✓</span>
+          ) : (
+            <Amt className="font-medium">{formatMoney(line.allocatedHuf)}</Amt>
+          )}
+        </span>
+      </div>
+      {!done && (
+        <div className="mt-0.5 flex flex-wrap justify-between gap-2 text-xs text-[var(--color-muted)]">
+          <span>
+            {n.holdCash
+              ? "Tartsd készpénzben a céldátumig"
+              : line.trade
+                ? `${n.target} vétel`
+                : `${n.target}`}
+          </span>
+          <span className="tabular-nums">
+            {line.trade?.quantity != null && (
+              <>
+                <Amt>{formatQuantity(line.trade.quantity)} db</Amt> ·{" "}
+              </>
+            )}
+            {line.trade && (
+              <>
+                díj ≈ <Amt>{formatMoney(line.trade.costHuf)}</Amt>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+      {line.shortHuf >= 1 && (
+        <div className="mt-0.5 text-xs text-[var(--color-negative)]">
+          Alul maradt: −<Amt>{formatMoney(line.shortHuf)}</Amt> (kellene{" "}
+          <Amt>{formatMoney(n.needHuf)}</Amt>)
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * "Havi terv": this month's saving split across every goal in order — dated
+ * goals, DCA goals, then the glide path with whatever is left. The goal cards
+ * and reminders read the same numbers (see monthlyPlan.ts).
+ */
+export default function MonthlyPlanPanel() {
+  const [amountRaw, setAmountRaw] = useState<string | null>(null);
+  const override = amountRaw != null ? Number(amountRaw) || 0 : null;
+  const { plan, needs, budgetHuf, defaultAmount } = useMonthlyPlan(override);
+  const addReminder = usePortfolio((s) => s.addReminder);
+  const reminders = usePortfolio((s) => s.reminders);
+  const today = useToday();
+
+  const doneHuf = needs.reduce((s, n) => s + n.doneHuf, 0);
+  const monthLabel = effectiveMonthLabel(new Date(`${today}T12:00:00`));
+  const title = `Havi terv – ${monthLabel} (${formatMoney(plan.amountHuf)})`;
+  const steps = plannedTrades(plan);
+  const added = reminders.some((r) => r.title === title);
+  const glideSteps = plan.glidePlan?.suggestions.filter((s) => s.status === "ok") ?? [];
+
+  return (
+    <section className="mb-6">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <CalendarCheck className="h-4 w-4 text-[var(--color-brand)]" />
+        Havi terv — {monthLabel}
+      </h3>
+      <p className="mb-2 text-xs text-[var(--color-muted)]">
+        A havi megtakarítás sorrendben: előbb a határidős célok e havi része, majd a
+        DCA-célok, a maradék a célpályán. Ha nem elég a pénz, az előrébb álló kap
+        teljesen — a sorrend a nyilakkal állítható. A kuponokat lent, a
+        „Beérkezett” lista osztja el.
+      </p>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+        <AmountInput
+          value={String(plan.amountHuf)}
+          onValueChange={(raw) => setAmountRaw(raw)}
+          className="w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right tabular-nums"
+        />
+        <span className="text-[var(--color-muted)]">Ft</span>
+        {amountRaw != null && (
+          <button className="text-xs text-[var(--color-muted)] underline" onClick={() => setAmountRaw(null)}>
+            vissza az alapértékre (<Amt>{formatMoney(defaultAmount)}</Amt>)
+          </button>
+        )}
+      </div>
+      <p className="mb-2 text-xs text-[var(--color-muted)]">
+        Alapérték: havi keret <Amt>{formatMoney(budgetHuf)}</Amt>
+        {doneHuf >= 1 && (
+          <>
+            {" "}− e hónapban már teljesítve <Amt>{formatMoney(doneHuf)}</Amt>
+          </>
+        )}
+        {amountRaw != null && " (most kézzel átírva)"}
+      </p>
+
+      <ul className="space-y-2">
+        {plan.lines.map((l, i) => (
+          <LineRow
+            key={l.need.key}
+            line={l}
+            first={i === 0}
+            last={i === plan.lines.length - 1}
+            onMove={(dir) => savePlanOrder(moveInOrder(needs, l.need.key, dir))}
+          />
+        ))}
+        <li className="rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <Badge tone="positive">Célpálya</Badge>
+              <span className="text-xs text-[var(--color-muted)]">a maradék — mindig az utolsó</span>
+            </span>
+            <Amt className="font-medium tabular-nums">{formatMoney(plan.glideHuf)}</Amt>
+          </div>
+          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+            {plan.glidePlan ? (
+              <>
+                Célpont: {plan.glidePlan.flow.label} —{" "}
+                {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
+                {glideSteps.some((s) => s.costHuf > 0) &&
+                  ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
+              </>
+            ) : (
+              "A célok után nem marad rá pénz."
+            )}
+          </div>
+        </li>
+        {plan.freeHuf >= 1 && (
+          <li className="px-3 text-xs text-[var(--color-muted)]">
+            Szabad maradék (a célpálya havi összegén felül): <Amt>{formatMoney(plan.freeHuf)}</Amt>
+          </li>
+        )}
+      </ul>
+      {plan.shortHuf >= 1 && (
+        <p className="mt-2 text-xs text-[var(--color-negative)]">
+          Nem elég a pénz minden célra — összesen <Amt>{formatMoney(plan.shortHuf)}</Amt> hiányzik
+          (a sorrend szerint a hátsó célok maradtak alul).
+        </p>
+      )}
+      {steps.length > 0 && (
+        <button
+          className="btn-ghost mt-2 text-xs"
+          disabled={added}
+          onClick={() =>
+            void addReminder({
+              severity: "info",
+              title,
+              detail: planTextLines(plan).join("; ") + ".",
+              to: "/goals",
+              plan: steps,
+            })
+          }
+          title={
+            added
+              ? "Ez a terv már a teendők között van"
+              : "Az egész terv egy tervezett tranzakcióként a figyelmeztetések közé (szinkron után Telegramon is)"
+          }
+        >
+          <BellPlus className="h-4 w-4" />
+          {added ? "Felvéve a teendők közé" : "Rögzítés tervezett tranzakcióként"}
+        </button>
+      )}
+    </section>
+  );
+}

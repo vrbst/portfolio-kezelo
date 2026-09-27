@@ -131,6 +131,19 @@ export interface GoalProgress {
   /** investedHuf / target (can exceed 1). */
   ratio: number;
   done: boolean;
+  /**
+   * This month's part of what's still missing: the period's remainder spread
+   * over the months left in the period (this one included) — the whole
+   * remainder for a monthly goal. What the monthly plan gives the goal.
+   */
+  monthPartHuf: number;
+  /** Bought for the goal in the current effective month (HUF). */
+  investedThisMonthHuf: number;
+}
+
+/** Months left in the goal's period, the current (effective) month included. */
+export function monthsLeftInPeriod(month0: number, periodMonths: GoalPeriod): number {
+  return periodMonths - (month0 % periodMonths);
 }
 
 /** Progress of each goal in its CURRENT period (with the working-day shift). */
@@ -168,6 +181,7 @@ export function computeGoalProgress(
       return t.instrumentKey === goal.instrumentKey;
     };
     let invested = 0;
+    let thisMonth = 0;
     for (const t of transactions) {
       if (!matches(t)) continue;
       const d = new Date(t.date);
@@ -176,8 +190,11 @@ export function computeGoalProgress(
       if (periodInfo(em.year, em.month0, goal.periodMonths).key !== cur.key)
         continue;
       invested += buyHuf(t);
+      if (em.year === eff.year && em.month0 === eff.month0) thisMonth += buyHuf(t);
     }
     const target = goal.amountHuf;
+    const done = invested >= target * (1 - GOAL_TOLERANCE);
+    const remaining = Math.max(0, target - invested);
     const instrumentName = goal.instrumentType
       ? instrumentTypeLabel[goal.instrumentType]
       : (instById.get(goal.instrumentKey ?? "")?.name ??
@@ -190,10 +207,14 @@ export function computeGoalProgress(
       periodLabel: cur.label,
       investedHuf: invested,
       targetHuf: target,
-      remainingHuf: Math.max(0, target - invested),
+      remainingHuf: remaining,
       ratio: target > 0 ? invested / target : 0,
       // Met once the invested amount reaches (1 − tolerance) × target.
-      done: invested >= target * (1 - GOAL_TOLERANCE),
+      done,
+      monthPartHuf: done
+        ? 0
+        : remaining / monthsLeftInPeriod(eff.month0, goal.periodMonths),
+      investedThisMonthHuf: thisMonth,
     };
   });
 }
@@ -209,7 +230,11 @@ export function goalAlerts(progress: GoalProgress[]): Alert[] {
       title: `Cél – ${p.instrumentName} (${PERIOD_LABEL[p.goal.periodMonths].toLowerCase()})`,
       detail: `${p.periodLabel}: ${formatMoney(p.investedHuf)} / ${formatMoney(
         p.targetHuf,
-      )} — még ${formatMoney(p.remainingHuf)} hiányzik`,
+      )} — még ${formatMoney(p.remainingHuf)} hiányzik${
+        p.goal.periodMonths > 1
+          ? ` (e hónapban: ${formatMoney(p.monthPartHuf)})`
+          : ""
+      }`,
       to: "/goals",
       actionLabel: "Célok",
     });

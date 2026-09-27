@@ -16,14 +16,15 @@ import {
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
+import { positionsFromSummary } from "../../src/lib/rebalance";
 import {
-  budgetBreakdown,
-  couponClaimingGoals,
-  dcaMonthlyHuf,
-  glideAmountSource,
-  savingsMonthlyHuf,
-} from "../../src/lib/budget";
-import { planCashflow, suggestionText } from "../../src/lib/rebalance";
+  buildMonthlyPlan,
+  computePlanNeeds,
+  defaultPlanAmount,
+  planTextLines,
+} from "../../src/lib/monthlyPlan";
+import { loadPlanOrder } from "../../src/lib/planPrefs";
+import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import type { Context } from "./data";
 import { esc } from "./telegram";
@@ -309,40 +310,44 @@ export function weeklyText(ctx: Context): string {
 }
 
 /**
- * The glide path's monthly amount — the same default the Teendők panel
- * routes — and where it should go this month.
+ * This month's plan for the saving — the same Havi terv the Teendők panel
+ * shows (default amount: the monthly budget minus what goals already got).
  */
-function glideAllocationLines(ctx: Context): string[] {
-  const cfg = ctx.glideConfig;
-  if (!ctx.glide || !cfg) return [];
-  const b = budgetBreakdown({
-    budgetHuf: monthlyBudgetHuf(ctx.transactions, ctx.fx, ctx.at),
-    dcaHuf: dcaMonthlyHuf(ctx.snapshot.goals ?? []),
-    savingsHuf: savingsMonthlyHuf(ctx.savings),
-    glide: cfg,
+function monthlyPlanLines(ctx: Context): string[] {
+  const needs = computePlanNeeds({
+    savingsGoals: loadSavingsGoals(),
+    dcaGoals: ctx.snapshot.goals ?? [],
+    accounts: ctx.snapshot.accounts,
+    transactions: ctx.transactions,
+    instruments: ctx.instruments,
+    prices: ctx.prices,
+    fx: ctx.fx,
+    order: loadPlanOrder(),
+    now: ctx.at,
   });
-  if (b.glideMode == null) return [];
+  const budgetHuf = monthlyBudgetHuf(ctx.transactions, ctx.fx, ctx.at);
+  const plan = buildMonthlyPlan({
+    amountHuf: defaultPlanAmount(budgetHuf, needs),
+    needs,
+    glide: ctx.glideConfig,
+    state: ctx.glide,
+    budgetHuf,
+    positions: positionsFromSummary(
+      ctx.summary,
+      ctx.fx,
+      false,
+      localDay(ctx.at),
+    ),
+    instruments: ctx.instMap,
+  });
+  if (plan.lines.length === 0 && !plan.glidePlan) return [];
   const out = [
     "",
-    `💶 ${esc(glideAmountSource(b, cfg) ?? "")}`,
+    `💶 <b>Havi terv – ${esc(effectiveMonthLabel(ctx.at))}</b> (${ft(plan.amountHuf)})`,
+    ...planTextLines(plan).map((l) => `→ ${esc(l)}`),
   ];
-  if (b.glideHuf > 0) {
-    const plan = planCashflow(cfg, ctx.glide, b.glideHuf);
-    const steps = plan.suggestions.filter((s) => s.status === "ok");
-    out.push(`Célpont: ${esc(plan.flow.label)}`);
-    out.push(
-      steps.length
-        ? steps.map((s) => `→ ${esc(suggestionText(s))}`).join("\n")
-        : "→ nincs javasolt vétel",
-    );
-  } else if (b.glideMode === "remainder") {
-    out.push("→ a többi cél lefoglalja a teljes havi keretet, nincs mit elosztani");
-  }
-  const coupons = couponClaimingGoals(ctx.savings);
-  if (coupons.length)
-    out.push(
-      `⚠️ ${esc(coupons.join(", "))}: a kötvénykuponokat is foglalja — kupont ne oszd el a célpályán is.`,
-    );
+  if (plan.shortHuf >= 1)
+    out.push(`⚠️ Nem elég a pénz minden célra — összesen ${ft(plan.shortHuf)} hiányzik.`);
   return out;
 }
 
@@ -388,8 +393,8 @@ export function monthlyText(ctx: Context): string {
       lines.push(
         `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
       );
-    lines.push(...glideAllocationLines(ctx));
   }
+  lines.push(...monthlyPlanLines(ctx));
 
   // Forecast vs. reality: what earlier snapshots expected for this month.
   const curKey = localDay(ctx.at).slice(0, 7);

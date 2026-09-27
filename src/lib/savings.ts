@@ -222,18 +222,32 @@ export interface SavingsMonthlyStatus {
   holdCash: boolean;
   /** The goal's N (see SavingsGoal.minDaysToMaturity). */
   minDays: number;
+  /**
+   * What this month's SAVING still owes the goal: the quota not yet bought.
+   * This month's buys cover the goal's coupon share first (that money already
+   * arrived — it is not part of the monthly saving), the rest counts against
+   * the quota. The monthly plan, the goal card and the reminder all use it;
+   * missingHuf = planHuf + the coupon share not yet reinvested.
+   */
+  planHuf: number;
+  /**
+   * The instrument this month's buy should go into: of the buyable ones, the
+   * one maturing latest by the target date (an undated one if none is dated).
+   * Undefined when the money is to be held in cash.
+   */
+  buyKey?: string;
 }
 
 /**
- * Per-goal "did I put in this month's required amount?" status, for goals that
- * opted in (monthlyReminder) and have ≥1 assigned instrument. The required
- * amount is the goal's monthly-needed saving (gap ÷ months left), recomputed
- * live — not a snapshot. A buy counts if it is an assigned instrument OR the
- * SAME TYPE as an assigned one, so a fresh DKJ series (new ISIN) counts without
- * re-assigning it. The month boundary follows the DCA-goal rule (a buy on the
- * month's last working day counts toward the next month).
+ * This month's state of EVERY savings goal (see savingsMonthlyStatus for the
+ * reminder subset). The required amount is the goal's monthly-needed saving
+ * (gap ÷ months left), recomputed live — not a snapshot. A buy counts if it is
+ * an assigned instrument OR the SAME TYPE as an assigned one, so a fresh DKJ
+ * series (new ISIN) counts without re-assigning it. The month boundary follows
+ * the DCA-goal rule (a buy on the month's last working day counts toward the
+ * next month). A goal with no instrument (or none still buyable) holds cash.
  */
-export function savingsMonthlyStatus(
+export function savingsMonthStates(
   goals: SavingsGoal[],
   accounts: Account[],
   transactions: Transaction[],
@@ -278,7 +292,6 @@ export function savingsMonthlyStatus(
   }
   const out: SavingsMonthlyStatus[] = [];
   for (const g of goals) {
-    if (!g.monthlyReminder || g.instrumentKeys.length === 0) continue;
     const boughtHuf = netThisEffectiveMonth(
       g,
       transactions,
@@ -300,6 +313,15 @@ export function savingsMonthlyStatus(
       suitableForGoalBuy(instruments.get(k), g, today),
     );
     const holdCash = buyable.length === 0;
+    const dated = buyable
+      .map((k) => ({ k, m: maturityDay(instruments.get(k)) }))
+      .filter((x): x is { k: string; m: string } => !!x.m)
+      .sort((a, b) => b.m.localeCompare(a.m));
+    const buyKey = holdCash ? undefined : (dated[0]?.k ?? buyable[0]);
+    const planHuf = Math.max(
+      0,
+      baseNeededHuf - Math.max(0, boughtHuf - couponHuf),
+    );
     // Met once this month's purchases reach (1 − tolerance) × needed, so
     // rounding / FX drift doesn't leave it a few hundred Ft "short". With
     // nothing left to buy, the money is simply kept in cash — no reminder.
@@ -322,9 +344,40 @@ export function savingsMonthlyStatus(
         .join(", "),
       holdCash,
       minDays: Math.max(0, g.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY),
+      planHuf,
+      buyKey,
     });
   }
   return out;
+}
+
+/**
+ * The reminder subset of {@link savingsMonthStates}: goals that opted in
+ * (monthlyReminder) and have ≥1 assigned instrument.
+ */
+export function savingsMonthlyStatus(
+  goals: SavingsGoal[],
+  accounts: Account[],
+  transactions: Transaction[],
+  instruments: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  now: Date = new Date(),
+): SavingsMonthlyStatus[] {
+  const on = new Set(
+    goals
+      .filter((g) => g.monthlyReminder && g.instrumentKeys.length > 0)
+      .map((g) => g.id),
+  );
+  return savingsMonthStates(
+    goals,
+    accounts,
+    transactions,
+    instruments,
+    prices,
+    fx,
+    now,
+  ).filter((s) => on.has(s.goalId));
 }
 
 /** The "hold it in cash" advice line for a goal with nothing left to buy. */
@@ -363,9 +416,12 @@ export function savingsGoalAlerts(
   )
     .filter((s) => !s.done)
     .map((s) => {
+      // The same split as the monthly plan: the saving's part + the coupon
+      // share not yet reinvested (missing = plan + that).
+      const couponLeft = s.missingHuf - s.planHuf;
       const couponNote =
-        s.couponHuf > 0
-          ? ` Ebből ${formatMoney(s.couponHuf)} a most beérkezett kamat újrabefektetése.`
+        couponLeft > 1
+          ? ` Ebből ${formatMoney(s.planHuf)} a havi megtakarításból (Havi terv), ${formatMoney(couponLeft)} a beérkezett kamat újrabefektetése.`
           : "";
       return {
         id: `savings-goal:${s.goalId}:${curKey}`,

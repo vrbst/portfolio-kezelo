@@ -4,6 +4,7 @@ import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
   computeSavingsProgress,
+  savingsMonthStates,
   DEFAULT_MIN_DAYS_TO_MATURITY,
   suitableForGoalBuy,
   loadSavingsGoals,
@@ -61,6 +62,15 @@ export default function SavingsTargets() {
       map,
       prices,
       fx,
+    );
+  }, [goals, accounts, transactions, instruments, prices, fx]);
+  // This month's remaining quota per goal — the Havi terv's own figure.
+  const planHuf = useMemo(() => {
+    const map = new Map(instruments.map((i) => [i.key, i]));
+    return new Map(
+      savingsMonthStates(goals, accounts, transactions, map, prices, fx).map(
+        (s) => [s.goalId, s.planHuf],
+      ),
     );
   }, [goals, accounts, transactions, instruments, prices, fx]);
 
@@ -174,6 +184,7 @@ export default function SavingsTargets() {
             <GoalRow
               key={p.goal.id}
               progress={p}
+              planHuf={planHuf.get(p.goal.id) ?? 0}
               holdings={holdings}
               nameOf={nameOf}
               onUpdate={update}
@@ -188,12 +199,15 @@ export default function SavingsTargets() {
 
 function GoalRow({
   progress: p,
+  planHuf,
   holdings,
   nameOf,
   onUpdate,
   onRemove,
 }: {
   progress: ReturnType<typeof computeSavingsProgress>[number];
+  /** This month's remaining quota (savingsMonthStates — the Havi terv's figure). */
+  planHuf: number;
   holdings: { key: string; name: string; value: number }[];
   nameOf: (key: string) => string;
   onUpdate: (id: string, patch: Partial<SavingsGoal>) => void;
@@ -328,11 +342,11 @@ function GoalRow({
               // The quota is per month; what this month's net purchases
               // already covered is shown apart from the total gap, so
               // "gap ÷ months" reading doesn't clash with the quota.
-              p.monthlyNeededHuf - p.thisMonthNetHuf > 1 ? (
+              planHuf > 1 ? (
                 <>
                   . A {p.monthAdjective} keretből még{" "}
                   <span className="amt font-semibold">
-                    {formatMoney(p.monthlyNeededHuf - p.thisMonthNetHuf)}
+                    {formatMoney(planHuf)}
                   </span>{" "}
                   van hátra (összesen{" "}
                   <span className="amt">{formatMoney(p.gapHuf)}</span>{" "}

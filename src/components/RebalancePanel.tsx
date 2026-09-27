@@ -9,6 +9,7 @@ import {
   useToday,
 } from "../lib/store";
 import IncomeQueue, { CouponWarning } from "./IncomeQueue";
+import MonthlyPlanPanel from "./MonthlyPlanPanel";
 import { latestConfig, type GlideConfig } from "../lib/glidePath";
 import {
   allocationState,
@@ -24,7 +25,6 @@ import {
   type Suggestion,
 } from "../lib/rebalance";
 import type { PlannedTrade } from "../lib/alerts";
-import { glideAmountSource } from "../lib/budget";
 import { formatMoney } from "../lib/format";
 import { AmountInput, Amt, Badge, Card } from "./ui";
 import { PctInput } from "./GlidePathEditor";
@@ -185,15 +185,14 @@ export default function RebalancePanel() {
   const state = useNamed(useGlideState(versions));
   const today = useToday();
 
-  // Default: the glide path's own monthly amount (its slice of the budget);
-  // overwritable for a coupon, dividend or extra deposit.
-  const { breakdown, couponGoals } = useMonthlyBudget();
+  // Extra money only (a dividend, an extra deposit): the monthly saving is
+  // split by the Havi terv above — defaulting to it here would route the
+  // glide path's share twice. Coupons go through the "Beérkezett" list.
+  const { couponGoals } = useMonthlyBudget();
   const income = useIncomeQueue();
   const [pickedIncome, setPickedIncome] = useState<string | null>(null);
-  const defaultAmount = breakdown.glideHuf;
-  const source = glideAmountSource(breakdown, cfg);
   const [amountRaw, setAmountRaw] = useState<string | null>(null);
-  const amount = amountRaw != null ? Number(amountRaw) || 0 : defaultAmount;
+  const amount = amountRaw != null ? Number(amountRaw) || 0 : 0;
 
   // Free cash = cash balances outside every bucket (the source of new money).
   const freeCash = useMemo(() => (state ? freeCashHuf(state) : 0), [state]);
@@ -241,12 +240,16 @@ export default function RebalancePanel() {
         kerül be.
       </p>
 
+      <MonthlyPlanPanel />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section>
           <h3 className="text-sm font-semibold">1. Bejövő pénz elosztása</h3>
           <p className="mb-2 text-xs text-[var(--color-muted)]">
             Elsődleges eszköz: a pénz a pályához képest leginkább alulsúlyozott
-            csoportokba megy, eladás nélkül.
+            csoportokba megy, eladás nélkül. Itt az extra pénzt (osztalék, rendkívüli
+            befizetés) oszthatod el — a havi megtakarítást a Havi terv, a kuponokat
+            a „Beérkezett” lista.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
             <AmountInput
@@ -257,20 +260,10 @@ export default function RebalancePanel() {
             <span className="text-[var(--color-muted)]">Ft</span>
             {amountRaw != null && (
               <button className="text-xs text-[var(--color-muted)] underline" onClick={() => setAmountRaw(null)}>
-                vissza a célpálya havi összegére (<Amt>{formatMoney(defaultAmount)}</Amt>)
+                törlés
               </button>
             )}
           </div>
-          {source && (
-            <p
-              className={`mb-2 text-xs ${
-                breakdown.glideMode === "legacy" ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]"
-              }`}
-            >
-              Alapérték — {source}
-              {amountRaw != null && " (most kézzel átírva)"}
-            </p>
-          )}
           {amountRaw != null && (
             <CouponWarning
               goals={couponGoals}

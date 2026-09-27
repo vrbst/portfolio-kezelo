@@ -19,6 +19,12 @@ import {
   type GlideConfig,
 } from "./glidePath";
 import { loadIncomeState, mergeIncomeState, type IncomeState } from "./incomeFlow";
+import {
+  loadBrokerFees,
+  loadPlanOrder,
+  type BrokerFees,
+  type PlanOrder,
+} from "./planPrefs";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -39,6 +45,10 @@ export interface SyncedPrefs {
   glidePath?: StampedPref<GlideConfig[]>;
   /** Incoming-money tracking: start day + ids marked distributed — a union. */
   income?: StampedPref<IncomeState | null>;
+  /** Buy / sell cost per broker (account provider). */
+  brokerFees?: StampedPref<BrokerFees>;
+  /** The monthly plan's goal order. */
+  planOrder?: StampedPref<PlanOrder>;
 }
 
 export type PrefKind =
@@ -48,7 +58,9 @@ export type PrefKind =
   | "savings"
   | "symbols"
   | "glidePath"
-  | "income";
+  | "income"
+  | "brokerFees"
+  | "planOrder";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -58,6 +70,8 @@ const KINDS: PrefKind[] = [
   "symbols",
   "glidePath",
   "income",
+  "brokerFees",
+  "planOrder",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -68,6 +82,8 @@ const VALUE_KEY: Record<PrefKind, string> = {
   symbols: "portfolio.symbolOverrides",
   glidePath: "pf-glidepath",
   income: "pf-income",
+  brokerFees: "pf-broker-fees",
+  planOrder: "pf-plan-order",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -77,6 +93,8 @@ const STAMP_KEY: Record<PrefKind, string> = {
   symbols: "portfolio.symbolOverrides-updated",
   glidePath: "pf-glidepath-updated",
   income: "pf-income-updated",
+  brokerFees: "pf-broker-fees-updated",
+  planOrder: "pf-plan-order-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -88,6 +106,8 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   savings: loadSavingsGoals,
   glidePath: loadGlideVersions,
   income: loadIncomeState,
+  brokerFees: loadBrokerFees,
+  planOrder: loadPlanOrder,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

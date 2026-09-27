@@ -72,6 +72,19 @@ import {
 import { summariesOnDays, summaryOnDay, toLocalDay } from "./portfolio";
 import type { Position, PositionsAt } from "./rebalance";
 import { usePortfolio } from "./store";
+import {
+  loadBrokerFees,
+  loadPlanOrder,
+  type BrokerFees,
+  type PlanOrder,
+} from "./planPrefs";
+import {
+  buildMonthlyPlan,
+  computePlanNeeds,
+  defaultPlanAmount,
+  type MonthlyPlan,
+  type PlanNeed,
+} from "./monthlyPlan";
 
 /**
  * Shared, identity-keyed memo: every component that calls usePortfolioSummary
@@ -363,7 +376,8 @@ export function useGlideState(versions: GlideConfig[]): AllocationState | null {
   const summary = usePortfolioSummary();
   const fx = usePortfolio((s) => s.fx);
   const day = useToday();
-  return cachedGlideState(versions, summary, fx, day);
+  const fees = useBrokerFees();
+  return cachedGlideState(versions, summary, fx, day, fees);
 }
 
 const cachedWeightHistory = sharedMemo(
@@ -615,3 +629,124 @@ export function useIncomeQueue(): {
     prefsVersion,
   );
 }
+
+// ---- Monthly plan ("Havi terv") ---------------------------------------------
+
+/** A synced pref from localStorage, reloaded on every pref change. */
+function usePref<T>(load: () => T): T {
+  const [v, setV] = useState<T>(load);
+  useEffect(() => {
+    const on = () => setV(load());
+    window.addEventListener(PREFS_EVENT, on);
+    return () => window.removeEventListener(PREFS_EVENT, on);
+  }, [load]);
+  return v;
+}
+
+/** Buy / sell cost per broker (Beállítások). */
+export function useBrokerFees(): BrokerFees {
+  return usePref(loadBrokerFees);
+}
+
+/** The monthly plan's goal order (user-set; see planPrefs). */
+export function usePlanOrder(): PlanOrder {
+  return usePref(loadPlanOrder);
+}
+
+const cachedPlanNeeds = sharedMemo(
+  (
+    savingsGoals: SavingsGoal[],
+    dcaGoals: Goal[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    prices: PriceMap,
+    fx: Record<string, number>,
+    order: PlanOrder,
+    day: string,
+  ) => {
+    void day; // the month / quota changes with the day
+    return computePlanNeeds({
+      savingsGoals,
+      dcaGoals,
+      accounts,
+      transactions,
+      instruments,
+      prices,
+      fx,
+      order,
+    });
+  },
+);
+
+/** Every goal's claim on this month's saving, in plan order. */
+export function usePlanNeeds(): PlanNeed[] {
+  return cachedPlanNeeds(
+    useSavingsGoals(),
+    usePortfolio((s) => s.goals),
+    usePortfolio((s) => s.accounts),
+    usePortfolio((s) => s.transactions),
+    usePortfolio((s) => s.instruments),
+    usePortfolio((s) => s.prices),
+    usePortfolio((s) => s.fx),
+    usePlanOrder(),
+    useToday(),
+  );
+}
+
+const cachedMarketPositions = sharedMemo(
+  (summary: PortfolioSummary, fx: Record<string, number>, day: string, fees: BrokerFees) =>
+    positionsFromSummary(summary, fx, false, day, fees),
+);
+
+/**
+ * The monthly plan for `amountHuf` (null = the default: the monthly budget
+ * minus what the goals already got this month).
+ */
+export function useMonthlyPlan(amountHuf: number | null): {
+  plan: MonthlyPlan;
+  needs: PlanNeed[];
+  budgetHuf: number;
+  defaultAmount: number;
+} {
+  const needs = usePlanNeeds();
+  const { breakdown } = useMonthlyBudget();
+  const versions = useGlideVersions();
+  const glide = latestConfig(versions);
+  const state = useGlideState(versions);
+  const summary = usePortfolioSummary();
+  const fx = usePortfolio((s) => s.fx);
+  const instruments = usePortfolio((s) => s.instruments);
+  const day = useToday();
+  const fees = useBrokerFees();
+  const positions = cachedMarketPositions(summary, fx, day, fees);
+  const instMap = cachedInstMap(instruments);
+  const defaultAmount = defaultPlanAmount(breakdown.budgetHuf, needs);
+  const plan = cachedPlanFor(
+    amountHuf ?? defaultAmount,
+    needs,
+    glide,
+    state,
+    breakdown.budgetHuf,
+    positions,
+    instMap,
+  );
+  return { plan, needs, budgetHuf: breakdown.budgetHuf, defaultAmount };
+}
+
+const cachedInstMap = sharedMemo(
+  (instruments: Instrument[]) => new Map(instruments.map((i) => [i.key, i])),
+);
+
+const cachedPlanFor = sharedMemo(
+  (
+    amountHuf: number,
+    needs: PlanNeed[],
+    glide: GlideConfig | undefined,
+    state: AllocationState | null,
+    budgetHuf: number,
+    positions: Position[],
+    instruments: Map<string, Instrument>,
+  ) =>
+    buildMonthlyPlan({ amountHuf, needs, glide, state, budgetHuf, positions, instruments }),
+);

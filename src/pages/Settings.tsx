@@ -11,6 +11,7 @@ import AiSettings from "../components/settings/AiSettings";
 import PriceSettings from "../components/settings/PriceSettings";
 import BondSeriesSettings from "../components/settings/BondSeriesSettings";
 import AlertSettings from "../components/settings/AlertSettings";
+import BrokerFeeSettings from "../components/settings/BrokerFeeSettings";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -94,6 +95,8 @@ export default function Settings() {
       <AiSettings />
 
       <AlertSettings />
+
+      <BrokerFeeSettings />
 
       <PriceSettings />
 

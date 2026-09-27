@@ -22,9 +22,11 @@ import {
   type Bucket,
   type CheckFrequency,
   type Cost,
+  type CostRule,
   type GlideConfig,
   type InstrumentRule,
 } from "./glidePath";
+import { loadBrokerFees, type BrokerFees } from "./planPrefs";
 
 // ---- Dates ------------------------------------------------------------------
 
@@ -226,6 +228,10 @@ export interface Position {
   unitPriceHuf?: number;
   /** Bonds: early-redemption cost fraction (the instrument-level default). */
   bondSellCostPct?: number;
+  /** Provider of the account holding it (the largest holding, if several). */
+  provider?: string;
+  /** That broker's buy / sell cost (see BrokerFees). */
+  brokerCost?: CostRule;
 }
 
 /**
@@ -238,9 +244,20 @@ export function positionsFromSummary(
   fx: Record<string, number>,
   bondsAtFace: boolean,
   day: string,
+  brokerFees: BrokerFees = loadBrokerFees(),
 ): Position[] {
   const map = new Map<string, Position>();
+  // The broker of a position held at several = where most of it sits.
+  const largest = new Map<string, number>();
   const add = (p: Position) => {
+    if (p.provider && p.valueHuf > (largest.get(p.key) ?? -Infinity)) {
+      largest.set(p.key, p.valueHuf);
+      const cur = map.get(p.key);
+      if (cur) {
+        cur.provider = p.provider;
+        cur.brokerCost = p.brokerCost;
+      }
+    }
     const cur = map.get(p.key);
     if (!cur) {
       map.set(p.key, { ...p });
@@ -270,6 +287,8 @@ export function positionsFromSummary(
               ? h.marketValueHuf / h.quantity
               : undefined,
         bondSellCostPct: bondSellCost(inst, day),
+        provider: acc.account.provider,
+        brokerCost: brokerFees[acc.account.provider],
       });
     }
     for (const [ccy, amt] of Object.entries(acc.cash)) {
@@ -392,23 +411,26 @@ export function estimateCost(c: Cost | undefined, amountHuf: number): number {
 }
 
 /**
- * The applicable cost: instrument rule → bucket → (sells) the bond's own early
- * redemption cost → global default. Cash moves are free.
+ * The applicable cost: the glide path's instrument rule → its bucket → (sells)
+ * the bond's own early redemption cost → the broker's fee → the global default
+ * → none. Cash moves are free. `pos.rule` is absent for an instrument outside
+ * the glide path (e.g. a DCA goal's ETF).
  */
 export function costFor(
-  cfg: GlideConfig,
-  pos: ManagedPosition,
+  cfg: GlideConfig | undefined,
+  pos: Position & { rule?: InstrumentRule },
   side: "buy" | "sell",
 ): Cost | undefined {
   if (isCashKey(pos.key)) return undefined;
-  const bucket = cfg.buckets.find((b) => b.id === pos.rule.bucketId);
+  const bucket = pos.rule && cfg?.buckets.find((b) => b.id === pos.rule!.bucketId);
   return (
-    pos.rule.cost?.[side] ??
+    pos.rule?.cost?.[side] ??
     bucket?.cost?.[side] ??
     (side === "sell" && pos.bondSellCostPct != null
       ? { pct: pos.bondSellCostPct }
       : undefined) ??
-    cfg.defaultCost[side]
+    pos.brokerCost?.[side] ??
+    cfg?.defaultCost[side]
   );
 }
 
@@ -1043,6 +1065,7 @@ export function glideStateFrom(
   summary: PortfolioSummary,
   fx: Record<string, number>,
   day: string,
+  brokerFees: BrokerFees = loadBrokerFees(),
 ): AllocationState | null {
   let cfg: GlideConfig | undefined;
   for (const v of versions)
@@ -1055,7 +1078,7 @@ export function glideStateFrom(
   if (!cfg || cfg.buckets.length === 0) return null;
   return allocationState(
     cfg,
-    positionsFromSummary(summary, fx, cfg.bondsAtFace, day),
+    positionsFromSummary(summary, fx, cfg.bondsAtFace, day, brokerFees),
     day,
   );
 }
