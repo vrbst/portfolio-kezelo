@@ -143,11 +143,15 @@ export default function PurchaseAccountSettings() {
                       value={isPending ? "pending" : `acc:${"accountId" in r.target ? r.target.accountId : ""}`}
                       onChange={(e) => {
                         const val = e.target.value;
+                        // A new account: by default at the broker of the row's account.
+                        const cur = "accountId" in r.target
+                          ? accounts.find((a) => a.id === (r.target as { accountId: string }).accountId)
+                          : undefined;
                         if (val === "pending")
                           update({
                             target: {
                               pending: {
-                                provider: providers[0] ?? "lightyear",
+                                provider: cur?.provider ?? v.provider ?? providers[0] ?? "lightyear",
                                 kind: "tbsz",
                                 tbszYear: Number(r.from.slice(0, 4)) || new Date().getFullYear(),
                               },

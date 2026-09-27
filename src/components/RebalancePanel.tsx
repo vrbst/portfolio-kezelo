@@ -22,6 +22,7 @@ import {
   incomingBuyOptions,
   placeIncoming,
   planCashflow,
+  planSummary,
   plannedTrade,
   suggestionText,
   type AllocationState,
@@ -101,7 +102,13 @@ function SuggestionList({
                 </span>
               </div>
               <div className="mt-0.5 flex flex-wrap justify-between gap-2 text-xs text-[var(--color-muted)]">
-                <span>{ok ? s.reason : `Nem javasolt — ${s.reason}`}</span>
+                <span>
+                  {ok
+                    ? s.reason
+                    : s.status === "account-locked"
+                      ? `Nem hajtható végre — ${s.reason}`
+                      : `Nem javasolt — ${s.reason}`}
+                </span>
                 <span className="tabular-nums">
                   {s.costHuf > 0 && (
                     <>
@@ -127,6 +134,57 @@ function SuggestionList({
             <li key={i}>• {n}</li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/** What the plan moves and costs: totals, the cost split, the transfers. */
+function PlanSummaryBox({ plan }: { plan: RebalancePlan }) {
+  const s = planSummary(plan);
+  if (s.sellHuf + s.buyHuf + s.transferHuf < 1 && s.blocked.length === 0) return null;
+  const row = (label: string, v: number) =>
+    v >= 1 && (
+      <li className="flex justify-between gap-2">
+        <span>{label}</span>
+        <Amt className="tabular-nums">{formatMoney(v)}</Amt>
+      </li>
+    );
+  return (
+    <div className="mt-3 rounded-xl border border-[var(--color-border)] px-3 py-2 text-xs">
+      <div className="mb-1 font-medium text-[var(--color-muted)]">Összesítés</div>
+      <ul className="space-y-0.5">
+        {row("Eladások", s.sellHuf)}
+        {row("Vételek", s.buyHuf)}
+        {row("Utalások számlák között", s.transferHuf)}
+        {row("Tranzakciós díj", s.tradeCostHuf)}
+        {row("Idő előtti visszaváltás", s.redemptionCostHuf)}
+        {row("Devizaváltás", s.fxCostHuf)}
+        {row("Utalási díj", s.transferCostHuf)}
+        <li className="flex justify-between gap-2 border-t border-[var(--color-border)] pt-0.5 font-medium">
+          <span>Összes költség</span>
+          <Amt className="tabular-nums">{formatMoney(s.totalCostHuf)}</Amt>
+        </li>
+      </ul>
+      {s.transfers.length > 0 && (
+        <>
+          <div className="mt-2 mb-0.5 font-medium text-[var(--color-muted)]">Utalások</div>
+          <ul className="space-y-0.5">
+            {s.transfers.map((t, i) => (
+              <li key={i} className="flex flex-wrap justify-between gap-2">
+                <span>
+                  {t.fromLabel} → {t.toLabel}
+                </span>
+                <Amt className="tabular-nums">{formatMoney(t.amountHuf)}</Amt>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {s.blocked.length > 0 && (
+        <p className="mt-2 text-[var(--color-warning)]">
+          {s.blocked.length} lépés a számlakorlátok miatt nem hajtható végre (fent halványan, indoklással).
+        </p>
       )}
     </div>
   );
@@ -307,6 +365,7 @@ export default function RebalancePanel() {
             </label>
           )}
           <SuggestionList plan={bandPlan} empty="Minden csoport a sávján belül — nincs teendő." />
+          <PlanSummaryBox plan={bandPlan} />
           <SaveAsReminder plan={bandPlan} title={`Célpálya – sávkorrekció (${today})`} />
         </section>
       </div>
@@ -366,6 +425,7 @@ export default function RebalancePanel() {
           <div className="mt-3">
             <p className="mb-2 text-xs font-medium text-[var(--color-muted)]">Szükséges lépések a szimulált helyzetben</p>
             <SuggestionList plan={sim.plan} empty="A szimulált helyzetben minden csoport a sávján belül marad." />
+            <PlanSummaryBox plan={sim.plan} />
           </div>
         )}
       </section>

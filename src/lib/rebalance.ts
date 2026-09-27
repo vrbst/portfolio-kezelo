@@ -436,17 +436,22 @@ export function costFor(
   pos: Position & { rule?: InstrumentRule },
   side: "buy" | "sell",
 ): Cost | undefined {
-  if (isCashKey(pos.key)) return undefined;
+  return costWithSource(cfg, pos, side).cost;
+}
+
+/** costFor, plus whether it is the bond's own early redemption cost. */
+function costWithSource(
+  cfg: GlideConfig | undefined,
+  pos: Position & { rule?: InstrumentRule },
+  side: "buy" | "sell",
+): { cost: Cost | undefined; redemption: boolean } {
+  if (isCashKey(pos.key)) return { cost: undefined, redemption: false };
   const bucket = pos.rule && cfg?.buckets.find((b) => b.id === pos.rule!.bucketId);
-  return (
-    pos.rule?.cost?.[side] ??
-    bucket?.cost?.[side] ??
-    (side === "sell" && pos.bondSellCostPct != null
-      ? { pct: pos.bondSellCostPct }
-      : undefined) ??
-    pos.brokerCost?.[side] ??
-    cfg?.defaultCost[side]
-  );
+  const set = pos.rule?.cost?.[side] ?? bucket?.cost?.[side];
+  if (set) return { cost: set, redemption: false };
+  if (side === "sell" && pos.bondSellCostPct != null)
+    return { cost: { pct: pos.bondSellCostPct }, redemption: true };
+  return { cost: pos.brokerCost?.[side] ?? cfg?.defaultCost[side], redemption: false };
 }
 
 // ---- Suggestions ------------------------------------------------------------
@@ -470,6 +475,8 @@ export interface Suggestion {
   /** Whole units (bonds: face HUF). Undefined for cash / unknown price. */
   quantity?: number;
   costHuf: number;
+  /** The cost is a bond's early redemption cost (not a trading fee). */
+  redemptionCost?: boolean;
   /** Currency conversion cost of a buy (money in another currency). */
   fxCostHuf?: number;
   /** The account the trade happens on (account-aware plans). */
@@ -546,7 +553,8 @@ function makeTrade(
       quantity = Math.min(quantity, down(pos.quantity));
     amount = quantity * pos.unitPriceHuf;
   }
-  const costHuf = estimateCost(costFor(cfg, pos, side), amount);
+  const priced = costWithSource(cfg, pos, side);
+  const costHuf = estimateCost(priced.cost, amount);
   const fxCostHuf = side === "buy" && fxPct > 0 ? amount * fxPct : undefined;
   let status: SuggestionStatus = "ok";
   let why = reason;
@@ -570,6 +578,7 @@ function makeTrade(
     amountHuf: amount,
     quantity,
     costHuf,
+    redemptionCost: priced.redemption || undefined,
     fxCostHuf,
     status,
     reason: why,
@@ -1796,6 +1805,46 @@ export function suggestionText(s: Suggestion): string {
     s.quantity != null && s.quantity !== s.amountHuf ? ` ${formatQuantity(s.quantity)} db` : "";
   const at = s.accountLabel ? `${s.side === "buy" ? " → " : " · "}${s.accountLabel}` : "";
   return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})${at}`;
+}
+
+/** Totals of a plan's suggested steps — what it moves and what it costs. */
+export interface PlanSummary {
+  sellHuf: number;
+  buyHuf: number;
+  transferHuf: number;
+  /** Trading fees (buy / sell). */
+  tradeCostHuf: number;
+  /** Bonds' early redemption cost. */
+  redemptionCostHuf: number;
+  /** Currency conversion (on buys and transfers). */
+  fxCostHuf: number;
+  /** Fixed transfer fees. */
+  transferCostHuf: number;
+  totalCostHuf: number;
+  transfers: Suggestion[];
+  /** Steps the account limits block. */
+  blocked: Suggestion[];
+}
+
+export function planSummary(plan: RebalancePlan): PlanSummary {
+  const ok = plan.suggestions.filter((s) => s.status === "ok");
+  const sum = (xs: Suggestion[], f: (s: Suggestion) => number) => xs.reduce((a, s) => a + f(s), 0);
+  const trades = ok.filter((s) => s.side === "buy" || s.side === "sell");
+  const transfers = ok.filter((s) => s.side === "transfer");
+  const out = {
+    sellHuf: sum(ok.filter((s) => s.side === "sell"), (s) => s.amountHuf),
+    buyHuf: sum(ok.filter((s) => s.side === "buy"), (s) => s.amountHuf),
+    transferHuf: sum(transfers, (s) => s.amountHuf),
+    tradeCostHuf: sum(trades, (s) => (s.redemptionCost ? 0 : s.costHuf)),
+    redemptionCostHuf: sum(trades, (s) => (s.redemptionCost ? s.costHuf : 0)),
+    fxCostHuf: sum([...trades, ...transfers], (s) => s.fxCostHuf ?? 0),
+    transferCostHuf: sum(transfers, (s) => s.costHuf),
+    totalCostHuf: 0,
+    transfers,
+    blocked: plan.suggestions.filter((s) => s.status === "account-locked"),
+  };
+  out.totalCostHuf = out.tradeCostHuf + out.redemptionCostHuf + out.fxCostHuf + out.transferCostHuf;
+  return out;
 }
 
 /** A suggested step as a planned trade (saved reminders). */

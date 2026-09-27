@@ -9,6 +9,7 @@ import {
   incomingBuyOptions,
   placeIncoming,
   planCashflow,
+  planSummary,
   suggestionText,
   type Position,
   type RebalancePlan,
@@ -216,5 +217,36 @@ describe("incoming money on accounts", () => {
     const state = allocationState(cfg, positions, DAY);
     const plan = planCashflow(cfg, state, 50_000, incomingBuyOptions(ctx, "K"));
     expect(brief(placeIncoming(plan, ctx, "K"))).toEqual(["buy BOND@K 50000"]);
+  });
+});
+
+describe("plan summary (simulation totals)", () => {
+  it("adds up the steps: moves, the cost split and the transfers", () => {
+    const { cfg, positions, ctx } = setup(BASE(500_000, 500_000), {
+      fees: { ly: { fxPct: 0.004, buy: { pct: 0.001 } }, kt: { transferFixedHuf: 300 } },
+    });
+    // The bond pays a 1% early redemption cost when sold.
+    const pos = positions.map((p) => (p.key === "BOND" ? { ...p, bondSellCostPct: 0.01 } : p));
+    const plan = bandRule(cfg, allocationState(cfg, pos, DAY), 0, ctx);
+    const sum = planSummary(plan);
+    const ok = plan.suggestions.filter((s) => s.status === "ok");
+    const sell = ok.find((s) => s.side === "sell")!;
+    const buy = ok.find((s) => s.side === "buy")!;
+    const tr = ok.find((s) => s.side === "transfer")!;
+    expect(sell.redemptionCost).toBe(true);
+    expect(sum.redemptionCostHuf).toBeCloseTo(sell.costHuf);
+    expect(sum.tradeCostHuf).toBeCloseTo(buy.costHuf);
+    expect(sum.fxCostHuf).toBeCloseTo((tr.fxCostHuf ?? 0) + (buy.fxCostHuf ?? 0));
+    expect(sum.transferCostHuf).toBe(300);
+    expect(sum.totalCostHuf).toBeCloseTo(
+      sum.tradeCostHuf + sum.redemptionCostHuf + sum.fxCostHuf + sum.transferCostHuf,
+    );
+    expect(sum.transfers.map((t) => [t.fromAccountId, t.toAccountId])).toEqual([["K", "T"]]);
+    expect(sum.blocked).toEqual([]);
+  });
+
+  it("lists the steps the limits block", () => {
+    const plan = run(BASE(700_000, 300_000), { limits: { T: { noOutflowUntil: "2030-12-31" } } });
+    expect(planSummary(plan).blocked.map((s) => s.side)).toEqual(["sell", "buy"]);
   });
 });
