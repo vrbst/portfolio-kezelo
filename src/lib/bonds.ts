@@ -21,6 +21,10 @@ export const DEFAULT_BOND_SALE_COST = 0.01; // FixMÁP early-sale cost (1% of pa
  */
 function parseDayMs(s: string | undefined): number {
   if (!s) return NaN;
+  // A stored ISO timestamp (UTC) is read back as its LOCAL day — slicing it
+  // would give the day before for a local-midnight date (a maturity picked
+  // as "2026-10-28" is stored as "2026-10-27T23:00:00.000Z").
+  if (s.includes("T")) return txDayMs(s);
   const m = s.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
   const d = new Date(s);
