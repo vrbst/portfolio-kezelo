@@ -12,7 +12,7 @@
 import type { Instrument } from "./model";
 import type { Alert } from "./alerts";
 import type { PortfolioSummary } from "./portfolio";
-import { toHuf } from "./portfolio";
+import { toHuf, toLocalDay } from "./portfolio";
 import { BOND_TYPES, DEFAULT_BOND_SALE_COST } from "./bonds";
 import { formatMoney } from "./format";
 import {
@@ -311,7 +311,11 @@ export function positionsFromSummary(
 function bondSellCost(inst: Instrument | undefined, day: string) {
   if (!inst || inst.type !== "gov_bond") return undefined;
   const maturity = inst.bond?.maturity ?? inst.maturity;
-  if (maturity && maturity.slice(0, 10) <= day) return 0;
+  // An ISO timestamp is stored in UTC — compare its LOCAL day.
+  const matDay = maturity?.includes("T")
+    ? toLocalDay(Date.parse(maturity))
+    : maturity?.slice(0, 10);
+  if (matDay && matDay <= day) return 0;
   return inst.bond?.saleCostPct ?? DEFAULT_BOND_SALE_COST;
 }
 

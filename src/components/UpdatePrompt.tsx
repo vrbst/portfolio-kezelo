@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 /** Re-check for a new deploy this often while the app stays open. */
 const CHECK_MS = 30 * 60 * 1000;
 /** If activating the waiting worker hasn't reloaded us by now, force it. */
-const RELOAD_FALLBACK_MS = 1200;
+const RELOAD_FALLBACK_MS = 8000;
 
 /**
  * "Új verzió érhető el" toast. The service worker runs in "prompt" mode: a new
@@ -15,12 +15,14 @@ const RELOAD_FALLBACK_MS = 1200;
  * notices a deploy without any manual hard reload.
  */
 export default function UpdatePrompt() {
+  const regRef = useRef<ServiceWorkerRegistration | null>(null);
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(swUrl, registration) {
       if (!registration) return;
+      regRef.current = registration;
       const check = async () => {
         if (registration.installing || !navigator.onLine) return;
         try {
@@ -44,17 +46,28 @@ export default function UpdatePrompt() {
 
   const [reloading, setReloading] = useState(false);
 
-  // Activate the new worker AND make sure we actually reload. The plugin's
-  // updateServiceWorker(true) only reloads when a `waiting` worker exists (it
-  // posts SKIP_WAITING and reloads on controllerchange). If the new build has
-  // already become the active worker — e.g. it activated during an earlier full
-  // navigation — there is nothing waiting, so the built-in reload never fires
-  // and the prompt looks dead. The fallback reload covers that: it runs only if
-  // controllerchange didn't already tear this page down first (no double load).
+  // Activate the new worker AND make sure we actually reload — only once the
+  // new worker controls the page, or the reload just brings the old build
+  // back. The plugin's updateServiceWorker(true) did not always reach the
+  // waiting worker (seen live: it stayed "installed" after two clicks while a
+  // direct SKIP_WAITING activated it at once), so the message also goes
+  // straight to the registration's waiting worker. Nothing waiting (the new
+  // build is already active, e.g. after an earlier navigation): reload now.
   function applyUpdate() {
     if (reloading) return;
     setReloading(true);
-    void updateServiceWorker(true);
+    const waiting = regRef.current?.waiting;
+    if (!waiting) {
+      window.location.reload();
+      return;
+    }
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      () => window.location.reload(),
+      { once: true },
+    );
+    waiting.postMessage({ type: "SKIP_WAITING" });
+    void updateServiceWorker(false);
     window.setTimeout(() => window.location.reload(), RELOAD_FALLBACK_MS);
   }
 

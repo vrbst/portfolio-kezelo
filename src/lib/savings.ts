@@ -87,7 +87,10 @@ const DAY_MS = 86_400_000;
 /** Maturity day (YYYY-MM-DD) of a bond / T-bill, undefined if it has none. */
 function maturityDay(inst: Instrument | undefined): string | undefined {
   const m = inst?.bond?.maturity ?? inst?.maturity;
-  return m ? m.slice(0, 10) : undefined;
+  // A stored ISO timestamp (UTC) is read back as the LOCAL day — slicing it
+  // would give the day before for a local-midnight maturity.
+  const ms = dayMsOf(m);
+  return Number.isFinite(ms) ? toLocalDay(ms) : undefined;
 }
 
 /**

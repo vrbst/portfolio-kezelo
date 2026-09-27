@@ -190,3 +190,16 @@ describe("savings goal – instruments too close to maturity", () => {
     expect(s.instrumentNames).toBe("DKJ 261201");
   });
 });
+
+describe("savings goal – maturity stored as an ISO timestamp", () => {
+  // Stored the way the importer does: local midnight of 28 Oct, as UTC ISO
+  // (e.g. "2026-10-27T23:00:00.000Z" in CEST). It must read as 28 Oct.
+  const iso = new Date(2026, 9, 28).toISOString();
+  const dkj: Instrument = { ...DKJ, key: "dkj-iso", maturity: iso };
+  const goal: SavingsGoal = { ...GOAL, targetDate: "2026-11-01", instrumentKeys: [dkj.key] };
+
+  it("31 days before the local maturity day it is still buyable (N = 30)", () => {
+    expect(suitableForGoalBuy(dkj, goal, "2026-09-27")).toBe(true);
+    expect(suitableForGoalBuy(dkj, goal, "2026-09-28")).toBe(false);
+  });
+});
