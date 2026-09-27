@@ -307,6 +307,7 @@ export function useGlideSignals(
 export function useGlideVersions(): GlideConfig[] {
   const [versions, setVersions] = useState<GlideConfig[]>(loadGlideVersions);
   const loaded = usePortfolio((s) => s.loaded);
+  const cloudChecked = usePortfolio((s) => s.cloudChecked);
   const instruments = usePortfolio((s) => s.instruments);
   const summary = usePortfolioSummary();
   useEffect(() => {
@@ -315,7 +316,9 @@ export function useGlideVersions(): GlideConfig[] {
     return () => window.removeEventListener(PREFS_EVENT, on);
   }, []);
   useEffect(() => {
-    if (!loaded || instruments.length === 0) return;
+    // Not before the cloud copy is in: a device that hasn't pulled the real
+    // glide path yet would seed a newer default version that overrides it.
+    if (!loaded || !cloudChecked || instruments.length === 0) return;
     const cash = [
       ...new Set(summary.accounts.flatMap((a) => Object.keys(a.cash))),
     ];
@@ -326,7 +329,7 @@ export function useGlideVersions(): GlideConfig[] {
       cash,
       toLocalDay(Date.now()),
     );
-  }, [loaded, instruments, summary]);
+  }, [loaded, cloudChecked, instruments, summary]);
   return versions;
 }
 

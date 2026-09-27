@@ -186,11 +186,15 @@ export function mergePrefs(
 ): SyncedPrefs | undefined {
   if (!base) return over;
   if (!over) return base;
-  const out = {} as Record<string, StampedPref<unknown>>;
   const b = base as Record<string, StampedPref<unknown>>;
   const o = over as Record<string, StampedPref<unknown>>;
-  for (const kind of KINDS) {
-    const union = UNION[kind];
+  const out = {} as Record<string, StampedPref<unknown>>;
+  // Kinds this build doesn't know (added by a newer app version) are merged
+  // too, last-write-wins — dropping them would wipe that setting from the
+  // cloud copy the moment an outdated device pushes.
+  const kinds = new Set([...KINDS, ...Object.keys(b), ...Object.keys(o)]);
+  for (const kind of kinds) {
+    const union = UNION[kind as PrefKind];
     if (union && b[kind] && o[kind]) {
       out[kind] = {
         updatedAt:

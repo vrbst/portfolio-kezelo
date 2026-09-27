@@ -45,6 +45,7 @@ import {
   mergeTombstones,
   dropDeletedAccounts,
   purgeAccountsFromDb,
+  pruneReminderAlerts,
   unionSnapshots,
 } from "./syncMerge";
 
@@ -143,6 +144,13 @@ interface PortfolioState {
   syncConfig: SyncConfig | null;
   syncing: boolean;
   lastSyncedAt?: string;
+  /**
+   * True once this device reflects the cloud copy (or has no sync set up).
+   * Anything that seeds a synced setting from local defaults waits for this —
+   * seeding before the pull would create a fresh "newest" version that
+   * overrides the real one on every device.
+   */
+  cloudChecked: boolean;
   /** Auto-push to the cloud after imports and edits. */
   autoSync: boolean;
   /** Message from the last failed auto-push, if any. */
@@ -349,8 +357,6 @@ async function mergeSnapshot(
   const localTxIds = new Set(s.transactions.map((t) => t.id));
   const added = transactions.filter((t) => !localTxIds.has(t.id)).length;
 
-  // Alert history: remote wins per-id (mirrors the account merge).
-  const alertState = { ...s.alertState, ...(snap.alertState ?? {}) };
   // Goals: merge by id, remote wins — then drop anything a tombstone (from
   // either device) marks deleted, so a delete propagates instead of bouncing back.
   const deletedGoalIds = [
@@ -362,6 +368,8 @@ async function mergeSnapshot(
   const goals = [...goalById.values()].filter((g) => !deleted.has(g.id));
 
   // Reminders: merge by id, remote wins, tombstones drop dismissed ones.
+  // Alert history: remote wins per-id (mirrors the account merge), minus the
+  // records of reminders that are gone.
   const deletedReminderIds = [
     ...new Set([...s.deletedReminderIds, ...(snap.deletedReminderIds ?? [])]),
   ];
@@ -369,6 +377,10 @@ async function mergeSnapshot(
   const remById = new Map(s.reminders.map((r) => [r.id, r]));
   for (const r of snap.reminders ?? []) remById.set(r.id, r);
   const reminders = [...remById.values()].filter((r) => !deletedRem.has(r.id));
+  const alertState = pruneReminderAlerts(
+    { ...s.alertState, ...(snap.alertState ?? {}) },
+    reminders,
+  );
 
   // Planning prefs: only a strictly newer remote copy overwrites localStorage.
   applyRemotePrefs(snap.prefs);
@@ -469,6 +481,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   syncConfig: loadSyncConfig(),
   syncing: false,
   lastSyncedAt: undefined,
+  cloudChecked: loadSyncConfig() == null,
   autoSync: loadAutoSync(),
   syncError: undefined,
 
@@ -923,7 +936,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   setSyncConfig: (config) => {
     saveSyncConfig(config);
-    set({ syncConfig: config });
+    // A newly connected device must pull before seeding anything.
+    set({ syncConfig: config, cloudChecked: config == null });
   },
 
   setAutoSync: (enabled) => {
@@ -974,7 +988,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       }
       // Local now reflects what we wrote to the cloud — record that version.
       await setMeta("lastPulledSha", pushed.sha);
-      set({ lastSyncedAt: pushed.snapshot.exportedAt, syncError: undefined });
+      set({
+        lastSyncedAt: pushed.snapshot.exportedAt,
+        syncError: undefined,
+        cloudChecked: true,
+      });
     } finally {
       set({ syncing: false });
     }
@@ -986,9 +1004,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({ syncing: true });
     try {
       const remote = await getRemoteSnapshot(syncConfig);
-      if (!remote) return { added: 0 };
+      if (!remote) {
+        set({ cloudChecked: true });
+        return { added: 0 };
+      }
       const added = await mergeSnapshot(set, get, remote.snapshot, remote.sha);
-      set({ lastSyncedAt: new Date().toISOString() });
+      set({ lastSyncedAt: new Date().toISOString(), cloudChecked: true });
       return { added };
     } finally {
       set({ syncing: false });
@@ -1000,7 +1021,10 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     if (!syncConfig) return; // not "logged in" to the cloud on this device
     try {
       const remote = await getRemoteSnapshot(syncConfig);
-      if (!remote) return;
+      if (!remote) {
+        set({ cloudChecked: true });
+        return;
+      }
       const remoteAt = remote.snapshot.exportedAt;
       // Only merge when the cloud copy differs from the version we already
       // reflect. Content (sha) comparison, not timestamps — device clocks can
@@ -1013,12 +1037,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
         // applyRemotePrefs is a no-op unless the remote copy is genuinely newer
         // than what's on this device, so this only fills in the missing kind.
         applyRemotePrefs(remote.snapshot.prefs);
-        set({ lastSyncedAt: remoteAt });
+        set({ lastSyncedAt: remoteAt, cloudChecked: true });
         return;
       }
       set({ syncing: true });
       await mergeSnapshot(set, get, remote.snapshot, remote.sha);
-      set({ lastSyncedAt: remoteAt ?? new Date().toISOString() });
+      set({
+        lastSyncedAt: remoteAt ?? new Date().toISOString(),
+        cloudChecked: true,
+      });
     } catch (e) {
       // Offline / token issues must never block app startup.
       set({ syncError: e instanceof Error ? e.message : String(e) });

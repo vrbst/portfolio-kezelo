@@ -3,6 +3,11 @@
 
 import { db } from "./db";
 import type { Account, Transaction } from "./model";
+import {
+  REMINDER_ALERT_PREFIX,
+  type AlertState,
+  type Reminder,
+} from "./alerts";
 import { type PortfolioSnapshot } from "./sync";
 import { mergePrefs } from "./prefs";
 
@@ -57,6 +62,25 @@ export function dropDeletedAccounts(
   };
 }
 
+/**
+ * Drop history records of reminders that no longer exist. reconcileAlerts
+ * prunes these locally too — the merge must do the same, or the union with
+ * the cloud copy re-adds them on every push and the prune fires another push:
+ * an endless upload loop with identical content.
+ */
+export function pruneReminderAlerts(
+  state: AlertState,
+  reminders: Reminder[],
+): AlertState {
+  const live = new Set(reminders.map((r) => `${REMINDER_ALERT_PREFIX}${r.id}`));
+  const out: AlertState = {};
+  for (const [id, rec] of Object.entries(state)) {
+    if (id.startsWith(REMINDER_ALERT_PREFIX) && !live.has(id)) continue;
+    out[id] = rec;
+  }
+  return out;
+}
+
 /** Remove deleted accounts' rows from IndexedDB (bulkPut never deletes). */
 export async function purgeAccountsFromDb(ids: string[]) {
   if (ids.length === 0) return;
@@ -99,22 +123,32 @@ export function unionSnapshots(
     unionById(remote.transactions, local.transactions, (t) => t.id),
     deletedAccounts,
   );
+  const reminders = unionById(
+    remote.reminders,
+    local.reminders,
+    (r) => r.id,
+  ).filter((r) => !deletedRem.has(r.id));
   return {
+    // Fields this build doesn't know yet (written by a newer app version on
+    // another device) are carried through instead of silently dropped.
+    ...remote,
+    ...local,
     version: 1,
     exportedAt: local.exportedAt,
     accounts,
     instruments: unionById(remote.instruments, local.instruments, (i) => i.key),
     transactions,
     deletedAccounts,
-    alertState: { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
+    alertState: pruneReminderAlerts(
+      { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
+      reminders,
+    ),
     // Drop any goal a tombstone marks deleted, so a delete is never re-added.
     goals: unionById(remote.goals, local.goals, (g) => g.id).filter(
       (g) => !deleted.has(g.id),
     ),
     deletedGoalIds,
-    reminders: unionById(remote.reminders, local.reminders, (r) => r.id).filter(
-      (r) => !deletedRem.has(r.id),
-    ),
+    reminders,
     deletedReminderIds,
     // Per-field newest wins; local wins timestamp ties (it triggered the push).
     prefs: mergePrefs(remote.prefs, local.prefs),
