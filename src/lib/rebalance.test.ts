@@ -374,7 +374,10 @@ describe("bandRule", () => {
     const plan = run({}, { "ETF-R": rule("R", { sellable: false }), KOTV: rule("K") }, 50_000);
     expect(plan.suggestions.some((s) => s.side === "sell")).toBe(false);
     const redirect = plan.suggestions.find((s) => s.side === "redirect");
-    expect(redirect).toMatchObject({ bucketId: "R", amountHuf: 100_000 });
+    // New money that must go elsewhere to bring R from 70% to 60%:
+    // 700k / 0.6 − 1M.
+    expect(redirect).toMatchObject({ bucketId: "R" });
+    expect(redirect!.amountHuf).toBeCloseTo(700_000 / 0.6 - 1_000_000);
     // Only the 50 000 of cash is available for K.
     const buy = plan.suggestions.find((s) => s.side === "buy");
     expect(buy).toMatchObject({ instrumentKey: "KOTV", amountHuf: 50_000 });
@@ -389,7 +392,9 @@ describe("bandRule", () => {
     // Without the sale there's no money for the buy, so no buy is suggested…
     expect(plan.suggestions.some((s) => s.side === "buy" && s.status === "ok")).toBe(false);
     // …and the overweight becomes a redirect of future money.
-    expect(plan.suggestions.find((s) => s.side === "redirect")?.amountHuf).toBe(100_000);
+    expect(plan.suggestions.find((s) => s.side === "redirect")?.amountHuf).toBeCloseTo(
+      700_000 / 0.6 - 1_000_000,
+    );
     expect(plan.weightsAfter.R).toBeCloseTo(0.7);
   });
 
@@ -895,7 +900,7 @@ describe("flow target (look-ahead cash-flow routing)", () => {
   });
 });
 
-describe("bandRule – leftover after the restore follows the flow target", () => {
+describe("bandRule – one aim per step: the flow target clamped into today's band", () => {
   // R rises 30% → 50%, K falls 40% → 20%, S flat 30%. K is above its band.
   const buckets = [
     bucket("R", 0.5, { start: { mode: "manual", weight: 0.3 } }),
@@ -911,19 +916,39 @@ describe("bandRule – leftover after the restore follows the flow target", () =
   const brief = (ss: ReturnType<typeof run>) =>
     ss.map((s) => `${s.side} ${s.instrumentKey} ${Math.round(s.amountHuf)}`);
 
-  it("restores the band to TODAY's target in every mode", () => {
-    for (const ft of [undefined, { kind: "nextCheck" as const }, { kind: "days" as const, days: 365 }])
-      expect(brief(run(ft).filter((s) => s.side === "sell"))).toEqual(["sell K 85205"]);
+  it("today: the restore aims at today's target", () => {
+    expect(brief(run().filter((s) => s.side === "sell"))).toEqual(["sell K 85205"]);
+  });
+
+  it("look-ahead: the restore aims at the look-ahead target, clamped into the band", () => {
+    // K falls, so its 365-day target is below today's band → the band edge.
+    const cfg = config(buckets, rules, { flowTarget: { kind: "days", days: 365 } });
+    const plan = bandRule(cfg, allocationState(cfg, pos, DAY));
+    expect(brief(plan.suggestions.filter((s) => s.side === "sell"))).toEqual(["sell K 135205"]);
+    const st = allocationState(cfg, pos, DAY);
+    const low = st.buckets.find((b) => b.bucket.id === "K")!.low;
+    expect(plan.weightsAfter.K).toBeCloseTo(low, 4);
+    // R rises past its band too: it is filled only to the upper edge.
+    const high = st.buckets.find((b) => b.bucket.id === "R")!.high;
+    expect(plan.weightsAfter.R).toBeCloseTo(high, 4);
   });
 
   it("today: the proceeds spread along today's path (R and S)", () => {
     expect(brief(run().filter((s) => s.side === "buy"))).toEqual(["buy R 45205", "buy S 39999"]);
   });
 
-  it("look-ahead: the proceeds go to the rising bucket", () => {
+  it("look-ahead: the proceeds follow the same aim — the rising bucket first", () => {
     const buys = run({ kind: "days", days: 365 }).filter((s) => s.side === "buy");
-    expect(brief(buys)).toEqual(["buy R 85205"]);
+    expect(brief(buys)).toEqual(["buy R 95205", "buy S 39999"]);
     expect(buys[0].reason).toContain("2027-06-15-i pályacélhoz");
+  });
+
+  it("never sells and buys the same instrument", () => {
+    for (const ft of [undefined, { kind: "nextCheck" as const }, { kind: "days" as const, days: 365 }]) {
+      const ok = run(ft).filter((s) => s.status === "ok");
+      for (const s of ok)
+        expect(ok.some((t) => t.instrumentKey === s.instrumentKey && t.side !== s.side)).toBe(false);
+    }
   });
 });
 
@@ -982,5 +1007,109 @@ describe("glideRecordFulfilled", () => {
   });
   it("other alerts are unaffected", () => {
     expect(glideRecordFulfilled("idle-cash:a", [], undefined)).toBe(true);
+  });
+});
+
+describe("bandRule – rising path above its band (sell → buy-back regression)", () => {
+  // R rises 40% → 60% over two years; the flow target looks 30 days ahead, so
+  // R's look-ahead target is above today's. R is above its band.
+  const buckets = [
+    bucket("R", 0.6, { start: { mode: "manual", weight: 0.4 } }),
+    // K's wide band keeps it inside: only R is out, as in the reported case.
+    bucket("K", 0.4, { start: { mode: "manual", weight: 0.6 }, band: { kind: "abs", pp: 0.1 } }),
+  ];
+  const cfg = config(buckets, { "ETF-R": rule("R"), KOTV: rule("K") }, {
+    flowTarget: { kind: "days", days: 30 },
+  });
+  const state = allocationState(cfg, [etf("ETF-R", 520_000, 1_000), bond("KOTV", 480_000)], DAY);
+
+  it("sells R once, buys only K — no buy-back of what was sold", () => {
+    expect(state.buckets.map((b) => b.status)).toEqual(["above", "within"]);
+    const ok = bandRule(cfg, state).suggestions.filter((s) => s.status === "ok");
+    expect(ok.map((s) => [s.instrumentKey, s.side])).toEqual([
+      ["ETF-R", "sell"],
+      ["KOTV", "buy"],
+    ]);
+  });
+});
+
+describe("bandRule – per-bucket out-of-band modes", () => {
+  // R 70% (band 55–65%) is above, K 30% (band 35–45%) is below.
+  const positions = [etf("ETF-R", 700_000), bond("KOTV", 300_000)];
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K") };
+  const run = (r: Partial<Bucket>, k: Partial<Bucket>, cash = 0) => {
+    const cfg = config([bucket("R", 0.6, r), bucket("K", 0.4, k)], rules);
+    return bandRule(cfg, allocationState(cfg, positions, DAY), cash);
+  };
+  const trades = (p: ReturnType<typeof run>) =>
+    p.suggestions
+      .filter((s) => s.status === "ok")
+      .map((s) => [s.side, s.instrumentKey ?? s.bucketId, Math.round(s.amountHuf)]);
+
+  it("a) above: sell to the path target", () => {
+    expect(trades(run({ aboveMode: "path" }, {}))).toEqual([
+      ["sell", "ETF-R", 100_000],
+      ["buy", "KOTV", 100_000],
+    ]);
+  });
+
+  it("b) above: sell only to the band edge", () => {
+    const p = run({ aboveMode: "band" }, { belowMode: "band" });
+    expect(trades(p)).toEqual([
+      ["sell", "ETF-R", 50_000],
+      ["buy", "KOTV", 50_000],
+    ]);
+    expect(p.weightsAfter.R).toBeCloseTo(0.65);
+  });
+
+  it("c) both sides: no trade, incoming money steered out of R and into K", () => {
+    const p = run({ aboveMode: "redirect" }, { belowMode: "redirect" });
+    const away = 700_000 / 0.65 - 1_000_000; // R back to 65% with new money elsewhere
+    const into = (0.35 * 1_000_000 - 300_000) / 0.65; // K up to 35% with new money
+    expect(p.suggestions.map((s) => [s.side, s.bucketId, !!s.redirectIn])).toEqual([
+      ["redirect", "R", false],
+      ["redirect", "K", true],
+    ]);
+    expect(p.suggestions[0].amountHuf).toBeCloseTo(away);
+    expect(p.suggestions[1].amountHuf).toBeCloseTo(into);
+  });
+
+  it("c) above: an overweight held by the redirect mode never funds a buy", () => {
+    const p = run({ aboveMode: "redirect" }, { belowMode: "path" });
+    expect(p.suggestions.some((s) => s.side === "sell")).toBe(false);
+    expect(p.suggestions.some((s) => s.side === "buy" && s.status === "ok")).toBe(false);
+    // Outside cash may still buy K.
+    expect(trades(run({ aboveMode: "redirect" }, { belowMode: "path" }, 30_000))).toContainEqual([
+      "buy",
+      "KOTV",
+      30_000,
+    ]);
+  });
+
+  it("c) above past the force threshold: sell — only to the band edge", () => {
+    const p = run({ aboveMode: "redirect", aboveForcePp: 0.03 }, { belowMode: "redirect" });
+    expect(p.suggestions.find((s) => s.side === "sell")).toMatchObject({
+      instrumentKey: "ETF-R",
+      amountHuf: 50_000,
+    });
+    expect(p.weightsAfter.R).toBeCloseTo(0.65);
+    // Below the threshold (5 pp out, X = 6 pp): no trade.
+    const q = run({ aboveMode: "redirect", aboveForcePp: 0.06 }, { belowMode: "redirect" });
+    expect(q.suggestions.some((s) => s.side === "sell")).toBe(false);
+  });
+
+  it("c) below past the force threshold: buy to the band edge from the overweight", () => {
+    const p = run({ aboveMode: "path" }, { belowMode: "redirect", belowForcePp: 0.03 });
+    expect(p.suggestions.some((s) => s.side === "redirect")).toBe(false);
+    expect(trades(p)).toEqual([
+      ["sell", "ETF-R", 100_000],
+      ["buy", "KOTV", 100_000],
+    ]);
+  });
+
+  it("a missing mode falls back to the version's restoreTo (older versions)", () => {
+    const cfg = config([bucket("R", 0.6), bucket("K", 0.4)], rules, { restoreTo: "band" });
+    const p = bandRule(cfg, allocationState(cfg, positions, DAY));
+    expect(p.weightsAfter.R).toBeCloseTo(0.65);
   });
 });

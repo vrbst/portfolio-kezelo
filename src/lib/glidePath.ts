@@ -73,7 +73,26 @@ export interface Bucket {
    * global `realertStepPp` — a small bucket needs a finer step.
    */
   realertStepPp?: number;
+  /**
+   * How the band rule handles the bucket above its band. Missing = the
+   * version's `restoreTo` (older versions: "path").
+   */
+  aboveMode?: OutOfBandMode;
+  /** Same below the band. */
+  belowMode?: OutOfBandMode;
+  /**
+   * "redirect" mode: trade anyway — only to the band edge — once the distance
+   * beyond the band exceeds this (fraction: 0.03 = 3 pp). Missing = never.
+   */
+  aboveForcePp?: number;
+  belowForcePp?: number;
 }
+
+/**
+ * Handling of an out-of-band bucket: trade back to the path target, trade
+ * only to the band edge, or don't trade — steer incoming money instead.
+ */
+export type OutOfBandMode = "path" | "band" | "redirect";
 
 /** Per-instrument settings. Keyed by instrument key or a cash key (cashKey). */
 export interface InstrumentRule {
@@ -414,6 +433,14 @@ export function validateConfig(
         bucketId: b.id,
         message: `${b.name || "(névtelen)"}: nincs hozzárendelt instrumentum.`,
       });
+
+  for (const b of cfg.buckets)
+    for (const x of [b.aboveForcePp, b.belowForcePp])
+      if (x != null && !(x >= 0 && x < 1))
+        errors.push({
+          bucketId: b.id,
+          message: `${b.name || "(névtelen)"}: a kényszerített kereskedés küszöbe 0 és 100 %pont közötti legyen.`,
+        });
 
   if (!(cfg.minTradeHuf >= 0))
     errors.push({ message: "A minimális tranzakcióméret nem lehet negatív." });

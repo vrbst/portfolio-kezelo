@@ -25,6 +25,7 @@ import {
   type CostRule,
   type GlideConfig,
   type InstrumentRule,
+  type OutOfBandMode,
 } from "./glidePath";
 import { loadBrokerFees, type BrokerFees } from "./planPrefs";
 
@@ -449,6 +450,11 @@ export interface Suggestion {
   instrumentKey?: string;
   instrumentName?: string;
   side: "buy" | "sell" | "redirect";
+  /**
+   * A redirect that asks for incoming money (an underweight bucket under the
+   * "redirect" mode); otherwise a redirect steers money AWAY from the bucket.
+   */
+  redirectIn?: boolean;
   /** Base currency (HUF), after rounding to whole units. */
   amountHuf: number;
   /** Whole units (bonds: face HUF). Undefined for cash / unknown price. */
@@ -471,6 +477,9 @@ export interface RebalancePlan {
 }
 
 const fmtHuf = (n: number) => formatMoney(n);
+/** A fraction as percentage points ("3 %pont"). */
+const fmtPp = (v: number) =>
+  `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })} %pont`;
 
 /** Decimals a suggested quantity is rounded (down) to: 0 unless fractional. */
 export function quantityDecimals(rule: InstrumentRule): number {
@@ -740,16 +749,28 @@ export function planCashflow(
 }
 
 /**
- * The band rule (secondary tool), only for buckets outside their band:
- *  - above: sell the excess from sellable instruments; whatever can't (or
- *    isn't worth it) becomes a "redirect future contributions" suggestion;
- *  - below: buy back up, funded first by those sale proceeds, then by
- *    `cashAvailableHuf` (outside cash), then by selling buckets that are over
- *    their path target (largest excess first, sellable instruments only).
- * The restore goal is the path target or just the band edge (`restoreTo`).
- * Every trade is rounded to whole units and checked against the minimum size
- * and the cost/benefit threshold; trades that fail are listed but not
- * suggested, and the buys are scaled down to what the suggested sells fund.
+ * The band rule (secondary tool), only for buckets outside their band. Each
+ * bucket is handled by its mode for that side (see {@link outOfBandMode}):
+ *  - "path" / "band": trade back to the aim / to the band edge;
+ *  - "redirect": no trade — steer incoming money (away from an overweight
+ *    bucket, into an underweight one) until it is back in its band; only past
+ *    the bucket's force threshold does it trade, and then just to the edge.
+ * Above: sell the excess from sellable instruments; whatever can't (or isn't
+ * worth it) becomes a "redirect future contributions" suggestion. Below: buy
+ * back up, funded first by those sale proceeds, then by `cashAvailableHuf`
+ * (outside cash), then by selling buckets over their aim (largest excess
+ * first, sellable instruments only; never a bucket held above its band by
+ * the "redirect" mode). Every trade is rounded to whole units and checked
+ * against the minimum size and the cost/benefit threshold; trades that fail
+ * are listed but not suggested, and the buys are scaled down to what the
+ * suggested sells fund.
+ *
+ * The whole step uses ONE target per bucket, the aim: the cash-flow routing's
+ * target (look-ahead, see flowTargets) clamped into today's band. The restore
+ * therefore lands inside the band, and the leftover sale proceeds follow the
+ * same aim — so the plan never buys back what it has just sold. A final
+ * netting pass still folds a sell and a buy of one instrument into the
+ * difference (rounding could otherwise leave such a pair).
  */
 export function bandRule(
   cfg: GlideConfig,
@@ -764,31 +785,56 @@ export function bandRule(
     notes.push("Minden csoport a sávon belül — nincs teendő.");
     return finishPlan(state, [], notes);
   }
-  const goal = (b: BucketState) =>
-    cfg.restoreTo === "path" ? b.target : b.status === "below" ? b.low : b.high;
+  const aims = bandAims(cfg, state);
+  const aim = (b: BucketState) => aims.weights.get(b.bucket.id) ?? b.target;
+  /** Weight to trade back to; null = the "redirect" mode doesn't trade. */
+  const goal = (b: BucketState): number | null => {
+    const side = b.status === "below" ? "below" : "above";
+    const edge = side === "below" ? b.low : b.high;
+    const mode = outOfBandMode(cfg, b.bucket, side);
+    if (mode === "path") return aim(b);
+    if (mode === "band") return edge;
+    const force = side === "below" ? b.bucket.belowForcePp : b.bucket.aboveForcePp;
+    return force != null && bandDeviation(b) > force + EPS ? edge : null;
+  };
   const sellable = (id: string) =>
     state.positions.filter((p) => p.rule.bucketId === id && p.rule.sellable && p.valueHuf > 0);
   const accepting = (id: string) =>
     state.positions.filter((p) => p.rule.bucketId === id && p.rule.acceptsContributions);
+  const force = (b: BucketState) =>
+    b.status === "below" ? b.bucket.belowForcePp : b.bucket.aboveForcePp;
+  const forceNote = (b: BucketState) => {
+    const x = force(b);
+    return x != null ? ` Kereskedés csak ${fmtPp(x)} túllépés fölött (most ${fmtPp(bandDeviation(b))}).` : "";
+  };
 
   const sells: Suggestion[] = [];
   const redirects: Suggestion[] = [];
   const soldFrom = new Map<string, number>();
-  const redirect = (b: BucketState, amount: number, why: string) =>
+  const redirect = (b: BucketState, amount: number, why: string, into = false) =>
     redirects.push({
       source: "band",
       bucketId: b.bucket.id,
       bucketName: b.bucket.name,
       side: "redirect",
+      redirectIn: into || undefined,
       amountHuf: amount,
       costHuf: 0,
       status: "ok",
       reason: why,
     });
+  /** New money that must go to the OTHER buckets to bring `value` down to `w`. */
+  const awayTo = (value: number, w: number) => (w > 0 ? value / w - T : 0);
 
   // 1) Above the band: sell the excess down to the goal.
   for (const b of state.buckets.filter((x) => x.status === "above")) {
-    const excess = b.valueHuf - goal(b) * T;
+    const g = goal(b);
+    if (g == null) {
+      redirect(b, Math.max(0, awayTo(b.valueHuf, b.high)),
+        `Sáv fölött, eladás nélkül — a következő befizetések menjenek a többi csoportba, amíg vissza nem ér a sávba.${forceNote(b)}`);
+      continue;
+    }
+    const excess = b.valueHuf - g * T;
     let sold = 0;
     for (const s of splitSell(sellable(b.bucket.id), excess)) {
       const t = makeTrade(cfg, s.pos, b.bucket.name, "sell", s.amount, "band",
@@ -797,8 +843,9 @@ export function bandRule(
       if (t.status === "ok") sold += t.amountHuf;
     }
     soldFrom.set(b.bucket.id, sold);
-    if (excess - sold >= Math.max(1, cfg.minTradeHuf))
-      redirect(b, excess - sold,
+    const rest = awayTo(b.valueHuf - sold, g);
+    if (excess - sold >= Math.max(1, cfg.minTradeHuf) && rest >= 1)
+      redirect(b, rest,
         sold > 0
           ? "A többlet egy része nem adható el (tiltott vagy nem éri meg) — a következő befizetések menjenek máshová."
           : "A sáv fölött, de eladás nem javasolt — a következő befizetések menjenek máshová, amíg vissza nem ér.");
@@ -808,26 +855,38 @@ export function bandRule(
 
   // 2) Below the band: buy up to the goal. The managed total after the trades
   //    is T + (outside cash used); sells and buys inside it just move money.
-  const below = state.buckets.filter((x) => x.status === "below");
+  //    A "redirect" bucket only asks for the incoming money instead.
+  const allBelow = state.buckets.filter((x) => x.status === "below");
+  const below: (BucketState & { goal: number })[] = [];
+  for (const b of allBelow) {
+    const g = goal(b);
+    if (g != null) below.push({ ...b, goal: g });
+    else if (b.low < 1)
+      redirect(b, Math.max(0, (b.low * T - b.valueHuf) / (1 - b.low)),
+        `Sáv alatt, eladás nélkül — a következő befizetések ide menjenek, amíg vissza nem ér a sávba.${forceNote(b)}`,
+        true);
+  }
   let buys: Suggestion[] = [];
   let cashUse = 0;
   if (below.length) {
-    const G = below.reduce((s, b) => s + goal(b), 0);
+    const G = below.reduce((s, b) => s + b.goal, 0);
     const V = below.reduce((s, b) => s + b.valueHuf, 0);
     const need = (cu: number) => G * (T + cu) - V; // Σ buys for outside cash cu
     let P = proceeds();
     if (need(0) > P) {
       cashUse = G < 1 ? Math.min(cash, (G * T - V - P) / (1 - G)) : cash;
       cashUse = Math.max(0, cashUse);
-      // 3) Still short: sell from buckets over their path target.
+      // 3) Still short: sell from buckets over their aim — not from one the
+      //    "redirect" mode keeps from selling.
       let short = need(cashUse) - cashUse - P;
       if (short > 1) {
-        const belowIds = new Set(below.map((b) => b.bucket.id));
+        const belowIds = new Set(allBelow.map((b) => b.bucket.id));
         const donors = state.buckets
           .filter((b) => !belowIds.has(b.bucket.id))
+          .filter((b) => b.status !== "above" || goal(b) != null)
           .map((b) => ({
             b,
-            excess: b.valueHuf - (soldFrom.get(b.bucket.id) ?? 0) - b.target * (T + cashUse),
+            excess: b.valueHuf - (soldFrom.get(b.bucket.id) ?? 0) - aim(b) * (T + cashUse),
           }))
           .filter((d) => d.excess > 1)
           .sort((a, c) => c.excess - a.excess);
@@ -837,7 +896,7 @@ export function bandRule(
           const cands = sellable(d.b.bucket.id).filter((p) => !already.has(p.key));
           for (const s of splitSell(cands, Math.min(short, d.excess))) {
             const t = makeTrade(cfg, s.pos, d.b.bucket.name, "sell", s.amount, "band",
-              "A pályához képest felülsúlyozott — eladás a sáv alatti csoport finanszírozására.");
+              "A célhoz képest felülsúlyozott — eladás a sáv alatti csoport finanszírozására.");
             sells.push(t);
             if (t.status === "ok") short -= t.amountHuf - t.costHuf;
           }
@@ -858,7 +917,7 @@ export function bandRule(
 
     buys = [];
     for (const b of below) {
-      const x = (goal(b) * (T + cashUse) - b.valueHuf) * scale;
+      const x = (b.goal * (T + cashUse) - b.valueHuf) * scale;
       const cands = accepting(b.bucket.id);
       if (cands.length === 0) {
         notes.push(`${b.bucket.name}: sáv alatt, de egyik instrumentuma sem fogad befizetést.`);
@@ -886,10 +945,9 @@ export function bandRule(
     buys = buys.filter((s) => s.amountHuf >= 1 || s.status !== "ok");
   }
 
-  // Sale proceeds the buys don't use are reinvested along the path (cash-flow
-  // routing on the post-trade state), so selling never leaves money idle. The
-  // restore above aims at TODAY's target; this leftover follows the configured
-  // look-ahead target, like incoming money.
+  // Sale proceeds the buys don't use are reinvested along the same aim
+  // (cash-flow routing on the post-trade state), so selling never leaves
+  // money idle.
   const spent = buys
     .filter((s) => s.status === "ok")
     .reduce((a, s) => a + s.amountHuf + s.costHuf, 0);
@@ -902,13 +960,83 @@ export function bandRule(
       applyTrades(state, [...sells, ...buys]),
       leftover,
       "band",
-      flowTargets(cfg, state.day),
+      aims,
     );
     // Change that doesn't buy a single unit is just left as cash.
     routed = plan.suggestions.filter((s) => s.quantity !== 0);
     notes.push(...plan.notes);
   }
-  return finishPlan(state, [...sells, ...buys, ...routed, ...redirects], notes);
+  const trades = netTrades(cfg, state, [...sells, ...buys, ...routed]);
+  return finishPlan(state, [...trades, ...redirects], notes);
+}
+
+/**
+ * The band rule's single target per bucket: the cash-flow routing's target
+ * (look-ahead, see flowTargets) clamped into today's band.
+ */
+export function bandAims(cfg: GlideConfig, state: AllocationState): FlowTargets {
+  const flow = flowTargets(cfg, state.day);
+  const weights = new Map(
+    state.buckets.map((b) => {
+      const t = flow.ahead ? (flow.weights.get(b.bucket.id) ?? b.target) : b.target;
+      return [b.bucket.id, Math.min(b.high, Math.max(b.low, t))];
+    }),
+  );
+  return { ...flow, weights };
+}
+
+/** How the band rule handles `b` on `side` of its band (see Bucket.aboveMode). */
+export function outOfBandMode(
+  cfg: GlideConfig,
+  b: Bucket,
+  side: "above" | "below",
+): OutOfBandMode {
+  return (side === "above" ? b.aboveMode : b.belowMode) ?? cfg.restoreTo;
+}
+
+/**
+ * One trade per instrument: several trades of the same instrument in one
+ * plan fold into a single one — a sell and a buy into the difference —
+ * re-rounded and re-priced (too small to be worth a ticket → listed, not
+ * suggested).
+ */
+function netTrades(
+  cfg: GlideConfig,
+  state: AllocationState,
+  trades: Suggestion[],
+): Suggestion[] {
+  const live = (s: Suggestion) =>
+    s.status === "ok" && (s.side === "buy" || s.side === "sell") && !!s.instrumentKey;
+  const count = new Map<string, number>();
+  for (const s of trades)
+    if (live(s)) count.set(s.instrumentKey!, (count.get(s.instrumentKey!) ?? 0) + 1);
+  const mixed = new Set([...count].filter(([, n]) => n > 1).map(([k]) => k));
+  if (mixed.size === 0) return trades;
+  const out: Suggestion[] = [];
+  const done = new Set<string>();
+  for (const s of trades) {
+    const key = s.instrumentKey!;
+    if (!live(s) || !mixed.has(key)) {
+      out.push(s);
+      continue;
+    }
+    if (done.has(key)) continue;
+    done.add(key);
+    const same = trades.filter((t) => live(t) && t.instrumentKey === key);
+    const net = same.reduce((a, t) => a + (t.side === "buy" ? t.amountHuf : -t.amountHuf), 0);
+    if (Math.abs(net) < 1) continue;
+    const side = net > 0 ? "buy" : "sell";
+    const first = same.find((t) => t.side === side)!;
+    const pos = state.positions.find((p) => p.key === key)!;
+    const netted = same.some((t) => t.side !== side);
+    out.push(
+      makeTrade(cfg, pos, first.bucketName, side, Math.abs(net), "band",
+        netted
+          ? `${first.reason} (Nettósítva: az eladás és a visszavásárlás különbözete.)`
+          : first.reason),
+    );
+  }
+  return out;
 }
 
 /**
@@ -1205,6 +1333,8 @@ const SIDE_LABEL = { buy: "Vétel", sell: "Eladás", redirect: "Átirányítás"
 
 /** "Vétel: VWCE 3 db (≈ 30 000 Ft)" — one step as plain text (alerts, Telegram). */
 export function suggestionText(s: Suggestion): string {
+  if (s.side === "redirect" && s.redirectIn)
+    return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés ide menjen`;
   if (s.side === "redirect")
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
   const qty =

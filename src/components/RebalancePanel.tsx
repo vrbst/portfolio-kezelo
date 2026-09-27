@@ -75,7 +75,11 @@ function SuggestionList({
                 <span className="flex min-w-0 items-center gap-2">
                   <Badge tone={ok ? SIDE[s.side].tone : "neutral"}>{SIDE[s.side].label}</Badge>
                   <span className="truncate">
-                    {s.side === "redirect" ? "Jövőbeli befizetések" : (s.instrumentName ?? "—")}
+                    {s.side === "redirect"
+                      ? s.redirectIn
+                        ? "Jövőbeli befizetések ide"
+                        : "Jövőbeli befizetések máshová"
+                      : (s.instrumentName ?? "—")}
                   </span>
                   <span className="text-xs text-[var(--color-muted)]">{s.bucketName}</span>
                 </span>
@@ -129,6 +133,7 @@ function SaveAsReminder({ plan, title }: { plan: RebalancePlan; title: string })
       plan: steps.map(
         (s): PlannedTrade => ({
           side: s.side,
+          redirectIn: s.redirectIn,
           bucketName: s.bucketName,
           instrumentKey: s.instrumentKey,
           instrumentName: s.instrumentName,
@@ -286,8 +291,9 @@ export default function RebalancePanel() {
         <section>
           <h3 className="text-sm font-semibold">2. Sávon kívüli csoportok</h3>
           <p className="mb-2 text-xs text-[var(--color-muted)]">
-            Másodlagos eszköz, csak ha egy csoport kilépett a sávjából
-            ({cfg.restoreTo === "path" ? "visszaállítás a pályacélig" : "visszaállítás a sávhatárig"}).
+            Másodlagos eszköz, csak ha egy csoport kilépett a sávjából. A kezelés
+            (a pályacélig, a sávhatárig vagy kereskedés nélkül) csoportonként
+            állítható; a cél lépésenként egy: {flow.label}, a mai sávba szorítva.
           </p>
           {outOfBand.length > 0 && freeCash >= cfg.minTradeHuf && (
             <label className="mb-2 flex items-center gap-2 text-xs">

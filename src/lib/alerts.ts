@@ -277,6 +277,8 @@ export interface Reminder {
 export interface PlannedTrade {
   /** "hold" = keep it in cash until a goal's date (monthly plan). */
   side: "buy" | "sell" | "redirect" | "hold";
+  /** A redirect asking for incoming money (else: steering it away). */
+  redirectIn?: boolean;
   bucketName: string;
   instrumentKey?: string;
   instrumentName?: string;

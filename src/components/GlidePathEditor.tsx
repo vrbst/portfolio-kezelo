@@ -13,6 +13,7 @@ import {
   type GlideConfig,
   type InstrumentRule,
   type MonthlyAmount,
+  type OutOfBandMode,
 } from "../lib/glidePath";
 import { glideMonthlyHuf } from "../lib/budget";
 import { useMonthlyBudget } from "../lib/store";
@@ -23,6 +24,7 @@ import {
   flowTargets,
   pathTargets,
   resolveSnapshotStarts,
+  startWeight,
   type Position,
   type PositionsAt,
 } from "../lib/rebalance";
@@ -567,6 +569,12 @@ export default function GlidePathEditor({
                       <span className={LABEL}>%pont (üresen: globális)</span>
                     </div>
                   </label>
+
+                  <OutOfBandFields
+                    bucket={b}
+                    globalMode={draft.restoreTo}
+                    onChange={(patch) => setBucket(b.id, patch)}
+                  />
                 </div>
 
                 <button
@@ -797,7 +805,9 @@ export default function GlidePathEditor({
             </div>
           </label>
           <label className="space-y-1">
-            <div className={LABEL}>Sávon kívül visszaállítás</div>
+            <div className={LABEL} title="A csoportok ezt használják, ha maguk nem adnak meg kezelést.">
+              Sávon kívül visszaállítás (alapértelmezés)
+            </div>
             <select
               className={INPUT}
               value={draft.restoreTo}
@@ -963,6 +973,91 @@ export default function GlidePathEditor({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+const MODE_LABEL: Record<OutOfBandMode, string> = {
+  path: "eladás/vétel a pályacélig",
+  band: "eladás/vétel csak a sávhatárig",
+  redirect: "kereskedés nélkül: a bejövő pénz terelése",
+};
+
+/**
+ * A bucket's out-of-band handling, per side. The suggestion follows the path
+ * direction: a drift the path itself is moving towards (above a rising path,
+ * below a falling one) wears off on its own, so it only steers money — with a
+ * 3 pp safety threshold; the opposite drift is traded back to the path.
+ */
+function OutOfBandFields({
+  bucket: b,
+  globalMode,
+  onChange,
+}: {
+  bucket: Bucket;
+  globalMode: GlideConfig["restoreTo"];
+  onChange: (patch: Partial<Bucket>) => void;
+}) {
+  const dir = Math.sign(b.finalWeight - startWeight(b));
+  const suggested: Partial<Bucket> | null =
+    dir > 0
+      ? { aboveMode: "redirect", aboveForcePp: 0.03, belowMode: "path", belowForcePp: undefined }
+      : dir < 0
+        ? { belowMode: "redirect", belowForcePp: 0.03, aboveMode: "path", aboveForcePp: undefined }
+        : null;
+  const applied =
+    suggested != null &&
+    (Object.keys(suggested) as (keyof Bucket)[]).every((k) => b[k] === suggested[k]);
+  const side = (key: "above" | "below") => {
+    const mode = key === "above" ? b.aboveMode : b.belowMode;
+    const force = key === "above" ? b.aboveForcePp : b.belowForcePp;
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`${LABEL} w-20`}>{key === "above" ? "Sáv fölött" : "Sáv alatt"}</span>
+        <select
+          className={INPUT}
+          value={mode ?? ""}
+          onChange={(e) => {
+            const v = (e.target.value || undefined) as OutOfBandMode | undefined;
+            onChange(key === "above" ? { aboveMode: v } : { belowMode: v });
+          }}
+        >
+          <option value="">alapértelmezés ({MODE_LABEL[globalMode]})</option>
+          <option value="path">a) {MODE_LABEL.path}</option>
+          <option value="band">b) {MODE_LABEL.band}</option>
+          <option value="redirect">c) {MODE_LABEL.redirect}</option>
+        </select>
+        {mode === "redirect" && (
+          <>
+            <span className={LABEL} title="Ha a sávon kívüli eltérés ennél nagyobb, mégis kereskedik — de csak a sávhatárig. Üresen soha.">
+              kereskedés, ha a túllépés &gt;
+            </span>
+            <PctInput
+              value={force}
+              onChange={(v) => onChange(key === "above" ? { aboveForcePp: v } : { belowForcePp: v })}
+              className="w-16"
+              placeholder="soha"
+            />
+            <span className={LABEL}>%pont</span>
+          </>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div className="space-y-1 sm:col-span-2">
+      <div className={LABEL}>Kezelés sávon kívül</div>
+      {side("above")}
+      {side("below")}
+      {suggested && !applied && (
+        <div className={LABEL}>
+          {dir > 0 ? "Emelkedő" : "Csökkenő"} pálya — javaslat: {dir > 0 ? "fölötte" : "alatta"} c)
+          3 %pont küszöbbel (a pálya magától visszahozza), {dir > 0 ? "alatta" : "fölötte"} a).{" "}
+          <button className="underline" onClick={() => onChange(suggested)}>
+            Alkalmazom
+          </button>
+        </div>
+      )}
     </div>
   );
 }

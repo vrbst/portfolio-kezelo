@@ -250,7 +250,8 @@ export default function GlidePathSettings() {
               Ellenőrzés {FREQ_LABEL[cfg.checkFrequency]}
               {nextCheck ? ` (következő: ${nextCheck})` : ""} · min.{" "}
               <Amt>{formatMoney(cfg.minTradeHuf)}</Amt> · visszaállítás{" "}
-              {cfg.restoreTo === "path" ? "a pályacélig" : "a sávhatárig"} · érvényes{" "}
+              {cfg.restoreTo === "path" ? "a pályacélig" : "a sávhatárig"}
+              {cfg.buckets.some((b) => b.aboveMode || b.belowMode) && " (csoportonként eltérhet)"} · érvényes{" "}
               {cfg.validFrom}-tól
             </p>
           )}
