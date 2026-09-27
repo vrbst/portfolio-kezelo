@@ -1113,3 +1113,40 @@ describe("bandRule – per-bucket out-of-band modes", () => {
     expect(p.weightsAfter.R).toBeCloseTo(0.65);
   });
 });
+
+describe("resolveSnapshotStarts – a frozen weight stays", () => {
+  const cfg = config(
+    [
+      bucket("R", 0.6, { start: { mode: "snapshot", date: DAY } }),
+      bucket("K", 0.4, { start: { mode: "snapshot", date: DAY } }),
+    ],
+    { "ETF-R": rule("R"), KOTV: rule("K") },
+  );
+  // Price history as seen at the first save, and revised later.
+  const first = () => [etf("ETF-R", 400_000), bond("KOTV", 600_000)];
+  const revised = () => [etf("ETF-R", 410_000), bond("KOTV", 590_000)];
+  const weightOf = (c: GlideConfig, id: string) => {
+    const s = c.buckets.find((b) => b.id === id)!.start;
+    return s.mode === "snapshot" ? s.resolvedWeight : undefined;
+  };
+
+  it("resolves on the first save", () => {
+    expect(weightOf(resolveSnapshotStarts(cfg, first), "R")).toBeCloseTo(0.4);
+  });
+
+  it("a later save keeps it, even with revised history", () => {
+    const saved = resolveSnapshotStarts(cfg, first);
+    expect(weightOf(resolveSnapshotStarts(saved, revised), "R")).toBeCloseTo(0.4);
+  });
+
+  it("a new snapshot date resolves it again", () => {
+    const saved = resolveSnapshotStarts(cfg, first);
+    const moved: GlideConfig = {
+      ...saved,
+      buckets: saved.buckets.map((b) =>
+        b.id === "R" ? { ...b, start: { mode: "snapshot", date: "2026-06-16" } } : b,
+      ),
+    };
+    expect(weightOf(resolveSnapshotStarts(moved, revised), "R")).toBeCloseTo(0.41);
+  });
+});

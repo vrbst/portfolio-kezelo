@@ -51,7 +51,10 @@ export type BandSpec =
   | ({ kind: "rel"; pct: number; base?: "path" | "final" } & BandCommon);
 
 export type StartSpec =
-  /** The actual weight on `date`, computed on save and frozen in `resolvedWeight`. */
+  /**
+   * The actual weight on `date`, computed on the first save and frozen in
+   * `resolvedWeight`; a new date (a new start object) resolves it again.
+   */
   | { mode: "snapshot"; date: string; resolvedWeight?: number }
   | { mode: "manual"; weight: number };
 

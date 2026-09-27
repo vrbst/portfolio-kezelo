@@ -1221,7 +1221,10 @@ function configAtOrFirst(
 /**
  * Freeze each snapshot-start bucket's weight: its actual share on the snapshot
  * date, under the membership of `cfg` itself. Left undefined when nothing was
- * held that day (the path then starts from the final weight).
+ * held that day (the path then starts from the final weight). A weight once
+ * frozen is kept — later saves don't re-derive it from revised price history;
+ * changing the snapshot date (or the start mode) clears it, so only then is it
+ * resolved again.
  */
 export function resolveSnapshotStarts(
   cfg: GlideConfig,
@@ -1241,7 +1244,7 @@ export function resolveSnapshotStarts(
   return {
     ...cfg,
     buckets: cfg.buckets.map((b) => {
-      if (b.start.mode !== "snapshot") return b;
+      if (b.start.mode !== "snapshot" || b.start.resolvedWeight != null) return b;
       const w = weightsOn(b.start.date)?.get(b.id);
       return { ...b, start: { ...b.start, resolvedWeight: w } };
     }),
@@ -1568,6 +1571,12 @@ function settleAccounts(
     for (const p of ordered) draw(p, vid, v.label, v.provider);
 
     const funded = s.amountHuf + s.costHuf - need;
+    // A shortfall is the limits' doing only when money is actually held
+    // back: left on an account it may not leave, or barred by the venue's
+    // deposit ban. A small gap from the conversion or rounding is not.
+    const heldBack = [...pools.values()].some((p) => !ordered.includes(p) && p.left > 1);
+    const limited = need > 1 && (heldBack || v.depositBlocked);
+    if (need > 1 && funded < 1 && !limited) continue; // no money for it at all
     if (need > 1 && funded < 1) {
       blockedBuy.add(s.bucketId);
       out.push({
@@ -1593,7 +1602,7 @@ function settleAccounts(
         fxCostHuf: part.fx >= 1 ? part.fx : undefined,
       });
     }
-    if (need > 1) {
+    if (limited) {
       blockedBuy.add(s.bucketId);
       notes.push(
         `${s.instrumentName ?? key}: a vétel csak részben finanszírozható a számlakorlátok miatt.`,

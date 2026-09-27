@@ -250,3 +250,40 @@ describe("plan summary (simulation totals)", () => {
     expect(planSummary(plan).blocked.map((s) => s.side)).toEqual(["sell", "buy"]);
   });
 });
+
+describe("band rule on accounts – a conversion gap is not a limit", () => {
+  // The −20% case: equity below its band, the bond sold on K funds the ETF
+  // on T. The sale's proceeds shrink by the conversion (0.35%) and the bond's
+  // early redemption cost (1%) — the buy is a little smaller, nothing more.
+  const fees = { ly: { fxPct: 0.0035 } };
+  const withRedemption = (limits?: AccountLimits) => {
+    const { cfg, positions, ctx } = setup(BASE(500_000, 500_000), { fees, limits });
+    const pos = positions.map((p) => (p.key === "BOND" ? { ...p, bondSellCostPct: 0.01 } : p));
+    return bandRule(cfg, allocationState(cfg, pos, DAY), 0, ctx);
+  };
+
+  it("no limit set: no limit warning, no c) redirect, the buy is suggested", () => {
+    const p = withRedemption();
+    expect(p.notes.join(" ")).not.toMatch(/számlakorlát/);
+    expect(p.suggestions.some((s) => s.side === "redirect")).toBe(false);
+    expect(p.suggestions.some((s) => s.status === "account-locked")).toBe(false);
+    const buy = p.suggestions.find((s) => s.side === "buy")!;
+    expect(buy).toMatchObject({ status: "ok", instrumentKey: "ETF", accountId: "T" });
+    // Funded by the sale net of its costs: a bit below the sale amount.
+    const sell = p.suggestions.find((s) => s.side === "sell")!;
+    expect(buy.amountHuf).toBeLessThan(sell.amountHuf);
+    expect(buy.amountHuf).toBeGreaterThanOrEqual(sell.amountHuf * 0.97); // whole 1 000 Ft units
+  });
+
+  it("an unrelated limit (money may not leave T) changes nothing here", () => {
+    const p = withRedemption({ T: { noOutflowUntil: "2030-12-31" } });
+    expect(p.notes.join(" ")).not.toMatch(/számlakorlát/);
+    expect(p.suggestions.find((s) => s.side === "buy")?.status).toBe("ok");
+  });
+
+  it("a real limit still warns: T takes no deposits", () => {
+    const p = withRedemption({ T: { noDepositFrom: "2026-01-01" } });
+    expect(p.suggestions.find((s) => s.side === "buy")?.status).toBe("account-locked");
+    expect(p.notes.join(" ")).toMatch(/számlakorlát/);
+  });
+});
