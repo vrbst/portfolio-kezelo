@@ -1,6 +1,16 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, X, ArrowRight } from "lucide-react";
-import { usePortfolio, useActiveAlerts } from "../lib/store";
+import {
+  AlertTriangle,
+  X,
+  ArrowRight,
+  RefreshCw,
+  CloudOff,
+} from "lucide-react";
+import {
+  usePortfolio,
+  useActiveAlerts,
+  useAlertsReadiness,
+} from "../lib/store";
 import {
   categorizeAlerts,
   type Alert,
@@ -8,6 +18,28 @@ import {
 } from "../lib/alerts";
 import { Card } from "./ui";
 import PrivateText from "./PrivateText";
+
+/**
+ * Why the alerts aren't (fully) trustworthy yet: the cloud pull is still
+ * running (none are computed), or it failed (shown from local data, marked).
+ * Renders nothing once the device reflects the cloud copy.
+ */
+export function AlertsSyncNote({ className = "" }: { className?: string }) {
+  const readiness = useAlertsReadiness();
+  if (readiness === "ready") return null;
+  const syncing = readiness === "syncing";
+  const Icon = syncing ? RefreshCw : CloudOff;
+  return (
+    <div
+      className={`flex items-center gap-2 text-sm text-[var(--color-muted)] ${className}`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${syncing ? "animate-spin" : ""}`} />
+      {syncing
+        ? "Szinkronizálás a felhővel… a teendők utána jelennek meg."
+        : "A felhős szinkron nem sikerült — a teendők a nem szinkronizált helyi adatokból számolódnak."}
+    </div>
+  );
+}
 
 const SEV_DOT: Record<AlertSeverity, string> = {
   high: "bg-[var(--color-negative)]",
@@ -98,11 +130,19 @@ export default function AlertsPanel() {
   const active = useActiveAlerts();
   const alertState = usePortfolio((s) => s.alertState);
   const dismissAlert = usePortfolio((s) => s.dismissAlert);
+  const readiness = useAlertsReadiness();
   const { active: visible } = categorizeAlerts(active, alertState);
+  if (readiness === "syncing")
+    return (
+      <Card className="mb-6 p-4">
+        <AlertsSyncNote />
+      </Card>
+    );
   if (visible.length === 0) return null;
 
   return (
     <Card className="mb-6 border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 p-6">
+      <AlertsSyncNote className="mb-3" />
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-[var(--color-negative)]" />

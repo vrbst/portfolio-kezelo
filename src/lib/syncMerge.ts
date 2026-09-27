@@ -63,22 +63,34 @@ export function dropDeletedAccounts(
 }
 
 /**
- * Drop history records of reminders that no longer exist. reconcileAlerts
- * prunes these locally too — the merge must do the same, or the union with
- * the cloud copy re-adds them on every push and the prune fires another push:
- * an endless upload loop with identical content.
+ * Drop history records of reminders that no longer exist, and records a
+ * tombstone marks deleted. reconcileAlerts prunes these locally too — the
+ * merge must do the same, or the union with the cloud copy re-adds them on
+ * every push and the prune fires another push: an endless upload loop with
+ * identical content.
  */
-export function pruneReminderAlerts(
+export function pruneAlertState(
   state: AlertState,
   reminders: Reminder[],
+  deletedAlertIds: Iterable<string> = [],
 ): AlertState {
   const live = new Set(reminders.map((r) => `${REMINDER_ALERT_PREFIX}${r.id}`));
+  const deleted = new Set(deletedAlertIds);
   const out: AlertState = {};
   for (const [id, rec] of Object.entries(state)) {
+    if (deleted.has(id)) continue;
     if (id.startsWith(REMINDER_ALERT_PREFIX) && !live.has(id)) continue;
     out[id] = rec;
   }
   return out;
+}
+
+/** Union of two tombstone id lists. */
+export function unionIds(
+  a: string[] | undefined,
+  b: string[] | undefined,
+): string[] {
+  return [...new Set([...(a ?? []), ...(b ?? [])])];
 }
 
 /** Remove deleted accounts' rows from IndexedDB (bulkPut never deletes). */
@@ -128,6 +140,10 @@ export function unionSnapshots(
     local.reminders,
     (r) => r.id,
   ).filter((r) => !deletedRem.has(r.id));
+  const deletedAlertIds = unionIds(
+    remote.deletedAlertIds,
+    local.deletedAlertIds,
+  );
   return {
     // Fields this build doesn't know yet (written by a newer app version on
     // another device) are carried through instead of silently dropped.
@@ -139,10 +155,12 @@ export function unionSnapshots(
     instruments: unionById(remote.instruments, local.instruments, (i) => i.key),
     transactions,
     deletedAccounts,
-    alertState: pruneReminderAlerts(
+    alertState: pruneAlertState(
       { ...(remote.alertState ?? {}), ...(local.alertState ?? {}) },
       reminders,
+      deletedAlertIds,
     ),
+    deletedAlertIds,
     // Drop any goal a tombstone marks deleted, so a delete is never re-added.
     goals: unionById(remote.goals, local.goals, (g) => g.id).filter(
       (g) => !deleted.has(g.id),

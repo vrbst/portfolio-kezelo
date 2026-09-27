@@ -244,7 +244,27 @@ export function useSavingsGoals(): SavingsGoal[] {
   return goals;
 }
 
+/**
+ * Whether alerts can be trusted yet: "syncing" until this device reflects the
+ * cloud copy (stale local data would raise — and record — alerts the other
+ * device's settings don't warrant), "offline" when the startup pull failed
+ * (shown, marked, but never recorded), "ready" otherwise.
+ */
+export type AlertsReadiness = "ready" | "syncing" | "offline";
+
+export function useAlertsReadiness(): AlertsReadiness {
+  const loaded = usePortfolio((s) => s.loaded);
+  const cloudChecked = usePortfolio((s) => s.cloudChecked);
+  const syncError = usePortfolio((s) => s.syncError);
+  if (!loaded) return "syncing";
+  if (cloudChecked) return "ready";
+  return syncError ? "offline" : "syncing";
+}
+
+const NO_ALERTS: Alert[] = [];
+
 export function useActiveAlerts(): Alert[] {
+  const readiness = useAlertsReadiness();
   const summary = usePortfolioSummary();
   const config = usePortfolio((s) => s.alertConfig);
   const transactions = usePortfolio((s) => s.transactions);
@@ -259,6 +279,7 @@ export function useActiveAlerts(): Alert[] {
   const glide = useGlideState(glideVersions);
   const glideCfg = latestConfig(glideVersions);
   const glideSignals = useGlideSignals(glide, glideCfg);
+  if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
     config,
@@ -289,12 +310,14 @@ export function useGlideSignals(
 ): GlideSignals {
   const stored = usePortfolio((s) => s.glideSignals);
   const loaded = usePortfolio((s) => s.loaded);
+  const cloudChecked = usePortfolio((s) => s.cloudChecked);
   const setSignals = usePortfolio((s) => s.setGlideSignals);
   const next = cachedSignalUpdate(stored, glide, cfg);
   useEffect(() => {
-    // Before the store has loaded, "no state" would wipe the saved baseline.
-    if (loaded && glide && next.changed) setSignals(next.signals);
-  }, [loaded, glide, next, setSignals]);
+    // Before the store has loaded, "no state" would wipe the saved baseline;
+    // before the cloud pull, stale weights would move it.
+    if (loaded && cloudChecked && glide && next.changed) setSignals(next.signals);
+  }, [loaded, cloudChecked, glide, next, setSignals]);
   return next.signals;
 }
 

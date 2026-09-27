@@ -45,7 +45,8 @@ import {
   mergeTombstones,
   dropDeletedAccounts,
   purgeAccountsFromDb,
-  pruneReminderAlerts,
+  pruneAlertState,
+  unionIds,
   unionSnapshots,
 } from "./syncMerge";
 
@@ -87,6 +88,8 @@ interface PortfolioState {
 
   /** Alert history (seen / dismissed), synced. Keyed by stable alert id. */
   alertState: AlertState;
+  /** Tombstones: history records removed on purpose, never re-added. */
+  deletedAlertIds: string[];
   /** Per-device alert config (idle-cash threshold). */
   alertConfig: AlertConfig;
   /** Fold the current active alerts into the synced history (persists if changed). */
@@ -268,6 +271,7 @@ function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
     deletedAccounts: s.deletedAccounts,
     reminders: s.reminders,
     deletedReminderIds: s.deletedReminderIds,
+    deletedAlertIds: s.deletedAlertIds,
     // Planning prefs (allocation targets, forecast settings) — read straight
     // from localStorage; the token and the AI key are separate keys, never here.
     prefs: collectPrefs(),
@@ -282,6 +286,7 @@ async function applySnapshotLocal(
 ) {
   const deletedGoalIds = snap.deletedGoalIds ?? [];
   const deletedReminderIds = snap.deletedReminderIds ?? [];
+  const deletedAlertIds = snap.deletedAlertIds ?? [];
   const deletedAccounts = snap.deletedAccounts ?? {};
   await purgeAccountsFromDb(
     dropDeletedAccounts(get().accounts, get().transactions, deletedAccounts)
@@ -297,6 +302,7 @@ async function applySnapshotLocal(
     setMeta("deletedGoalIds", deletedGoalIds),
     setMeta("reminders", snap.reminders ?? []),
     setMeta("deletedReminderIds", deletedReminderIds),
+    setMeta("deletedAlertIds", deletedAlertIds),
   ]);
   // Planning prefs: only a strictly newer remote copy overwrites localStorage.
   applyRemotePrefs(snap.prefs);
@@ -311,6 +317,7 @@ async function applySnapshotLocal(
     deletedGoalIds,
     reminders: snap.reminders ?? [],
     deletedReminderIds,
+    deletedAlertIds,
     prices: buildPriceMap(s.priceFile, s.livePrices, s.manualPrices),
     fx: { ...deriveFx(snap.transactions), ...s.fx },
   });
@@ -377,9 +384,11 @@ async function mergeSnapshot(
   const remById = new Map(s.reminders.map((r) => [r.id, r]));
   for (const r of snap.reminders ?? []) remById.set(r.id, r);
   const reminders = [...remById.values()].filter((r) => !deletedRem.has(r.id));
-  const alertState = pruneReminderAlerts(
+  const deletedAlertIds = unionIds(s.deletedAlertIds, snap.deletedAlertIds);
+  const alertState = pruneAlertState(
     { ...s.alertState, ...(snap.alertState ?? {}) },
     reminders,
+    deletedAlertIds,
   );
 
   // Planning prefs: only a strictly newer remote copy overwrites localStorage.
@@ -396,6 +405,7 @@ async function mergeSnapshot(
     setMeta("deletedGoalIds", deletedGoalIds),
     setMeta("reminders", reminders),
     setMeta("deletedReminderIds", deletedReminderIds),
+    setMeta("deletedAlertIds", deletedAlertIds),
     // Remember the remote version we now reflect, so startupSync can tell
     // whether a later cloud copy is genuinely different.
     ...(sha ? [setMeta("lastPulledSha", sha)] : []),
@@ -411,6 +421,7 @@ async function mergeSnapshot(
     deletedGoalIds,
     reminders,
     deletedReminderIds,
+    deletedAlertIds,
     prices: buildPriceMap(s.priceFile, s.livePrices, s.manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   });
@@ -467,6 +478,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   deletedAccounts: {},
   reminders: [],
   deletedReminderIds: [],
+  deletedAlertIds: [],
   glideSignals: {},
   setGlideSignals: (glideSignals) => {
     set({ glideSignals });
@@ -496,6 +508,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedGoalIds,
       reminders,
       deletedReminderIds,
+      deletedAlertIds,
       manualPrices,
       deletedAccounts,
       glideSignals,
@@ -509,6 +522,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       getMeta<string[]>("deletedGoalIds"),
       getMeta<Reminder[]>("reminders"),
       getMeta<string[]>("deletedReminderIds"),
+      getMeta<string[]>("deletedAlertIds"),
       getMeta<Record<string, number>>("manualPriceOverrides"),
       getMeta<Record<string, string>>("deletedAccounts"),
       getMeta<GlideSignals>("glideSignals"),
@@ -537,6 +551,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedAccounts: deletedAccounts ?? {},
       reminders: reminders ?? [],
       deletedReminderIds: deletedReminderIds ?? [],
+      deletedAlertIds: deletedAlertIds ?? [],
       glideSignals: glideSignals ?? {},
       loaded: true,
     });
@@ -781,9 +796,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   reconcileAlerts: (active) => {
+    const deleted = new Set(get().deletedAlertIds);
+    // A tombstoned id is never recorded again (else: record → prune → push →
+    // record… on every render while that alert is active).
     const reconciled = reconcileAlertState(
       get().alertState,
-      active,
+      active.filter((a) => !deleted.has(a.id)),
       new Date().toISOString(),
     );
     let state = reconciled.state;
@@ -792,19 +810,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // (dismissed) to-do shouldn't linger forever in "Teljesült". A live
     // reminder is always active, so any reminder-id record that isn't backed by
     // a current reminder is an orphan (e.g. from the old savings-goal button).
-    const liveReminderIds = new Set(
-      get().reminders.map((r) => `${REMINDER_ALERT_PREFIX}${r.id}`),
-    );
-    const pruned: AlertState = {};
-    let didPrune = false;
-    for (const [id, rec] of Object.entries(state)) {
-      if (id.startsWith(REMINDER_ALERT_PREFIX) && !liveReminderIds.has(id)) {
-        didPrune = true;
-        continue;
-      }
-      pruned[id] = rec;
-    }
-    if (didPrune) {
+    // Tombstoned records go too.
+    const pruned = pruneAlertState(state, get().reminders, deleted);
+    if (Object.keys(pruned).length !== Object.keys(state).length) {
       state = pruned;
       changed = true;
     }
@@ -1086,6 +1094,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       deletedAccounts: {},
       reminders: [],
       deletedReminderIds: [],
+      deletedAlertIds: [],
       glideSignals: {},
       priceFile: null,
       priceUpdatedAt: undefined,

@@ -12,6 +12,7 @@ import {
   consolidatedHoldings,
   futureBondCashflows,
   histFxRate,
+  toLocalDay,
   type FxHistory,
   type PortfolioSummary,
   type PriceMap,
@@ -69,7 +70,41 @@ export interface SavingsGoal {
    * goals (a buy on the last working day counts toward the next month).
    */
   monthlyReminder?: boolean;
+  /**
+   * The monthly reminder never suggests an assigned instrument that matures
+   * within this many days of today's buy (default
+   * {@link DEFAULT_MIN_DAYS_TO_MATURITY}) — nor one maturing after the target
+   * date. With none left the advice is to hold cash until the date.
+   */
+  minDaysToMaturity?: number;
   createdAt: string;
+}
+
+export const DEFAULT_MIN_DAYS_TO_MATURITY = 30;
+
+const DAY_MS = 86_400_000;
+
+/** Maturity day (YYYY-MM-DD) of a bond / T-bill, undefined if it has none. */
+function maturityDay(inst: Instrument | undefined): string | undefined {
+  const m = inst?.bond?.maturity ?? inst?.maturity;
+  return m ? m.slice(0, 10) : undefined;
+}
+
+/**
+ * Can a buy of `inst` today still serve the goal? Not if it matures within N
+ * days of the buy (too short to be worth it, or already gone) or after the
+ * target date (it would have to be sold early). No maturity (e.g. an ETF): yes.
+ */
+export function suitableForGoalBuy(
+  inst: Instrument | undefined,
+  goal: SavingsGoal,
+  today: string,
+): boolean {
+  const mat = maturityDay(inst);
+  if (!mat) return true;
+  const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
+  const earliest = toLocalDay(Date.parse(`${today}T12:00:00`) + n * DAY_MS);
+  return mat > earliest && mat <= goal.targetDate.slice(0, 10);
 }
 
 const STORE_KEY = "pf-savings";
@@ -177,8 +212,16 @@ export interface SavingsMonthlyStatus {
   missingHuf: number;
   /** True once this month's purchases reach the needed amount (or none needed). */
   done: boolean;
-  /** Assigned instrument names (for display). */
+  /** Names of the assigned instruments a buy can still go into (for display). */
   instrumentNames: string;
+  /**
+   * No assigned instrument can take a buy any more (each matures within N days
+   * or after the target date): the advice is to hold the money in cash until
+   * the target date, so no buy reminder is raised.
+   */
+  holdCash: boolean;
+  /** The goal's N (see SavingsGoal.minDaysToMaturity). */
+  minDays: number;
 }
 
 /**
@@ -252,10 +295,18 @@ export function savingsMonthlyStatus(
     // past its date or needs nothing more, split with other claiming goals.
     const couponHuf = couponShares.get(g.id) ?? 0;
     const neededHuf = baseNeededHuf + couponHuf;
+    const today = toLocalDay(now.getTime());
+    const buyable = g.instrumentKeys.filter((k) =>
+      suitableForGoalBuy(instruments.get(k), g, today),
+    );
+    const holdCash = buyable.length === 0;
     // Met once this month's purchases reach (1 − tolerance) × needed, so
-    // rounding / FX drift doesn't leave it a few hundred Ft "short".
+    // rounding / FX drift doesn't leave it a few hundred Ft "short". With
+    // nothing left to buy, the money is simply kept in cash — no reminder.
     const done =
-      neededHuf <= 0 || boughtHuf >= neededHuf * (1 - GOAL_TOLERANCE);
+      holdCash ||
+      neededHuf <= 0 ||
+      boughtHuf >= neededHuf * (1 - GOAL_TOLERANCE);
     out.push({
       goalId: g.id,
       name: g.name,
@@ -266,12 +317,23 @@ export function savingsMonthlyStatus(
       neededHuf,
       missingHuf: Math.max(0, neededHuf - boughtHuf),
       done,
-      instrumentNames: g.instrumentKeys
+      instrumentNames: buyable
         .map((k) => instruments.get(k)?.name ?? k)
         .join(", "),
+      holdCash,
+      minDays: Math.max(0, g.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY),
     });
   }
   return out;
+}
+
+/** The "hold it in cash" advice line for a goal with nothing left to buy. */
+export function holdCashAdvice(s: SavingsMonthlyStatus): string {
+  const why =
+    `a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le`;
+  return s.missingHuf > 0
+    ? `${s.monthLabel}: tartsd készpénzben a céldátumig — ${formatMoney(s.missingHuf)} (${why}).`
+    : `${s.monthLabel}: nincs vételi teendő — ${why}, a pénz készpénzben várja a céldátumot.`;
 }
 
 /**

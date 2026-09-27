@@ -23,6 +23,8 @@ export interface BackupFile {
   deletedAccounts: Record<string, string>;
   reminders: Reminder[];
   deletedReminderIds: string[];
+  /** Alert-history tombstones. */
+  deletedAlertIds: string[];
   /** Planning preferences (target allocation, forecast settings). */
   prefs?: SyncedPrefs;
   /** Last known FX rates (HUF per unit) — convenience, re-fetched anyway. */
@@ -44,6 +46,7 @@ export function buildBackup(): BackupFile {
     deletedAccounts: s.deletedAccounts,
     reminders: s.reminders,
     deletedReminderIds: s.deletedReminderIds,
+    deletedAlertIds: s.deletedAlertIds,
     prefs: collectPrefs(),
     fx: s.fx,
   };

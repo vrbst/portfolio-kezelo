@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
 import {
   computeSavingsProgress,
+  holdCashAdvice,
+  savingsGoalAlerts,
   savingsMonthlyStatus,
+  suitableForGoalBuy,
   type SavingsGoal,
 } from "./savings";
 
@@ -151,5 +154,39 @@ describe("savings goal – coupon room is the actual shortfall", () => {
     const buy = tx({ id: "b-dkj-3", date: "2026-10-15", type: "buy", instrumentKey: DKJ.key, quantity: 450_000, grossAmount: 440_000, netAmount: -440_000 });
     const s = status([...BASE_TXS, COUPON, buy], at("2026-10-20"));
     expect(s.couponHuf).toBeCloseTo(150_000);
+  });
+});
+
+describe("savings goal – instruments too close to maturity", () => {
+  // DKJ matures 2026-12-01, the goal's date is 2026-12-15.
+  const goal = (patch: Partial<SavingsGoal> = {}): SavingsGoal => ({ ...GOAL, ...patch });
+
+  it("suitable while it matures more than N days after the buy and by the date", () => {
+    expect(suitableForGoalBuy(DKJ, goal(), "2026-10-31")).toBe(true);
+    // exactly N = 30 days before maturity: no longer
+    expect(suitableForGoalBuy(DKJ, goal(), "2026-11-01")).toBe(false);
+    expect(suitableForGoalBuy(DKJ, goal({ minDaysToMaturity: 10 }), "2026-11-01")).toBe(true);
+  });
+
+  it("not suitable if it matures after the target date; no maturity is fine", () => {
+    expect(suitableForGoalBuy(DKJ, goal({ targetDate: "2026-11-30" }), "2026-09-01")).toBe(false);
+    const etf: Instrument = { key: "etf", name: "ETF", type: "etf", currency: "EUR" };
+    expect(suitableForGoalBuy(etf, goal(), "2026-11-30")).toBe(true);
+  });
+
+  it("with nothing left to buy: hold cash, no buy reminder", () => {
+    const s = status(BASE_TXS, at("2026-11-10"));
+    expect(s.holdCash).toBe(true);
+    expect(s.done).toBe(true);
+    expect(s.instrumentNames).toBe("");
+    expect(holdCashAdvice(s)).toMatch(/tartsd készpénzben a céldátumig/);
+    const alerts = savingsGoalAlerts([GOAL], [ACC], BASE_TXS, instruments, new Map(), {}, at("2026-11-10"));
+    expect(alerts).toEqual([]);
+  });
+
+  it("while still buyable the reminder works as before", () => {
+    const s = status(BASE_TXS, at("2026-10-05"));
+    expect(s.holdCash).toBe(false);
+    expect(s.instrumentNames).toBe("DKJ 261201");
   });
 });

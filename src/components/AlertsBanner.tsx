@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AlertTriangle, X, ArrowRight } from "lucide-react";
-import { usePortfolio, useActiveAlerts } from "../lib/store";
+import {
+  usePortfolio,
+  useActiveAlerts,
+  useAlertsReadiness,
+} from "../lib/store";
+import { AlertsSyncNote } from "./AlertsPanel";
 import { categorizeAlerts, type Alert } from "../lib/alerts";
 
 const HIDE_KEY = "pf-alerts-banner-hidden";
@@ -32,6 +37,7 @@ function loadHiddenKey(): string {
 export default function AlertsBanner() {
   const location = useLocation();
   const active = useActiveAlerts();
+  const readiness = useAlertsReadiness();
   const alertState = usePortfolio((s) => s.alertState);
   const [hiddenKey, setHiddenKey] = useState(loadHiddenKey);
   const { active: visible } = categorizeAlerts(active, alertState);
@@ -39,6 +45,9 @@ export default function AlertsBanner() {
   // The dashboard renders the full Teendők card — a banner pointing at the same
   // content right below it is pure noise.
   if (location.pathname === "/") return null;
+  // Until the cloud pull is in, no alerts are computed — say so instead of a
+  // count that could be stale.
+  if (readiness === "syncing") return <AlertsSyncNote className="mb-6" />;
   if (visible.length === 0) return null;
   const key = setKey(visible);
   if (key === hiddenKey) return null;
@@ -58,7 +67,10 @@ export default function AlertsBanner() {
       <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--color-negative)]" />
       <Link to="/alerts" className="min-w-0 flex-1 text-sm hover:underline">
         <span className="font-medium">{n} aktív teendő</span>{" "}
-        <span className="text-[var(--color-muted)]">— nézd meg</span>
+        <span className="text-[var(--color-muted)]">
+          — nézd meg
+          {readiness === "offline" && " (nem szinkronizált adatok alapján)"}
+        </span>
       </Link>
       <Link
         to="/alerts"

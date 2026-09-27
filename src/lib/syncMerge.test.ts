@@ -60,3 +60,21 @@ describe("mergePrefs", () => {
     expect(out.forecast).toEqual(local.forecast);
   });
 });
+
+describe("alert tombstones", () => {
+  it("a tombstoned record is dropped whichever side still holds it", () => {
+    const remote = snap({ alertState: { bad: rec, good: rec } });
+    const local = snap({ deletedAlertIds: ["bad"] });
+    const out = unionSnapshots(remote, local);
+    expect(Object.keys(out.alertState ?? {})).toEqual(["good"]);
+    expect(out.deletedAlertIds).toEqual(["bad"]);
+  });
+
+  it("tombstones from both sides are kept", () => {
+    const out = unionSnapshots(
+      snap({ deletedAlertIds: ["a"] }),
+      snap({ deletedAlertIds: ["b", "a"] }),
+    );
+    expect(out.deletedAlertIds?.sort()).toEqual(["a", "b"]);
+  });
+});

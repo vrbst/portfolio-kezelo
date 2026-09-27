@@ -467,15 +467,23 @@ function makeTrade(
   rawHuf: number,
   source: Suggestion["source"],
   reason: string,
+  /** Buy: `rawHuf` is all the money there is — the cost comes out of it. */
+  costIncluded = false,
 ): Suggestion {
-  let amount = rawHuf;
+  let target = rawHuf;
+  if (costIncluded && side === "buy") {
+    // amount + pct·amount + fixed = rawHuf
+    const c = costFor(cfg, pos, "buy");
+    target = Math.max(0, (rawHuf - (c?.fixedHuf ?? 0)) / (1 + (c?.pct ?? 0)));
+  }
+  let amount = target;
   let quantity: number | undefined;
   if (!isCashKey(pos.key) && pos.unitPriceHuf && pos.unitPriceHuf > 0) {
     // Whole units, or — for a fractional instrument — down to its decimals
     // (never more than planned when buying, never more than held when selling).
     const f = 10 ** quantityDecimals(pos.rule);
     const down = (q: number) => Math.floor(q * f + 1e-9) / f;
-    quantity = down(rawHuf / pos.unitPriceHuf);
+    quantity = down(target / pos.unitPriceHuf);
     if (side === "sell" && pos.quantity != null)
       quantity = Math.min(quantity, down(pos.quantity));
     amount = quantity * pos.unitPriceHuf;
@@ -684,6 +692,7 @@ export function routeCashflow(
           s.amount,
           source,
           reason(b),
+          cfg.buyCostMode !== "extra",
         ),
       );
   }

@@ -9,21 +9,23 @@ import {
 import {
   usePortfolio,
   useActiveAlerts,
+  useAlertsReadiness,
   usePortfolioSummary,
   useGoalProgress,
   useSavingsGoals,
 } from "../lib/store";
 import { categorizeAlerts, computeStatusChecks } from "../lib/alerts";
 import { PERIOD_LABEL } from "../lib/goals";
-import { savingsMonthlyStatus } from "../lib/savings";
+import { holdCashAdvice, savingsMonthlyStatus } from "../lib/savings";
 import { PageHeader, Card, EmptyState } from "../components/ui";
-import { AlertRow } from "../components/AlertsPanel";
+import { AlertRow, AlertsSyncNote } from "../components/AlertsPanel";
 import { formatDate, formatMoney } from "../lib/format";
 import PrivateText from "../components/PrivateText";
 
 export default function Alerts() {
   const summary = usePortfolioSummary();
   const active = useActiveAlerts();
+  const readiness = useAlertsReadiness();
   const alertConfig = usePortfolio((s) => s.alertConfig);
   const alertState = usePortfolio((s) => s.alertState);
   const goalProgress = useGoalProgress();
@@ -74,8 +76,9 @@ export default function Alerts() {
       .map((s) => ({
         id: `savings-ok:${s.goalId}`,
         label: `Havi vásárlás – ${s.name}`,
-        detail:
-          s.neededHuf > 0
+        detail: s.holdCash
+          ? holdCashAdvice(s)
+          : s.neededHuf > 0
             ? `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} ✓${
                 s.couponHuf > 0
                   ? ` (kamat ${formatMoney(s.couponHuf)} újrabefektetve)`
@@ -111,13 +114,20 @@ export default function Alerts() {
         subtitle="Teendők és emlékeztetők a portfóliódhoz"
       />
 
-      {nothing ? (
+      {/* While syncing no alerts are computed: every stored record would
+          look "fulfilled", so show only the note until the pull is in. */}
+      {readiness === "syncing" ? (
+        <Card className="p-4">
+          <AlertsSyncNote />
+        </Card>
+      ) : nothing ? (
         <EmptyState
           title="Nincs figyelmeztetés"
           description="Jelenleg nincs teendő. Ha lesz (pl. parlagon álló készpénz, közelgő lejárat vagy hiányzó idei TBSZ), itt jelenik meg."
         />
       ) : (
         <div className="space-y-6">
+          <AlertsSyncNote />
           <section>
             <div className="mb-3 flex items-center gap-2">
               <BellRing className="h-5 w-5 text-[var(--color-negative)]" />

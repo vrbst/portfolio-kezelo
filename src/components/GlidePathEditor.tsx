@@ -9,6 +9,7 @@ import {
   type Bucket,
   type Cost,
   type CostRule,
+  type BuyCostMode,
   type GlideConfig,
   type InstrumentRule,
   type MonthlyAmount,
@@ -817,6 +818,21 @@ export default function GlidePathEditor({
               />
               <span className={LABEL}>% a korrekcióból</span>
             </div>
+          </label>
+          <label className="space-y-1">
+            <div className={LABEL} title="A bejövő pénz (és a sávszabály eladás utáni maradéka) elosztásánál a vételi díj a megadott összegből vonódik le, vagy azon felül fizetendő.">
+              Vételi díj a bejövő pénznél
+            </div>
+            <select
+              className={INPUT}
+              value={draft.buyCostMode ?? "included"}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, buyCostMode: e.target.value as BuyCostMode }))
+              }
+            >
+              <option value="included">az összegből vonódik le</option>
+              <option value="extra">az összegen felül jön</option>
+            </select>
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input

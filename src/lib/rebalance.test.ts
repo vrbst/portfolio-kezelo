@@ -925,3 +925,38 @@ describe("bandRule – leftover after the restore follows the flow target", () =
     expect(buys[0].reason).toContain("2027-06-15-i pályacélhoz");
   });
 });
+
+describe("buy cost of routed money (buyCostMode)", () => {
+  const withCost = (patch: Partial<GlideConfig> = {}) =>
+    config(
+      [bucket("R", 1, { cost: { buy: { pct: 0.0035 } } })],
+      { "ETF-R": rule("R", { fractional: true }) },
+      patch,
+    );
+  const route = (cfg: GlideConfig) =>
+    routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000, 1_000)], DAY), 150_000)
+      .suggestions[0];
+
+  it("default: the cost comes out of the amount — buy + cost never exceeds it", () => {
+    const s = route(withCost());
+    expect(s.amountHuf + s.costHuf).toBeLessThanOrEqual(150_000);
+    expect(s.amountHuf + s.costHuf).toBeGreaterThan(149_990);
+    expect(s.quantity).toBe(149.4768);
+  });
+
+  it("extra: the whole amount is bought, the cost is paid on top", () => {
+    const s = route(withCost({ buyCostMode: "extra" }));
+    expect(s).toMatchObject({ quantity: 150, amountHuf: 150_000 });
+    expect(s.costHuf).toBeCloseTo(525);
+  });
+
+  it("a fixed fee is taken out too", () => {
+    const cfg = config(
+      [bucket("R", 1, { cost: { buy: { fixedHuf: 1_000 } } })],
+      { "ETF-R": rule("R", { fractional: true }) },
+    );
+    const s = routeCashflow(cfg, allocationState(cfg, [etf("ETF-R", 100_000, 1_000)], DAY), 50_000)
+      .suggestions[0];
+    expect(s).toMatchObject({ quantity: 49, amountHuf: 49_000, costHuf: 1_000 });
+  });
+});

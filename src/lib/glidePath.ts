@@ -174,7 +174,15 @@ export interface GlideConfig {
    * band rule's leftover). Missing on older versions = today's target.
    */
   flowTarget?: FlowTarget;
+  /**
+   * Buy costs of routed money (incoming money, the band rule's leftover):
+   * "included" = taken out of the amount, so buy + cost is exactly the money
+   * there is; "extra" = paid on top of it. Missing = "included".
+   */
+  buyCostMode?: BuyCostMode;
 }
+
+export type BuyCostMode = "included" | "extra";
 
 /** Pseudo-instrument key for a cash balance in `ccy` (assignable to a bucket). */
 export function cashKey(ccy: string): string {

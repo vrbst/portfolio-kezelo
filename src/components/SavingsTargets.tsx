@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Target, Plus, Trash2, X, Pencil, Check, BellPlus } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
   computeSavingsProgress,
+  DEFAULT_MIN_DAYS_TO_MATURITY,
+  suitableForGoalBuy,
   loadSavingsGoals,
   saveSavingsGoals,
   type SavingsGoal,
@@ -198,6 +200,8 @@ function GoalRow({
   onRemove: (id: string) => void;
 }) {
   const g = p.goal;
+  const instruments = usePortfolio((s) => s.instruments);
+  const today = useToday();
   const assignable = holdings.filter((h) => !g.instrumentKeys.includes(h.key));
   const barPct = Math.min(p.projectedPct * 100, 100);
   const todayPct = Math.min(p.progressPct * 100, 100);
@@ -356,6 +360,23 @@ function GoalRow({
           </span>
         )}
       </div>
+      {!p.reached &&
+        p.daysLeft > 0 &&
+        p.goal.instrumentKeys.length > 0 &&
+        !p.goal.instrumentKeys.some((k) =>
+          suitableForGoalBuy(
+            instruments.find((i) => i.key === k),
+            p.goal,
+            today,
+          ),
+        ) && (
+          <p className="mt-1 text-xs text-[var(--color-warning,#fbbf24)]">
+            A hozzárendelt eszközök a vétel után{" "}
+            {p.goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY} napon
+            belül vagy a céldátum után járnak le — tartsd készpénzben a
+            céldátumig.
+          </p>
+        )}
 
       {/* Coupon toggle */}
       <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-[var(--color-muted)]">
@@ -450,6 +471,22 @@ function GoalRow({
             ? " A hónapban beérkezett kötvénykamatot is hozzáadja a szükséges összeghez — azaz azt is fektesd be az eszközbe."
             : ""}
         </p>
+      )}
+      {g.monthlyReminder && g.instrumentKeys.length > 0 && (
+        <label className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-muted)]">
+          Ne javasoljon a vétel után
+          <AmountInput
+            className="w-14 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
+            value={g.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY}
+            onValueChange={(v) =>
+              onUpdate(g.id, {
+                minDaysToMaturity: v === "" ? undefined : Number(v),
+              })
+            }
+          />
+          napon belül vagy a céldátum után lejáró eszközt — ha nincs más,
+          tartsd készpénzben a céldátumig.
+        </label>
       )}
     </div>
   );

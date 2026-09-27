@@ -7,7 +7,11 @@ import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AlertsBanner from "./components/AlertsBanner";
 import { Skeleton } from "./components/ui";
-import { usePortfolio, useActiveAlerts } from "./lib/store";
+import {
+  usePortfolio,
+  useActiveAlerts,
+  useAlertsReadiness,
+} from "./lib/store";
 
 /** Re-fetch live prices at most this often when refreshing on tab focus. */
 const REFRESH_MS = 5 * 60 * 1000;
@@ -22,6 +26,7 @@ export default function App() {
   const startupSync = usePortfolio((s) => s.startupSync);
   const refreshHistory = usePortfolio((s) => s.refreshHistory);
   const activeAlerts = useActiveAlerts();
+  const alertsReadiness = useAlertsReadiness();
 
   useEffect(() => {
     load();
@@ -36,10 +41,12 @@ export default function App() {
     }
   }, [loaded, startupSync, refreshHistory]);
 
-  // Fold the current active alerts into the synced history (seen / fulfilled).
+  // Fold the current active alerts into the synced history (seen / fulfilled)
+  // — only once this device reflects the cloud copy: alerts from stale local
+  // data (or an offline start) must never land in the synced history.
   useEffect(() => {
-    if (loaded) reconcileAlerts(activeAlerts);
-  }, [loaded, activeAlerts, reconcileAlerts]);
+    if (loaded && alertsReadiness === "ready") reconcileAlerts(activeAlerts);
+  }, [loaded, alertsReadiness, activeAlerts, reconcileAlerts]);
 
   // Keep prices fresh: poll every 5 minutes, and whenever the user returns to
   // the tab (but not more often than REFRESH_MS, to avoid a focus storm).

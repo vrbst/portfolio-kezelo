@@ -44,6 +44,12 @@ export interface PortfolioSnapshot {
   /** Tombstones for reminders dismissed/deleted on any device. */
   deletedReminderIds?: string[];
   /**
+   * Tombstones for alert-history records removed on purpose (e.g. alerts
+   * raised from stale data): without them the union re-adds the record from
+   * any device that still holds it.
+   */
+  deletedAlertIds?: string[];
+  /**
    * Planning preferences (target allocation, forecast settings) — per-field
    * last-write-wins by updatedAt. Secrets (token, AI key) are never here.
    */
