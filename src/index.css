@@ -208,8 +208,8 @@ body::before {
   }
 }
 
-/* Reusable outward pulse for a highlighted element (e.g. the calendar's next
- * event day). A hair gentler than live-ping so it doesn't cover neighbours. */
+/* Reusable outward pulse for a highlighted element (e.g. the calendar's
+ * "today" cell). A hair gentler than live-ping so it doesn't cover neighbours. */
 .cal-ping {
   animation: cal-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
