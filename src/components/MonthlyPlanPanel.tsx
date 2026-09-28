@@ -242,7 +242,8 @@ export default function MonthlyPlanPanel() {
       {plan.deposits.length > 0 && (
         <div className="mt-3 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
           <div className="mb-1 text-xs font-medium text-[var(--color-muted)]">
-            Befizetések számlánként (vétel + díj + váltás)
+            Hová utald? — a fenti tételek számlánként összesítve (vétel + díj + váltás),
+            nem újabb tételek
           </div>
           <ul className="space-y-0.5">
             {plan.deposits.map((d) => (
@@ -251,6 +252,9 @@ export default function MonthlyPlanPanel() {
                   {d.label}
                   {d.pending && (
                     <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
+                  )}
+                  {d.items.length > 0 && (
+                    <span className="text-xs text-[var(--color-muted)]"> = {d.items.join(" + ")}</span>
                   )}
                 </span>
                 <span className="tabular-nums">
