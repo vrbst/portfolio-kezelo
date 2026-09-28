@@ -1,5 +1,6 @@
 // Message texts (Telegram HTML) built from a loaded Context.
 
+import { accountLabel } from "../../src/lib/accountRules";
 import type { Alert } from "../../src/lib/alerts";
 import type { UpcomingEvent } from "../../src/lib/events";
 import {
@@ -178,6 +179,26 @@ export function alertsText(ctx: Context): string {
   ].join("\n\n");
 }
 
+/** "félretéve: 137 297 Ft (Államkincstár) · automatikusan (kamat, lejárat): 700 000 Ft". */
+function reserveLine(ctx: Context, p: Context["savings"][number]): string {
+  const parts: string[] = [];
+  if (p.reservedHuf >= 1) {
+    const where = [
+      ...new Set(
+        (p.goal.reserves ?? [])
+          .filter((r) => r.amountHuf > 0)
+          .map((r) => {
+            const a = ctx.snapshot.accounts.find((x) => x.id === r.accountId);
+            return a ? accountLabel(a) : "bankszámla / máshol";
+          }),
+      ),
+    ].join(", ");
+    parts.push(`félretéve: ${ft(p.reservedHuf)}${where ? ` – ${esc(where)}` : ""}`);
+  }
+  if (p.autoCashHuf >= 1) parts.push(`automatikusan (kamat, lejárat): ${ft(p.autoCashHuf)}`);
+  return parts.length ? `\n   ${parts.join(" · ")}` : "";
+}
+
 export function goalsText(ctx: Context): string {
   const lines: string[] = [];
   if (ctx.goalProgress.length) {
@@ -194,9 +215,10 @@ export function goalsText(ctx: Context): string {
       lines.push(
         `${p.reached ? "✅" : "⏳"} <b>${esc(p.goal.name)}</b> – ${ft(p.targetHuf)}, ${dayLabel(p.goal.targetDate)}`,
         `   most ${Math.round(p.progressPct * 100)}%, a határidőre várhatóan ${Math.round(p.projectedPct * 100)}%` +
+          reserveLine(ctx, p) +
           (p.reached
             ? ""
-            : `\n   ${p.monthAdjective} keret: ${ft(p.monthlyNeededHuf)}, ebből befizetve ${ft(p.thisMonthNetHuf)}`),
+            : `\n   ${p.monthAdjective} keret: ${ft(p.monthlyNeededHuf)}, ebből teljesítve ${ft(p.thisMonthNetHuf)}`),
       );
     }
   }
