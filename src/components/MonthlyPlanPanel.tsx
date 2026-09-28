@@ -1,6 +1,16 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, BellPlus, CalendarCheck } from "lucide-react";
-import { usePortfolio, useMonthlyPlan, useToday } from "../lib/store";
+import { ArrowDown, ArrowUp, BellPlus, CalendarCheck, PiggyBank } from "lucide-react";
+import {
+  usePortfolio,
+  useIncomeQueue,
+  useLeftoverPlan,
+  useLeftoverSettings,
+  useMonthlyBudget,
+  useMonthlyPlan,
+  useToday,
+} from "../lib/store";
+import { leftoverStatusLines, leftoverTitle, recordedLeftover } from "../lib/leftover";
+import { CouponWarning } from "./IncomeQueue";
 import {
   moveInOrder,
   planTextLines,
@@ -49,7 +59,8 @@ function LineRow({
   line: PlanLine;
   first: boolean;
   last: boolean;
-  onMove: (dir: -1 | 1) => void;
+  /** Omitted: the order is fixed here (the leftover split). */
+  onMove?: (dir: -1 | 1) => void;
 }) {
   const n = line.need;
   const done = n.needHuf < 1;
@@ -59,16 +70,18 @@ function LineRow({
     <li className={`rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm ${done ? "opacity-60" : ""}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="flex flex-col">
-            <button className={arrow} disabled={first} onClick={() => onMove(-1)} title="Előrébb a sorrendben">
-              <ArrowUp className="h-3 w-3" />
-            </button>
-            <button className={arrow} disabled={last} onClick={() => onMove(1)} title="Hátrébb a sorrendben">
-              <ArrowDown className="h-3 w-3" />
-            </button>
-          </span>
-          <Badge tone={n.kind === "savings" ? "warning" : "neutral"}>
-            {n.kind === "savings" ? "Határidős cél" : "DCA"}
+          {onMove && (
+            <span className="flex flex-col">
+              <button className={arrow} disabled={first} onClick={() => onMove(-1)} title="Előrébb a sorrendben">
+                <ArrowUp className="h-3 w-3" />
+              </button>
+              <button className={arrow} disabled={last} onClick={() => onMove(1)} title="Hátrébb a sorrendben">
+                <ArrowDown className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+          <Badge tone={n.ahead ? "positive" : n.kind === "savings" ? "warning" : "neutral"}>
+            {n.ahead ? "Előrehozás" : n.kind === "savings" ? "Határidős cél" : "DCA"}
           </Badge>
           <span className="truncate font-medium">{n.name}</span>
         </span>
@@ -158,7 +171,6 @@ export default function MonthlyPlanPanel() {
   const title = `Havi terv – ${monthLabel} (${formatMoney(plan.amountHuf)})`;
   const steps = plannedTrades(plan);
   const added = reminders.some((r) => r.title === title);
-  const glideSteps = plan.glidePlan?.suggestions.filter((s) => s.status === "ok") ?? [];
 
   return (
     <section className="mb-6">
@@ -195,83 +207,10 @@ export default function MonthlyPlanPanel() {
         {amountRaw != null && " (most kézzel átírva)"}
       </p>
 
-      <ul className="space-y-2">
-        {plan.lines.map((l, i) => (
-          <LineRow
-            key={l.need.key}
-            line={l}
-            first={i === 0}
-            last={i === plan.lines.length - 1}
-            onMove={(dir) => savePlanOrder(moveInOrder(needs, l.need.key, dir))}
-          />
-        ))}
-        <li className="rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <Badge tone="positive">Célpálya</Badge>
-              <span className="text-xs text-[var(--color-muted)]">a maradék — mindig az utolsó</span>
-            </span>
-            <Amt className="font-medium tabular-nums">{formatMoney(plan.glideHuf)}</Amt>
-          </div>
-          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-            {plan.glidePlan ? (
-              <>
-                Célpont: {plan.glidePlan.flow.label} —{" "}
-                {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
-                {glideSteps.some((s) => s.costHuf > 0) &&
-                  ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
-              </>
-            ) : (
-              "A célok után nem marad rá pénz."
-            )}
-          </div>
-          {plan.glidePlan && plan.glidePlan.notes.length > 0 && (
-            <ul className="mt-0.5 text-xs text-[var(--color-warning)]">
-              {plan.glidePlan.notes.map((n, i) => (
-                <li key={i}>• {n}</li>
-              ))}
-            </ul>
-          )}
-        </li>
-        {plan.freeHuf >= 1 && (
-          <li className="px-3 text-xs text-[var(--color-muted)]">
-            Szabad maradék (a célpálya havi összegén felül): <Amt>{formatMoney(plan.freeHuf)}</Amt>
-          </li>
-        )}
-      </ul>
-      {plan.deposits.length > 0 && (
-        <div className="mt-3 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
-          <div className="mb-1 text-xs font-medium text-[var(--color-muted)]">
-            Befizetések számlánként (vétel + díj + váltás)
-          </div>
-          <ul className="space-y-0.5">
-            {plan.deposits.map((d) => (
-              <li key={d.label} className="flex flex-wrap justify-between gap-2">
-                <span>
-                  {d.label}
-                  {d.pending && (
-                    <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
-                  )}
-                </span>
-                <span className="tabular-nums">
-                  <Amt className="font-medium">{formatMoney(d.totalHuf)}</Amt>
-                  {d.fxCostHuf >= 1 && (
-                    <span className="text-xs text-[var(--color-muted)]">
-                      {" "}(ebből váltás <Amt>{formatMoney(d.fxCostHuf)}</Amt>)
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {plan.shortHuf >= 1 && (
-        <p className="mt-2 text-xs text-[var(--color-negative)]">
-          Nem elég a pénz minden célra — összesen <Amt>{formatMoney(plan.shortHuf)}</Amt> hiányzik
-          (a sorrend szerint a hátsó célok maradtak alul).
-        </p>
-      )}
+      <PlanBody
+        plan={plan}
+        onMove={(key, dir) => savePlanOrder(moveInOrder(needs, key, dir))}
+      />
       {steps.length > 0 && (
         <button
           className="btn-ghost mt-2 text-xs"
@@ -295,6 +234,218 @@ export default function MonthlyPlanPanel() {
           {added ? "Felvéve a teendők közé" : "Rögzítés tervezett tranzakcióként"}
         </button>
       )}
+      <LeftoverSection />
     </section>
+  );
+}
+
+/** The plan's lines, the glide path, the per-account deposits and the shortfall. */
+function PlanBody({
+  plan,
+  onMove,
+  capped = true,
+}: {
+  plan: MonthlyPlan;
+  onMove?: (key: string, dir: -1 | 1) => void;
+  /** The glide path's monthly cap applies (not for the leftover). */
+  capped?: boolean;
+}) {
+  const glideSteps = plan.glidePlan?.suggestions.filter((s) => s.status === "ok") ?? [];
+  return (
+    <>
+    <ul className="space-y-2">
+      {plan.lines.map((l, i) => (
+        <LineRow
+          key={l.need.key}
+          line={l}
+          first={i === 0}
+          last={i === plan.lines.length - 1}
+          onMove={onMove && ((dir) => onMove(l.need.key, dir))}
+        />
+      ))}
+      <li className="rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <Badge tone="positive">Célpálya</Badge>
+            <span className="text-xs text-[var(--color-muted)]">
+              {capped ? "a maradék — mindig az utolsó" : "a teljes maradék — mindig az utolsó"}
+            </span>
+          </span>
+          <Amt className="font-medium tabular-nums">{formatMoney(plan.glideHuf)}</Amt>
+        </div>
+        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+          {plan.glidePlan ? (
+            <>
+              Célpont: {plan.glidePlan.flow.label} —{" "}
+              {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
+              {glideSteps.some((s) => s.costHuf > 0) &&
+                ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
+            </>
+          ) : (
+            "A célok után nem marad rá pénz."
+          )}
+        </div>
+        {plan.glidePlan && plan.glidePlan.notes.length > 0 && (
+          <ul className="mt-0.5 text-xs text-[var(--color-warning)]">
+            {plan.glidePlan.notes.map((n, i) => (
+              <li key={i}>• {n}</li>
+            ))}
+          </ul>
+        )}
+      </li>
+      {plan.freeHuf >= 1 && (
+        <li className="px-3 text-xs text-[var(--color-muted)]">
+          Szabad maradék (a célpálya havi összegén felül): <Amt>{formatMoney(plan.freeHuf)}</Amt>
+        </li>
+      )}
+    </ul>
+    {plan.deposits.length > 0 && (
+      <div className="mt-3 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
+        <div className="mb-1 text-xs font-medium text-[var(--color-muted)]">
+          Befizetések számlánként (vétel + díj + váltás)
+        </div>
+        <ul className="space-y-0.5">
+          {plan.deposits.map((d) => (
+            <li key={d.label} className="flex flex-wrap justify-between gap-2">
+              <span>
+                {d.label}
+                {d.pending && (
+                  <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
+                )}
+              </span>
+              <span className="tabular-nums">
+                <Amt className="font-medium">{formatMoney(d.totalHuf)}</Amt>
+                {d.fxCostHuf >= 1 && (
+                  <span className="text-xs text-[var(--color-muted)]">
+                    {" "}(ebből váltás <Amt>{formatMoney(d.fxCostHuf)}</Amt>)
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+    {plan.shortHuf >= 1 && (
+      <p className="mt-2 text-xs text-[var(--color-negative)]">
+        Nem elég a pénz minden célra — összesen <Amt>{formatMoney(plan.shortHuf)}</Amt> hiányzik
+        (a sorrend szerint a hátsó célok maradtak alul).
+      </p>
+    )}
+    </>
+  );
+}
+
+/**
+ * "Maradt pénz a hónapból?": the closing month's leftover, split like the
+ * Havi terv — open goal parts, next month's parts pulled forward, then the
+ * glide path with all the rest (see leftover.ts). The Telegram bot's
+ * /maradek answers with the same numbers.
+ */
+function LeftoverSection() {
+  const [amountRaw, setAmountRaw] = useState<string | null>(null);
+  const amount = amountRaw != null ? Number(amountRaw) || 0 : 0;
+  const { plan, leftover, budgetHuf } = useLeftoverPlan(amount);
+  const settings = useLeftoverSettings();
+  const addReminder = usePortfolio((s) => s.addReminder);
+  const reminders = usePortfolio((s) => s.reminders);
+  const today = useToday();
+  const { couponGoals } = useMonthlyBudget();
+  const income = useIncomeQueue();
+  const recorded = recordedLeftover(reminders, leftover.month);
+  const [open, setOpen] = useState(false);
+  const month = leftover.month;
+  const isPayday = new Date(`${today}T12:00:00`).getDate() >= month.lastWorkday;
+  const status = leftoverStatusLines(leftover, budgetHuf);
+  const steps = plannedTrades(plan);
+  const title = leftoverTitle(month, amount);
+
+  return (
+    <div className="mt-4 rounded-xl border border-[var(--color-border)] px-3 py-2">
+      <button
+        className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open || isPayday}
+      >
+        <span className="flex items-center gap-2">
+          <PiggyBank className="h-4 w-4 text-[var(--color-brand)]" />
+          Maradt pénz a hónapból? — {month.label}
+        </span>
+        {recorded ? (
+          <Badge tone="positive">rögzítve</Badge>
+        ) : (
+          <span className="text-xs font-normal text-[var(--color-muted)]">{open || isPayday ? "▲" : "▼"}</span>
+        )}
+      </button>
+      {(open || isPayday) && (
+        <div className="mt-2">
+          <p className="mb-2 text-xs text-[var(--color-muted)]">
+            Ha kevesebbet költöttél, írd be, mennyi maradt. Előbb a hónap még
+            hiányzó célrészei kapnak (a Havi terv sorrendjében)
+            {settings.pullForward &&
+              `, majd a ${settings.pullForwardMonths} hónapon belül esedékes határidős célok következő havi része előrehozva`}
+            , a maradék pedig — mind — a célpályán megy. Ami már teljesült vagy
+            a Havi tervben rögzítve van, nem kerül újra elosztásra. A hónap
+            utolsó munkanapja: {month.lastWorkday}.
+          </p>
+          <ul className="mb-2 text-xs text-[var(--color-muted)]">
+            {status.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+          {recorded && (
+            <p className="mb-2 text-xs text-[var(--color-positive)]">
+              Erre a hónapra már rögzítettél maradékot: „{recorded.title}”.
+            </p>
+          )}
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            <AmountInput
+              value={String(amount)}
+              onValueChange={(raw) => setAmountRaw(raw)}
+              className="w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right tabular-nums"
+            />
+            <span className="text-[var(--color-muted)]">Ft maradt</span>
+            {amountRaw != null && (
+              <button className="text-xs text-[var(--color-muted)] underline" onClick={() => setAmountRaw(null)}>
+                törlés
+              </button>
+            )}
+          </div>
+          {amountRaw != null && (
+            <CouponWarning goals={couponGoals} allocations={income.allocations} onPick={() => setAmountRaw(null)} />
+          )}
+          {amount >= 1 ? (
+            <>
+              <PlanBody plan={plan} capped={false} />
+              {steps.length > 0 && (
+                <button
+                  className="btn-ghost mt-2 text-xs"
+                  disabled={!!recorded}
+                  onClick={() =>
+                    void addReminder({
+                      severity: "info",
+                      title,
+                      detail: planTextLines(plan).join("; ") + ".",
+                      to: "/goals",
+                      plan: steps,
+                    })
+                  }
+                  title={
+                    recorded
+                      ? "Erre a hónapra már van rögzített maradék — előbb töröld a teendők közül"
+                      : "A maradék elosztása egy tervezett tranzakcióként a teendők közé (szinkron után a bot is látja)"
+                  }
+                >
+                  <BellPlus className="h-4 w-4" />
+                  {recorded ? "Már rögzítve" : "Rögzítés tervezett tranzakcióként"}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-[var(--color-muted)]">Adj meg egy összeget a javaslathoz.</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

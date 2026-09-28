@@ -22,9 +22,11 @@ import { loadIncomeState, mergeIncomeState, type IncomeState } from "./incomeFlo
 import {
   loadAccountLimits,
   loadBrokerFees,
+  loadLeftoverSettings,
   loadPlanOrder,
   loadPurchaseAccounts,
   type BrokerFees,
+  type LeftoverSettings,
   type PlanOrder,
 } from "./planPrefs";
 import type { AccountLimits, PurchaseAccounts } from "./accountRules";
@@ -56,6 +58,8 @@ export interface SyncedPrefs {
   accountLimits?: StampedPref<AccountLimits>;
   /** Dated account for new buys, per instrument. */
   purchaseAccounts?: StampedPref<PurchaseAccounts>;
+  /** Month-end leftover: reminder and pull-forward settings. */
+  leftover?: StampedPref<LeftoverSettings>;
 }
 
 export type PrefKind =
@@ -69,7 +73,8 @@ export type PrefKind =
   | "brokerFees"
   | "planOrder"
   | "accountLimits"
-  | "purchaseAccounts";
+  | "purchaseAccounts"
+  | "leftover";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -83,6 +88,7 @@ const KINDS: PrefKind[] = [
   "planOrder",
   "accountLimits",
   "purchaseAccounts",
+  "leftover",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -97,6 +103,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   planOrder: "pf-plan-order",
   accountLimits: "pf-account-limits",
   purchaseAccounts: "pf-purchase-accounts",
+  leftover: "pf-leftover",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -110,6 +117,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   planOrder: "pf-plan-order-updated",
   accountLimits: "pf-account-limits-updated",
   purchaseAccounts: "pf-purchase-accounts-updated",
+  leftover: "pf-leftover-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -125,6 +133,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   planOrder: loadPlanOrder,
   accountLimits: loadAccountLimits,
   purchaseAccounts: loadPurchaseAccounts,
+  leftover: loadLeftoverSettings,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

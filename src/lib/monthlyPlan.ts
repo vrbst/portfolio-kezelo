@@ -73,6 +73,8 @@ export interface PlanNeed {
   holdCash: boolean;
   /** Where the goal's set-aside cash is kept (its latest reserve's account). */
   reserveAccountId?: string;
+  /** A later month's part pulled forward (month-end leftover): its label. */
+  ahead?: string;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
