@@ -4,6 +4,11 @@ import { usePortfolio } from "../../lib/store";
 import { Card, Badge, AmountInput } from "../ui";
 import { instrumentTypeLabel } from "../../lib/labels";
 import type { BondTerms, Instrument } from "../../lib/model";
+import { toLocalDay } from "../../lib/portfolio";
+
+/** A maturity as its LOCAL day ("2026-10-27T23:00:00.000Z" → 2026-10-28). */
+const dayOf = (s: string | undefined) =>
+  s?.includes("T") ? toLocalDay(Date.parse(s)) : s?.slice(0, 10);
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -63,14 +68,14 @@ export default function BondSeriesSettings() {
                 {missing && <Badge tone="warning">hiányzó adat</Badge>}
                 {!isTbill && !missing && <Badge tone="positive">megadva</Badge>}
                 <span className="text-xs text-[var(--color-muted)]">
-                  lejárat: {(b.maturity ?? inst.maturity)?.slice(0, 10) ?? "—"}
+                  lejárat: {dayOf(b.maturity ?? inst.maturity) ?? "—"}
                 </span>
               </div>
 
               {isTbill ? (
                 <p className="text-xs text-[var(--color-muted)]">
                   Diszkont kincstárjegy — automatikus akkréció a lejáratig (
-                  {inst.maturity?.slice(0, 10) ?? "ismeretlen lejárat"}).
+                  {dayOf(inst.maturity) ?? "ismeretlen lejárat"}).
                 </p>
               ) : (
                 <div className="flex flex-wrap items-end gap-3">
