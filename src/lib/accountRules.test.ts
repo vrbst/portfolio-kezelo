@@ -13,7 +13,7 @@ import {
 } from "./accountRules";
 import { buildMonthlyPlan, planLineText, planTextLines, type PlanNeed } from "./monthlyPlan";
 import { defaultGlobals, type Bucket, type GlideConfig } from "./glidePath";
-import { allocationState, type Position } from "./rebalance";
+import { allocationState, suggestionText, type Position } from "./rebalance";
 
 // Invented sample data — generic accounts and round numbers, not a real portfolio.
 
@@ -228,6 +228,24 @@ describe("monthly plan with accounts", () => {
     expect(text).toContain("→ broker TBSZ 2026 (még nincs a nyilvántartásban — nyisd meg)");
     expect(text).toContain("2026-07-01-tól: broker Befektetési (R-1)");
     expect(planTextLines(p).at(-1)).toMatch(/^Befizetések: /);
+  });
+
+  it("hold-cash money is listed apart in the deposits, with where it is kept", () => {
+    const hold: PlanNeed = { ...need("savings:b", "ETF", 30_000), kind: "savings", name: "Babaváró", instrumentKey: undefined, holdCash: true, reserveAccountId: "TR" };
+    const p = run(ctx(), 100_000, [hold, need("dca:e", "ETF", 50_000)]);
+    const row = p.deposits.find((d) => d.reserve)!;
+    expect(row).toMatchObject({ label: "Félretétel – Babaváró → Államkincstár", totalHuf: 30_000 });
+    expect(planTextLines(p).at(-1)).toMatch(/Félretétel – Babaváró → Államkincstár: 30\s000\sFt/);
+    const noAcc = run(ctx(), 100_000, [{ ...hold, reserveAccountId: undefined }]);
+    expect(noAcc.deposits.find((d) => d.reserve)!.label).toBe("Félretétel – Babaváró → bankszámla / máshol");
+  });
+
+  it("a glide-path buy shows the upcoming change of its account too", () => {
+    const purchase: PurchaseAccounts = { ETF: [{ from: "2026-07-01", target: { accountId: "REG" } }] };
+    const p = run(ctx({ purchase }), 100_000, []);
+    const buy = p.glidePlan!.suggestions.find((s) => s.instrumentKey === "ETF" && s.status === "ok")!;
+    expect(buy.venueChange).toEqual({ from: "2026-07-01", label: "broker Befektetési (R-1)" });
+    expect(suggestionText(buy)).toContain("2026-07-01-tól: broker Befektetési (R-1)");
   });
 
   it("without an account context nothing changes (no venue, no deposits)", () => {

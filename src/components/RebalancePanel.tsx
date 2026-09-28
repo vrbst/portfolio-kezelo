@@ -92,6 +92,7 @@ function SuggestionList({
                   <span className="text-xs text-[var(--color-muted)]">
                     {s.side === "transfer" ? "" : s.bucketName}
                     {s.accountLabel && s.side !== "transfer" && ` · ${s.accountLabel}`}
+                    {s.side === "buy" && s.venueChange && ` · ${s.venueChange.from}-tól: ${s.venueChange.label}`}
                   </span>
                 </span>
                 <span className="tabular-nums">

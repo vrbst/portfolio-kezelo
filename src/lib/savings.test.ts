@@ -174,14 +174,15 @@ describe("savings goal – instruments too close to maturity", () => {
     expect(suitableForGoalBuy(etf, goal(), "2026-11-30")).toBe(true);
   });
 
-  it("with nothing left to buy: hold cash, no buy reminder", () => {
+  it("with nothing left to buy: hold cash — a set-aside reminder until this month's part is set aside", () => {
     const s = status(BASE_TXS, at("2026-11-10"));
     expect(s.holdCash).toBe(true);
-    expect(s.done).toBe(true);
+    expect(s.done).toBe(false);
     expect(s.instrumentNames).toBe("");
     expect(holdCashAdvice(s)).toMatch(/tartsd készpénzben a céldátumig/);
     const alerts = savingsGoalAlerts([GOAL], [ACC], BASE_TXS, instruments, new Map(), {}, at("2026-11-10"));
-    expect(alerts).toEqual([]);
+    expect(alerts.map((a) => a.title)).toEqual(["Havi félretétel – Cél"]);
+    expect(alerts[0].detail).toMatch(/tegyél félre készpénzben, és rögzítsd a célnál/);
   });
 
   it("while still buyable the reminder works as before", () => {
@@ -261,7 +262,62 @@ describe("savings goal – money already the goal's but not in a security (hold-
   it("the arrived hold-window coupon is claimed in full by the goal (not split off to the glide path)", () => {
     // Room for the coupon being distributed = the shortfall without it.
     expect(prog("2026-11-12", [HOLD_COUPON]).couponRoomHuf).toBeCloseTo(600_000);
-    expect(stat("2026-11-12", [HOLD_COUPON]).couponHuf).toBeCloseTo(300_000);
+    // …but it counts for the goal on its own: nothing extra to set aside.
+    expect(stat("2026-11-12", [HOLD_COUPON]).couponHuf).toBe(0);
+  });
+
+  describe("cash set aside by hand (reserves)", () => {
+    const withReserves = (...reserves: { date: string; amountHuf: number }[]): SavingsGoal => ({
+      ...GOAL,
+      reserves: reserves.map((r, i) => ({ id: `r${i}`, ...r })),
+    });
+    const progOf = (goal: SavingsGoal, day: string, extra: Transaction[] = []) =>
+      computeSavingsProgress([goal], [ACC], [...TXS, ...extra], insts, new Map(), {}, at(day))[0];
+    const statOf = (goal: SavingsGoal, day: string) =>
+      savingsMonthlyStatus([goal], [ACC], TXS, insts, new Map(), {}, at(day))[0];
+
+    it("counts toward the goal: less missing", () => {
+      // Before the 10 Nov coupon: DKJ 400 000 + coupon 300 000 + reserve 100 000.
+      const p = progOf(withReserves({ date: "2026-11-05", amountHuf: 100_000 }), "2026-11-08");
+      expect(p.reservedHuf).toBe(100_000);
+      expect(p.projectedHuf).toBeCloseTo(800_000);
+      expect(p.gapHuf).toBeCloseTo(200_000);
+    });
+
+    it("this month's reserve is this month's saving — the month-start quota stays", () => {
+      const plain = progOf(GOAL, "2026-11-12");
+      const g = withReserves({ date: "2026-11-05", amountHuf: 100_000 });
+      expect(progOf(g, "2026-11-12").monthlyNeededHuf).toBeCloseTo(plain.monthlyNeededHuf);
+      expect(progOf(g, "2026-11-12").thisMonthNetHuf).toBeCloseTo(100_000);
+      expect(statOf(g, "2026-11-12").boughtHuf).toBeCloseTo(100_000);
+    });
+
+    it("an earlier month's reserve lowers the following quota", () => {
+      const plain = progOf(GOAL, "2026-12-02");
+      const g = withReserves({ date: "2026-11-05", amountHuf: 100_000 });
+      expect(progOf(g, "2026-12-02").monthlyNeededHuf).toBeLessThan(plain.monthlyNeededHuf - 1);
+    });
+
+    it("a hold-cash goal is done once this month's part is set aside", () => {
+      const need = statOf(GOAL, "2026-11-12").neededHuf;
+      expect(statOf(GOAL, "2026-11-12").done).toBe(false);
+      const g = withReserves({ date: "2026-11-10", amountHuf: need });
+      expect(statOf(g, "2026-11-12").done).toBe(true);
+      expect(savingsGoalAlerts([g], [ACC], TXS, insts, new Map(), {}, at("2026-11-12"))).toEqual([]);
+      // …and its "Rendben" line says so.
+      expect(holdCashAdvice(statOf(g, "2026-11-12"))).toMatch(/e havi rész félretéve .* ✓/);
+    });
+
+    it("a future-dated reserve does not count yet", () => {
+      expect(progOf(withReserves({ date: "2026-11-20", amountHuf: 100_000 }), "2026-11-12").reservedHuf).toBe(0);
+    });
+
+    it("no double count with the automatic cash (coupon + payout)", () => {
+      const REDEEM2 = tx({ id: "lejarat2", date: "2026-12-01", type: "redemption", instrumentKey: DKJ.key, quantity: 400_000, grossAmount: 400_000, netAmount: 400_000 });
+      const p = progOf(withReserves({ date: "2026-11-05", amountHuf: 100_000 }), "2026-12-02", [HOLD_COUPON, REDEEM2]);
+      expect(p.autoCashHuf).toBeCloseTo(700_000);
+      expect(p.projectedHuf).toBeCloseTo(800_000);
+    });
   });
 
   it("outside the window nothing changes: a credited, not reinvested coupon is still missing", () => {

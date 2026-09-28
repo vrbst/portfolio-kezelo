@@ -42,6 +42,8 @@ import {
 } from "./rebalance";
 import { BOND_TYPES } from "./bonds";
 import {
+  accountById,
+  accountLabel,
   blockedText,
   feeOf,
   purchaseVenue,
@@ -69,6 +71,8 @@ export interface PlanNeed {
   target: string;
   /** Keep the money in cash until the goal's date (nothing buyable). */
   holdCash: boolean;
+  /** Where the goal's set-aside cash is kept (its latest reserve's account). */
+  reserveAccountId?: string;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
@@ -94,6 +98,7 @@ export function planNeeds(
         ? (instruments.get(s.buyKey)?.name ?? s.buyKey)
         : "készpénz a céldátumig",
       holdCash: s.holdCash,
+      reserveAccountId: s.reserveAccountId,
     }));
   const recurring = [...dca]
     .sort((a, b) => a.goal.createdAt.localeCompare(b.goal.createdAt))
@@ -200,6 +205,8 @@ export interface PlanDeposit {
   accountId?: string;
   /** The account isn't in the ledger yet — open it first. */
   pending: boolean;
+  /** Cash to set aside for a goal (hold-cash), not a buy. */
+  reserve?: boolean;
   amountHuf: number;
   costHuf: number;
   fxCostHuf: number;
@@ -355,6 +362,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
           const v = s.instrumentKey ? venueOf(s.instrumentKey) : undefined;
           if (v?.account) s.accountId = v.account.id;
           if (v) s.accountLabel = v.label;
+          if (s.instrumentKey) s.venueChange = upcomingVenueChange(ctx, s.instrumentKey);
         }
         for (const p of state.positions)
           if (p.rule.acceptsContributions && venueOf(p.key)!.depositBlocked)
@@ -372,7 +380,10 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     freeHuf: left - glideHuf,
     shortHuf: lines.reduce((s, l) => s + l.shortHuf, 0),
     deposits: ctx
-      ? planDeposits(lines, glidePlan, (k) => venueOf(k))
+      ? planDeposits(lines, glidePlan, (k) => venueOf(k), (id) => {
+          const a = accountById(ctx, id);
+          return a ? accountLabel(a) : "bankszámla / máshol";
+        })
       : [],
   };
 }
@@ -382,6 +393,7 @@ function planDeposits(
   lines: PlanLine[],
   glidePlan: MonthlyPlan["glidePlan"],
   venueOf: (key: string) => Venue | undefined,
+  accountLabelOf: (id: string | undefined) => string,
 ): PlanDeposit[] {
   const by = new Map<string, PlanDeposit>();
   const add = (v: Venue | undefined, amount: number, cost: number, fx: number) => {
@@ -403,6 +415,21 @@ function planDeposits(
   };
   for (const l of lines)
     if (l.trade) add(l.venue, l.trade.amountHuf, l.trade.costHuf, l.trade.fxCostHuf ?? 0);
+  // Hold-cash goals: the money is set aside, not bought — its own row.
+  for (const l of lines) {
+    if (!l.need.holdCash || l.allocatedHuf < 1) continue;
+    const label = `Félretétel – ${l.need.name} → ${accountLabelOf(l.need.reserveAccountId)}`;
+    by.set(label, {
+      label,
+      accountId: l.need.reserveAccountId,
+      pending: false,
+      reserve: true,
+      amountHuf: l.allocatedHuf,
+      costHuf: 0,
+      fxCostHuf: 0,
+      totalHuf: l.allocatedHuf,
+    });
+  }
   for (const s of glidePlan?.suggestions ?? [])
     if (s.status === "ok" && s.side === "buy" && s.instrumentKey)
       add(venueOf(s.instrumentKey), s.amountHuf, s.costHuf, s.fxCostHuf ?? 0);

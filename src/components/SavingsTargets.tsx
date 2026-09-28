@@ -9,8 +9,11 @@ import {
   suitableForGoalBuy,
   loadSavingsGoals,
   saveSavingsGoals,
+  reserveConflicts,
+  type ReserveConflict,
   type SavingsGoal,
 } from "../lib/savings";
+import GoalReserves from "./GoalReserves";
 import { PREFS_EVENT } from "../lib/prefs";
 import { Card, AmountInput } from "./ui";
 import { formatMoney, formatDate } from "../lib/format";
@@ -73,6 +76,12 @@ export default function SavingsTargets() {
       ),
     );
   }, [goals, accounts, transactions, instruments, prices, fx]);
+
+  // Buys that may have been paid from a goal's set-aside cash.
+  const conflicts = useMemo(
+    () => reserveConflicts(goals, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
+    [goals, transactions, instruments, fx],
+  );
 
   // Instruments available to assign — everything currently held, name + value.
   const holdings = useMemo(
@@ -185,6 +194,7 @@ export default function SavingsTargets() {
               key={p.goal.id}
               progress={p}
               planHuf={planHuf.get(p.goal.id) ?? 0}
+              conflicts={conflicts.filter((c) => c.goalId === p.goal.id)}
               holdings={holdings}
               nameOf={nameOf}
               onUpdate={update}
@@ -200,12 +210,15 @@ export default function SavingsTargets() {
 function GoalRow({
   progress: p,
   planHuf,
+  conflicts,
   holdings,
   nameOf,
   onUpdate,
   onRemove,
 }: {
   progress: ReturnType<typeof computeSavingsProgress>[number];
+  /** Buys that may have been paid from this goal's reserves. */
+  conflicts: ReserveConflict[];
   /** This month's remaining quota (savingsMonthStates — the Havi terv's figure). */
   planHuf: number;
   holdings: { key: string; name: string; value: number }[];
@@ -312,9 +325,9 @@ function GoalRow({
       <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
         <span
           className="tabular-nums text-[var(--color-muted)]"
-          title="A hozzárendelt eszközök beszámított értéke: állampapír/DKJ névértéken, ha a céldátumig lejár; egyébként a céldátumra várható értéken."
+          title="Ami most a célra számít: a hozzárendelt eszközök (állampapír/DKJ névértéken, ha a céldátumig lejár; egyébként a céldátumra várható értéken), a lejárt papír kifizetése, a tartási időszak kamata és a félretett készpénz."
         >
-          Eszközök:{" "}
+          Most:{" "}
           <span className="amt">{formatMoney(p.assignedValueHuf)}</span> (
           {Math.round(p.progressPct * 100)}%)
         </span>
@@ -338,7 +351,7 @@ function GoalRow({
               {formatMoney(p.monthlyNeededHuf)}
             </span>{" "}
             félretétel kell a cél eléréséhez
-            {p.goal.instrumentKeys.length > 0 ? (
+            {p.goal.instrumentKeys.length > 0 || (p.goal.reserves?.length ?? 0) > 0 ? (
               // The quota is per month; what this month's net purchases
               // already covered is shown apart from the total gap, so
               // "gap ÷ months" reading doesn't clash with the quota.
@@ -391,6 +404,14 @@ function GoalRow({
             céldátumig.
           </p>
         )}
+
+      {p.daysLeft > 0 && (
+        <GoalReserves
+          progress={p}
+          conflicts={conflicts}
+          onChange={(patch) => onUpdate(g.id, patch)}
+        />
+      )}
 
       {/* Coupon toggle */}
       <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-[var(--color-muted)]">

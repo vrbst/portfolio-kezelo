@@ -12,6 +12,7 @@ import { toHuf } from "./portfolio";
 import { accountKindLabel, providerLabel } from "./labels";
 import type { BrokerFee, BrokerFees } from "./planPrefs";
 import type { Alert } from "./alerts";
+import { freeCashOf } from "./savings";
 
 export interface AccountLimit {
   /** Money may not leave the account up to and including this day. */
@@ -137,12 +138,15 @@ export function accountContext(a: {
   limits: AccountLimits;
   purchase: PurchaseAccounts;
   fees: BrokerFees;
+  /** Cash set aside for savings goals, per account — not free to move. */
+  reserved?: Map<string, number>;
 }): AccountContext {
   const holdings = new Map<string, AccountHolding[]>();
   const cash = new Map<string, Record<string, number>>();
   const currency = new Map<string, string>();
   for (const acc of a.summary.accounts) {
-    cash.set(acc.account.id, { ...acc.cash });
+    const r = a.reserved?.get(acc.account.id);
+    cash.set(acc.account.id, r ? freeCashOf(acc.cash, r, a.fx) : { ...acc.cash });
     for (const h of acc.holdings) {
       if (h.instrument) currency.set(h.instrumentKey, h.instrument.currency);
       if (h.quantity <= 0) continue;

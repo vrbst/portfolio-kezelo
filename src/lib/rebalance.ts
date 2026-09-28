@@ -28,6 +28,7 @@ import {
   type OutOfBandMode,
 } from "./glidePath";
 import { loadBrokerFees, type BrokerFees } from "./planPrefs";
+import { freeCashOf } from "./savings";
 import {
   accountById,
   accountCashHuf,
@@ -36,6 +37,7 @@ import {
   feeOf,
   outflowBlocked,
   purchaseVenue,
+  upcomingVenueChange,
   type AccountContext,
 } from "./accountRules";
 
@@ -256,6 +258,8 @@ export function positionsFromSummary(
   bondsAtFace: boolean,
   day: string,
   brokerFees: BrokerFees = loadBrokerFees(),
+  /** Account id → cash set aside for savings goals (not free cash). */
+  reserved?: Map<string, number>,
 ): Position[] {
   const map = new Map<string, Position>();
   // The broker of a position held at several = where most of it sits.
@@ -302,7 +306,10 @@ export function positionsFromSummary(
         brokerCost: brokerFees[acc.account.provider],
       });
     }
-    for (const [ccy, amt] of Object.entries(acc.cash)) {
+    const cash = reserved?.get(acc.account.id)
+      ? freeCashOf(acc.cash, reserved.get(acc.account.id)!, fx)
+      : acc.cash;
+    for (const [ccy, amt] of Object.entries(cash)) {
       if (Math.abs(amt) < 1e-9) continue;
       add({
         key: cashKey(ccy),
@@ -483,6 +490,8 @@ export interface Suggestion {
   accountId?: string;
   /** Its display name ("Lightyear TBSZ 2026 (LY-…)"). */
   accountLabel?: string;
+  /** A buy: its account for new buys changes soon (from → label). */
+  venueChange?: { from: string; label: string };
   /** Transfer: money moves between these accounts. */
   fromAccountId?: string;
   fromLabel?: string;
@@ -1288,6 +1297,8 @@ export function glideStateFrom(
   fx: Record<string, number>,
   day: string,
   brokerFees: BrokerFees = loadBrokerFees(),
+  /** Cash set aside for savings goals, per account (not free cash). */
+  reserved?: Map<string, number>,
 ): AllocationState | null {
   let cfg: GlideConfig | undefined;
   for (const v of versions)
@@ -1300,7 +1311,7 @@ export function glideStateFrom(
   if (!cfg || cfg.buckets.length === 0) return null;
   return allocationState(
     cfg,
-    positionsFromSummary(summary, fx, cfg.bondsAtFace, day, brokerFees),
+    positionsFromSummary(summary, fx, cfg.bondsAtFace, day, brokerFees, reserved),
     day,
   );
 }
@@ -1399,7 +1410,12 @@ export function placeIncoming(
     if (s.side !== "buy" || !s.instrumentKey) return s;
     if (sourceId && heldIn(ctx, sourceId, s.instrumentKey)) return { ...s, accountId: sourceId, accountLabel: labelOf(ctx, sourceId) };
     const v = purchaseVenue(ctx, s.instrumentKey);
-    const out = { ...s, accountId: v.account?.id, accountLabel: v.label };
+    const out = {
+      ...s,
+      accountId: v.account?.id,
+      accountLabel: v.label,
+      venueChange: upcomingVenueChange(ctx, s.instrumentKey),
+    };
     if (sourceId && s.status === "ok" && v.account?.id !== sourceId) {
       const key = v.account?.id ?? v.label;
       const f = flows.get(key) ?? { to: v.account?.id, label: v.label, amount: 0 };
@@ -1603,6 +1619,7 @@ function settleAccounts(
         accountId: part.accountId,
         accountLabel: part.label,
         fxCostHuf: part.fx >= 1 ? part.fx : undefined,
+        venueChange: part.label === v.label ? upcomingVenueChange(ctx, key) : undefined,
       });
     }
     if (limited) {
@@ -1815,7 +1832,9 @@ export function suggestionText(s: Suggestion): string {
     return `${s.bucketName}: a következő ${formatMoney(s.amountHuf)} befizetés menjen más csoportba`;
   const qty =
     s.quantity != null && s.quantity !== s.amountHuf ? ` ${formatQuantity(s.quantity)} db` : "";
-  const at = s.accountLabel ? `${s.side === "buy" ? " → " : " · "}${s.accountLabel}` : "";
+  const at =
+    (s.accountLabel ? `${s.side === "buy" ? " → " : " · "}${s.accountLabel}` : "") +
+    (s.side === "buy" && s.venueChange ? ` · ${s.venueChange.from}-tól: ${s.venueChange.label}` : "");
   return `${SIDE_LABEL[s.side]}: ${s.instrumentName ?? s.bucketName}${qty} (≈ ${formatMoney(s.amountHuf)})${at}`;
 }
 
