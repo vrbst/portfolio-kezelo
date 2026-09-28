@@ -11,6 +11,7 @@ import {
 } from "../lib/store";
 import { leftoverStatusLines, leftoverTitle, recordedLeftover } from "../lib/leftover";
 import { CouponWarning } from "./IncomeQueue";
+import PrivateText from "./PrivateText";
 import {
   moveInOrder,
   planTextLines,
@@ -83,7 +84,9 @@ function LineRow({
           <Badge tone={n.ahead ? "positive" : n.kind === "savings" ? "warning" : "neutral"}>
             {n.ahead ? "Előrehozás" : n.kind === "savings" ? "Határidős cél" : "DCA"}
           </Badge>
-          <span className="truncate font-medium">{n.name}</span>
+          <span className="truncate font-medium">
+            <PrivateText text={n.name} />
+          </span>
         </span>
         <span className="tabular-nums">
           {done ? (
@@ -319,7 +322,9 @@ function PlanBody({
                   <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
                 )}
                 {d.items.length > 0 && (
-                  <span className="text-xs text-[var(--color-muted)]"> = {d.items.join(" + ")}</span>
+                  <span className="text-xs text-[var(--color-muted)]">
+                    {" "}= <PrivateText text={d.items.join(" + ")} />
+                  </span>
                 )}
               </span>
               <span className="tabular-nums">
@@ -399,7 +404,9 @@ function LeftoverSection() {
           </p>
           <ul className="mb-2 text-xs text-[var(--color-muted)]">
             {status.map((l) => (
-              <li key={l}>{l}</li>
+              <li key={l}>
+                <PrivateText text={l} />
+              </li>
             ))}
           </ul>
           {recorded && (
