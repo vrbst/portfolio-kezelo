@@ -40,7 +40,11 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   tranzakciómérettel, „mi lenne, ha” szimuláció — az app semmit nem hajt
   végre, a javaslat teendőként rögzíthető), középtávú célok (hozzárendelt
   eszközökkel, konkrét jövőbeni kuponokkal és a havi félretétel kezdő
-  dátumával) és rendszeres (DCA) megtakarítási célok.
+  dátumával) és rendszeres (DCA) megtakarítási célok. Hónap végi maradék: a
+  Havi terv alatt beírt (vagy a botnak `/maradek 50000`-ként küldött)
+  megmaradt pénz előbb a hónap hiányzó célrészeire, majd a közeli határidős
+  célok következő havi részére, végül a célpályára megy; a hónap utolsó
+  munkanapján (magyar munkanap-naptár) a bot rákérdez.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz

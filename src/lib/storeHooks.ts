@@ -78,9 +78,11 @@ import { usePortfolio } from "./store";
 import {
   loadAccountLimits,
   loadBrokerFees,
+  loadLeftoverSettings,
   loadPlanOrder,
   loadPurchaseAccounts,
   type BrokerFees,
+  type LeftoverSettings,
   type PlanOrder,
 } from "./planPrefs";
 import {
@@ -97,6 +99,7 @@ import {
   type MonthlyPlan,
   type PlanNeed,
 } from "./monthlyPlan";
+import { buildLeftoverPlan, leftoverNeeds, type LeftoverNeeds } from "./leftover";
 
 /**
  * Shared, identity-keyed memo: every component that calls usePortfolioSummary
@@ -702,6 +705,11 @@ export function usePlanOrder(): PlanOrder {
   return usePref(loadPlanOrder);
 }
 
+/** Month-end leftover settings (Beállítások). */
+export function useLeftoverSettings(): LeftoverSettings {
+  return usePref(loadLeftoverSettings);
+}
+
 /** Per-account limits (Számla oldal). */
 export function useAccountLimits(): AccountLimits {
   return usePref(loadAccountLimits);
@@ -848,3 +856,95 @@ const cachedPlanFor = sharedMemo(
       accounts,
     }),
 );
+
+const cachedLeftoverNeeds = sharedMemo(
+  (
+    savingsGoals: SavingsGoal[],
+    dcaGoals: Goal[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    prices: PriceMap,
+    fx: Record<string, number>,
+    order: PlanOrder,
+    settings: LeftoverSettings,
+    reminders: Reminder[],
+    day: string,
+  ) => {
+    void day; // the closing month / pull-forward horizon change with the day
+    return leftoverNeeds({
+      savingsGoals,
+      dcaGoals,
+      accounts,
+      transactions,
+      instruments,
+      prices,
+      fx,
+      order,
+      settings,
+      reminders,
+    });
+  },
+);
+
+const cachedLeftoverPlan = sharedMemo(
+  (
+    amountHuf: number,
+    needs: PlanNeed[],
+    glide: GlideConfig | undefined,
+    state: AllocationState | null,
+    budgetHuf: number,
+    positions: Position[],
+    instruments: Map<string, Instrument>,
+    accounts: AccountContext,
+  ) =>
+    buildLeftoverPlan({
+      amountHuf,
+      needs,
+      glide,
+      state,
+      budgetHuf,
+      positions,
+      instruments,
+      accounts,
+    }),
+);
+
+/** The month-end leftover's split for `amountHuf` (see leftover.ts). */
+export function useLeftoverPlan(amountHuf: number): {
+  plan: MonthlyPlan;
+  leftover: LeftoverNeeds;
+  budgetHuf: number;
+} {
+  const leftover = cachedLeftoverNeeds(
+    useSavingsGoals(),
+    usePortfolio((s) => s.goals),
+    usePortfolio((s) => s.accounts),
+    usePortfolio((s) => s.transactions),
+    usePortfolio((s) => s.instruments),
+    usePortfolio((s) => s.prices),
+    usePortfolio((s) => s.fx),
+    usePlanOrder(),
+    useLeftoverSettings(),
+    usePortfolio((s) => s.reminders),
+    useToday(),
+  );
+  const { breakdown } = useMonthlyBudget();
+  const versions = useGlideVersions();
+  const state = useGlideState(versions);
+  const summary = usePortfolioSummary();
+  const fx = usePortfolio((s) => s.fx);
+  const day = useToday();
+  const fees = useBrokerFees();
+  const plan = cachedLeftoverPlan(
+    amountHuf,
+    leftover.needs,
+    latestConfig(versions),
+    state,
+    breakdown.budgetHuf,
+    cachedMarketPositions(summary, fx, day, fees),
+    cachedInstMap(usePortfolio((s) => s.instruments)),
+    useAccountContext(),
+  );
+  return { plan, leftover, budgetHuf: breakdown.budgetHuf };
+}

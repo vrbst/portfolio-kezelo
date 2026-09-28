@@ -317,8 +317,9 @@ export default function RebalancePanel() {
           <p className="mb-2 text-xs text-[var(--color-muted)]">
             Elsődleges eszköz: a pénz a pályához képest leginkább alulsúlyozott
             csoportokba megy, eladás nélkül. Itt az extra pénzt (osztalék, rendkívüli
-            befizetés) oszthatod el — a havi megtakarítást a Havi terv, a kuponokat
-            a „Beérkezett” lista.
+            befizetés) oszthatod el — a havi megtakarítást a Havi terv, a hónap végi
+            maradékot az alatta lévő „Maradt pénz a hónapból?” mező (ott előbb a
+            célok kapnak), a kuponokat a „Beérkezett” lista.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
             <AmountInput

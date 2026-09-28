@@ -24,7 +24,16 @@ import {
   defaultPlanAmount,
   planTextLines,
 } from "../../src/lib/monthlyPlan";
-import { loadPlanOrder } from "../../src/lib/planPrefs";
+import { loadLeftoverSettings, loadPlanOrder } from "../../src/lib/planPrefs";
+import {
+  buildLeftoverPlan,
+  leftoverNeeds,
+  leftoverReply,
+  leftoverStatusLines,
+  recordedLeftover,
+  type LeftoverMonth,
+  type LeftoverNeeds,
+} from "../../src/lib/leftover";
 import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import type { Context } from "./data";
@@ -374,6 +383,86 @@ function monthlyPlanLines(ctx: Context): string[] {
   return out;
 }
 
+// ---- Month-end leftover ----------------------------------------------------
+
+/** The synced reminders the app shows (the ones deleted there left out). */
+function liveReminders(ctx: Context) {
+  const deleted = new Set(ctx.snapshot.deletedReminderIds ?? []);
+  return (ctx.snapshot.reminders ?? []).filter((r) => !deleted.has(r.id));
+}
+
+function leftoverOf(ctx: Context): { ln: LeftoverNeeds; budgetHuf: number } {
+  const ln = leftoverNeeds({
+    savingsGoals: loadSavingsGoals(),
+    dcaGoals: ctx.snapshot.goals ?? [],
+    accounts: ctx.snapshot.accounts,
+    transactions: ctx.transactions,
+    instruments: ctx.instruments,
+    prices: ctx.prices,
+    fx: ctx.fx,
+    order: loadPlanOrder(),
+    settings: loadLeftoverSettings(),
+    reminders: liveReminders(ctx),
+    now: ctx.at,
+  });
+  return { ln, budgetHuf: monthlyBudgetHuf(ctx.transactions, ctx.fx, ctx.at) };
+}
+
+/** The leftover of `ctx.at`'s month recorded in the app (as a plan). */
+export function appRecordedLeftover(ctx: Context, m: LeftoverMonth) {
+  return recordedLeftover(liveReminders(ctx), m);
+}
+
+/**
+ * The month-end question: the month's state, then "maradt pénz?" — or, when a
+ * leftover is already recorded (`done`: its description), only the state.
+ */
+export function leftoverPromptText(ctx: Context, done?: string): string {
+  const { ln, budgetHuf } = leftoverOf(ctx);
+  const lines = [
+    `🐷 <b>Hónap vége – ${esc(ln.month.label)}</b>`,
+    ...leftoverStatusLines(ln, budgetHuf).map(esc),
+    "",
+  ];
+  if (done) lines.push(`✅ A hónap maradékát már rögzítetted (${esc(done)}).`);
+  else
+    lines.push(
+      "Maradt pénz ebben a hónapban? Írd meg az összeget, pl. <code>/maradek 50000</code>, és megmondom, mire menjen.",
+    );
+  return lines.join("\n");
+}
+
+/** /maradek <összeg>: the split, or the parse error. */
+export function leftoverAnswer(ctx: Context, arg: string): { ok: boolean; html: string } {
+  const { ln, budgetHuf } = leftoverOf(ctx);
+  if (!arg.trim())
+    return { ok: false, html: leftoverPromptText(ctx) };
+  const positions = positionsFromSummary(ctx.summary, ctx.fx, false, localDay(ctx.at));
+  const r = leftoverReply(arg, ln, (amountHuf) =>
+    buildLeftoverPlan({
+      amountHuf,
+      needs: ln.needs,
+      glide: ctx.glideConfig,
+      state: ctx.glide,
+      budgetHuf,
+      positions,
+      instruments: ctx.instMap,
+      accounts: ctx.accountCtx,
+    }),
+  );
+  if (!r.ok) return { ok: false, html: `❌ ${esc(r.lines[0])}` };
+  const [head, ...rest] = r.lines;
+  return {
+    ok: true,
+    html: [
+      `🐷 <b>${esc(head)}</b>`,
+      ...rest.map((l) => `→ ${esc(l)}`),
+      "",
+      "Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez tervként rögzíthető.",
+    ].join("\n"),
+  };
+}
+
 /** Report on the month before `ctx.at`. */
 export function monthlyText(ctx: Context): string {
   const endPrev = new Date(ctx.at.getFullYear(), ctx.at.getMonth(), 0);
@@ -453,6 +542,7 @@ export const HELP = [
   "/elorejelzes – 1–20 éves előrejelzés",
   "/heti – heti összefoglaló most",
   "/havi – előző havi zárás most",
+  "/maradek 50000 – hová menjen a hónapban megmaradt pénz",
   "",
-  "Magamtól szólok: új teendőnél, nagy napi mozgásnál, vasárnap este heti, a hónap elején havi jelentéssel.",
+  "Magamtól szólok: új teendőnél, nagy napi mozgásnál, vasárnap este heti, a hónap elején havi jelentéssel, a hónap utolsó munkanapján a maradékért.",
 ].join("\n");

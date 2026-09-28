@@ -5,7 +5,8 @@
 //    applies (e.g. a DCA buy of an ETF outside the glide path);
 //  - the monthly plan's order: which goal gets the monthly saving first;
 //  - account limits and the dated "account for new buys" per instrument
-//    (see accountRules).
+//    (see accountRules);
+//  - the month-end leftover: its reminder and the pull-forward rule.
 
 import { touchPref } from "./prefs";
 import type { CostRule } from "./glidePath";
@@ -85,7 +86,11 @@ function loadObject<T>(key: string): T {
   }
 }
 
-function saveObject(key: string, kind: "accountLimits" | "purchaseAccounts", v: unknown) {
+function saveObject(
+  key: string,
+  kind: "accountLimits" | "purchaseAccounts" | "leftover",
+  v: unknown,
+) {
   try {
     const json = JSON.stringify(v);
     if (localStorage.getItem(key) === json) return;
@@ -115,4 +120,47 @@ export function loadPurchaseAccounts(): PurchaseAccounts {
 
 export function savePurchaseAccounts(v: PurchaseAccounts) {
   saveObject(PURCHASE_KEY, "purchaseAccounts", v);
+}
+
+/** Month-end leftover ("hónap végi maradék") settings. */
+export interface LeftoverSettings {
+  /** The bot asks on the month's last working day. */
+  notify: boolean;
+  /** When to ask ("HH:MM", local time). */
+  time: string;
+  /** Pull next month's part of dated goals forward. */
+  pullForward: boolean;
+  /** …only for goals whose date is within this many months. */
+  pullForwardMonths: number;
+}
+
+export const DEFAULT_LEFTOVER: LeftoverSettings = {
+  notify: true,
+  time: "17:00",
+  pullForward: true,
+  pullForwardMonths: 2,
+};
+
+const LEFTOVER_KEY = "pf-leftover";
+
+export function loadLeftoverSettings(): LeftoverSettings {
+  const v = loadObject<Partial<LeftoverSettings>>(LEFTOVER_KEY);
+  const months = Number(v.pullForwardMonths);
+  return {
+    notify: typeof v.notify === "boolean" ? v.notify : DEFAULT_LEFTOVER.notify,
+    time:
+      typeof v.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v.time)
+        ? v.time
+        : DEFAULT_LEFTOVER.time,
+    pullForward:
+      typeof v.pullForward === "boolean" ? v.pullForward : DEFAULT_LEFTOVER.pullForward,
+    pullForwardMonths:
+      Number.isFinite(months) && months >= 1
+        ? Math.min(24, Math.round(months))
+        : DEFAULT_LEFTOVER.pullForwardMonths,
+  };
+}
+
+export function saveLeftoverSettings(v: LeftoverSettings) {
+  saveObject(LEFTOVER_KEY, "leftover", v);
 }
