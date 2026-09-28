@@ -2,12 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
 import type { CouponOption, SavingsGoal } from "../lib/savings";
+import { couponClaimedBy } from "../lib/incomeClaims";
 import { formatDate, formatMoney } from "../lib/format";
 
 /**
  * Pick the future coupons that go to a goal: every coupon due by the goal's
- * date that no other goal took, ticked if it is already this goal's. Esc or a
- * click outside closes without saving.
+ * date, ticked if it is already this goal's. One that another goal picked, or
+ * that a goal earmarking every coupon (includeCoupons) owns by its date, is
+ * listed greyed out with that goal's name. Esc or a click outside closes
+ * without saving.
  */
 export default function CouponPickerDialog({
   goal,
@@ -17,7 +20,7 @@ export default function CouponPickerDialog({
   onClose,
 }: {
   goal: SavingsGoal;
-  /** All goals — coupons another goal picked are left out. */
+  /** All goals — coupons another goal owns can't be picked. */
   goals: SavingsGoal[];
   coupons: CouponOption[];
   onSave: (couponIds: string[]) => void;
@@ -36,12 +39,24 @@ export default function CouponPickerDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const taken = useMemo(
-    () => new Set(goals.filter((g) => g.id !== goal.id).flatMap((g) => g.couponIds ?? [])),
-    [goals, goal.id],
-  );
+  // Coupon id → why it is not free: the other goal that picked it.
+  const pickedBy = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of goals)
+      if (g.id !== goal.id) for (const id of g.couponIds ?? []) m.set(id, g.name);
+    return m;
+  }, [goals, goal.id]);
   const target = goal.targetDate.slice(0, 10);
-  const options = coupons.filter((c) => c.day <= target && !taken.has(c.id));
+  const rows = coupons
+    .filter((c) => c.day <= target)
+    .map((c) => {
+      const claim = couponClaimedBy(goals, goal.id, c.day);
+      const owner = claim
+        ? `${claim.name} (minden kupon a céldátumáig)`
+        : pickedBy.get(c.id);
+      return { ...c, owner };
+    });
+  const options = rows.filter((c) => !c.owner);
   const optionIds = new Set(options.map((c) => c.id));
   const total = options
     .filter((c) => picked.has(c.id))
@@ -86,25 +101,46 @@ export default function CouponPickerDialog({
           A céldátumig ({formatDate(target)}) várható kuponok, amelyek még nincsenek
           másik célhoz rendelve. A kijelölt kupon a várható teljesülésbe számít, a
           jóváírás után pedig a cél félretett pénze lesz — nem kell elosztani.
+          A más célhoz tartozó kuponok szürkén, a cél nevével látszanak.
         </p>
-        {options.length === 0 ? (
+        {goal.includeCoupons && (
+          <p className="mb-3 rounded-lg border border-[var(--color-border)] p-2 text-xs text-[var(--color-muted)]">
+            Ennél a célnál be van kapcsolva, hogy a céldátumig érkező összes
+            (más célhoz nem rendelt) kupon beleszámít — külön kijelölni csak
+            akkor kell, ha ezt kikapcsolod.
+          </p>
+        )}
+        {rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-[var(--color-muted)]">
-            Nincs szabad kupon a céldátumig.
+            Nincs várható kupon a céldátumig.
           </p>
         ) : (
           <ul className="-mx-1 flex-1 overflow-y-auto">
-            {options.map((c) => (
+            {rows.map((c) => (
               <li key={c.id}>
-                <label className="flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1.5 text-sm hover:bg-[var(--color-surface-2)]">
+                <label
+                  className={
+                    c.owner
+                      ? "flex cursor-not-allowed items-center gap-3 rounded-lg px-1 py-1.5 text-sm opacity-50"
+                      : "flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1.5 text-sm hover:bg-[var(--color-surface-2)]"
+                  }
+                  title={c.owner ? `Már a(z) ${c.owner} célhoz tartozik` : undefined}
+                >
                   <input
                     type="checkbox"
-                    checked={picked.has(c.id)}
+                    checked={!c.owner && picked.has(c.id)}
+                    disabled={!!c.owner}
                     onChange={() => toggle(c.id)}
                   />
                   <span className="w-24 shrink-0 tabular-nums text-[var(--color-muted)]">
                     {formatDate(c.day)}
                   </span>
-                  <span className="priv min-w-0 flex-1 truncate">{c.name}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="priv block truncate">{c.name}</span>
+                    {c.owner && (
+                      <span className="priv block truncate text-xs">→ {c.owner}</span>
+                    )}
+                  </span>
                   <span className="amt tabular-nums">{formatMoney(c.amountHuf)}</span>
                 </label>
               </li>

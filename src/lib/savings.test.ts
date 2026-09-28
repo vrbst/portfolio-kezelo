@@ -346,25 +346,40 @@ describe("savings goal – picked coupons (couponIds)", () => {
     expect(p.gapHuf).toBeCloseTo(300_000);
   });
 
+  // An includeCoupons goal whose date is past the picked coupon's (so it
+  // doesn't own it) — it still earmarks the later coupons.
+  const LATER: SavingsGoal = { ...GOAL, targetDate: "2027-12-15" };
+  const EARLY: SavingsGoal = { ...GOAL, targetDate: "2026-10-01" };
+
   it("an includeCoupons goal does not count a coupon another goal picked", () => {
-    const [, g] = progs([PICKED, GOAL], BASE_TXS, "2026-10-05");
-    expect(g.couponsHuf).toBe(0);
-    expect(g.gapHuf).toBeCloseTo(600_000);
+    // EARLY's date is before the coupon: the pick holds, EARLY never had it.
+    const [p] = progs([PICKED, EARLY], BASE_TXS, "2026-09-05");
+    expect(p.pickedCouponsHuf).toBeCloseTo(300_000);
+    // LATER (includeCoupons past it) owns it by its date: the pick is void.
+    const [q, l] = progs([PICKED, LATER], BASE_TXS, "2026-10-05");
+    expect(q.pickedCouponsHuf).toBe(0);
+    expect(q.couponsHuf).toBe(0);
+    expect(l.couponsHuf).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("a goal earmarking every coupon keeps the credited one too", () => {
+    const [q] = progs([PICKED, LATER], [...BASE_TXS, COUPON], "2026-10-20");
+    expect(q.autoCashHuf).toBe(0);
+    const s = stats([{ ...PICKED, monthlyReminder: true }, { ...LATER, id: "l" }], [...BASE_TXS, COUPON], "2026-10-20");
+    expect(s.find((x) => x.goalId === "l")!.couponHuf).toBeGreaterThan(0);
+    expect(reservedCashByAccount([PICKED, LATER], "2026-10-20", [...BASE_TXS, COUPON], {}).size).toBe(0);
   });
 
   it("once credited it is the goal's cash, not shared out", () => {
-    const [p, g] = progs([PICKED, GOAL], [...BASE_TXS, COUPON], "2026-10-20");
+    const [p, g] = progs([PICKED, EARLY], [...BASE_TXS, COUPON], "2026-10-20");
     expect(p.autoCashHuf).toBeCloseTo(300_000);
     expect(p.couponsHuf).toBe(0);
     expect(p.projectedHuf).toBeCloseTo(700_000);
     expect(g.autoCashHuf).toBe(0);
-    const s = stats([PICKED, GOAL], [...BASE_TXS, COUPON], "2026-10-20");
+    const s = stats([PICKED, EARLY], [...BASE_TXS, COUPON], "2026-10-20");
     expect(s.find((x) => x.goalId === "p")!.couponHuf).toBe(0);
-    expect(s.find((x) => x.goalId === "g")!.couponHuf).toBe(0);
     // Quota: (1 000 000 − 400 000 − 300 000) / 3 months.
     expect(s.find((x) => x.goalId === "p")!.baseNeededHuf).toBeCloseTo(100_000);
-    // The other goal's month-start gap leaves the picked coupon out: 600 000 / 3.
-    expect(s.find((x) => x.goalId === "g")!.baseNeededHuf).toBeCloseTo(200_000);
   });
 
   it("a coupon booked a few days off the schedule still matches", () => {
