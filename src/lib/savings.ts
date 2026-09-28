@@ -299,6 +299,12 @@ export interface SavingsMonthlyStatus {
   buyKey?: string;
   /** Account of the goal's latest reserve with one (where the cash is kept). */
   reserveAccountId?: string;
+  /**
+   * The monthly setting aside starts in a later month (saveFrom) and nothing
+   * is asked this month — no coupon to reinvest, nothing bought. Not a to-do,
+   * not a "done" one either: the plan and the Alerts page leave it out.
+   */
+  notStarted: boolean;
 }
 
 /**
@@ -415,6 +421,7 @@ export function savingsMonthStates(
       reserveAccountId: [...(g.reserves ?? [])]
         .filter((r) => r.accountId && r.amountHuf > 0)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.accountId,
+      notStarted: !!p?.savingStartsOn && neededHuf <= 0 && Math.abs(boughtHuf) < 1,
     });
   }
   return out;

@@ -409,6 +409,10 @@ describe("savings goal – a later saving start (saveFrom)", () => {
     expect(p.plannedMonthlyHuf).toBeCloseTo(300_000);
     const s = savingsMonthlyStatus([g], [ACC], BASE_TXS, instruments, new Map(), {}, at("2026-10-05"));
     expect(s[0].done).toBe(true);
+    // Not a to-do (nor a "done" one) before the start: the plan leaves it out.
+    expect(s[0].notStarted).toBe(true);
+    const later = savingsMonthlyStatus([g], [ACC], BASE_TXS, instruments, new Map(), {}, at("2026-11-20"));
+    expect(later[0].notStarted).toBe(false);
   });
 
   it("all in the last month", () => {

@@ -84,7 +84,9 @@ export function planNeeds(
   dca: GoalProgress[],
   instruments: Map<string, Instrument>,
 ): PlanNeed[] {
-  const dated = [...savings]
+  const dated = savings
+    // Saving starts in a later month: nothing to do (or tick off) yet.
+    .filter((s) => !s.notStarted)
     .sort((a, b) =>
       (savingsDates.get(a.goalId) ?? "").localeCompare(savingsDates.get(b.goalId) ?? ""),
     )

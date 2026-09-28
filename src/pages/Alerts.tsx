@@ -76,7 +76,8 @@ export default function Alerts() {
       prices,
       fx,
     )
-      .filter((s) => s.done)
+      // A goal whose saving starts later has nothing to be "done" yet.
+      .filter((s) => s.done && !s.notStarted)
       .map((s) => ({
         id: `savings-ok:${s.goalId}`,
         label: `Havi vásárlás – ${s.name}`,
