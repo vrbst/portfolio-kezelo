@@ -69,7 +69,8 @@ export const ANALYSIS_SCHEMA: Record<string, unknown> = {
 export const STRUCTURED_ANALYSIS_PROMPT = `Értékeld a portfóliót a pillanatkép alapján, a megadott JSON-szerkezetben.
 - headline: egyetlen mondat, a legfontosabb összkép (konkrét számmal, ha lehet).
 - overall: az összkép állapota (rendben / figyelj / teendo).
-- sections: 4–7 kártya ezekből a témákból, csak ami releváns: koncentracio (túlsúlyos pozíció), deviza (kitettség), hozam (XIRR/TWR, trend), celok (rendszeres és középtávú célok), penzaramlas (közelgő kamatok, lejáratok, kiadások), allokacio (cél-allokációtól eltérés), tbsz (adózási mérföldkövek), egyeb. Mindegyiknek rövid cím, állapot és 1–3 mondatos szöveg konkrét számokkal. A "teendo" állapotot csak valódi, időszerű teendőre használd.
+- sections: 4–7 kártya ezekből a témákból, csak ami releváns: koncentracio (túlsúlyos pozíció), deviza (kitettség), hozam (XIRR/TWR, trend), celok (rendszeres és középtávú célok), penzaramlas (közelgő kamatok, lejáratok, kiadások), allokacio (cél-allokációtól eltérés), tbsz (adózási mérföldkövek), egyeb. Mindegyiknek rövid cím, állapot és 1–3 mondatos szöveg konkrét számokkal.
+- A tbsz kártya forintösszegekkel dolgozzon, a pillanatkép TBSZ-soraiból: mennyi lenne az adó, a nettó kézhez kapott összeg és az adózott haszon, ha most bontaná fel, és mennyi a következő mérföldkő (3 éves lekötés / 5 éves lejárat) után — dátummal és azzal, mennyivel több marad a várakozással. Ha több TBSZ van, mindegyikről külön sor (a számla nevével, új sorban), végül egy összesítő; ilyenkor a tbsz kártya hosszabb lehet 3 mondatnál. A "teendo" állapotot csak valódi, időszerű teendőre használd.
 - changes: ha kaptál előző elemzést, 1–3 mondatban mi változott azóta (számokkal); ha nem, üres string.
 Legyél tömör, kerüld az általános közhelyeket, ne adj konkrét vételi/eladási utasítást.`;
 

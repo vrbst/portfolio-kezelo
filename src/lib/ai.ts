@@ -7,7 +7,7 @@ import {
 import { assetClassLabel } from "./labels";
 import { localDay, type GoalProgress } from "./goals";
 import type { Alert } from "./alerts";
-import type { TbszStatus } from "./tbsz";
+import { tbszExitScenarios, type TbszStatus } from "./tbsz";
 import type { UpcomingEvent } from "./events";
 import type { SavingsProgress } from "./savings";
 import type { AllocationState } from "./rebalance";
@@ -259,7 +259,21 @@ function costOf(model: string, usage: Omit<AiUsage, "costUsd">): number {
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+/** ISO timestamp → local "YYYY-MM-DD". */
+const ymd = (iso: string) => {
+  const d = localDay(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 const signedHuf = (n: number) => `${n > 0 ? "+" : ""}${huf(n)}`;
+
+/** A TBSZ account with its current value and gain, for exit-tax amounts. */
+export interface TbszAccountTax {
+  name: string;
+  status: TbszStatus;
+  grossHuf: number;
+  /** Current value − capital put in (only a positive gain is taxed). */
+  gainHuf: number;
+}
 
 /** Extra, optional context sections — richer signals beyond the snapshot. */
 export interface AiContextExtras {
@@ -268,7 +282,8 @@ export interface AiContextExtras {
   series?: ValuePoint[];
   goals?: GoalProgress[];
   alerts?: Alert[];
-  tbsz?: TbszStatus[];
+  /** One entry per TBSZ account (several can share a collection year). */
+  tbsz?: TbszAccountTax[];
   events?: UpcomingEvent[];
   /** Medium-term savings goals (target, deadline, expected fill). */
   savings?: SavingsProgress[];
@@ -532,16 +547,54 @@ export function buildAiPortfolioContext(
     }
   }
 
-  // --- TBSZ tax status ---
+  // --- TBSZ tax status: per account, with concrete exit amounts ---
   if (extras?.tbsz?.length) {
-    lines.push("", "TBSZ számlák állapota:");
+    lines.push(
+      "",
+      "TBSZ számlák állapota (számlánként; a felbontási összegek a MOSTANI hozamra vetítve, a jövőbeli árfolyammozgás nélkül):",
+    );
+    const tierDate = { early: undefined, three: "three", five: "five" } as const;
+    const now = { net: 0, tax: 0, profit: 0 };
     for (const t of extras.tbsz) {
+      const s = t.status;
       const nextTxt =
-        t.next && t.daysToNext != null
-          ? `, következő mérföldkő: ${t.next.label} (${t.daysToNext} nap)`
+        s.next && s.daysToNext != null
+          ? `, következő mérföldkő: ${s.next.label} (${ymd(s.next.date)}, ${s.daysToNext} nap)`
           : "";
       lines.push(
-        `- ${t.year}. évi gyűjtő: ${t.phaseLabel}, adóteher most töréskor ${t.taxLabel}${nextTxt}`,
+        `- ${t.name} (${s.year}. évi gyűjtő): ${s.phaseLabel}${nextTxt}. Érték ${huf(t.grossHuf)} Ft, befizetett tőke ${huf(t.grossHuf - t.gainHuf)} Ft, hozam ${signedHuf(t.gainHuf)} Ft.`,
+      );
+      const scenarios = tbszExitScenarios(s, t.grossHuf, t.gainHuf);
+      for (const sc of scenarios) {
+        if (sc.state === "past") continue;
+        const m = tierDate[sc.key] && s.milestones.find((x) => x.key === tierDate[sc.key]);
+        const when =
+          sc.state === "current"
+            ? "Ha most bontod fel"
+            : `Ha ${m ? `${ymd(m.date)} után` : sc.label} bontod fel`;
+        const rate = sc.taxRate === 0 ? "adómentes" : `${Math.round(sc.taxRate * 100)}% adó`;
+        const profit = t.gainHuf - sc.taxHuf;
+        const saved =
+          sc.savedVsNowHuf > 0 ? `, ${huf(sc.savedVsNowHuf)} Ft-tal több, mint most` : "";
+        lines.push(
+          `  · ${when} (${rate}): adó ${huf(sc.taxHuf)} Ft, nettó kézhez ${huf(sc.netHuf)} Ft, adózott haszon ${signedHuf(profit)} Ft${saved}`,
+        );
+        if (sc.state === "current") {
+          now.net += sc.netHuf;
+          now.tax += sc.taxHuf;
+          now.profit += profit;
+        }
+      }
+      if (t.gainHuf <= 0)
+        lines.push("  · Nincs adóköteles hozam: felbontáskor nem kell adót fizetni.");
+    }
+    // Several TBSZ-ek: combined "now" vs "all matured" (tax-free, so it's
+    // just Σ value / Σ gain). The 3-year turns differ per vintage: per account.
+    if (extras.tbsz.length > 1) {
+      const gross = extras.tbsz.reduce((a, t) => a + t.grossHuf, 0);
+      const gain = extras.tbsz.reduce((a, t) => a + t.gainHuf, 0);
+      lines.push(
+        `- Összesen ${extras.tbsz.length} TBSZ: ha most mindet felbontanád, adó ${huf(now.tax)} Ft, nettó ${huf(now.net)} Ft, adózott haszon ${signedHuf(now.profit)} Ft; ha mind az 5 éves lejárat után, nettó ${huf(gross)} Ft, adózott haszon ${signedHuf(gain)} Ft (${huf(now.tax)} Ft adó marad meg).`,
       );
     }
   }
