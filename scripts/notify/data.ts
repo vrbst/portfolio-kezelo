@@ -37,6 +37,8 @@ import {
 } from "../../src/lib/goals";
 import {
   reservedCashByAccount,
+  reserveConflictAlerts,
+  reserveConflicts,
   loadSavingsGoals,
   savingsGoalAlerts,
   computeSavingsProgress,
@@ -288,6 +290,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
     ...incomeAlerts(income),
+    ...reserveConflictAlerts(reserveConflicts(savingsGoals, transactions, instMap, fx)),
   ].filter((a) => alertState[a.id]?.status !== "dismissed");
 
   return {

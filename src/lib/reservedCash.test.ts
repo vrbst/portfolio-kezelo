@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Transaction } from "./model";
 import { computePortfolio } from "./portfolio";
-import { freeCashOf, reservedCashByAccount, type SavingsGoal } from "./savings";
+import {
+  freeCashOf,
+  reserveConflictAlerts,
+  reserveConflicts,
+  reservedCashByAccount,
+  settleReserveConflict,
+  type SavingsGoal,
+} from "./savings";
 import { positionsFromSummary } from "./rebalance";
 import { computeAlerts, DEFAULT_ALERT_CONFIG } from "./alerts";
 import { accountContext } from "./accountRules";
@@ -58,5 +65,38 @@ describe("cash set aside is not free cash", () => {
       computeAlerts(summary, cfg, new Date(`${DAY}T12:00:00`), TXS, r).filter((a) => a.id.startsWith("idle-cash"));
     expect(idle()).toHaveLength(1);
     expect(idle(reservedCashByAccount([goal()], DAY))).toHaveLength(0);
+  });
+});
+
+describe("possible double counting: a buy paid from a reserve", () => {
+  const DKJ = { key: "dkj", name: "DKJ", type: "tbill" as const, currency: "HUF", faceValue: 1, maturity: "2026-12-01" };
+  const insts = new Map([[DKJ.key, DKJ]]);
+  const g = goal({ instrumentKeys: [DKJ.key], targetDate: "2026-12-15" });
+  const buy = (id: string, date: string, accountId = "k"): Transaction => ({
+    id, accountId, date, type: "buy", instrumentKey: DKJ.key, currency: "HUF", quantity: 200_000, grossAmount: 195_000, netAmount: -195_000,
+  });
+
+  it("a later buy of the goal's instrument on the reserve's account is flagged", () => {
+    const c = reserveConflicts([g], [...TXS, buy("b1", "2026-10-05")], insts, {});
+    expect(c).toMatchObject([{ goalId: "g", reserveId: "r", buyTxId: "b1", buyHuf: 195_000, reserveHuf: 550_000 }]);
+    expect(reserveConflictAlerts(c)[0].detail).toMatch(/felhasználtad a félretett pénzt/);
+  });
+
+  it("not flagged: another account, an earlier buy, or a buy after the target date", () => {
+    const txs = [...TXS, buy("b2", "2026-10-05", "other"), buy("b3", "2026-09-10"), buy("b4", "2026-12-20")];
+    expect(reserveConflicts([g], txs, insts, {})).toEqual([]);
+  });
+
+  it("'used it' lowers the reserve by the buy; either answer silences it — nothing automatic", () => {
+    const txs = [...TXS, buy("b1", "2026-10-05")];
+    const [c] = reserveConflicts([g], txs, insts, {});
+    // Unanswered, the reserve stays as it was.
+    expect(g.reserves![0].amountHuf).toBe(550_000);
+    const used = settleReserveConflict(g, c, true);
+    expect(used.reserves![0].amountHuf).toBe(355_000);
+    expect(reserveConflicts([used], txs, insts, {})).toEqual([]);
+    const separate = settleReserveConflict(g, c, false);
+    expect(separate.reserves![0].amountHuf).toBe(550_000);
+    expect(reserveConflicts([separate], txs, insts, {})).toEqual([]);
   });
 });

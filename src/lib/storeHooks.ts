@@ -29,6 +29,8 @@ import {
   type SavingsGoal,
   type SavingsProgress,
   reservedCashByAccount,
+  reserveConflictAlerts,
+  reserveConflicts,
 } from "./savings";
 import {
   allocateIncome,
@@ -259,6 +261,10 @@ const cachedAlerts = sharedMemo(
       fx,
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
+    // A buy that may have been paid from a goal's set-aside cash.
+    ...reserveConflictAlerts(
+      reserveConflicts(savingsGoals, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
+    ),
   ],
 );
 

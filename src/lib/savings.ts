@@ -96,6 +96,11 @@ export interface CashReserve {
   /** The account the cash sits on; missing = a bank account / elsewhere. */
   accountId?: string;
   note?: string;
+  /**
+   * Buys of the goal's instrument already answered (see reserveConflicts):
+   * "used the reserve" (it was lowered) or "separate money". Never re-asked.
+   */
+  settledBuyIds?: string[];
 }
 
 export const DEFAULT_MIN_DAYS_TO_MATURITY = 30;
@@ -950,4 +955,100 @@ export function savingsGoalExpenses(goals: SavingsGoal[]): PlannedExpense[] {
       amountHuf: g.targetHuf,
       note: g.name,
     }));
+}
+
+// ---- Possible double counting: a buy paid from a reserve -------------------
+
+/** A buy of the goal's instrument that may have been paid from a reserve. */
+export interface ReserveConflict {
+  goalId: string;
+  goalName: string;
+  reserveId: string;
+  /** What is still set aside in that reserve. */
+  reserveHuf: number;
+  buyTxId: string;
+  /** YYYY-MM-DD. */
+  buyDay: string;
+  buyHuf: number;
+  accountId: string;
+}
+
+/**
+ * Buys of a goal's instrument on the account of one of its reserves, after
+ * that reserve's date (and by the target date) that nobody answered yet: the
+ * money may have come from the reserve — then it would count twice (as the
+ * bought security AND as set-aside cash). Each buy pairs with the latest
+ * earlier reserve on its account. Nothing is lowered automatically.
+ */
+export function reserveConflicts(
+  goals: SavingsGoal[],
+  txs: Transaction[],
+  instruments: Map<string, Instrument>,
+  fx: Record<string, number>,
+): ReserveConflict[] {
+  const out: ReserveConflict[] = [];
+  const fxHistory = buildFxHistory(txs);
+  for (const g of goals) {
+    const reserves = (g.reserves ?? []).filter((r) => r.accountId && r.amountHuf > 0);
+    if (reserves.length === 0) continue;
+    const settled = new Set((g.reserves ?? []).flatMap((r) => r.settledBuyIds ?? []));
+    const isTrade = goalTradeMatcher(g, instruments);
+    const target = g.targetDate.slice(0, 10);
+    for (const t of txs) {
+      if (t.type !== "buy" || !isTrade(t) || settled.has(t.id)) continue;
+      const day = toLocalDay(dayMsOf(t.date));
+      if (day > target) continue;
+      const r = reserves
+        .filter((x) => x.accountId === t.accountId && x.date < day)
+        .sort((a, b) => b.date.localeCompare(a.date))[0];
+      if (!r) continue;
+      out.push({
+        goalId: g.id,
+        goalName: g.name,
+        reserveId: r.id,
+        reserveHuf: r.amountHuf,
+        buyTxId: t.id,
+        buyDay: day,
+        buyHuf: tradeHufAtCost(t, fxHistory, fx),
+        accountId: t.accountId,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Answer a conflict: `used` = the buy was paid from the reserve, so lower it
+ * by the buy (not below 0); otherwise it was separate money. Either way the
+ * buy is remembered and not asked about again.
+ */
+export function settleReserveConflict(
+  goal: SavingsGoal,
+  c: ReserveConflict,
+  used: boolean,
+): SavingsGoal {
+  return {
+    ...goal,
+    reserves: (goal.reserves ?? []).map((r) =>
+      r.id !== c.reserveId
+        ? r
+        : {
+            ...r,
+            amountHuf: used ? Math.max(0, Math.round(r.amountHuf - c.buyHuf)) : r.amountHuf,
+            settledBuyIds: [...new Set([...(r.settledBuyIds ?? []), c.buyTxId])],
+          },
+    ),
+  };
+}
+
+/** One alert per unanswered conflict (see reserveConflicts). */
+export function reserveConflictAlerts(conflicts: ReserveConflict[]): Alert[] {
+  return conflicts.map((c) => ({
+    id: `reserve-conflict:${c.goalId}:${c.buyTxId}`,
+    severity: "medium" as const,
+    title: `Lehetséges kettős számolás – ${c.goalName}`,
+    detail: `Vétel ${formatMoney(c.buyHuf)} (${c.buyDay}), félretétel ${formatMoney(c.reserveHuf)} ugyanazon a számlán — felhasználtad a félretett pénzt? A célkártyán egy gombbal csökkentheted.`,
+    to: "/goals",
+    actionLabel: "Célok",
+  }));
 }
