@@ -285,12 +285,14 @@ export function planBuy(
   let target = moneyHuf;
   if (included)
     target = Math.max(0, (moneyHuf - (cost?.fixedHuf ?? 0)) / (1 + (cost?.pct ?? 0) + fxPct));
-  let amount = target;
+  // The whole money is the buy; the units are only indicative (the price on
+  // the day of the buy isn't known here, so rounding to whole units would
+  // just leave a meaningless few forints over).
+  const amount = target;
   let quantity: number | undefined;
   if (pos.unitPriceHuf && pos.unitPriceHuf > 0) {
     const f = 10 ** decimalsFor(rule, instruments.get(key));
     quantity = Math.floor((target / pos.unitPriceHuf) * f + 1e-9) / f;
-    amount = quantity * pos.unitPriceHuf;
   }
   return {
     amountHuf: amount,
@@ -367,21 +369,8 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
       venue,
       upcoming,
     };
-    if (give >= 1 && key) {
+    if (give >= 1 && key)
       line.trade = planBuy(key, give, glide, positions, instruments, fxOf(key));
-      // Whole units (a DKJ's 1 Ft face, a bond's denomination) rarely spend
-      // the money to the forint: the item shows what is actually bought
-      // (with its costs, when they come out of the money), and the rounding
-      // remainder moves on to the next item / the glide path. It is not a
-      // shortfall of the item: the money was there, a unit wasn't.
-      const t = line.trade;
-      const used =
-        glide?.buyCostMode === "extra" ? t.amountHuf : t.amountHuf + t.costHuf + (t.fxCostHuf ?? 0);
-      if (used < give) {
-        left += give - used;
-        line.allocatedHuf = used;
-      }
-    }
     lines.push(line);
   }
   let glideHuf = 0;

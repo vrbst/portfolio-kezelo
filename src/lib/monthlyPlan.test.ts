@@ -266,25 +266,22 @@ describe("cost source order: bucket rule → bond redemption → broker → gene
   });
 });
 
-describe("whole units", () => {
-  it("the item shows what is bought; the rounding remainder moves on", () => {
-    // A DKJ at 0,99577 Ft per 1 Ft face: 35 000 Ft buys 35 148 units = 34 999,x Ft.
+describe("whole units are not rounded", () => {
+  it("the whole money is the buy; the units are indicative", () => {
     const dkj: Position = { key: "DKJ", name: "DKJ", valueHuf: 0, quantity: 0, unitPriceHuf: 0.99577 };
     const p = buildMonthlyPlan({
       amountHuf: 35_000,
-      needs: [need("savings:a", 35_000, { instrumentKey: "DKJ" }), need("dca:w", 10)],
+      needs: [need("savings:a", 35_000, { instrumentKey: "DKJ" })],
       glide: GLIDE,
       state: STATE,
       budgetHuf: 35_000,
       positions: [dkj],
       instruments: new Map([["DKJ", { key: "DKJ", name: "DKJ", type: "tbill", currency: "HUF" } as Instrument]]),
     });
-    const t = p.lines[0].trade!;
-    expect(t.quantity).toBe(35_148);
-    expect(p.lines[0].allocatedHuf).toBeCloseTo(t.amountHuf + t.costHuf);
-    expect(p.lines[0].allocatedHuf).toBeLessThan(35_000);
-    expect(p.lines[0].shortHuf).toBe(0);
-    // The forint left over is not lost: the next item gets it.
-    expect(p.lines[1].allocatedHuf).toBeCloseTo(35_000 - p.lines[0].allocatedHuf);
+    expect(p.lines[0].allocatedHuf).toBe(35_000);
+    expect(p.lines[0].trade!.amountHuf).toBe(35_000);
+    expect(p.lines[0].trade!.quantity).toBe(35_148);
+    expect(p.deposits[0]?.totalHuf ?? 35_000).toBe(35_000);
+    expect(p.glideHuf).toBe(0);
   });
 });
