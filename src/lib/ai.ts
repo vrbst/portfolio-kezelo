@@ -10,7 +10,7 @@ import type { Alert } from "./alerts";
 import type { TbszStatus } from "./tbsz";
 import type { UpcomingEvent } from "./events";
 import type { SavingsProgress } from "./savings";
-import type { AllocationState } from "./rebalance";
+import { bandBaseNote, type AllocationState } from "./rebalance";
 import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
 // The SDK is loaded on first use (dynamic import → its own chunk), so it
@@ -433,7 +433,7 @@ export function buildAiPortfolioContext(
     lines.push("", "Célpálya (eszközcsoportok; tény / mai pályacél, sáv, végső cél):");
     for (const b of extras.glide.buckets)
       lines.push(
-        `- ${b.bucket.name}: tény ${pct(b.weight)}, pályacél ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig (${signedHuf(b.valueHuf - b.target * extras.glide.totalHuf)} Ft a pályához képest)`,
+        `- ${b.bucket.name}: tény ${pct(b.weight)}, pályacél ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}${bandBaseNote(b) ? `, ${bandBaseNote(b)}` : ""}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig (${signedHuf(b.valueHuf - b.target * extras.glide.totalHuf)} Ft a pályához képest)`,
       );
   }
 

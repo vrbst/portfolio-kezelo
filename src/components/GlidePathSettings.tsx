@@ -19,6 +19,7 @@ import {
   type GlideConfig,
 } from "../lib/glidePath";
 import {
+  bandBaseNote,
   bandLimits,
   checkDays,
   pathTargets,
@@ -226,7 +227,8 @@ export default function GlidePathSettings() {
                   <span className="tabular-nums text-[var(--color-muted)]">
                     {pct(b.weight)}{" "}
                     <span className="text-xs">
-                      / pálya {pct(b.target)} ({pct(b.low)}–{pct(b.high)})
+                      / pálya {pct(b.target)} ({pct(b.low)}–{pct(b.high)}
+                      {bandBaseNote(b) && `; ${bandBaseNote(b)}`})
                     </span>
                   </span>
                 </div>

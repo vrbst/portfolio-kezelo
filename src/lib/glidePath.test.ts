@@ -268,3 +268,31 @@ describe("validateConfig – fractional decimals", () => {
     expect(validateConfig(withDec(2.5)).errors).toHaveLength(1);
   });
 });
+
+describe("validateConfig – band limit base", () => {
+  const rising = (patch: Partial<Bucket> = {}) =>
+    bucket("R", 0.6, { start: { mode: "manual", weight: 0.4 }, ...patch });
+  const falling = (patch: Partial<Bucket> = {}) =>
+    bucket("K", 0.4, { start: { mode: "manual", weight: 0.6 }, ...patch });
+
+  it("accepts the path or the final weight on the matching side", () => {
+    const r = validateConfig(
+      config([rising({ upperBase: "final" }), falling({ lowerBase: "final" })]),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.filter((w) => w.bucketId)).toEqual([]);
+  });
+
+  it("rejects any other value", () => {
+    const bad = rising({ upperBase: "today" as unknown as "path" });
+    expect(validateConfig(config([bad, falling()])).errors).toHaveLength(1);
+  });
+
+  it("warns when the setting has no effect on that side", () => {
+    const r = validateConfig(
+      config([rising({ lowerBase: "final" }), falling({ upperBase: "final" })]),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.filter((w) => w.bucketId).map((w) => w.bucketId)).toEqual(["R", "K"]);
+  });
+});

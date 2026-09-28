@@ -180,6 +180,12 @@ export interface BandLimits {
   target: number;
   low: number;
   high: number;
+  /**
+   * The limit is measured from the final weight (Bucket.upperBase /
+   * lowerBase) and is wider than the path band would be.
+   */
+  highFromFinal?: boolean;
+  lowFromFinal?: boolean;
 }
 
 export interface BandWidth {
@@ -212,7 +218,9 @@ export function bandWidth(b: Bucket, target: number): BandWidth {
 /**
  * Band around the path target (see {@link bandWidth}), clipped to 0..100%.
  * `target` defaults to the bucket's raw path target; pass the normalised one
- * when working with a whole config.
+ * when working with a whole config. A limit whose base is the final weight
+ * (Bucket.upperBase / lowerBase) is final ± the band there, but never
+ * narrower than the path band — past the end date the two coincide.
  */
 export function bandLimits(
   b: Bucket,
@@ -220,11 +228,42 @@ export function bandLimits(
   target: number = pathTarget(b, day),
 ): BandLimits {
   const half = bandWidth(b, target).effective;
+  let low = target - half;
+  let high = target + half;
+  let lowFromFinal = false;
+  let highFromFinal = false;
+  if (b.upperBase === "final" || b.lowerBase === "final") {
+    const finalHalf = bandWidth(b, b.finalWeight).effective;
+    const finalHigh = b.finalWeight + finalHalf;
+    const finalLow = b.finalWeight - finalHalf;
+    if (b.upperBase === "final" && finalHigh > high + EPS) {
+      high = finalHigh;
+      highFromFinal = true;
+    }
+    if (b.lowerBase === "final" && finalLow < low - EPS) {
+      low = finalLow;
+      lowFromFinal = true;
+    }
+  }
   return {
     target,
-    low: Math.max(0, target - half),
-    high: Math.min(1, target + half),
+    low: Math.max(0, low),
+    high: Math.min(1, high),
+    ...(highFromFinal && { highFromFinal }),
+    ...(lowFromFinal && { lowFromFinal }),
   };
+}
+
+/**
+ * Short note on limits measured from the final weight ("felső: végső cél +
+ * sáv"), for status texts; empty when both follow the path.
+ */
+export function bandBaseNote(l: BandLimits): string {
+  const parts = [
+    l.highFromFinal ? "felső: végső cél + sáv" : "",
+    l.lowFromFinal ? "alsó: végső cél − sáv" : "",
+  ].filter(Boolean);
+  return parts.join(", ");
 }
 
 // ---- Positions & weights ----------------------------------------------------

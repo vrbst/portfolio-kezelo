@@ -570,6 +570,8 @@ export default function GlidePathEditor({
                     </div>
                   </label>
 
+                  <BandBaseFields bucket={b} globalMode={draft.restoreTo} onChange={(patch) => setBucket(b.id, patch)} />
+
                   <OutOfBandFields
                     bucket={b}
                     globalMode={draft.restoreTo}
@@ -989,6 +991,70 @@ const MODE_LABEL: Record<OutOfBandMode, string> = {
  * below a falling one) wears off on its own, so it only steers money — with a
  * 3 pp safety threshold; the opposite drift is traded back to the path.
  */
+/**
+ * What the band's upper / lower limit is measured from: the day's path
+ * target or the final weight (final ± band) — so a bucket running ahead of
+ * its path raises no alert until it passes the final target's band. The
+ * incoming money is still routed toward the path.
+ */
+function BandBaseFields({
+  bucket: b,
+  globalMode,
+  onChange,
+}: {
+  bucket: Bucket;
+  globalMode: GlideConfig["restoreTo"];
+  onChange: (patch: Partial<Bucket>) => void;
+}) {
+  const dir = Math.sign(b.finalWeight - startWeight(b));
+  const side = (key: "upper" | "lower") => {
+    const value = key === "upper" ? b.upperBase : b.lowerBase;
+    const useful = key === "upper" ? dir > 0 : dir < 0;
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`${LABEL} w-20`}>{key === "upper" ? "Felső határ" : "Alsó határ"}</span>
+        <select
+          className={INPUT}
+          value={value ?? "path"}
+          onChange={(e) => {
+            const v = e.target.value === "final" ? ("final" as const) : undefined;
+            onChange(key === "upper" ? { upperBase: v } : { lowerBase: v });
+          }}
+        >
+          <option value="path">a) a pályacél {key === "upper" ? "+" : "−"} sáv</option>
+          <option value="final">b) a végső cél {key === "upper" ? "+" : "−"} sáv</option>
+        </select>
+        {value === "final" && !useful && (
+          <span className={LABEL}>
+            — {key === "upper" ? "nem emelkedő" : "nem csökkenő"} pályán nincs hatása
+          </span>
+        )}
+      </div>
+    );
+  };
+  const risky =
+    (b.upperBase === "final" && (b.aboveMode ?? globalMode) === "path") ||
+    (b.lowerBase === "final" && (b.belowMode ?? globalMode) === "path");
+  return (
+    <div className="space-y-1 sm:col-span-2">
+      <div
+        className={LABEL}
+        title="b) esetén a pálya előtt járó csoport nem kap riasztást és átirányítást, amíg a végső cél körüli sávot át nem lépi. A bejövő pénz továbbra is a pálya felé terel."
+      >
+        Sávhatár alapja
+      </div>
+      {side("upper")}
+      {side("lower")}
+      {risky && (
+        <div className={LABEL}>
+          Megjegyzés: „vissza a pályára” módban a határ átlépése után a mai pályacélig
+          kereskedik — a „sávhatárig” vagy a „kereskedés nélkül” mód kisebb lépést ad.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OutOfBandFields({
   bucket: b,
   globalMode,
