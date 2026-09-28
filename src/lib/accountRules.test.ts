@@ -191,6 +191,8 @@ describe("monthly plan with accounts", () => {
     expect(p.deposits.map((d) => d.label).sort()).toEqual(
       ["broker TBSZ 2025 (T-25)", "Államkincstár"].sort(),
     );
+    // Each row says which plan items it sums up — they are not extra items.
+    expect(p.deposits.find((d) => d.label === "Államkincstár")!.items[0]).toBe("dca:b");
   });
 
   it("a HUF deposit into a EUR instrument pays the broker's conversion", () => {
@@ -227,17 +229,17 @@ describe("monthly plan with accounts", () => {
     const text = planLineText(p.lines[0]);
     expect(text).toContain("→ broker TBSZ 2026 (még nincs a nyilvántartásban — nyisd meg)");
     expect(text).toContain("2026-07-01-tól: broker Befektetési (R-1)");
-    expect(planTextLines(p).at(-1)).toMatch(/^Befizetések: /);
+    expect(planTextLines(p).at(-1)).toMatch(/^Befizetések \(a fentiek számlánként\): /);
   });
 
   it("hold-cash money is listed apart in the deposits, with where it is kept", () => {
     const hold: PlanNeed = { ...need("savings:b", "ETF", 30_000), kind: "savings", name: "Babaváró", instrumentKey: undefined, holdCash: true, reserveAccountId: "TR" };
     const p = run(ctx(), 100_000, [hold, need("dca:e", "ETF", 50_000)]);
     const row = p.deposits.find((d) => d.reserve)!;
-    expect(row).toMatchObject({ label: "Félretétel – Babaváró → Államkincstár", totalHuf: 30_000 });
-    expect(planTextLines(p).at(-1)).toMatch(/Félretétel – Babaváró → Államkincstár: 30\s000\sFt/);
+    expect(row).toMatchObject({ label: "Államkincstár (félretétel)", items: ["Babaváró"], totalHuf: 30_000 });
+    expect(planTextLines(p).at(-1)).toMatch(/Államkincstár \(félretétel\): 30\s000\sFt = Babaváró/);
     const noAcc = run(ctx(), 100_000, [{ ...hold, reserveAccountId: undefined }]);
-    expect(noAcc.deposits.find((d) => d.reserve)!.label).toBe("Félretétel – Babaváró → bankszámla / máshol");
+    expect(noAcc.deposits.find((d) => d.reserve)!.label).toBe("bankszámla / máshol (félretétel)");
   });
 
   it("a glide-path buy shows the upcoming change of its account too", () => {

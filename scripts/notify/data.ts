@@ -210,6 +210,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     accounts,
     transactions,
     instruments,
+    prices,
     fx,
     history,
     liveQuotes,

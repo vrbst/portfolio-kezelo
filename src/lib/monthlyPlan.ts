@@ -73,6 +73,8 @@ export interface PlanNeed {
   holdCash: boolean;
   /** Where the goal's set-aside cash is kept (its latest reserve's account). */
   reserveAccountId?: string;
+  /** A later month's part pulled forward (month-end leftover): its label. */
+  ahead?: string;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
@@ -199,9 +201,14 @@ export interface PlanLine {
   upcoming?: { from: string; label: string };
 }
 
-/** Money to send to one account this month (buys + their costs). */
+/**
+ * Money to send to one account this month (buys + their costs): the plan's
+ * lines summed up by account — not extra items on top of them.
+ */
 export interface PlanDeposit {
   label: string;
+  /** The plan items it covers ("Babaváró", "Célpálya"), in plan order. */
+  items: string[];
   accountId?: string;
   /** The account isn't in the ledger yet — open it first. */
   pending: boolean;
@@ -396,10 +403,11 @@ function planDeposits(
   accountLabelOf: (id: string | undefined) => string,
 ): PlanDeposit[] {
   const by = new Map<string, PlanDeposit>();
-  const add = (v: Venue | undefined, amount: number, cost: number, fx: number) => {
+  const add = (item: string, v: Venue | undefined, amount: number, cost: number, fx: number) => {
     const label = v?.label ?? "ismeretlen számla";
     const d: PlanDeposit = by.get(label) ?? {
       label,
+      items: [],
       accountId: v?.account?.id,
       pending: !!v?.pending,
       amountHuf: 0,
@@ -411,28 +419,31 @@ function planDeposits(
     d.costHuf += cost;
     d.fxCostHuf += fx;
     d.totalHuf += amount + cost + fx;
+    if (!d.items.includes(item)) d.items.push(item);
     by.set(label, d);
   };
   for (const l of lines)
-    if (l.trade) add(l.venue, l.trade.amountHuf, l.trade.costHuf, l.trade.fxCostHuf ?? 0);
+    if (l.trade) add(l.need.name, l.venue, l.trade.amountHuf, l.trade.costHuf, l.trade.fxCostHuf ?? 0);
   // Hold-cash goals: the money is set aside, not bought — its own row.
   for (const l of lines) {
     if (!l.need.holdCash || l.allocatedHuf < 1) continue;
-    const label = `Félretétel – ${l.need.name} → ${accountLabelOf(l.need.reserveAccountId)}`;
+    const label = `${accountLabelOf(l.need.reserveAccountId)} (félretétel)`;
+    const prev = by.get(label);
     by.set(label, {
       label,
+      items: [...(prev?.items ?? []), l.need.name],
       accountId: l.need.reserveAccountId,
       pending: false,
       reserve: true,
-      amountHuf: l.allocatedHuf,
+      amountHuf: (prev?.amountHuf ?? 0) + l.allocatedHuf,
       costHuf: 0,
       fxCostHuf: 0,
-      totalHuf: l.allocatedHuf,
+      totalHuf: (prev?.totalHuf ?? 0) + l.allocatedHuf,
     });
   }
   for (const s of glidePlan?.suggestions ?? [])
     if (s.status === "ok" && s.side === "buy" && s.instrumentKey)
-      add(venueOf(s.instrumentKey), s.amountHuf, s.costHuf, s.fxCostHuf ?? 0);
+      add("Célpálya", venueOf(s.instrumentKey), s.amountHuf, s.costHuf, s.fxCostHuf ?? 0);
   return [...by.values()].sort((a, b) => b.totalHuf - a.totalHuf);
 }
 
@@ -480,12 +491,13 @@ export function planTextLines(p: MonthlyPlan): string[] {
   }
   if (p.freeHuf >= 1) out.push(`Szabad maradék: ${formatMoney(p.freeHuf)}`);
   if (p.deposits.length)
-    out.push(`Befizetések: ${p.deposits.map(depositText).join("; ")}`);
+    out.push(`Befizetések (a fentiek számlánként): ${p.deposits.map(depositText).join("; ")}`);
   return out;
 }
 
-/** "Lightyear TBSZ 2026: 150 000 Ft (váltás 525 Ft)". */
+/** "Lightyear TBSZ 2026: 150 000 Ft = Babaváró + Célpálya (ebből váltás 525 Ft)". */
 export function depositText(d: PlanDeposit): string {
   const fx = d.fxCostHuf >= 1 ? ` (ebből váltás ${formatMoney(d.fxCostHuf)})` : "";
-  return `${d.label}${d.pending ? " (még nincs — nyisd meg)" : ""}: ${formatMoney(d.totalHuf)}${fx}`;
+  const items = d.items.length ? ` = ${d.items.join(" + ")}` : "";
+  return `${d.label}${d.pending ? " (még nincs — nyisd meg)" : ""}: ${formatMoney(d.totalHuf)}${items}${fx}`;
 }

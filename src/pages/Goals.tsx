@@ -12,6 +12,10 @@ import MonthlyBudgetBar from "../components/MonthlyBudgetBar";
  * recurring (DCA) savings goals in one place — kept out of the Forecast page
  * and the Settings page. The budget strip on top shows how much of the
  * monthly saving the goals below commit.
+ *
+ * The two goal cards are stacked full width, each laying its own items out in
+ * an auto-filling grid — a tall medium-term goal list never towers over a
+ * short DCA list (or vice versa), whatever the item counts.
  */
 export default function Goals() {
   return (
@@ -25,7 +29,7 @@ export default function Goals() {
         <GlidePathSettings />
         <RebalancePanel />
       </div>
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <GoalsSettings />
         <SavingsTargets />
       </div>

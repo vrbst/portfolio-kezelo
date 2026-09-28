@@ -8,6 +8,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { motion, animate, useReducedMotion } from "motion/react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { formatMoney, formatPercent } from "../lib/format";
@@ -422,6 +423,85 @@ export function Delta({
   );
 }
 
+/**
+ * Hover/focus popup anchored under its trigger. Rendered into <body> (fixed
+ * position) so a card's `overflow-hidden` can't clip it. A tap toggles it on
+ * touch screens; tapping elsewhere closes it.
+ */
+export function HoverPopup({
+  children,
+  content,
+  className = "",
+}: {
+  children: ReactNode;
+  content: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const id = useId();
+
+  const open = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.min(320, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    setPos({ left, top: r.bottom + 6 });
+  };
+  const close = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !popRef.current?.contains(t)) close();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [pos]);
+
+  return (
+    <>
+      <span
+        ref={ref}
+        tabIndex={0}
+        aria-describedby={pos ? id : undefined}
+        className={`cursor-help rounded outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/50 ${className}`}
+        onMouseEnter={open}
+        onMouseLeave={close}
+        onFocus={open}
+        onBlur={close}
+        onClick={() => (pos ? close() : open())}
+      >
+        {children}
+      </span>
+      {pos &&
+        createPortal(
+          <div
+            ref={popRef}
+            id={id}
+            role="tooltip"
+            className="fixed z-50 w-[min(320px,calc(100vw-16px))] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm shadow-xl"
+            style={{ left: pos.left, top: pos.top }}
+          >
+            {content}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export function StatCard({
   label,
   value,
@@ -431,6 +511,7 @@ export function StatCard({
   delta,
   deltaPct,
   deltaNote,
+  deltaDetail,
   icon,
   index = 0,
   accent = false,
@@ -453,6 +534,8 @@ export function StatCard({
   deltaPct?: number;
   /** Muted qualifier after the delta (e.g. "ma"). */
   deltaNote?: string;
+  /** Popup shown when hovering / tapping the delta (e.g. what drove it). */
+  deltaDetail?: ReactNode;
   icon?: ReactNode;
   index?: number;
   accent?: boolean;
@@ -555,9 +638,15 @@ export function StatCard({
       )}
       {(delta != null || deltaPct != null) && (
         <div className="relative mt-1.5 flex items-center gap-x-1.5 whitespace-nowrap text-sm">
-          <span className="shrink-0">
-            <Delta value={delta} pct={deltaPct} />
-          </span>
+          {deltaDetail ? (
+            <HoverPopup content={deltaDetail} className="shrink-0">
+              <Delta value={delta} pct={deltaPct} />
+            </HoverPopup>
+          ) : (
+            <span className="shrink-0">
+              <Delta value={delta} pct={deltaPct} />
+            </span>
+          )}
           {deltaNote && (
             <span className="min-w-0 truncate text-xs text-[var(--color-muted)]">
               {deltaNote}

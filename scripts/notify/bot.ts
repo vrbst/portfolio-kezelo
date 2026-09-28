@@ -2,7 +2,8 @@
 //   • answers commands (long polling, no open port needed),
 //   • every 5 minutes recomputes the portfolio with live quotes (like the
 //     app) and sends what's new: new alerts, big daily moves (portfolio and
-//     single positions), stale data, weekly / monthly reports.
+//     single positions), stale data, weekly / monthly reports, and on the
+//     month's last working day the leftover question (/maradek answers it).
 // Only the owner's chat (TELEGRAM_CHAT_ID) is ever answered; anyone else is
 // ignored and reported to the owner, and the bot leaves any group at once.
 // Non-urgent messages wait out the quiet hours.
@@ -32,12 +33,18 @@ import {
   mft,
   shortName,
   goalsText,
+  appRecordedLeftover,
+  leftoverAnswer,
+  leftoverPromptText,
   monthlyText,
   pct,
   sft,
   statusText,
   weeklyText,
 } from "./reports";
+import { loadLeftoverSettings } from "../../src/lib/planPrefs";
+import { leftoverMonth, parseLeftoverAmount } from "../../src/lib/leftover";
+import { isLastWorkdayOfMonth } from "../../src/lib/huCalendar";
 
 const TICK_MS = 5 * 60_000;
 /** A cached context younger than this answers commands without a reload. */
@@ -69,6 +76,12 @@ interface State {
    * bucket). The app keeps its own copy; both run updateGlideSignals.
    */
   glideSignals?: GlideSignals;
+  /**
+   * Month-end leftover: the month (YYYY-MM) already asked about, and the
+   * amounts answered with /maradek per month (the app's recorded plan is the
+   * other "already done" signal — it comes with the sync).
+   */
+  leftover?: { asked?: string; answered?: Record<string, number> };
 }
 
 function loadState(): State {
@@ -109,6 +122,7 @@ const COMMANDS = [
   { command: "elorejelzes", description: "1–20 éves előrejelzés" },
   { command: "heti", description: "Heti összefoglaló most" },
   { command: "havi", description: "Előző havi zárás most" },
+  { command: "maradek", description: "Hónap végi maradék elosztása (pl. /maradek 50000)" },
   { command: "help", description: "Súgó" },
 ];
 
@@ -166,6 +180,10 @@ class Bot {
       return;
     }
     const cmd = text.split(/[\s@]/)[0].toLowerCase();
+    if (cmd === "/maradek") {
+      await this.onLeftover(text.replace(/^\S+/, ""));
+      return;
+    }
     const handlers: Record<string, (c: Context) => string> = {
       "/allas": statusText,
       "/teendok": alertsText,
@@ -182,6 +200,26 @@ class Bot {
     await this.tg.typing(this.env.chatId).catch(() => {});
     try {
       await this.say(handlers[cmd](await this.context()));
+    } catch (e) {
+      await this.say(`❌ Nem sikerült: ${esc((e as Error).message)}`);
+    }
+  }
+
+  /** /maradek <összeg>: the split; a valid amount is remembered for the month. */
+  private async onLeftover(arg: string) {
+    await this.tg.typing(this.env.chatId).catch(() => {});
+    try {
+      const ctx = await this.context();
+      const r = leftoverAnswer(ctx, arg);
+      const parsed = parseLeftoverAmount(arg);
+      if (r.ok && "huf" in parsed) {
+        const lo = (this.state.leftover ??= {});
+        const answered = { ...lo.answered, [leftoverMonth(ctx.at).key]: parsed.huf };
+        // Keep the last few months only.
+        lo.answered = Object.fromEntries(Object.entries(answered).sort().slice(-3));
+        saveState(this.state);
+      }
+      await this.say(r.html);
     } catch (e) {
       await this.say(`❌ Nem sikerült: ${esc((e as Error).message)}`);
     }
@@ -357,6 +395,27 @@ class Bot {
       // First run ever: don't fire a report for a month we joined halfway.
       if (st.lastMonthly) await this.notify(monthlyText(ctx));
       st.lastMonthly = ym;
+    }
+
+    // 5) Month-end leftover: on the month's last working day (Hungarian
+    //    calendar), from the set time, once — "already recorded" instead of
+    //    the question when the app or /maradek has it.
+    const lo = loadLeftoverSettings();
+    const [lh, lm] = lo.time.split(":").map(Number);
+    if (lo.notify && isLastWorkdayOfMonth(now) && minutesOfDay(now) >= lh * 60 + lm) {
+      const m = leftoverMonth(now);
+      const state = (st.leftover ??= {});
+      if (state.asked !== m.key) {
+        state.asked = m.key;
+        const inApp = appRecordedLeftover(ctx, m);
+        const answered = state.answered?.[m.key];
+        const done = inApp
+          ? `az appban: ${inApp.title}`
+          : answered != null
+            ? `a botnak: ${ft(answered)}`
+            : undefined;
+        await this.notify(leftoverPromptText(ctx, done));
+      }
     }
 
     st.lastBeat = now.toISOString();

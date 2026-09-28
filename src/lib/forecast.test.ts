@@ -64,7 +64,7 @@ describe("forecast – coupons claimed by a savings goal", () => {
 
   it("claimed coupons leave when they arrive; the date takes only the rest", () => {
     const plain = run([goal()]);
-    const claim = run([goal({ couponCapHuf: 200_000 })]);
+    const claim = run([goal({ couponCapHuf: 200_000, includeCoupons: true })]);
     // 2026-12 and 2027-12 fall before the goal date: 120 000 Ft goes to it.
     expect(claim.goalCouponHuf).toBeCloseTo(120_000);
     expect(claim.couponHuf).toBeCloseTo(240_000);
@@ -83,20 +83,20 @@ describe("forecast – coupons claimed by a savings goal", () => {
   it("with a positive return only the coupons' lost growth remains", () => {
     const ret = { annualReturn: { pess: 0.06, real: 0.06, opt: 0.06 } };
     const plain = run([goal()], ret);
-    const claim = run([goal({ couponCapHuf: 200_000 })], ret);
+    const claim = run([goal({ couponCapHuf: 200_000, includeCoupons: true })], ret);
     const gap = plain.points.at(-1)!.real - claim.points.at(-1)!.real;
     expect(gap).toBeGreaterThan(0);
     expect(gap).toBeLessThan(0.2 * 120_000);
   });
 
   it("coupons after the goal date follow the reinvest setting", () => {
-    const r = run([goal({ date: "2027-06-30", couponCapHuf: 200_000 })]);
+    const r = run([goal({ date: "2027-06-30", couponCapHuf: 200_000, includeCoupons: true })]);
     expect(r.goalCouponHuf).toBeCloseTo(60_000); // only the 2026-12 coupon
     expect(r.events.find((e) => e.kind === "goal")?.huf).toBeCloseTo(140_000);
   });
 
   it("claims no more than the goal's cap — the rest is reinvested", () => {
-    const r = run([goal({ couponCapHuf: 50_000 })]);
+    const r = run([goal({ couponCapHuf: 50_000, includeCoupons: true })]);
     expect(r.goalCouponHuf).toBeCloseTo(50_000);
     expect(r.events.find((e) => e.kind === "goal")?.huf).toBeCloseTo(150_000);
     const plain = run([goal()]);
@@ -105,8 +105,8 @@ describe("forecast – coupons claimed by a savings goal", () => {
 
   it("two goals share a coupon in proportion to their room", () => {
     const r = run([
-      goal({ id: "goal:A", date: "2027-06-30", amountHuf: 30_000, couponCapHuf: 30_000 }),
-      goal({ id: "goal:B", date: "2027-06-30", amountHuf: 90_000, couponCapHuf: 90_000 }),
+      goal({ id: "goal:A", date: "2027-06-30", amountHuf: 30_000, couponCapHuf: 30_000, includeCoupons: true }),
+      goal({ id: "goal:B", date: "2027-06-30", amountHuf: 90_000, couponCapHuf: 90_000, includeCoupons: true }),
     ]);
     // 60 000 Ft for a room of 120 000 Ft: half of each.
     expect(r.goalCouponHuf).toBeCloseTo(60_000);
@@ -117,13 +117,43 @@ describe("forecast – coupons claimed by a savings goal", () => {
   it("the cash and bond reinvest settings leave the goal's coupons out too", () => {
     for (const reinvestTarget of ["cash", "bond"] as const) {
       const plain = run([goal()], { reinvestTarget });
-      const claim = run([goal({ couponCapHuf: 200_000 })], { reinvestTarget });
+      const claim = run([goal({ couponCapHuf: 200_000, includeCoupons: true })], { reinvestTarget });
       expect(at(plain, "2027-01").real - at(claim, "2027-01").real).toBeCloseTo(60_000);
     }
   });
 
+  it("a picked coupon is its picker's alone, whole — not shared", () => {
+    const r = run([
+      goal({ id: "goal:P", date: "2027-06-30", amountHuf: 100_000, couponCapHuf: 100_000, couponIds: ["BOND@2026-12-15"] }),
+      goal({ id: "goal:A", date: "2028-06-30", amountHuf: 200_000, couponCapHuf: 200_000, includeCoupons: true }),
+    ]);
+    // 2026-12 → P (60 000); 2027-12 → A (60 000).
+    expect(r.goalCouponHuf).toBeCloseTo(120_000);
+    const due = Object.fromEntries(r.events.filter((e) => e.kind === "goal").map((e) => [e.month, e.huf]));
+    expect(due["2027-06"]).toBeCloseTo(40_000);
+    expect(due["2028-06"]).toBeCloseTo(140_000);
+  });
+
+  it("only picked coupons: the others are reinvested", () => {
+    const r = run([goal({ couponCapHuf: 200_000, couponIds: ["BOND@2027-12-15"] })]);
+    expect(r.goalCouponHuf).toBeCloseTo(60_000);
+    const plain = run([goal()]);
+    expect(at(plain, "2027-01").real - at(r, "2027-01").real).toBeCloseTo(0);
+    expect(at(plain, "2028-01").real - at(r, "2028-01").real).toBeCloseTo(60_000);
+  });
+
+  it("a coupon picked after the picker's date is reinvested", () => {
+    const r = run([goal({ date: "2027-06-30", couponCapHuf: 200_000, couponIds: ["BOND@2027-12-15"] })]);
+    expect(r.goalCouponHuf).toBe(0);
+  });
+
+  it("a picked coupon larger than the goal's room: the rest is reinvested", () => {
+    const r = run([goal({ couponCapHuf: 25_000, couponIds: ["BOND@2026-12-15"] })]);
+    expect(r.goalCouponHuf).toBeCloseTo(25_000);
+  });
+
   it("a goal already past is ignored", () => {
-    const r = run([goal({ date: "2026-09-01", couponCapHuf: 200_000 })]);
+    const r = run([goal({ date: "2026-09-01", couponCapHuf: 200_000, includeCoupons: true })]);
     expect(r.goalCouponHuf).toBe(0);
   });
 });
@@ -143,6 +173,22 @@ describe("savingsGoalExpenses – coupon cap", () => {
 
   it("the goal claims what its instruments and cash don't cover", () => {
     expect(savingsGoalExpenses([g], progress)[0].couponCapHuf).toBeCloseTo(110_000);
+  });
+
+  it("a goal with picked coupons claims them (and only them)", () => {
+    const picker = { ...g, includeCoupons: false, couponIds: ["BOND@2026-12-15"] };
+    const e = savingsGoalExpenses([picker], [{ ...progress[0], goal: picker }])[0];
+    expect(e.couponCapHuf).toBeCloseTo(110_000);
+    expect(e.couponIds).toEqual(["BOND@2026-12-15"]);
+    expect(e.includeCoupons).toBeUndefined();
+  });
+
+  it("a pick owned by another goal's includeCoupons does not count", () => {
+    const picker = { ...g, id: "P", includeCoupons: false, couponIds: ["BOND@2026-12-15"] };
+    const all = { ...g, id: "A", targetDate: "2027-06-30" };
+    const e = savingsGoalExpenses([picker, all], [{ ...progress[0], goal: picker }])[0];
+    expect(e.couponIds).toBeUndefined();
+    expect(e.couponCapHuf).toBeUndefined();
   });
 
   it("no claim without includeCoupons, without progress, or when covered", () => {

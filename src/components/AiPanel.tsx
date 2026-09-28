@@ -148,9 +148,6 @@ export default function AiPanel() {
       fx,
       historyFile,
     );
-    const years = new Set<number>();
-    for (const a of accounts)
-      if (a.kind === "tbsz" && a.tbszYear) years.add(a.tbszYear);
     const { assumptions, result } = projectFromSettings(
       summary,
       transactions,
@@ -185,7 +182,21 @@ export default function AiPanel() {
       goals,
       alerts,
       events: upcomingEvents(summary, undefined, transactions),
-      tbsz: [...years].sort().map((y) => tbszStatus(y)),
+      // Every TBSZ account on its own (two can share a vintage), oldest first.
+      tbsz: summary.accounts
+        .filter(
+          (a) =>
+            a.account.kind === "tbsz" &&
+            a.account.tbszYear &&
+            Math.abs(a.totalValueHuf) >= 1,
+        )
+        .sort((a, b) => a.account.tbszYear! - b.account.tbszYear!)
+        .map((a) => ({
+          name: a.account.name,
+          status: tbszStatus(a.account.tbszYear!, now),
+          grossHuf: a.totalValueHuf,
+          gainHuf: a.totalValueHuf - a.capitalBasisHuf,
+        })),
       savings: computeSavingsProgress(
         savingsGoals,
         accounts,
@@ -574,7 +585,7 @@ export default function AiPanel() {
                       </span>
                       <StatusPill status={s.status} />
                     </div>
-                    <p className={`amt mt-2 text-sm leading-relaxed text-[var(--color-muted)] ${privacy ? "select-none" : ""}`}>
+                    <p className={`amt mt-2 whitespace-pre-line text-sm leading-relaxed text-[var(--color-muted)] ${privacy ? "select-none" : ""}`}>
                       {s.text}
                     </p>
                   </div>

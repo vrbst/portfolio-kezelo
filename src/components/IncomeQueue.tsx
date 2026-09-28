@@ -78,7 +78,7 @@ export default function IncomeQueue({
             >
               <div className="font-medium">{incomeEventTitle(a.event)}</div>
               <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                {a.payoutOf?.length ? (
+                {a.payoutOf?.length || a.pickedBy ? (
                   incomeSplitText(a)
                 ) : (
                   <>
@@ -100,7 +100,7 @@ export default function IncomeQueue({
                 )}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {!a.payoutOf?.length && (
+                {!a.payoutOf?.length && !a.pickedBy && (
                   <button
                     className="btn-ghost px-2 py-1 text-xs"
                     onClick={() => saveAsPlan(a, addReminder)}

@@ -7,10 +7,16 @@
 // interest) credited on or before its target date, while it is still ahead
 // and short. Claiming goals share a coupon in proportion to their room, each
 // capped at it; whatever is left belongs to the glide path.
+//
+// A coupon PICKED by a goal (SavingsGoal.couponIds) is that goal's alone: it
+// is never split. A coupon due by the date of an includeCoupons goal belongs
+// to that goal, so it cannot be picked for another one (a pick made earlier
+// no longer counts).
 
 import type { Instrument, Transaction } from "./model";
 import { toHuf } from "./portfolio";
-import type { SavingsProgress } from "./savings";
+import type { SavingsGoal, SavingsProgress } from "./savings";
+import { COUPON_CREDITED_DAYS } from "./bonds";
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -22,6 +28,78 @@ export function isBondCoupon(
   if (t.type !== "interest" || t.internal || !t.instrumentKey) return false;
   const inst = instruments.get(t.instrumentKey);
   return !!inst && BOND_TYPES.has(inst.type);
+}
+
+/** Id of one scheduled coupon payment: `<instrumentKey>@<YYYY-MM-DD>`. */
+export function couponId(instrumentKey: string, day: string): string {
+  return `${instrumentKey}@${day.slice(0, 10)}`;
+}
+
+/** The parts of a {@link couponId} (undefined if malformed). */
+export function parseCouponId(
+  id: string,
+): { instrumentKey: string; day: string } | undefined {
+  const i = id.lastIndexOf("@");
+  if (i <= 0) return undefined;
+  const day = id.slice(i + 1);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day)
+    ? { instrumentKey: id.slice(0, i), day }
+    : undefined;
+}
+
+const dayNoonMs = (day: string) => Date.parse(`${day.slice(0, 10)}T12:00:00`);
+
+type PickGoal = Pick<SavingsGoal, "id" | "couponIds" | "targetDate" | "includeCoupons">;
+
+/**
+ * Another goal that earmarks every coupon up to its date (includeCoupons) and
+ * so owns a coupon due on `day` — it cannot be picked for `goalId`.
+ */
+export function couponClaimedBy<G extends PickGoal>(
+  goals: G[],
+  goalId: string,
+  day: string,
+): G | undefined {
+  return goals.find(
+    (g) => g.id !== goalId && g.includeCoupons && day.slice(0, 10) <= g.targetDate.slice(0, 10),
+  );
+}
+
+/** The goal's picks that hold: none that an includeCoupons goal owns. */
+export function validCouponIds<G extends PickGoal>(goals: G[], goal: G): string[] {
+  return (goal.couponIds ?? []).filter((id) => {
+    const c = parseCouponId(id);
+    return !!c && !couponClaimedBy(goals, goal.id, c.day);
+  });
+}
+
+/**
+ * The goal that picked the coupon of `instrumentKey` credited on `day`
+ * (YYYY-MM-DD) — a booking a few days off the schedule date still matches.
+ * Undefined when no goal picked it, it falls after the picker's date, or an
+ * includeCoupons goal owns it (see couponClaimedBy). `goals` must be every
+ * goal, so those claims are seen.
+ */
+export function couponOwner<G extends PickGoal>(
+  goals: G[],
+  instrumentKey: string | undefined,
+  day: string,
+): G | undefined {
+  if (!instrumentKey) return undefined;
+  const ms = dayNoonMs(day);
+  if (!Number.isFinite(ms)) return undefined;
+  return goals.find(
+    (g) =>
+      day.slice(0, 10) <= g.targetDate.slice(0, 10) &&
+      validCouponIds(goals, g).some((id) => {
+        const c = parseCouponId(id);
+        return (
+          !!c &&
+          c.instrumentKey === instrumentKey &&
+          Math.abs(dayNoonMs(c.day) - ms) <= COUPON_CREDITED_DAYS * 86_400_000
+        );
+      }),
+  );
 }
 
 /** HUF that actually arrived (net of tax), at today's rate for a foreign amount. */

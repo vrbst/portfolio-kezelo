@@ -10,6 +10,7 @@ import type { Instrument, InstrumentType, Transaction } from "./model";
 import { buildFxHistory, histFxRate } from "./portfolio";
 import { formatMoney } from "./format";
 import { instrumentTypeLabel } from "./labels";
+import { lastWorkdayOfMonth } from "./huCalendar";
 import type { Alert } from "./alerts";
 
 export type GoalPeriod = 1 | 3 | 6 | 12;
@@ -62,15 +63,12 @@ const MONTHS = [
   "december",
 ];
 
-/** Last Mon–Fri date-of-month (holidays ignored — weekend-only approximation). */
+/**
+ * The month's last working day (Hungarian calendar: weekends, public holidays
+ * and the decree's swapped days — see huCalendar).
+ */
 export function lastWorkingDayOfMonth(year: number, month0: number): number {
-  const last = new Date(year, month0 + 1, 0);
-  const dow = last.getDay();
-  let day = last.getDate();
-  if (dow === 6)
-    day -= 1; // Sat → Fri
-  else if (dow === 0) day -= 2; // Sun → Fri
-  return day;
+  return lastWorkdayOfMonth(year, month0);
 }
 
 /** Apply the "last working day rolls into next month" rule. */
@@ -97,6 +95,11 @@ export function effectiveMonthKey(date: Date | string): string {
     typeof date === "string" ? localDay(date) : date,
   );
   return `${year}-${String(month0 + 1).padStart(2, "0")}`;
+}
+
+/** "2026. szeptember". */
+export function monthLabel(year: number, month0: number): string {
+  return `${year}. ${MONTHS[month0]}`;
 }
 
 /** Hungarian label for the effective month of a date (e.g. "2026. július"). */
