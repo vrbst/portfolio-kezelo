@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, Plus, Trash2, X, Pencil, Check, BellPlus } from "lucide-react";
+import { Target, Plus, Trash2, X, Pencil, Check, BellPlus, Coins } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
@@ -10,10 +10,14 @@ import {
   loadSavingsGoals,
   saveSavingsGoals,
   reserveConflicts,
+  futureCouponOptions,
+  type CouponOption,
   type ReserveConflict,
   type SavingsGoal,
 } from "../lib/savings";
 import GoalReserves from "./GoalReserves";
+import CouponPickerDialog from "./CouponPickerDialog";
+import { parseCouponId } from "../lib/incomeClaims";
 import { PREFS_EVENT } from "../lib/prefs";
 import { Card, AmountInput } from "./ui";
 import { formatMoney, formatDate } from "../lib/format";
@@ -96,7 +100,13 @@ export default function SavingsTargets() {
     [summary],
   );
   const nameOf = (key: string) =>
-    holdings.find((h) => h.key === key)?.name ?? key;
+    holdings.find((h) => h.key === key)?.name ??
+    instruments.find((i) => i.key === key)?.name ??
+    key;
+  const coupons = useMemo(
+    () => futureCouponOptions(summary, transactions),
+    [summary, transactions],
+  );
 
   // --- add-goal form (hidden behind "+ Új cél" — rarely used) ---
   const [adding, setAdding] = useState(false);
@@ -154,6 +164,8 @@ export default function SavingsTargets() {
               conflicts={conflicts.filter((c) => c.goalId === p.goal.id)}
               holdings={holdings}
               nameOf={nameOf}
+              goals={goals}
+              coupons={coupons}
               onUpdate={update}
               onRemove={remove}
             />
@@ -214,6 +226,8 @@ function GoalRow({
   conflicts,
   holdings,
   nameOf,
+  goals,
+  coupons,
   onUpdate,
   onRemove,
 }: {
@@ -224,6 +238,10 @@ function GoalRow({
   planHuf: number;
   holdings: { key: string; name: string; value: number }[];
   nameOf: (key: string) => string;
+  /** All goals (the coupon picker leaves out the ones others took). */
+  goals: SavingsGoal[];
+  /** Future bond coupons to pick from. */
+  coupons: CouponOption[];
   onUpdate: (id: string, patch: Partial<SavingsGoal>) => void;
   onRemove: (id: string) => void;
 }) {
@@ -235,6 +253,8 @@ function GoalRow({
   const todayPct = Math.min(p.progressPct * 100, 100);
 
   const [editing, setEditing] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const couponIds = g.couponIds ?? [];
   const [name, setName] = useState(g.name);
   const [amount, setAmount] = useState(String(Math.round(g.targetHuf)));
   const [date, setDate] = useState(g.targetDate);
@@ -345,6 +365,16 @@ function GoalRow({
             ✓ A cél a jelenlegi eszközökből (és a beszámított kamatokból)
             teljesül a céldátumra.
           </span>
+        ) : p.daysLeft > 0 && p.savingStartsOn ? (
+          <span>
+            A havi félretétel {formatDate(p.savingStartsOn)}-tól indul: akkortól
+            havi{" "}
+            <span className="amt font-semibold text-[var(--color-brand)]">
+              {formatMoney(p.plannedMonthlyHuf)}
+            </span>{" "}
+            (összesen <span className="amt">{formatMoney(p.gapHuf)}</span>{" "}
+            hiányzik). Addig nincs havi teendő.
+          </span>
         ) : p.daysLeft > 0 ? (
           <span>
             Havi{" "}
@@ -414,6 +444,99 @@ function GoalRow({
         />
       )}
 
+      {/* Saving start */}
+      {p.daysLeft > 0 && (
+        <label className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-muted)]">
+          Félretétel kezdete:
+          <input
+            type="date"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs"
+            value={g.saveFrom ?? ""}
+            max={g.targetDate.slice(0, 10)}
+            onChange={(e) =>
+              onUpdate(g.id, { saveFrom: e.target.value || undefined })
+            }
+            title="Ettől a hónaptól kell havonta félretenni (készpénzt vagy a célhoz rendelt eszközt); üresen hagyva már most"
+          />
+          {g.saveFrom ? (
+            <button
+              className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+              onClick={() => onUpdate(g.id, { saveFrom: undefined })}
+              title="Kezdés most"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          ) : (
+            <span>(üres = már most)</span>
+          )}
+        </label>
+      )}
+
+      {/* Picked coupons */}
+      <div className="mt-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {couponIds
+            .map((id) => {
+              const o = coupons.find((c) => c.id === id);
+              const c = parseCouponId(id);
+              return {
+                id,
+                day: o?.day ?? c?.day ?? "",
+                name: o?.name ?? (c ? nameOf(c.instrumentKey) : id),
+                amountHuf: o?.amountHuf,
+              };
+            })
+            .sort((a, b) => a.day.localeCompare(b.day))
+            .map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
+                title={c.amountHuf == null ? "Jóváírva (vagy már nem várható) — a cél pénzébe számít" : "Várható kupon"}
+              >
+                <Coins className="h-3 w-3 text-[var(--color-brand)]" />
+                <span className="tabular-nums">{c.day ? formatDate(c.day) : ""}</span>
+                <span className="priv">{c.name}</span>
+                {c.amountHuf != null ? (
+                  <span className="amt">{formatMoney(c.amountHuf)}</span>
+                ) : (
+                  <span className="text-[var(--color-positive)]">✓</span>
+                )}
+                <button
+                  className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
+                  onClick={() =>
+                    onUpdate(g.id, { couponIds: couponIds.filter((x) => x !== c.id) })
+                  }
+                  title="Eltávolítás"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          {p.daysLeft > 0 && (
+            <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setPicking(true)}>
+              <Coins className="h-3.5 w-3.5" />
+              {couponIds.length ? "Kuponok módosítása…" : "Kupon hozzárendelése…"}
+            </button>
+          )}
+        </div>
+        {p.pickedCouponsHuf > 0 && (
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            A kijelölt kuponokból még{" "}
+            <span className="amt">{formatMoney(p.pickedCouponsHuf)}</span> érkezik a
+            céldátumig.
+          </p>
+        )}
+      </div>
+      {picking && (
+        <CouponPickerDialog
+          goal={g}
+          goals={goals}
+          coupons={coupons}
+          onSave={(ids) => onUpdate(g.id, { couponIds: ids.length ? ids : undefined })}
+          onClose={() => setPicking(false)}
+        />
+      )}
+
       {/* Coupon toggle */}
       <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-[var(--color-muted)]">
         <input
@@ -421,9 +544,10 @@ function GoalRow({
           checked={g.includeCoupons}
           onChange={(e) => onUpdate(g.id, { includeCoupons: e.target.checked })}
         />
-        A céldátumig beérkező állampapír-kamatok is növeljék
-        {g.includeCoupons && p.couponsHuf > 0 && (
-          <span className="amt">(+{formatMoney(p.couponsHuf)})</span>
+        A céldátumig beérkező (más célhoz nem rendelt) összes állampapír-kamat
+        is növelje
+        {g.includeCoupons && p.couponsHuf - p.pickedCouponsHuf > 0 && (
+          <span className="amt">(+{formatMoney(p.couponsHuf - p.pickedCouponsHuf)})</span>
         )}
       </label>
 

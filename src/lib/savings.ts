@@ -47,6 +47,8 @@ import { touchPref } from "./prefs";
 import type { PlannedExpense } from "./forecast";
 import {
   claimsCoupon,
+  couponId,
+  couponOwner,
   incomeHuf,
   isBondCoupon,
   splitAmongGoals,
@@ -85,6 +87,20 @@ export interface SavingsGoal {
    * on their own (see goalCash) — they are not entered here.
    */
   reserves?: CashReserve[];
+  /**
+   * Specific future bond coupons earmarked for the goal (see couponId:
+   * `<instrumentKey>@<schedule day>`). Each is the goal's alone — it counts in
+   * the projection until it arrives, then as the goal's cash — and no other
+   * goal can pick it or claim it via includeCoupons.
+   */
+  couponIds?: string[];
+  /**
+   * YYYY-MM-DD: the monthly setting aside (cash or the goal's instrument)
+   * starts in this effective month. Before it no monthly saving is asked; the
+   * gap is spread over the months from this one to the target date. Missing =
+   * from now.
+   */
+  saveFrom?: string;
 }
 
 /** Cash set aside for a savings goal. */
@@ -165,8 +181,13 @@ export interface SavingsProgress {
    * market mark — a goal-backing DKJ is held to maturity.
    */
   assignedValueHuf: number;
-  /** Coupons arriving on/before the target date, if includeCoupons (HUF). */
+  /**
+   * Coupons still to arrive on/before the target date that count: the picked
+   * ones (couponIds) + with includeCoupons every coupon no goal picked (HUF).
+   */
   couponsHuf: number;
+  /** Of couponsHuf, the goal's picked coupons still to arrive. */
+  pickedCouponsHuf: number;
   /**
    * Projected value on the target date: assigned instruments accreted to that
    * date (a DKJ grows toward par) plus the counted coupons.
@@ -193,6 +214,13 @@ export interface SavingsProgress {
    * monthly status nets buys and sells against it).
    */
   monthlyNeededHuf: number;
+  /**
+   * The monthly saving once it runs: = monthlyNeededHuf, or — before a later
+   * saving start (savingStartsOn) — the gap spread over the months from it.
+   */
+  plannedMonthlyHuf: number;
+  /** YYYY-MM-DD: the saving start, while it is in a later month (else undefined). */
+  savingStartsOn?: string;
   /**
    * How much of an arrived bond coupon the goal can still take (includeCoupons):
    * its actual shortfall on the target date (= gapHuf) — this month's own buys
@@ -307,7 +335,13 @@ export function savingsMonthStates(
     [...progressByGoal.values()].map((p) => [p.goal.id, p.couponRoomHuf]),
   );
   const monthCoupons = transactions
-    .filter((t) => isBondCoupon(t, instruments) && inEffectiveMonth(t, eff))
+    .filter(
+      (t) =>
+        isBondCoupon(t, instruments) &&
+        inEffectiveMonth(t, eff) &&
+        // A picked coupon is its goal's cash already — not shared out.
+        !couponOwner(goals, t.instrumentKey, toLocalDay(dayMsOf(t.date))),
+    )
     .sort((a, b) => a.date.localeCompare(b.date));
   for (const t of monthCoupons) {
     const day = t.date.slice(0, 10);
@@ -632,18 +666,27 @@ function assignedValue(
 /**
  * Account id → cash set aside on it for goals still ahead: not free cash, so
  * the glide path doesn't suggest investing it and it raises no idle-cash
- * alert. Past a goal's date its reserves no longer hold the cash.
+ * alert. Past a goal's date its reserves no longer hold the cash. With the
+ * ledger (`txs`), the credited coupons a goal picked (couponIds) are held
+ * on their account too.
  */
 export function reservedCashByAccount(
   goals: SavingsGoal[],
   day: string,
+  txs: Transaction[] = [],
+  fx: Record<string, number> = {},
 ): Map<string, number> {
   const out = new Map<string, number>();
-  for (const g of goals) {
-    if (g.targetDate.slice(0, 10) < day) continue;
-    for (const r of reservesOn(g, day))
-      if (r.accountId) out.set(r.accountId, (out.get(r.accountId) ?? 0) + r.amountHuf);
-  }
+  const add = (acc: string, huf: number) => out.set(acc, (out.get(acc) ?? 0) + huf);
+  const ahead = goals.filter((g) => g.targetDate.slice(0, 10) >= day);
+  for (const g of ahead)
+    for (const r of reservesOn(g, day)) if (r.accountId) add(r.accountId, r.amountHuf);
+  if (ahead.some((g) => g.couponIds?.length))
+    for (const t of txs) {
+      if (t.type !== "interest" || t.internal) continue;
+      const d = toLocalDay(dayMsOf(t.date));
+      if (d <= day && couponOwner(ahead, t.instrumentKey, d)) add(t.accountId, incomeHuf(t, fx));
+    }
   return out;
 }
 
@@ -729,7 +772,8 @@ function holdCashFrom(
  *  - the payout of its instruments that matured by the target date (the DKJ
  *    bought for the goal pays its face into the account — still the goal's),
  *  - bond coupons credited inside its hold-cash window (includeCoupons): there
- *    is nothing to reinvest them in, so they wait in cash like the payout.
+ *    is nothing to reinvest them in, so they wait in cash like the payout,
+ *  - the coupons it picked (couponIds), once credited — whole, never split.
  * Without this, the goal "lost" that money the day it arrived: a coupon fell
  * out of the projection, a matured DKJ took the goal to 0 %. Coupons are
  * split among the goals claiming them, like the monthly status does.
@@ -763,6 +807,11 @@ function goalCash(
     .map((t) => ({ t, day: toLocalDay(dayMsOf(t.date)) }))
     .sort((a, b) => a.day.localeCompare(b.day));
   for (const { t, day } of coupons) {
+    const owner = couponOwner(goals, t.instrumentKey, day);
+    if (owner) {
+      out.get(owner.id)!.cashHuf += incomeHuf(t, fx);
+      continue;
+    }
     const claim = windows.filter((w) => day >= w.from && day <= w.to);
     if (claim.length === 0) continue;
     const shares = splitAmongGoals(
@@ -813,6 +862,9 @@ export function computeSavingsProgress(
     (c) => c.kind === "coupon",
   );
   const cashByGoal = goalCash(goals, txs, instruments, fx);
+  const pickedAll = new Set(goals.flatMap((g) => g.couponIds ?? []));
+  const idOf = (c: (typeof coupons)[number]) =>
+    c.instrumentKey ? couponId(c.instrumentKey, c.date) : "";
   const summaryAtCache = new Map<string, PortfolioSummary>();
   const summaryAt = (dateMs: number): PortfolioSummary => {
     const key = String(dateMs);
@@ -853,11 +905,18 @@ export function computeSavingsProgress(
       reservedHuf;
     const assignedAtDate = assignedValueHuf;
 
-    const couponsHuf = goal.includeCoupons
-      ? coupons
-          .filter((c) => parseDateMs(c.date) <= (future ? dateMs : nowMs))
-          .reduce((s, c) => s + c.amountHuf, 0)
-      : 0;
+    // Coupons still ahead by the date: the ones this goal picked, plus — if it
+    // earmarks every coupon — those no goal picked.
+    const picked = new Set(goal.couponIds ?? []);
+    const byDate = coupons.filter((c) => parseDateMs(c.date) <= (future ? dateMs : nowMs));
+    const pickedCouponsHuf = byDate
+      .filter((c) => picked.has(idOf(c)))
+      .reduce((s, c) => s + c.amountHuf, 0);
+    const couponsHuf =
+      pickedCouponsHuf +
+      (goal.includeCoupons
+        ? byDate.filter((c) => !pickedAll.has(idOf(c))).reduce((s, c) => s + c.amountHuf, 0)
+        : 0);
 
     const projectedHuf = assignedAtDate + couponsHuf;
     const targetHuf = goal.targetHuf;
@@ -908,7 +967,9 @@ export function computeSavingsProgress(
               isBondCoupon(t, instruments) &&
               inEffectiveMonth(t, eff) &&
               t.date.slice(0, 10) <= goal.targetDate &&
-              !(holdFrom && toLocalDay(dayMsOf(t.date)) >= holdFrom),
+              !(holdFrom && toLocalDay(dayMsOf(t.date)) >= holdFrom) &&
+              // A picked coupon is its goal's cash (assignedStart) already.
+              !couponOwner(goals, t.instrumentKey, toLocalDay(dayMsOf(t.date))),
           )
           .reduce((s, t) => s + incomeHuf(t, fx), 0)
       : 0;
@@ -926,13 +987,28 @@ export function computeSavingsProgress(
     // don't shrink their own room).
     const couponRoomHuf = gapHuf + holdThisMonth;
     const monthsLeft = future ? paydaysUntil(now, dateMs) + 1 : 0;
-    const monthlyNeededHuf =
-      monthsLeft > 0 ? gapAtMonthStart / monthsLeft : gapHuf;
+    // A later saving start (saveFrom): nothing is asked before its effective
+    // month; then the gap is spread over the months from it to the date.
+    const fromMs = goal.saveFrom ? parseDateMs(goal.saveFrom) : NaN;
+    const fromEff = Number.isFinite(fromMs) ? effectiveMonth(new Date(fromMs)) : undefined;
+    const notYet =
+      future &&
+      !!fromEff &&
+      fromEff.year * 12 + fromEff.month0 > eff.year * 12 + eff.month0;
+    const monthlyNeededHuf = notYet
+      ? 0
+      : monthsLeft > 0
+        ? gapAtMonthStart / monthsLeft
+        : gapHuf;
+    const plannedMonthlyHuf = notYet
+      ? gapHuf / (paydaysUntil(new Date(fromMs), dateMs) + 1)
+      : monthlyNeededHuf;
 
     return {
       goal,
       assignedValueHuf,
       couponsHuf,
+      pickedCouponsHuf,
       projectedHuf,
       targetHuf,
       progressPct: targetHuf > 0 ? assignedValueHuf / targetHuf : 0,
@@ -941,6 +1017,8 @@ export function computeSavingsProgress(
       monthsLeft,
       daysLeft,
       monthlyNeededHuf,
+      plannedMonthlyHuf,
+      savingStartsOn: notYet ? goal.saveFrom!.slice(0, 10) : undefined,
       couponRoomHuf,
       thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now) + reservedNowMonth,
       reservedHuf,
@@ -949,6 +1027,44 @@ export function computeSavingsProgress(
       reached: gapHuf <= 0,
     };
   });
+}
+
+/** One scheduled future coupon payment (the accounts holding the bond summed). */
+export interface CouponOption {
+  /** See couponId. */
+  id: string;
+  /** YYYY-MM-DD schedule day. */
+  day: string;
+  name: string;
+  amountHuf: number;
+}
+
+/**
+ * The future bond coupons (not yet credited) a goal can pick, one per bond +
+ * schedule day, soonest first.
+ */
+export function futureCouponOptions(
+  summary: PortfolioSummary,
+  txs: Transaction[],
+  now: Date = new Date(),
+): CouponOption[] {
+  const byId = new Map<string, CouponOption>();
+  for (const c of futureBondCashflows(summary, now, txs)) {
+    if (c.kind !== "coupon" || !c.instrumentKey) continue;
+    const id = couponId(c.instrumentKey, c.date);
+    const o = byId.get(id);
+    if (o) o.amountHuf += c.amountHuf;
+    else
+      byId.set(id, {
+        id,
+        day: c.date,
+        name: c.title.replace(/ — kamat$/, ""),
+        amountHuf: c.amountHuf,
+      });
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.day.localeCompare(b.day) || a.name.localeCompare(b.name),
+  );
 }
 
 /** Savings goals as planned expenses on their target dates (for projections:
