@@ -8,6 +8,7 @@ import {
   leftoverMonth,
   leftoverNeeds,
   leftoverReply,
+  leftoverTextLines,
   parseLeftoverAmount,
   recordedLeftover,
   leftoverTitle,
@@ -340,5 +341,21 @@ describe("hold cash with an assigned instrument", () => {
     ]);
     expect(depositText(p.deposits[0])).not.toMatch(/bankszámla/);
     expect(planLineText(p.lines[0])).toMatch(/→ Államkincstár \(DKJ 261102: a céldátum/);
+  });
+});
+
+describe("leftover – only what gets money, any goal", () => {
+  it("items getting nothing are left out of the text; no shortfall wording", () => {
+    const ln = needsAt(LAST_WD);
+    const lines = leftoverTextLines(plan(100_000, ln));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^Babaváró: /);
+    expect(lines.join(" ")).not.toMatch(/alul maradt|nem jut rá|nem marad rá/);
+  });
+
+  it("a newly added goal is picked up without any setup", () => {
+    const other: SavingsGoal = { ...BABA, id: "n", name: "Autó", targetDate: "2026-11-25" };
+    const keys = needsAt(LAST_WD, { goals: [BABA, other] }).needs.map((n) => n.key);
+    expect(keys).toEqual(["savings:b", "savings:n", "ahead:savings:b", "ahead:savings:n"]);
   });
 });

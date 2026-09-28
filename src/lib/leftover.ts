@@ -256,6 +256,19 @@ export function leftoverStatusLines(ln: LeftoverNeeds, budgetHuf: number): strin
 }
 
 /**
+ * The leftover plan as text: only the items that get money (what a goal
+ * still lacks after it is the later months' job, not a shortfall).
+ */
+export function leftoverTextLines(p: MonthlyPlan): string[] {
+  const funded = p.lines
+    .filter((l) => l.allocatedHuf >= 1)
+    .map((l) => ({ ...l, shortHuf: 0 }));
+  return planTextLines({ ...p, lines: funded, shortHuf: 0 }).filter(
+    (t) => !t.startsWith("Célpálya: a célok után nem marad"),
+  );
+}
+
+/**
  * The /maradek answer (plain text lines): the amount parsed, then the plan in
  * the Havi terv's words — or the parse error.
  */
@@ -269,6 +282,6 @@ export function leftoverReply(
   const p = plan(parsed.huf);
   return {
     ok: true,
-    lines: [`${LEFTOVER_TITLE} – ${ln.month.label}: ${formatMoney(parsed.huf)}`, ...planTextLines(p)],
+    lines: [`${LEFTOVER_TITLE} – ${ln.month.label}: ${formatMoney(parsed.huf)}`, ...leftoverTextLines(p)],
   };
 }
