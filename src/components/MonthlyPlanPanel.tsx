@@ -392,7 +392,7 @@ function LeftoverSection() {
             Ha kevesebbet költöttél, írd be, mennyi maradt. Előbb a hónap még
             hiányzó célrészei kapnak (a Havi terv sorrendjében)
             {settings.pullForward &&
-              `, majd a ${settings.pullForwardMonths} hónapon belül esedékes határidős célok következő havi része előrehozva`}
+              `, majd a ${settings.pullForwardMonths} hónapon belül esedékes határidős célok mindazt megkapják, ami a céldátumig még hiányzik (a későbbi célok csak az e havi részüket)`}
             , a maradék pedig — mind — a célpályán megy. Ami már teljesült vagy
             a Havi tervben rögzítve van, nem kerül újra elosztásra. A hónap
             utolsó munkanapja: {month.lastWorkday}.

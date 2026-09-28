@@ -2,8 +2,9 @@
 // (less was spent) split with the Havi terv's own machinery —
 //  1. the closing month's goal parts not yet covered (in the plan order;
 //     hold-cash goals as cash set aside);
-//  2. optionally, the NEXT month's part of dated goals whose date is within
-//     X months, pulled forward;
+//  2. optionally, dated goals whose date is within X months (the ones
+//     already "running") get everything they still lack, pulled forward —
+//     goals further out only get the closing month's part;
 //  3. the rest along the glide path (target, fees, accounts, limits) — all of
 //     it: the glide path's monthly cap is for the monthly saving, not this.
 // Nothing is split twice: what the ledger shows as done is not planned, and a
@@ -173,7 +174,7 @@ export function leftoverNeeds(a: LeftoverNeedsInput): LeftoverNeeds {
     .map((n) => lessRecorded(n, reminders, month.label))
     .filter((n) => n.needHuf >= 1);
 
-  // 2) Next month's part of dated goals close to their date, pulled forward.
+  // 2) Dated goals close to their date: the whole remaining gap, pulled forward.
   if (a.settings.pullForward) {
     const instMap = new Map(a.instruments.map((i) => [i.key, i]));
     const horizon = ymd(addMonths(now, a.settings.pullForwardMonths));
@@ -196,23 +197,20 @@ export function leftoverNeeds(a: LeftoverNeedsInput): LeftoverNeeds {
       ),
       a.order,
     );
-    const monthName = next.label.split(" ").pop();
     for (const n of ahead) {
       const p = progress.get(n.key.slice("savings:".length));
       if (!p) continue;
-      // Next month's quota once step 1 is paid: the closing month's shortfall
-      // is spread over the months left in the goal's own figure — covered in
-      // step 1, it must not be pulled forward a second time. What next
-      // month's recorded Havi terv already plans comes off it.
+      // A goal close to its date takes everything it still lacks: its whole
+      // gap, less what step 1 already gives it and what next month's
+      // recorded Havi terv still plans for it.
       const inStep1 = needs.find((x) => x.key === n.key)?.needHuf ?? 0;
       const rest = Math.max(0, p.gapHuf - inStep1);
-      const quota = Math.min(n.needHuf, rest / Math.max(1, p.monthsLeft));
-      const huf = lessRecorded({ ...n, needHuf: quota }, reminders, next.label).needHuf;
+      const huf = lessRecorded({ ...n, needHuf: rest }, reminders, next.label).needHuf;
       if (huf < 1) continue;
       needs.push({
         ...n,
         key: `ahead:${n.key}`,
-        name: `${n.name} (${monthName}i rész előrehozva)`,
+        name: `${n.name} (a céldátumig hátralévő rész)`,
         needHuf: huf,
         doneHuf: 0,
         ahead: next.label,
