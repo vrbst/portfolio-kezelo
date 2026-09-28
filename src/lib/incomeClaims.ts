@@ -9,7 +9,9 @@
 // capped at it; whatever is left belongs to the glide path.
 //
 // A coupon PICKED by a goal (SavingsGoal.couponIds) is that goal's alone: it
-// is never split, and the includeCoupons goals don't claim it.
+// is never split. A coupon due by the date of an includeCoupons goal belongs
+// to that goal, so it cannot be picked for another one (a pick made earlier
+// no longer counts).
 
 import type { Instrument, Transaction } from "./model";
 import { toHuf } from "./portfolio";
@@ -47,12 +49,38 @@ export function parseCouponId(
 
 const dayNoonMs = (day: string) => Date.parse(`${day.slice(0, 10)}T12:00:00`);
 
+type PickGoal = Pick<SavingsGoal, "id" | "couponIds" | "targetDate" | "includeCoupons">;
+
+/**
+ * Another goal that earmarks every coupon up to its date (includeCoupons) and
+ * so owns a coupon due on `day` — it cannot be picked for `goalId`.
+ */
+export function couponClaimedBy<G extends PickGoal>(
+  goals: G[],
+  goalId: string,
+  day: string,
+): G | undefined {
+  return goals.find(
+    (g) => g.id !== goalId && g.includeCoupons && day.slice(0, 10) <= g.targetDate.slice(0, 10),
+  );
+}
+
+/** The goal's picks that hold: none that an includeCoupons goal owns. */
+export function validCouponIds<G extends PickGoal>(goals: G[], goal: G): string[] {
+  return (goal.couponIds ?? []).filter((id) => {
+    const c = parseCouponId(id);
+    return !!c && !couponClaimedBy(goals, goal.id, c.day);
+  });
+}
+
 /**
  * The goal that picked the coupon of `instrumentKey` credited on `day`
  * (YYYY-MM-DD) — a booking a few days off the schedule date still matches.
- * Undefined when no goal picked it (or it falls after the picker's date).
+ * Undefined when no goal picked it, it falls after the picker's date, or an
+ * includeCoupons goal owns it (see couponClaimedBy). `goals` must be every
+ * goal, so those claims are seen.
  */
-export function couponOwner<G extends Pick<SavingsGoal, "couponIds" | "targetDate">>(
+export function couponOwner<G extends PickGoal>(
   goals: G[],
   instrumentKey: string | undefined,
   day: string,
@@ -63,7 +91,7 @@ export function couponOwner<G extends Pick<SavingsGoal, "couponIds" | "targetDat
   return goals.find(
     (g) =>
       day.slice(0, 10) <= g.targetDate.slice(0, 10) &&
-      (g.couponIds ?? []).some((id) => {
+      validCouponIds(goals, g).some((id) => {
         const c = parseCouponId(id);
         return (
           !!c &&

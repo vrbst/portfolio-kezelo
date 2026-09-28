@@ -50,6 +50,7 @@ import {
   couponId,
   couponOwner,
   incomeHuf,
+  validCouponIds,
   isBondCoupon,
   splitAmongGoals,
 } from "./incomeClaims";
@@ -91,7 +92,9 @@ export interface SavingsGoal {
    * Specific future bond coupons earmarked for the goal (see couponId:
    * `<instrumentKey>@<schedule day>`). Each is the goal's alone — it counts in
    * the projection until it arrives, then as the goal's cash — and no other
-   * goal can pick it or claim it via includeCoupons.
+   * goal can pick it or claim it via includeCoupons. A coupon due by the date
+   * of ANOTHER goal with includeCoupons is that goal's: it can't be picked,
+   * and an earlier pick of it doesn't count (see validCouponIds).
    */
   couponIds?: string[];
   /**
@@ -685,7 +688,8 @@ export function reservedCashByAccount(
     for (const t of txs) {
       if (t.type !== "interest" || t.internal) continue;
       const d = toLocalDay(dayMsOf(t.date));
-      if (d <= day && couponOwner(ahead, t.instrumentKey, d)) add(t.accountId, incomeHuf(t, fx));
+      const owner = d <= day ? couponOwner(goals, t.instrumentKey, d) : undefined;
+      if (owner && ahead.includes(owner)) add(t.accountId, incomeHuf(t, fx));
     }
   return out;
 }
@@ -862,7 +866,7 @@ export function computeSavingsProgress(
     (c) => c.kind === "coupon",
   );
   const cashByGoal = goalCash(goals, txs, instruments, fx);
-  const pickedAll = new Set(goals.flatMap((g) => g.couponIds ?? []));
+  const pickedAll = new Set(goals.flatMap((g) => validCouponIds(goals, g)));
   const idOf = (c: (typeof coupons)[number]) =>
     c.instrumentKey ? couponId(c.instrumentKey, c.date) : "";
   const summaryAtCache = new Map<string, PortfolioSummary>();
@@ -907,7 +911,7 @@ export function computeSavingsProgress(
 
     // Coupons still ahead by the date: the ones this goal picked, plus — if it
     // earmarks every coupon — those no goal picked.
-    const picked = new Set(goal.couponIds ?? []);
+    const picked = new Set(validCouponIds(goals, goal));
     const byDate = coupons.filter((c) => parseDateMs(c.date) <= (future ? dateMs : nowMs));
     const pickedCouponsHuf = byDate
       .filter((c) => picked.has(idOf(c)))

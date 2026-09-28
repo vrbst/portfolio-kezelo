@@ -17,7 +17,7 @@ import {
 } from "../lib/savings";
 import GoalReserves from "./GoalReserves";
 import CouponPickerDialog from "./CouponPickerDialog";
-import { parseCouponId } from "../lib/incomeClaims";
+import { couponClaimedBy, parseCouponId } from "../lib/incomeClaims";
 import { PREFS_EVENT } from "../lib/prefs";
 import { Card, AmountInput } from "./ui";
 import { formatMoney, formatDate } from "../lib/format";
@@ -484,19 +484,34 @@ function GoalRow({
                 day: o?.day ?? c?.day ?? "",
                 name: o?.name ?? (c ? nameOf(c.instrumentKey) : id),
                 amountHuf: o?.amountHuf,
+                // A goal earmarking every coupon by its date owns it — the
+                // pick doesn't count.
+                claimedBy: c ? couponClaimedBy(goals, g.id, c.day)?.name : undefined,
               };
             })
             .sort((a, b) => a.day.localeCompare(b.day))
             .map((c) => (
               <span
                 key={c.id}
-                className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
-                title={c.amountHuf == null ? "Jóváírva (vagy már nem várható) — a cél pénzébe számít" : "Várható kupon"}
+                className={
+                  c.claimedBy
+                    ? "inline-flex items-center gap-1 rounded-full border border-[var(--color-warning,#fbbf24)]/50 px-2 py-0.5 text-xs text-[var(--color-warning,#fbbf24)]"
+                    : "inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
+                }
+                title={
+                  c.claimedBy
+                    ? `Nem számít: a(z) ${c.claimedBy} célnál be van kapcsolva, hogy a céldátumáig minden kupon abba megy`
+                    : c.amountHuf == null
+                      ? "Jóváírva (vagy már nem várható) — a cél pénzébe számít"
+                      : "Várható kupon"
+                }
               >
                 <Coins className="h-3 w-3 text-[var(--color-brand)]" />
                 <span className="tabular-nums">{c.day ? formatDate(c.day) : ""}</span>
                 <span className="priv">{c.name}</span>
-                {c.amountHuf != null ? (
+                {c.claimedBy ? (
+                  <span className="priv">→ {c.claimedBy}</span>
+                ) : c.amountHuf != null ? (
                   <span className="amt">{formatMoney(c.amountHuf)}</span>
                 ) : (
                   <span className="text-[var(--color-positive)]">✓</span>
