@@ -4,7 +4,7 @@ import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { Card } from "./ui";
 import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
-import type { LiveQuote } from "../lib/prices";
+import { isCurveLive, isTrading, type LiveQuote } from "../lib/prices";
 import InstrumentLogo from "./InstrumentLogo";
 import PriceChartDialog from "./PriceChartDialog";
 
@@ -45,6 +45,7 @@ export default function LivePricesPanel() {
   const liveQuotes = usePortfolio((s) => s.liveQuotes);
   // The tile whose enlarged two-day chart is open (by tile key).
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const now = useNow();
 
   const tiles = useMemo<Tile[]>(() => {
     // Distinct held securities, aggregated value across accounts for ordering.
@@ -184,7 +185,11 @@ export default function LivePricesPanel() {
         ))}
       </div>
       {opened && opened.quote.intraday && (
-        <PriceChartDialog {...opened} onClose={() => setOpenKey(null)} />
+        <PriceChartDialog
+          {...opened}
+          live={isCurveLive(opened.quote, now)}
+          onClose={() => setOpenKey(null)}
+        />
       )}
     </Card>
   );
@@ -219,10 +224,11 @@ function PriceTile({
   // Green = a live quote from a market that is trading right now. A live quote
   // from a closed market is just its last close: grey, not green. Without a
   // known session (e.g. the frankfurter fallback) it stays green as before.
+  // Right after the open, before the new session's first bar arrives, the
+  // curve is still the last trading day's: that is not live either.
   const now = useNow();
-  const trading =
-    !quote?.session ||
-    (now >= quote.session.start && now < quote.session.end);
+  const trading = isTrading(quote, now);
+  const curveLive = isCurveLive(quote, now);
   const clickable = !!onOpen && !!quote?.intraday;
   return (
     <div
@@ -257,7 +263,7 @@ function PriceTile({
           />
         ) : (
           live &&
-          (trading ? (
+          (curveLive ? (
             <span
               className="live-dot relative h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
               title="Élő árfolyam — a piac most nyitva"
@@ -265,7 +271,11 @@ function PriceTile({
           ) : (
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-muted)]"
-              title={`Záróár — ${quote?.exchange ?? "a piac"} most zárva`}
+              title={
+                trading
+                  ? `${quote?.exchange ?? "A piac"} nyitva, de még nincs mai kötés — az utolsó záróár`
+                  : `Záróár — ${quote?.exchange ?? "a piac"} most zárva`
+              }
             />
           ))
         )}
@@ -303,7 +313,13 @@ function PriceTile({
                 quote.intradayFrom ? quote.prevDay?.at(-1) : quote.prevClose
               }
               session={quote.session}
-              stroke={up ? "var(--color-positive)" : "var(--color-negative)"}
+              stroke={
+                !curveLive
+                  ? "var(--color-muted)"
+                  : up
+                    ? "var(--color-positive)"
+                    : "var(--color-negative)"
+              }
             />
           </div>
         </>
