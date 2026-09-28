@@ -221,10 +221,12 @@ export interface Cashflow {
   /** Expected HUF inflow on that day. */
   amountHuf: number;
   accountId?: string;
+  /** The bond paying it. */
+  instrumentKey?: string;
 }
 
 /** A credited coupon may be booked a day or two off the schedule date. */
-const COUPON_CREDITED_DAYS = 7;
+export const COUPON_CREDITED_DAYS = 7;
 
 /**
  * Local calendar day of a stored transaction timestamp. The importers store an
@@ -310,6 +312,7 @@ export function futureBondCashflows(
                 title: `${inst.name} — kamat`,
                 amountHuf: amt,
                 accountId,
+                instrumentKey: inst.key,
               });
           }
           cur = addMonths(cur, interval);
@@ -324,6 +327,7 @@ export function futureBondCashflows(
           title: `${inst.name} — lejárat`,
           amountHuf: face,
           accountId,
+          instrumentKey: inst.key,
         });
       }
     }

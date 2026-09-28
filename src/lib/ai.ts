@@ -492,7 +492,7 @@ export function buildAiPortfolioContext(
         .map((k) => instName.get(k) ?? k)
         .join(", ");
       lines.push(
-        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}` : ""}${s.goal.includeCoupons ? `; a portfólió ÖSSZES kötvénykupona, amely a határidőig beérkezik, ennek a célnak a része (várhatóan ${huf(s.couponsHuf)} Ft, már benne van a várható teljesülésben)` : ""}`,
+        `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}` : ""}${s.goal.includeCoupons ? `; a portfólió ÖSSZES (más célhoz nem rendelt) kötvénykupona, amely a határidőig beérkezik, ennek a célnak a része (várhatóan ${huf(s.couponsHuf)} Ft, már benne van a várható teljesülésben)` : s.pickedCouponsHuf > 0 ? `; a célhoz rendelt konkrét kuponok (még ${huf(s.pickedCouponsHuf)} Ft, már benne van a várható teljesülésben)` : ""}${s.savingStartsOn ? `; a havi félretétel csak ${s.savingStartsOn}-tól indul (akkortól havi ${huf(s.plannedMonthlyHuf)} Ft)` : ""}`,
       );
     }
   }

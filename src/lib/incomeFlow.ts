@@ -29,6 +29,7 @@ import {
 } from "./rebalance";
 import {
   claimsCoupon,
+  couponOwner,
   incomeHuf,
   isBondCoupon,
   splitAmongGoals,
@@ -66,6 +67,8 @@ export interface IncomeAllocation {
   goals: { goalId: string; name: string; huf: number }[];
   /** A goal's own instrument matured: the money is that goal's payout. */
   payoutOf?: string[];
+  /** A coupon a goal picked (couponIds): it is that goal's, whole. */
+  pickedBy?: string;
   /** What is left for the glide path. */
   glideHuf: number;
   /** The glide path's suggestions for glideHuf (null: off or nothing left). */
@@ -145,6 +148,17 @@ export function allocateIncome(
           glideHuf: 0,
           plan: null,
         });
+        continue;
+      }
+    }
+    if (event.kind === "coupon") {
+      const owner = couponOwner(
+        progress.map((p) => p.goal),
+        event.instrumentKey,
+        event.day,
+      );
+      if (owner) {
+        out.push({ event, goals: [], pickedBy: owner.name, glideHuf: 0, plan: null });
         continue;
       }
     }
@@ -278,6 +292,8 @@ export function incomeEventTitle(e: IncomeEvent): string {
 export function incomeSplitText(a: IncomeAllocation): string {
   if (a.payoutOf?.length)
     return `${a.payoutOf.join(", ")} kifizetése — a cél saját eszköze járt le, nem kell elosztani.`;
+  if (a.pickedBy)
+    return `${a.pickedBy}: a célhoz rendelt kupon — a célra félretéve, nem kell elosztani.`;
   const parts = a.goals.map((g) => `${g.name}: ${formatMoney(g.huf)}`);
   if (a.glideHuf >= 1) {
     parts.push(`célpálya: ${formatMoney(a.glideHuf)}`);

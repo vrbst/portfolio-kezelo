@@ -87,8 +87,9 @@ export default function GoalReserves({
       </div>
       {p.autoCashHuf >= 1 && (
         <p className="mb-1 text-[var(--color-muted)]">
-          Az „automatikusan” rész a lejárt papír kifizetése és a tartási
-          időszakban jóváírt kamat — ezeket ne rögzítsd félretételként.
+          Az „automatikusan” rész a lejárt papír kifizetése, a tartási
+          időszakban jóváírt kamat és a célhoz rendelt, már jóváírt kupon —
+          ezeket ne rögzítsd félretételként.
         </p>
       )}
 

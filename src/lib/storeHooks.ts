@@ -421,7 +421,9 @@ const cachedReserved = sharedMemo(reservedCashByAccount);
 
 /** Cash set aside for savings goals, per account (not free cash) — today. */
 export function useReservedCash(): Map<string, number> {
-  return cachedReserved(useSavingsGoals(), useToday());
+  const transactions = usePortfolio((s) => s.transactions);
+  const fx = usePortfolio((s) => s.fx);
+  return cachedReserved(useSavingsGoals(), useToday(), transactions, fx);
 }
 
 const cachedWeightHistory = sharedMemo(

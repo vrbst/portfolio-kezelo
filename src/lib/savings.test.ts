@@ -3,6 +3,7 @@ import type { Account, Instrument, Transaction } from "./model";
 import {
   computeSavingsProgress,
   holdCashAdvice,
+  reservedCashByAccount,
   savingsGoalAlerts,
   savingsMonthlyStatus,
   suitableForGoalBuy,
@@ -322,5 +323,90 @@ describe("savings goal – money already the goal's but not in a security (hold-
 
   it("outside the window nothing changes: a credited, not reinvested coupon is still missing", () => {
     expect(progress([...BASE_TXS, COUPON], at("2026-10-20")).gapHuf).toBeCloseTo(600_000);
+  });
+});
+
+describe("savings goal – picked coupons (couponIds)", () => {
+  const PICKED: SavingsGoal = {
+    ...GOAL,
+    id: "p",
+    name: "Nózi",
+    includeCoupons: false,
+    couponIds: [`${BOND.key}@2026-10-10`],
+  };
+  const progs = (goals: SavingsGoal[], txs: Transaction[], day: string) =>
+    computeSavingsProgress(goals, [ACC], txs, instruments, new Map(), {}, at(day));
+  const stats = (goals: SavingsGoal[], txs: Transaction[], day: string) =>
+    savingsMonthlyStatus(goals, [ACC], txs, instruments, new Map(), {}, at(day));
+
+  it("a picked future coupon counts in the projection", () => {
+    const [p] = progs([PICKED], BASE_TXS, "2026-10-05");
+    expect(p.couponsHuf).toBeCloseTo(300_000);
+    expect(p.pickedCouponsHuf).toBeCloseTo(300_000);
+    expect(p.gapHuf).toBeCloseTo(300_000);
+  });
+
+  it("an includeCoupons goal does not count a coupon another goal picked", () => {
+    const [, g] = progs([PICKED, GOAL], BASE_TXS, "2026-10-05");
+    expect(g.couponsHuf).toBe(0);
+    expect(g.gapHuf).toBeCloseTo(600_000);
+  });
+
+  it("once credited it is the goal's cash, not shared out", () => {
+    const [p, g] = progs([PICKED, GOAL], [...BASE_TXS, COUPON], "2026-10-20");
+    expect(p.autoCashHuf).toBeCloseTo(300_000);
+    expect(p.couponsHuf).toBe(0);
+    expect(p.projectedHuf).toBeCloseTo(700_000);
+    expect(g.autoCashHuf).toBe(0);
+    const s = stats([PICKED, GOAL], [...BASE_TXS, COUPON], "2026-10-20");
+    expect(s.find((x) => x.goalId === "p")!.couponHuf).toBe(0);
+    expect(s.find((x) => x.goalId === "g")!.couponHuf).toBe(0);
+    // Quota: (1 000 000 − 400 000 − 300 000) / 3 months.
+    expect(s.find((x) => x.goalId === "p")!.baseNeededHuf).toBeCloseTo(100_000);
+    // The other goal's month-start gap leaves the picked coupon out: 600 000 / 3.
+    expect(s.find((x) => x.goalId === "g")!.baseNeededHuf).toBeCloseTo(200_000);
+  });
+
+  it("a coupon booked a few days off the schedule still matches", () => {
+    const late = tx({ ...COUPON, id: "kupon-late", date: "2026-10-12" });
+    const [p] = progs([PICKED], [...BASE_TXS, late], "2026-10-20");
+    expect(p.autoCashHuf).toBeCloseTo(300_000);
+  });
+
+  it("the credited coupon is held on its account (not free cash)", () => {
+    const r = reservedCashByAccount([PICKED], "2026-10-20", [...BASE_TXS, COUPON], {});
+    expect(r.get(ACC.id)).toBeCloseTo(300_000);
+    expect(reservedCashByAccount([PICKED], "2026-12-20", [...BASE_TXS, COUPON], {}).size).toBe(0);
+  });
+});
+
+describe("savings goal – a later saving start (saveFrom)", () => {
+  const plain: SavingsGoal = { ...GOAL, includeCoupons: false };
+  const prog = (g: SavingsGoal, day: string) =>
+    computeSavingsProgress([g], [ACC], BASE_TXS, instruments, new Map(), {}, at(day))[0];
+
+  it("asks nothing before the start month, then spreads the gap from it", () => {
+    const g = { ...plain, saveFrom: "2026-11-15" };
+    const p = prog(g, "2026-10-05");
+    expect(p.monthlyNeededHuf).toBe(0);
+    expect(p.savingStartsOn).toBe("2026-11-15");
+    // November + December's pay day (30 Nov) → 600 000 / 2.
+    expect(p.plannedMonthlyHuf).toBeCloseTo(300_000);
+    const s = savingsMonthlyStatus([g], [ACC], BASE_TXS, instruments, new Map(), {}, at("2026-10-05"));
+    expect(s[0].done).toBe(true);
+  });
+
+  it("all in the last month", () => {
+    const g = { ...plain, saveFrom: "2026-12-01" };
+    expect(prog(g, "2026-10-05").plannedMonthlyHuf).toBeCloseTo(600_000);
+    const later = prog(g, "2026-12-02");
+    expect(later.savingStartsOn).toBeUndefined();
+    expect(later.monthlyNeededHuf).toBeCloseTo(600_000);
+  });
+
+  it("a start in the current month changes nothing", () => {
+    expect(prog({ ...plain, saveFrom: "2026-10-20" }, "2026-10-05").monthlyNeededHuf).toBeCloseTo(
+      prog(plain, "2026-10-05").monthlyNeededHuf,
+    );
   });
 });
