@@ -33,6 +33,7 @@ import ValueChart, { type ChartMode } from "../components/ValueChart";
 import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
+import DayChangeBreakdown from "../components/DayChangeBreakdown";
 import {
   PageHeader,
   StatCard,
@@ -389,6 +390,11 @@ export default function Dashboard() {
               delta={scrub ? scrubDelta?.abs : dayChange?.abs}
               deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
               deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}
+              deltaDetail={
+                !scrub && dayChange?.breakdown?.length ? (
+                  <DayChangeBreakdown change={dayChange} />
+                ) : undefined
+              }
               scrubbing={scrub != null}
               icon={<Wallet className="h-5 w-5" />}
               index={0}

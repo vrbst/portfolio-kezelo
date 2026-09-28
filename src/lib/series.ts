@@ -340,6 +340,152 @@ export interface DayChange {
   pct?: number;
   /** "ma" when the samples are ≤1 day apart, else the gap ("3 nap"). */
   note: string;
+  /** What the move is made of (FX, security prices, bond accrual, rest). */
+  breakdown?: DayBreakdownItem[];
+}
+
+/** One component of the daily move (HUF), for the hero card's popup. */
+export interface DayBreakdownItem {
+  kind: "fx" | "price" | "bond" | "other";
+  label: string;
+  /** HUF contribution to the day's move. */
+  abs: number;
+  /** The driver's own change (e.g. EUR/HUF rate, ETF price), as a fraction. */
+  pct?: number;
+  /** Per-instrument lines (the security-price component). */
+  children?: { label: string; abs: number; pct?: number }[];
+}
+
+/** HUF value per instrument (all accounts summed). */
+function holdingValues(s: PortfolioSummary): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const a of s.accounts)
+    for (const h of a.holdings)
+      out.set(
+        h.instrumentKey,
+        (out.get(h.instrumentKey) ?? 0) + (h.marketValueHuf ?? 0),
+      );
+  return out;
+}
+
+/**
+ * Splits the daily move into its drivers by re-marking TODAY's holdings step by
+ * step, from yesterday's marks to today's:
+ *   yesterday's prices/FX, valued at yesterday's end
+ *   → valued now            (bond accrual: the day's interest)
+ *   → today's prices        (security price moves, per instrument)
+ *   → today's FX            (currency moves on securities and cash).
+ * Whatever the re-marking doesn't explain (today's trades, dividends, fees…)
+ * is the "other" line, so the items always add up to `total`.
+ */
+export function dayChangeBreakdown(
+  accounts: Account[],
+  transactions: Transaction[],
+  instMap: Map<string, Instrument>,
+  prices: PriceMap,
+  fx: Record<string, number>,
+  history: ValueHistory | null | undefined,
+  prevDay: string,
+  overrides: DayOverrides,
+  total: number,
+  now: Date = new Date(),
+): DayBreakdownItem[] {
+  const prevPrices: PriceMap = new Map(prices);
+  for (const inst of instMap.values()) {
+    const p =
+      overrides.prices?.[inst.key] ?? asOf(history?.prices[inst.key], prevDay);
+    if (p != null) prevPrices.set(inst.key, p);
+  }
+  const prevFx: Record<string, number> = {
+    ...fx,
+    EUR: asOf(history?.fx["EUR"], prevDay) ?? fx["EUR"],
+    ...(overrides.fx ?? {}),
+  };
+  const prevEnd = new Date(`${prevDay}T23:59:59.999Z`);
+  const mark = (p: PriceMap, f: Record<string, number>, at: Date) =>
+    computePortfolio(accounts, transactions, instMap, p, f, at);
+  const a = mark(prevPrices, prevFx, prevEnd);
+  const b = mark(prevPrices, prevFx, now);
+  const c = mark(prices, prevFx, now);
+  const d = mark(prices, fx, now);
+  const [va, vb, vc, vd] = [a, b, c, d].map(holdingValues);
+
+  const isBond = (key: string) => {
+    const t = instMap.get(key)?.type;
+    return t === "gov_bond" || t === "tbill";
+  };
+
+  let bondAbs = 0;
+  let bondBase = 0;
+  const priceLines: { label: string; abs: number; pct?: number }[] = [];
+  let priceBase = 0;
+  const fxByCcy = new Map<string, number>();
+  const addFx = (ccy: string, v: number) =>
+    fxByCcy.set(ccy, (fxByCcy.get(ccy) ?? 0) + v);
+
+  for (const [key, vD] of vd) {
+    const vA = va.get(key) ?? 0;
+    if (isBond(key)) {
+      bondAbs += vD - vA;
+      bondBase += vA;
+      continue;
+    }
+    const inst = instMap.get(key);
+    const abs = (vc.get(key) ?? 0) - vA; // B−A is 0 for non-bonds
+    const p0 = prevPrices.get(key);
+    const p1 = prices.get(key);
+    if (Math.abs(abs) >= 0.5)
+      priceLines.push({
+        label: inst?.ticker || inst?.name || key,
+        abs,
+        pct: p0 && p1 != null ? p1 / p0 - 1 : undefined,
+      });
+    priceBase += vb.get(key) ?? 0;
+    const ccy = inst?.currency ?? "HUF";
+    if (ccy !== "HUF") addFx(ccy, vD - (vc.get(key) ?? 0));
+  }
+  // FX move on foreign-currency cash.
+  for (const acc of d.accounts)
+    for (const [ccy, amt] of Object.entries(acc.cash)) {
+      if (ccy === "HUF" || !amt) continue;
+      addFx(ccy, amt * ((fx[ccy] ?? 1) - (prevFx[ccy] ?? fx[ccy] ?? 1)));
+    }
+
+  const items: DayBreakdownItem[] = [];
+  for (const [ccy, abs] of fxByCcy) {
+    const r0 = prevFx[ccy];
+    const r1 = fx[ccy];
+    if (Math.abs(abs) < 0.5 && r0 === r1) continue;
+    items.push({
+      kind: "fx",
+      label: `${ccy}/HUF árfolyam`,
+      abs,
+      pct: r0 && r1 ? r1 / r0 - 1 : undefined,
+    });
+  }
+  if (priceLines.length) {
+    priceLines.sort((x, y) => Math.abs(y.abs) - Math.abs(x.abs));
+    const abs = priceLines.reduce((s, l) => s + l.abs, 0);
+    items.push({
+      kind: "price",
+      label: "ETF-árfolyamok",
+      abs,
+      pct: priceBase > 0 ? abs / priceBase : undefined,
+      children: priceLines.length > 1 ? priceLines : undefined,
+    });
+  }
+  if (Math.abs(bondAbs) >= 0.5)
+    items.push({
+      kind: "bond",
+      label: "Állampapír-hozam",
+      abs: bondAbs,
+      pct: bondBase > 0 ? bondAbs / bondBase : undefined,
+    });
+  const explained = items.reduce((s, it) => s + it.abs, 0);
+  const rest = total - explained;
+  if (Math.abs(rest) >= 1)
+    items.push({ kind: "other", label: "Egyéb (tranzakciók, díjak…)", abs: rest });
+  return items;
 }
 
 /**
@@ -356,6 +502,7 @@ export function computeDayChange(
   accounts: Account[],
   transactions: Transaction[],
   instruments: Instrument[],
+  prices: PriceMap,
   fx: Record<string, number>,
   history: ValueHistory | null | undefined,
   liveQuotes: Record<string, LiveQuote>,
@@ -364,22 +511,27 @@ export function computeDayChange(
   const last = series[series.length - 1];
 
   const instMap = new Map(instruments.map((i) => [i.key, i]));
-  const prices: Record<string, number> = {};
+  const prevCloses: Record<string, number> = {};
   for (const [key, q] of Object.entries(liveQuotes)) {
-    if (instMap.has(key) && q.prevClose != null) prices[key] = q.prevClose;
+    if (instMap.has(key) && q.prevClose != null) prevCloses[key] = q.prevClose;
   }
   const eurPrev = liveQuotes["EUR"]?.prevClose;
-  if (eurPrev != null || Object.keys(prices).length > 0) {
+  if (eurPrev != null || Object.keys(prevCloses).length > 0) {
     const d = new Date(`${last.date}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 1);
+    const prevDay = d.toISOString().slice(0, 10);
+    const overrides: DayOverrides = {
+      prices: prevCloses,
+      fx: eurPrev != null ? { EUR: eurPrev } : undefined,
+    };
     const prev = valueOnDay(
       accounts,
       transactions,
       instMap,
       fx,
       history,
-      d.toISOString().slice(0, 10),
-      { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined },
+      prevDay,
+      overrides,
     );
     // value − invested on both sides: flows (and the in-transit bridge the
     // series adds to both) cancel out.
@@ -388,6 +540,17 @@ export function computeDayChange(
       abs,
       pct: prev.value ? abs / prev.value : undefined,
       note: "ma",
+      breakdown: dayChangeBreakdown(
+        accounts,
+        transactions,
+        instMap,
+        prices,
+        fx,
+        history,
+        prevDay,
+        overrides,
+        abs,
+      ),
     };
   }
 
@@ -400,5 +563,16 @@ export function computeDayChange(
     abs,
     pct: prev.value ? abs / prev.value : undefined,
     note: gap <= 1 ? "ma" : `${gap} nap`,
+    breakdown: dayChangeBreakdown(
+      accounts,
+      transactions,
+      instMap,
+      prices,
+      fx,
+      history,
+      prev.date,
+      {},
+      abs,
+    ),
   };
 }
