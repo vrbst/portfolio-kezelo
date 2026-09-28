@@ -266,6 +266,8 @@ export interface SavingsMonthlyStatus {
    * Undefined when the money is to be held in cash.
    */
   buyKey?: string;
+  /** Account of the goal's latest reserve with one (where the cash is kept). */
+  reserveAccountId?: string;
 }
 
 /**
@@ -373,6 +375,9 @@ export function savingsMonthStates(
       minDays: Math.max(0, g.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY),
       planHuf,
       buyKey,
+      reserveAccountId: [...(g.reserves ?? [])]
+        .filter((r) => r.accountId && r.amountHuf > 0)
+        .sort((a, b) => b.date.localeCompare(a.date))[0]?.accountId,
     });
   }
   return out;
@@ -411,9 +416,11 @@ export function savingsMonthlyStatus(
 export function holdCashAdvice(s: SavingsMonthlyStatus): string {
   const why =
     `a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le`;
-  return s.missingHuf > 0
-    ? `${s.monthLabel}: tartsd készpénzben a céldátumig — ${formatMoney(s.missingHuf)} (${why}).`
-    : `${s.monthLabel}: nincs vételi teendő — ${why}, a pénz készpénzben várja a céldátumot.`;
+  if (s.missingHuf > 0)
+    return `${s.monthLabel}: tartsd készpénzben a céldátumig — ${formatMoney(s.missingHuf)} (${why}).`;
+  if (s.boughtHuf >= 1)
+    return `${s.monthLabel}: e havi rész félretéve (${formatMoney(s.boughtHuf)}) ✓ — a pénz készpénzben várja a céldátumot.`;
+  return `${s.monthLabel}: nincs vételi teendő — ${why}, a pénz készpénzben várja a céldátumot.`;
 }
 
 /**

@@ -304,6 +304,8 @@ describe("savings goal – money already the goal's but not in a security (hold-
       const g = withReserves({ date: "2026-11-10", amountHuf: need });
       expect(statOf(g, "2026-11-12").done).toBe(true);
       expect(savingsGoalAlerts([g], [ACC], TXS, insts, new Map(), {}, at("2026-11-12"))).toEqual([]);
+      // …and its "Rendben" line says so.
+      expect(holdCashAdvice(statOf(g, "2026-11-12"))).toMatch(/e havi rész félretéve .* ✓/);
     });
 
     it("a future-dated reserve does not count yet", () => {
