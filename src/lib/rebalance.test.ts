@@ -1150,3 +1150,158 @@ describe("resolveSnapshotStarts – a frozen weight stays", () => {
     expect(weightOf(resolveSnapshotStarts(moved, revised), "R")).toBeCloseTo(0.41);
   });
 });
+
+describe("band limit base: path target or final weight", () => {
+  // R rises 40% → 60%, K falls 60% → 40% over two years; ±5 pp bands. On
+  // 2027-01-01 (exactly halfway) both path targets are 50%.
+  const MID = "2027-01-01";
+  const rising = (patch: Partial<Bucket> = {}) =>
+    bucket("R", 0.6, { start: { mode: "manual", weight: 0.4 }, ...patch });
+  const falling = (patch: Partial<Bucket> = {}) =>
+    bucket("K", 0.4, { start: { mode: "manual", weight: 0.6 }, ...patch });
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K") };
+  const cfgOf = (r: Partial<Bucket> = {}, k: Partial<Bucket> = {}) =>
+    config([rising(r), falling(k)], rules);
+  const FINAL = cfgOf({ upperBase: "final" }, { lowerBase: "final" });
+  const PATH = cfgOf();
+  const ahead = [etf("ETF-R", 600_000), bond("KOTV", 400_000)]; // R 60%, K 40%
+  const past = [etf("ETF-R", 680_000), bond("KOTV", 320_000)]; // R 68%, K 32%
+  const limits = (l: { low: number; high: number }) =>
+    [l.low, l.high].map((v) => Math.round(v * 1e9) / 1e9);
+
+  it("rising path, upper limit from the final weight: final + band", () => {
+    expect(limits(bandLimits(rising(), MID))).toEqual([0.45, 0.55]);
+    const l = bandLimits(rising({ upperBase: "final" }), MID);
+    expect(limits(l)).toEqual([0.45, 0.65]);
+    expect(l.highFromFinal).toBe(true);
+    expect(l.lowFromFinal).toBeUndefined();
+  });
+
+  it("falling path, lower limit from the final weight: final − band", () => {
+    const l = bandLimits(falling({ lowerBase: "final" }), MID);
+    expect(limits(l)).toEqual([0.35, 0.55]);
+    expect(l.lowFromFinal).toBe(true);
+  });
+
+  it("never narrows the band on the wrong side of the path", () => {
+    const k = falling({ upperBase: "final" });
+    expect(limits(bandLimits(k, MID))).toEqual([0.45, 0.55]);
+    expect(bandLimits(k, MID).highFromFinal).toBeUndefined();
+    expect(limits(bandLimits(rising({ lowerBase: "final" }), MID))).toEqual([0.45, 0.55]);
+  });
+
+  it("relative band: the width the band has at the final weight, minimum included", () => {
+    const rel = bucket("A", 0.5, {
+      start: { mode: "manual", weight: 0.2 },
+      band: { kind: "rel", pct: 0.2 },
+      upperBase: "final",
+    });
+    expect(bandLimits(rel, "2026-01-01").high).toBeCloseTo(0.6); // 50% + 20% × 50%
+    const withMin = { ...rel, band: { kind: "rel" as const, pct: 0.2, minPp: 0.15 } };
+    expect(bandLimits(withMin, "2026-01-01").high).toBeCloseTo(0.65);
+    const big = bucket("A", 0.95, {
+      start: { mode: "manual", weight: 0.5 },
+      band: { kind: "abs", pp: 0.1 },
+      upperBase: "final",
+    });
+    expect(bandLimits(big, "2026-01-01").high).toBe(1);
+  });
+
+  it("past the end date it is the same as the path band", () => {
+    expect(limits(bandLimits(rising({ upperBase: "final" }), "2028-06-01"))).toEqual(
+      limits(bandLimits(rising(), "2028-06-01")),
+    );
+  });
+
+  it("a bucket ahead of its path stays within the widened band", () => {
+    const st = (cfg: GlideConfig, pos: Position[]) =>
+      allocationState(cfg, pos, MID).buckets.map((b) => b.status);
+    expect(st(PATH, ahead)).toEqual(["above", "below"]);
+    expect(st(FINAL, ahead)).toEqual(["within", "within"]);
+    expect(st(FINAL, past)).toEqual(["above", "below"]);
+  });
+
+  it("no alert, signal, trade or redirect until it passes final ± band", () => {
+    const s = allocationState(FINAL, ahead, MID);
+    expect(glideAlerts(s, FINAL)).toEqual([]);
+    expect(updateGlideSignals({}, s, FINAL).signals).toEqual({});
+    const p = bandRule(FINAL, s, 50_000);
+    expect(p.suggestions).toEqual([]);
+    // The same weights against the path band do alert.
+    expect(glideAlerts(allocationState(PATH, ahead, MID), PATH)).toHaveLength(2);
+  });
+
+  it("an old signal clears once the widened band holds the bucket", () => {
+    const old = updateGlideSignals({}, allocationState(PATH, ahead, MID), PATH).signals;
+    expect(Object.keys(old).sort()).toEqual(["K", "R"]);
+    const next = updateGlideSignals(old, allocationState(FINAL, ahead, MID), FINAL);
+    expect(next.signals).toEqual({});
+    expect(next.changed).toBe(true);
+  });
+
+  it("past the widened limit: the deviation counts from it", () => {
+    const s = allocationState(FINAL, past, MID);
+    const r = s.buckets.find((b) => b.bucket.id === "R")!;
+    expect(bandDeviation(r)).toBeCloseTo(0.03);
+    expect(glideAlerts(s, FINAL).map((a) => a.id)).toEqual([
+      "glide:R:above:2027-01",
+      "glide:K:below:2027-01",
+    ]);
+  });
+
+  it("past the widened limit: redirect and band modes aim at its edge", () => {
+    const redirect = cfgOf(
+      { upperBase: "final", aboveMode: "redirect" },
+      { lowerBase: "final", belowMode: "redirect" },
+    );
+    const p = bandRule(redirect, allocationState(redirect, past, MID));
+    expect(p.suggestions.map((s) => [s.side, s.bucketId])).toEqual([
+      ["redirect", "R"],
+      ["redirect", "K"],
+    ]);
+    expect(p.suggestions[0].amountHuf).toBeCloseTo(680_000 / 0.65 - 1_000_000);
+    expect(p.suggestions[1].amountHuf).toBeCloseTo((0.35 * 1_000_000 - 320_000) / 0.65);
+
+    const band = cfgOf(
+      { upperBase: "final", aboveMode: "band" },
+      { lowerBase: "final", belowMode: "band" },
+    );
+    const q = bandRule(band, allocationState(band, past, MID));
+    expect(q.weightsAfter.R).toBeCloseTo(0.65);
+    expect(q.weightsAfter.K).toBeCloseTo(0.35);
+  });
+
+  it("past the widened limit, path mode: trades back to the path target", () => {
+    const p = bandRule(FINAL, allocationState(FINAL, past, MID));
+    expect(p.weightsAfter.R).toBeCloseTo(0.5);
+  });
+
+  it("incoming money is routed exactly as before: toward the path", () => {
+    for (const pos of [ahead, past]) {
+      const a = planCashflow(PATH, allocationState(PATH, pos, MID), 100_000);
+      const b = planCashflow(FINAL, allocationState(FINAL, pos, MID), 100_000);
+      expect(b.suggestions).toEqual(a.suggestions);
+      expect(b.weightsAfter).toEqual(a.weightsAfter);
+    }
+    // Ahead of its path R gets none of it.
+    const p = planCashflow(FINAL, allocationState(FINAL, ahead, MID), 100_000);
+    expect(p.suggestions.map((s) => s.bucketId)).toEqual(["K"]);
+  });
+
+  it("a version without the setting behaves exactly like the path base", () => {
+    const explicit = cfgOf({ upperBase: "path", lowerBase: "path" }, { upperBase: "path", lowerBase: "path" });
+    const view = (cfg: GlideConfig) =>
+      allocationState(cfg, ahead, MID).buckets.map(({ bucket: _b, ...rest }) => rest);
+    expect(view(PATH)).toEqual(view(explicit));
+  });
+
+  it("the history uses the band of the version in force on each day", () => {
+    const v1 = { ...PATH, id: "v1" };
+    const v2 = { ...FINAL, id: "v2", validFrom: MID, savedAt: "2027-01-01T00:00:00Z" };
+    const h = weightHistory([v1, v2], ["2026-12-31", MID], () => ahead);
+    expect(h[0].buckets.R.high).toBeLessThan(0.56);
+    expect(h[0].buckets.R.status).toBe("above");
+    expect(h[1].buckets.R.high).toBeCloseTo(0.65);
+    expect(h[1].buckets.R.status).toBe("within");
+  });
+});

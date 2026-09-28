@@ -17,7 +17,7 @@ import {
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
-import { positionsFromSummary } from "../../src/lib/rebalance";
+import { bandBaseNote, positionsFromSummary } from "../../src/lib/rebalance";
 import {
   buildMonthlyPlan,
   computePlanNeeds,
@@ -414,7 +414,7 @@ export function monthlyText(ctx: Context): string {
     lines.push("", "<b>Célpálya (tény / pálya, sáv)</b>");
     for (const b of ctx.glide.buckets)
       lines.push(
-        `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
+        `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}${bandBaseNote(b) ? `, ${esc(bandBaseNote(b))}` : ""}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
       );
   }
   lines.push(...monthlyPlanLines(ctx));

@@ -89,7 +89,19 @@ export interface Bucket {
    */
   aboveForcePp?: number;
   belowForcePp?: number;
+  /**
+   * What the band's upper limit is measured from: the day's path target
+   * ("path", the original behaviour) or the final weight ("final": final
+   * weight + band, so a bucket running ahead of a rising path gets no alert
+   * or redirect until it passes that). It only ever widens the band. Missing
+   * = "path". The cash-flow routing still aims at the path either way.
+   */
+  upperBase?: BandLimitBase;
+  /** Same for the lower limit (final weight − band, for a falling path). */
+  lowerBase?: BandLimitBase;
 }
+
+export type BandLimitBase = "path" | "final";
 
 /**
  * Handling of an out-of-band bucket: trade back to the path target, trade
@@ -436,6 +448,32 @@ export function validateConfig(
         bucketId: b.id,
         message: `${b.name || "(névtelen)"}: nincs hozzárendelt instrumentum.`,
       });
+
+  for (const b of cfg.buckets) {
+    const label = b.name || "(névtelen)";
+    for (const x of [b.upperBase, b.lowerBase])
+      if (x != null && x !== "path" && x !== "final")
+        errors.push({
+          bucketId: b.id,
+          message: `${label}: a sávhatár alapja csak a pályacél vagy a végső cél lehet.`,
+        });
+    // "final" only ever widens the band: on the wrong side of the path it
+    // changes nothing (a stepped or snapshot path may still differ, so only
+    // a manual, flat-or-opposite start is flagged).
+    if (b.start.mode === "manual") {
+      const dir = Math.sign(b.finalWeight - b.start.weight);
+      if (b.upperBase === "final" && dir <= 0)
+        warnings.push({
+          bucketId: b.id,
+          message: `${label}: nem emelkedő pálya — a végső célhoz mért felső sávhatárnak nincs hatása.`,
+        });
+      if (b.lowerBase === "final" && dir >= 0)
+        warnings.push({
+          bucketId: b.id,
+          message: `${label}: nem csökkenő pálya — a végső célhoz mért alsó sávhatárnak nincs hatása.`,
+        });
+    }
+  }
 
   for (const b of cfg.buckets)
     for (const x of [b.aboveForcePp, b.belowForcePp])
