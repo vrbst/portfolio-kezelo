@@ -299,6 +299,10 @@ export interface SavingsMonthlyStatus {
   buyKey?: string;
   /** Account of the goal's latest reserve with one (where the cash is kept). */
   reserveAccountId?: string;
+  /** The goal's assigned instruments (where held cash waits without a reserve account). */
+  assignedKeys: string[];
+  /** Why the assigned instruments can't take this month's buy (hold cash). */
+  holdReason?: string;
 }
 
 /**
@@ -415,6 +419,8 @@ export function savingsMonthStates(
       reserveAccountId: [...(g.reserves ?? [])]
         .filter((r) => r.accountId && r.amountHuf > 0)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.accountId,
+      assignedKeys: g.instrumentKeys,
+      holdReason: holdCash ? holdReasonText(g, instruments, today) : undefined,
     });
   }
   return out;
@@ -447,6 +453,29 @@ export function savingsMonthlyStatus(
     fx,
     now,
   ).filter((s) => on.has(s.goalId));
+}
+
+/**
+ * Why none of the goal's instruments can take a buy today, per instrument:
+ * "DKJ 270305: a céldátum (2026-11-20) után jár le (2027-03-05)".
+ */
+function holdReasonText(
+  goal: SavingsGoal,
+  instruments: Map<string, Instrument>,
+  today: string,
+): string | undefined {
+  const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
+  const target = goal.targetDate.slice(0, 10);
+  const parts = goal.instrumentKeys.map((k) => {
+    const inst = instruments.get(k);
+    const name = inst?.name ?? k;
+    const mat = maturityDay(inst);
+    if (!mat) return `${name}: nem vehető`;
+    if (mat <= today) return `${name}: már lejárt (${mat})`;
+    if (mat > target) return `${name}: a céldátum (${target}) után jár le (${mat})`;
+    return `${name}: ${n} napon belül lejár (${mat})`;
+  });
+  return parts.length ? parts.join("; ") : undefined;
 }
 
 /** The "hold it in cash" advice line for a goal with nothing left to buy. */

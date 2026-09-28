@@ -138,6 +138,11 @@ function LineRow({
           </span>
         </div>
       )}
+      {!done && n.holdCash && n.holdReason && (
+        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+          Nem vehető, ezért készpénz: {n.holdReason}
+        </div>
+      )}
       {line.upcoming && (
         <div className="mt-0.5 text-xs text-[var(--color-muted)]">
           {line.upcoming.from}-tól: {line.upcoming.label}

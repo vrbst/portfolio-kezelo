@@ -75,6 +75,10 @@ export interface PlanNeed {
   reserveAccountId?: string;
   /** A later month's part pulled forward (month-end leftover): its label. */
   ahead?: string;
+  /** The goal's assigned instruments — held cash waits on their account. */
+  assignedKeys?: string[];
+  /** Why the assigned instruments can't take the buy (hold cash). */
+  holdReason?: string;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
@@ -101,6 +105,8 @@ export function planNeeds(
         : "készpénz a céldátumig",
       holdCash: s.holdCash,
       reserveAccountId: s.reserveAccountId,
+      assignedKeys: s.assignedKeys,
+      holdReason: s.holdReason,
     }));
   const recurring = [...dca]
     .sort((a, b) => a.goal.createdAt.localeCompare(b.goal.createdAt))
@@ -329,11 +335,21 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     const v = venueOf(key);
     return ctx && v ? depositFxPct(ctx, key, v, instruments) : 0;
   };
+  // Held cash without a reserve account waits where the goal's instrument is
+  // held / bought (e.g. the Kincstár for a DKJ goal), not "somewhere".
+  const holdVenue = (need: PlanNeed): Venue | undefined => {
+    if (!need.holdCash || need.reserveAccountId || !ctx) return undefined;
+    for (const k of need.assignedKeys ?? []) {
+      const v = venueOf(k);
+      if (v && v.source !== "none" && !v.depositBlocked) return v;
+    }
+    return undefined;
+  };
   let left = Math.max(0, input.amountHuf);
   const lines: PlanLine[] = [];
   for (const need of input.needs) {
     const key = need.holdCash ? undefined : need.instrumentKey;
-    const venue = key ? venueOf(key) : undefined;
+    const venue = key ? venueOf(key) : holdVenue(need);
     const upcoming = ctx && key ? upcomingVenueChange(ctx, key) : undefined;
     if (venue?.depositBlocked && need.needHuf >= 1) {
       // Nothing can go in there: the item is left short, the money moves on.
@@ -427,12 +443,16 @@ function planDeposits(
   // Hold-cash goals: the money is set aside, not bought — its own row.
   for (const l of lines) {
     if (!l.need.holdCash || l.allocatedHuf < 1) continue;
-    const label = `${accountLabelOf(l.need.reserveAccountId)} (félretétel)`;
+    const where =
+      l.need.reserveAccountId || !l.venue
+        ? accountLabelOf(l.need.reserveAccountId)
+        : l.venue.label;
+    const label = `${where} (félretétel)`;
     const prev = by.get(label);
     by.set(label, {
       label,
       items: [...(prev?.items ?? []), l.need.name],
-      accountId: l.need.reserveAccountId,
+      accountId: l.need.reserveAccountId ?? l.venue?.account?.id,
       pending: false,
       reserve: true,
       amountHuf: (prev?.amountHuf ?? 0) + l.allocatedHuf,
@@ -458,7 +478,7 @@ export function planLineText(l: PlanLine): string {
     return `${n.name}: nem vehető — ${blockedText(l.venue)}; állíts be új vételi számlát${short}${upcomingText(l)}`;
   if (l.allocatedHuf < 1) return `${n.name}: nem jut rá pénz${short}`;
   if (n.holdCash)
-    return `${n.name}: tartsd készpénzben a céldátumig ${formatMoney(l.allocatedHuf)}${short}`;
+    return `${n.name}: tartsd készpénzben a céldátumig ${formatMoney(l.allocatedHuf)}${venueText(l)}${n.holdReason ? ` (${n.holdReason})` : ""}${short}`;
   if (!l.trade) return `${n.name}: ${n.target} vétel ${formatMoney(l.allocatedHuf)}${short}`;
   const qty = l.trade.quantity != null ? `${formatQuantity(l.trade.quantity)} db, ` : "";
   const fx = l.trade.fxCostHuf ? `, váltás ${formatMoney(l.trade.fxCostHuf)}` : "";

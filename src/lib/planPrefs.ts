@@ -136,7 +136,7 @@ export interface LeftoverSettings {
 
 export const DEFAULT_LEFTOVER: LeftoverSettings = {
   notify: true,
-  time: "17:00",
+  time: "09:00",
   pullForward: true,
   pullForwardMonths: 2,
 };
