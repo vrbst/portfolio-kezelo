@@ -951,17 +951,34 @@ export function computeSavingsProgress(
   });
 }
 
-/** Savings goals as planned expenses on their target dates (for projections:
- *  the goal amount leaves the portfolio then). */
-export function savingsGoalExpenses(goals: SavingsGoal[]): PlannedExpense[] {
+/**
+ * Savings goals as planned expenses on their target dates (for projections:
+ * the goal amount leaves the portfolio then). With the goals' `progress`, a
+ * goal counting coupons (includeCoupons) also claims the coupons up to its
+ * date — at most what its instruments and cash don't cover — which the
+ * projection spends on it instead of reinvesting (PlannedExpense.couponCapHuf).
+ */
+export function savingsGoalExpenses(
+  goals: SavingsGoal[],
+  progress: SavingsProgress[] = [],
+): PlannedExpense[] {
+  const byId = new Map(progress.map((p) => [p.goal.id, p]));
   return goals
     .filter((g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0)
-    .map((g) => ({
-      id: `goal:${g.id}`,
-      date: g.targetDate,
-      amountHuf: g.targetHuf,
-      note: g.name,
-    }));
+    .map((g) => {
+      const p = byId.get(g.id);
+      const cap =
+        g.includeCoupons && p
+          ? Math.max(0, g.targetHuf - (p.projectedHuf - p.couponsHuf))
+          : 0;
+      return {
+        id: `goal:${g.id}`,
+        date: g.targetDate,
+        amountHuf: g.targetHuf,
+        note: g.name,
+        ...(cap > 0 && { couponCapHuf: cap }),
+      };
+    });
 }
 
 // ---- Possible double counting: a buy paid from a reserve -------------------

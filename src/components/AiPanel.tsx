@@ -29,6 +29,7 @@ import {
   useGoalProgress,
   useActiveAlerts,
   useSavingsGoals,
+  useMonthlyBudget,
 } from "../lib/store";
 import {
   computeReturns,
@@ -130,9 +131,10 @@ export default function AiPanel() {
     () => futureBondCashflows(summary, new Date(), transactions),
     [summary, transactions],
   );
+  const { savings: savingsProgress } = useMonthlyBudget();
   const goalExpenses = useMemo(
-    () => savingsGoalExpenses(savingsGoals),
-    [savingsGoals],
+    () => savingsGoalExpenses(savingsGoals, savingsProgress),
+    [savingsGoals, savingsProgress],
   );
 
   // The live snapshot. A conversation freezes its own copy when it starts.

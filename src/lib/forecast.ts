@@ -3,6 +3,7 @@ import type { PortfolioSummary } from "./portfolio";
 import { isInternalTransfer, toHuf, couponAmountHuf } from "./portfolio";
 import { touchPref } from "./prefs";
 import { effectiveMonth, effectiveMonthKey } from "./goals";
+import { splitAmongGoals } from "./incomeClaims";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -186,6 +187,14 @@ export interface PlannedExpense {
   date: string;
   amountHuf: number;
   note?: string;
+  /**
+   * A savings goal that claims the bond coupons arriving up to its date
+   * (includeCoupons): at most this much of them goes to the goal. Those
+   * coupons are spent on the goal — they leave the portfolio when they
+   * arrive instead of being reinvested — and the date's outflow shrinks by
+   * what they covered. Missing = claims no coupons.
+   */
+  couponCapHuf?: number;
 }
 
 /**
@@ -268,6 +277,8 @@ export interface ForecastResult {
   startValueHuf: number;
   /** Sum of bond coupons within the horizon (HUF). */
   couponHuf: number;
+  /** Part of couponHuf spent on savings goals (not reinvested). */
+  goalCouponHuf: number;
   /** Sum of bond maturities (face) within the horizon (HUF). */
   maturityHuf: number;
   /** Sum of planned expenses within the horizon (HUF). */
@@ -352,12 +363,15 @@ interface ProjectionPrep {
   bondIncome: number[];
   /** Month i → planned expenses due that month. */
   expense: number[];
+  /** Month i → coupons spent on savings goals (left out of bondIncome). */
+  goalCoupon: number[];
   /** Month i → recurring saving added (0 at i=0 and in the withdrawal phase). */
   saving: number[];
   /** Month i → recurring withdrawal taken. */
   withdrawal: number[];
   events: ForecastEvent[];
   couponHuf: number;
+  goalCouponHuf: number;
   maturityHuf: number;
   expenseHuf: number;
   withdrawalHuf: number;
@@ -399,13 +413,40 @@ function prepareProjection(
   const maturityByMonth = new Map<number, number>();
   let couponHuf = 0;
   let maturityHuf = 0;
-  for (const leg of legs) {
-    for (const c of leg.coupons) {
-      const i = index.get(monthKey(c.ms));
-      if (i == null) continue;
-      bondIncome[i] += c.huf;
-      couponHuf += c.huf;
+
+  // Coupons claimed by savings goals (PlannedExpense.couponCapHuf) are spent
+  // on the goal: split among the goals still ahead of the coupon, in
+  // proportion to their room, like the monthly plan does (splitAmongGoals).
+  const claimants = expenses
+    .map((e) => ({ e, ms: parseDayMs(e.date) }))
+    .filter(({ e, ms }) => (e.couponCapHuf ?? 0) > 0 && Number.isFinite(ms) && ms >= nowDayMs);
+  const claimed = new Map<string, number>();
+  const goalCoupon = zeros();
+  let goalCouponHuf = 0;
+  const coupons = legs.flatMap((l) => l.coupons).sort((x, y) => x.ms - y.ms);
+  for (const c of coupons) {
+    const i = index.get(monthKey(c.ms));
+    if (i == null) continue;
+    const shares = splitAmongGoals(
+      c.huf,
+      claimants
+        .filter(({ ms }) => c.ms <= ms)
+        .map(({ e }) => ({
+          goalId: e.id,
+          capHuf: Math.max(0, (e.couponCapHuf ?? 0) - (claimed.get(e.id) ?? 0)),
+        })),
+    );
+    let toGoals = 0;
+    for (const [id, huf] of shares) {
+      claimed.set(id, (claimed.get(id) ?? 0) + huf);
+      toGoals += huf;
     }
+    bondIncome[i] += c.huf - toGoals;
+    goalCoupon[i] += toGoals;
+    goalCouponHuf += toGoals;
+    couponHuf += c.huf;
+  }
+  for (const leg of legs) {
     const matures =
       Number.isFinite(leg.maturityMs) && leg.maturityMs > nowDayMs;
     const matIdx = matures ? index.get(monthKey(leg.maturityMs)) : undefined;
@@ -442,14 +483,16 @@ function prepareProjection(
     if (!Number.isFinite(ms) || ms < nowDayMs) continue;
     const i = index.get(monthKey(ms));
     if (i == null) continue;
-    expense[i] += e.amountHuf;
+    // The coupons already spent on the goal cover that much of it.
+    const due = Math.max(0, e.amountHuf - (claimed.get(e.id) ?? 0));
+    expense[i] += due;
     expenseHuf += e.amountHuf;
     const goal = e.id.startsWith("goal:");
     events.push({
       month: keys[i],
       kind: goal ? "goal" : "expense",
       label: e.note || (goal ? "Cél" : "Kiadás"),
-      huf: e.amountHuf,
+      huf: due,
     });
   }
 
@@ -496,10 +539,12 @@ function prepareProjection(
     bondValue,
     bondIncome,
     expense,
+    goalCoupon,
     saving,
     withdrawal,
     events,
     couponHuf,
+    goalCouponHuf,
     maturityHuf,
     expenseHuf,
     withdrawalHuf,
@@ -552,7 +597,8 @@ function contributedSeries(p: ProjectionPrep, start: number): number[] {
   const out: number[] = [];
   let c = start;
   for (let i = 0; i <= p.months; i++) {
-    c += p.saving[i] - p.expense[i] - p.withdrawal[i];
+    // Coupons spent on a goal leave the portfolio like the goal's outflow.
+    c += p.saving[i] - p.expense[i] - p.goalCoupon[i] - p.withdrawal[i];
     out.push(c);
   }
   return out;
@@ -562,6 +608,7 @@ function resultShell(p: ProjectionPrep) {
   return {
     startValueHuf: p.startValue,
     couponHuf: p.couponHuf,
+    goalCouponHuf: p.goalCouponHuf,
     maturityHuf: p.maturityHuf,
     expenseHuf: p.expenseHuf,
     withdrawalHuf: p.withdrawalHuf,
