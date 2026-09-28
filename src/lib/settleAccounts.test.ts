@@ -287,3 +287,26 @@ describe("band rule on accounts – a conversion gap is not a limit", () => {
     expect(p.notes.join(" ")).toMatch(/számlakorlát/);
   });
 });
+
+describe("band rule on accounts – no crumbs from a locked account's cash", () => {
+  // As in the live 2027 view: equity (40% ± 5) is below its band, bonds
+  // (60% ± 10) are inside theirs, so the 1 Ft of free cash is used first —
+  // it sits on T, which money may not leave. New ETF buys go to REG, funded
+  // by selling bonds on K. T's 1 Ft must not become a separate 1 Ft buy on T.
+  it("no sub-minimum buy part on the locked account", () => {
+    const { cfg, positions, ctx } = setup(BASE(340_000, 660_000), {
+      limits: { T: { noOutflowUntil: "2030-12-31" } },
+      purchase: { ETF: [{ from: "2026-01-01", target: { accountId: "REG" } }] },
+    });
+    cfg.buckets = [
+      { ...cfg.buckets[0], finalWeight: 0.4, start: { mode: "manual", weight: 0.4 } },
+      { ...cfg.buckets[1], finalWeight: 0.6, start: { mode: "manual", weight: 0.6 }, band: { kind: "abs", pp: 0.1 } },
+    ];
+    ctx.cash = new Map([["T", { HUF: 1 }]]);
+    const state = allocationState(cfg, positions, DAY);
+    expect(state.buckets.map((b) => b.status)).toEqual(["below", "within"]);
+    const plan = bandRule(cfg, state, 1, ctx);
+    const etf = plan.suggestions.filter((s) => s.side === "buy" && s.instrumentKey === "ETF");
+    expect(etf.map((s) => [s.accountId, s.status])).toEqual([["REG", "ok"]]);
+  });
+});

@@ -1542,6 +1542,9 @@ function settleAccounts(
       if (need <= EPS || p.left <= EPS) return;
       const pct = conversionPct(ctx, { ccy: p.ccy, provider: p.provider }, { ccy: buyCcy, provider: toProvider });
       const take = Math.min(p.left, need * (1 + pct));
+      // A crumb (e.g. the 1 Ft left on an account) would become a separate
+      // sub-minimum ticket — skip it unless it covers the whole rest.
+      if (take < cfg.minTradeHuf && take < need * (1 + pct) - EPS) return;
       const covered = take / (1 + pct);
       p.left -= take;
       need -= covered;
