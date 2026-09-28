@@ -52,6 +52,7 @@ export default function PriceChartDialog({
   sub,
   quote,
   decimals = 2,
+  live = true,
   onClose,
 }: {
   title: string;
@@ -60,6 +61,8 @@ export default function PriceChartDialog({
   sub?: string;
   quote: LiveQuote;
   decimals?: number;
+  /** The "today" curve is the session running now; otherwise it is drawn grey. */
+  live?: boolean;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -120,7 +123,11 @@ export default function PriceChartDialog({
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
-  const color = up ? "var(--color-positive)" : "var(--color-negative)";
+  const color = !live
+    ? "var(--color-muted)"
+    : up
+      ? "var(--color-positive)"
+      : "var(--color-negative)";
 
   // Portalled to <body>: an animated (transformed) ancestor card would
   // otherwise become the containing block of `position: fixed`.
@@ -261,6 +268,8 @@ export default function PriceChartDialog({
         <p className="mt-2 text-xs text-[var(--color-muted)]">
           Bal oldalt az előző kereskedési nap, jobb oldalt a mai (a még hátralévő
           része üres); szaggatott vonal: előző napi zárás.
+          {!live &&
+            " Most nincs aktív kereskedés (zárva, vagy még nincs mai kötés), ezért az utolsó kereskedési nap görbéje szürke."}
           {quote.intradayFrom &&
             ` A görbe a(z) ${quote.intradayFrom} árfolyamát mutatja (ennek a jegyzésnek nincs napközbeni adata).`}
         </p>
