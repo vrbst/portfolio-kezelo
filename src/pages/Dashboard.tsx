@@ -54,15 +54,9 @@ import {
 } from "../lib/format";
 import { accountKindLabel, assetClassLabel } from "../lib/labels";
 import { CalendarClock, Landmark, Coins as CoinsIcon } from "lucide-react";
+import { SERIES_COLORS } from "../lib/skin";
 
-const COLORS = [
-  "#6366f1",
-  "#8b5cf6",
-  "#22d3ee",
-  "#34d399",
-  "#fbbf24",
-  "#fb7185",
-];
+const COLORS = SERIES_COLORS;
 
 type RangeKey = "1m" | "3m" | "6m" | "1y" | "ytd" | "max";
 

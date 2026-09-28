@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation, useOutlet } from "react-router-dom";
-import { AnimatePresence, motion, useIsPresent } from "motion/react";
+import {
+  AnimatePresence,
+  MotionConfig,
+  motion,
+  useIsPresent,
+} from "motion/react";
 import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
@@ -12,6 +17,7 @@ import {
   useActiveAlerts,
   useAlertsReadiness,
 } from "./lib/store";
+import { useSkin } from "./lib/skin";
 
 /** Re-fetch live prices at most this often when refreshing on tab focus. */
 const REFRESH_MS = 5 * 60 * 1000;
@@ -21,6 +27,7 @@ export default function App() {
   const load = usePortfolio((s) => s.load);
   const loaded = usePortfolio((s) => s.loaded);
   const privacy = usePortfolio((s) => s.privacy);
+  const skin = useSkin((s) => s.skin);
   const refreshPrices = usePortfolio((s) => s.refreshPrices);
   const reconcileAlerts = usePortfolio((s) => s.reconcileAlerts);
   const startupSync = usePortfolio((s) => s.startupSync);
@@ -77,36 +84,41 @@ export default function App() {
     document.documentElement.classList.toggle("privacy-on", privacy);
   }, [privacy]);
 
+  // Terminal skin: no sliding/springing — only fades remain, so it feels snappy.
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 min-w-0">
-        <div className="relative mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8 2xl:max-w-[1600px]">
-          {loaded && <AlertsBanner />}
-          {!loaded ? (
-            <LoadingSkeleton />
-          ) : (
-            // popLayout: the new page mounts at once while the old one fades
-            // out on top (a "wait" transition stalls in a hidden tab, where no
-            // animation frame runs, and then remounts the new page).
-            <AnimatePresence mode="popLayout">
-              <motion.div
-                key={location.pathname}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <FrozenOutlet />
-              </motion.div>
-            </AnimatePresence>
-          )}
-        </div>
-      </main>
-      <MobileNav />
-      <InstallPrompt />
-      <UpdatePrompt />
-    </div>
+    <MotionConfig reducedMotion={skin === "terminal" ? "always" : "user"}>
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <main className="flex-1 min-w-0">
+          <div className="relative mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8 2xl:max-w-[1600px]">
+            {loaded && <AlertsBanner />}
+            {!loaded ? (
+              <LoadingSkeleton />
+            ) : (
+              // popLayout: the new page mounts at once while the old one fades
+              // out on top (a "wait" transition stalls in a hidden tab, where no
+              // animation frame runs, and then remounts the new page).
+              <AnimatePresence mode="popLayout">
+                <motion.div
+                  // Keyed by skin too: a switch remounts the page so skinned
+                  // colour tables (lib/skin.ts) are re-read.
+                  key={`${skin}:${location.pathname}`}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <FrozenOutlet />
+                </motion.div>
+              </AnimatePresence>
+            )}
+          </div>
+        </main>
+        <MobileNav />
+        <InstallPrompt />
+        <UpdatePrompt />
+      </div>
+    </MotionConfig>
   );
 }
 
@@ -122,7 +134,10 @@ function FrozenOutlet() {
   // The page fading out lies on top of the new one: keep it from taking clicks.
   const present = useIsPresent();
   return (
-    <div className={present ? undefined : "pointer-events-none"} aria-hidden={!present || undefined}>
+    <div
+      className={present ? undefined : "pointer-events-none"}
+      aria-hidden={!present || undefined}
+    >
       {frozen}
     </div>
   );

@@ -14,6 +14,7 @@ import {
 import type { ValuePoint } from "../lib/portfolio";
 import { formatMoney, formatCompact } from "../lib/format";
 import { usePortfolio } from "../lib/store";
+import { CHART } from "../lib/skin";
 
 const MASK = "•••";
 
@@ -139,7 +140,7 @@ export default function ValueChart({
   const ticks = monthTicks(min, max);
 
   const lastProfit = chartData[chartData.length - 1]?.profit ?? 0;
-  const profitColor = lastProfit < 0 ? "#fb7185" : "#34d399";
+  const profitColor = lastProfit < 0 ? CHART.negative : CHART.positive;
 
   // Draw-in animation, unless the viewer prefers reduced motion.
   const reduce = useReducedMotion();
@@ -166,9 +167,9 @@ export default function ValueChart({
           <defs>
             {/* Richer fill: a brighter top, a soft mid-stop, fading to nothing. */}
             <linearGradient id="valueFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.5} />
-              <stop offset="55%" stopColor="#6366f1" stopOpacity={0.14} />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+              <stop offset="0%" stopColor={CHART.brand} stopOpacity={0.5} />
+              <stop offset="55%" stopColor={CHART.brand} stopOpacity={0.14} />
+              <stop offset="100%" stopColor={CHART.brand} stopOpacity={0} />
             </linearGradient>
             <linearGradient id="profitFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={profitColor} stopOpacity={0.5} />
@@ -176,29 +177,29 @@ export default function ValueChart({
               <stop offset="100%" stopColor={profitColor} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#232b45" vertical={false} />
+          <CartesianGrid stroke={CHART.grid} vertical={false} />
           <XAxis
             dataKey="ts"
             type="number"
             domain={[min, max]}
             ticks={ticks}
             tickFormatter={formatMonth}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
           />
           <YAxis
             tickFormatter={(v) => (privacy ? MASK : formatCompact(v))}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
             width={52}
           />
           <Tooltip
-            cursor={{ stroke: "#3a4468", strokeWidth: 1 }}
+            cursor={{ stroke: CHART.cursor, strokeWidth: 1 }}
             content={<ChartTooltip privacy={privacy} />}
           />
           {mode === "profit" ? (
             <>
-              <ReferenceLine y={0} stroke="#8b93a7" strokeWidth={1} />
+              <ReferenceLine y={0} stroke={CHART.axis} strokeWidth={1} />
               <Area
                 type="monotone"
                 dataKey="profit"
@@ -215,7 +216,7 @@ export default function ValueChart({
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke="#6366f1"
+                stroke={CHART.brand}
                 strokeWidth={2.5}
                 fill="url(#valueFill)"
                 dot={false}
@@ -225,7 +226,7 @@ export default function ValueChart({
               <Line
                 type="monotone"
                 dataKey="invested"
-                stroke="#8b93a7"
+                stroke={CHART.axis}
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
                 dot={false}

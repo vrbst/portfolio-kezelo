@@ -1,6 +1,8 @@
 // Shared calendar model: day items, categories/colours and the per-day
 // aggregate used by the month grids, the zoomed month and the day panel.
 
+import { currentSkin, skinned, TERM } from "../../lib/skin";
+
 export const MONTHS = [
   "január",
   "február",
@@ -54,16 +56,28 @@ export interface DayItem {
   tradeKey?: string;
 }
 
-export const CAT_COLOR: Record<DayCat, string> = {
-  coupon: "#22d3ee",
-  maturity: "#6366f1",
-  tbsz: "#fbbf24",
-  in: "#34d399",
-  out: "#fb7185",
-  goal: "#ec4899",
-  expense: "#f97316",
-  dca: "#a78bfa",
-};
+export const CAT_COLOR: Record<DayCat, string> = skinned({
+  classic: {
+    coupon: "#22d3ee",
+    maturity: "#6366f1",
+    tbsz: "#fbbf24",
+    in: "#34d399",
+    out: "#fb7185",
+    goal: "#ec4899",
+    expense: "#f97316",
+    dca: "#a78bfa",
+  },
+  terminal: {
+    coupon: TERM.cyan,
+    maturity: TERM.blue,
+    tbsz: TERM.yellow,
+    in: TERM.green,
+    out: TERM.red,
+    goal: TERM.magenta,
+    expense: TERM.orange,
+    dca: TERM.greenPale,
+  },
+});
 
 export const MARKER_LABEL: Partial<Record<DayCat, string>> = {
   tbsz: "TBSZ mérföldkő",
@@ -123,7 +137,10 @@ export function dayColor(agg: DayAgg): string {
 
 /** A glossy sphere fill: highlight top-left, the hue, a darker rim. */
 export const sphere = (c: string) =>
-  `radial-gradient(circle at 35% 28%, color-mix(in srgb, ${c}, white 48%), ${c} 58%, color-mix(in srgb, ${c}, black 22%))`;
+  // Terminal skin: a flat dot, no glossy 3D shading.
+  currentSkin() === "terminal"
+    ? c
+    : `radial-gradient(circle at 35% 28%, color-mix(in srgb, ${c}, white 48%), ${c} 58%, color-mix(in srgb, ${c}, black 22%))`;
 
 // Official security names → the short forms used day to day, for the tight
 // chips of the zoomed month.

@@ -55,6 +55,9 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
 - **Szinkron és mentés** – eszközök közti szinkron privát GitHub-repón át,
   teljes helyi mentés JSON-fájlba.
 - **Adatvédelmi mód** – egy kattintással elmossa az összegeket.
+- **Terminál skin** – választható „hardcore terminál” kinézet (zöld foszfor,
+  monospace, szögletes dobozok, kikapcsolható CRT hatás) a Beállítások →
+  Megjelenés alatt; eszközönként tárolódik, a klasszikus kinézet megmarad.
 
 ## Technológia
 

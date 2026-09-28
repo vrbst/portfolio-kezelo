@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { LiveQuote } from "../lib/prices";
 import { formatPercent } from "../lib/format";
+import { CHART } from "../lib/skin";
 
 const BAR_MS = 5 * 60_000;
 
@@ -186,21 +187,21 @@ export default function PriceChartDialog({
               data={rows}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             >
-              <CartesianGrid stroke="#232b45" vertical={false} />
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
               <XAxis
                 dataKey="i"
                 type="number"
                 domain={[0, Math.max(1, rows.length - 1)]}
                 ticks={ticks}
                 tickFormatter={(i) => (rows[i]?.t ? hhmm(rows[i].t) : "")}
-                tick={{ fill: "#8b93a7", fontSize: 11 }}
-                stroke="#232b45"
+                tick={{ fill: CHART.axis, fontSize: 11 }}
+                stroke={CHART.grid}
               />
               <YAxis
                 domain={["auto", "auto"]}
                 tickFormatter={(v) => fmt(Number(v))}
-                tick={{ fill: "#8b93a7", fontSize: 11 }}
-                stroke="#232b45"
+                tick={{ fill: CHART.axis, fontSize: 11 }}
+                stroke={CHART.grid}
                 width={64}
               />
               <Tooltip
@@ -209,11 +210,11 @@ export default function PriceChartDialog({
                   const v = r?.today ?? r?.prev;
                   if (!active || !r || v == null) return null;
                   return (
-                    <div className="rounded-xl border border-[#232b45] bg-[#141a2e] px-3 py-2 text-xs text-[#e8ecf8] shadow-xl">
+                    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-xl">
                       <div className="mb-1 font-medium">{dayTime(r.t)}</div>
                       <div className="tabular-nums">{fmt(v)}</div>
                       {prevClose != null && r.today != null && (
-                        <div className="text-[#8b93a7] tabular-nums">
+                        <div className="text-[var(--color-chart-axis)] tabular-nums">
                           előző záráshoz: {formatPercent(v / prevClose - 1)}
                         </div>
                       )}
@@ -224,12 +225,12 @@ export default function PriceChartDialog({
               {split > 0 && (
                 <ReferenceLine
                   x={split - 0.5}
-                  stroke="#8b93a7"
+                  stroke={CHART.axis}
                   strokeOpacity={0.5}
                   label={{
                     value: rows[split]?.t ? dayLabel(rows[split].t) : "ma",
                     position: "insideTopRight",
-                    fill: "#8b93a7",
+                    fill: CHART.axis,
                     fontSize: 11,
                   }}
                 />
@@ -237,19 +238,19 @@ export default function PriceChartDialog({
               {prevClose != null && (
                 <ReferenceLine
                   y={prevClose}
-                  stroke="#8b93a7"
+                  stroke={CHART.axis}
                   strokeDasharray="4 4"
                   label={{
                     value: `előző zárás ${fmt(prevClose)}`,
                     position: "insideBottomLeft",
-                    fill: "#8b93a7",
+                    fill: CHART.axis,
                     fontSize: 11,
                   }}
                 />
               )}
               <Line
                 dataKey="prev"
-                stroke="#8b93a7"
+                stroke={CHART.axis}
                 strokeOpacity={0.7}
                 strokeWidth={1.5}
                 dot={false}

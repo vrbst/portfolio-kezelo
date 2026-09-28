@@ -1,16 +1,29 @@
 // Plain data helpers for the glide-path charts (kept out of the component
 // files so fast refresh keeps working).
 
+import { skinned, TERM } from "../lib/skin";
+
 /** Distinct, dark-theme-friendly colours for the buckets (cycled). */
-export const BUCKET_COLORS = [
-  "#6366f1",
-  "#22d3ee",
-  "#fbbf24",
-  "#34d399",
-  "#f472b6",
-  "#a78bfa",
-  "#fb923c",
-];
+export const BUCKET_COLORS = skinned({
+  classic: [
+    "#6366f1",
+    "#22d3ee",
+    "#fbbf24",
+    "#34d399",
+    "#f472b6",
+    "#a78bfa",
+    "#fb923c",
+  ],
+  terminal: [
+    TERM.green,
+    TERM.cyan,
+    TERM.yellow,
+    TERM.magenta,
+    TERM.blue,
+    TERM.orange,
+    TERM.greenPale,
+  ],
+});
 
 export interface Row {
   ts: number;

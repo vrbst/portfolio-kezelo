@@ -13,6 +13,7 @@ import {
   DefaultZIndexes,
 } from "recharts";
 import { formatMoney } from "../lib/format";
+import { CHART } from "../lib/skin";
 
 interface ChartRow {
   ts: number;
@@ -43,16 +44,16 @@ function ChartTooltip({
   const money = (v: number) =>
     formatMoney(v, displayCcy, { decimals: displayCcy === "HUF" ? 0 : 2 });
   return (
-    <div className="rounded-xl border border-[#232b45] bg-[#141a2e] px-3 py-2 text-xs text-[#e8ecf8] shadow-xl">
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text)] shadow-xl">
       <div className="mb-1 font-medium">{formatDay(Number(label))}</div>
       <div className="flex justify-between gap-4">
-        <span className="text-[#8b93a7]">Árfolyam</span>
+        <span className="text-[var(--color-chart-axis)]">Árfolyam</span>
         <span className="tabular-nums">{money(row.value ?? 0)}</span>
       </div>
       {row.buys?.map((b, i) => (
         <div key={i} className="mt-0.5 flex justify-between gap-4">
-          <span className="text-[#fbbf24]">Vételed</span>
-          <span className="tabular-nums text-[#fbbf24]">{money(b)}</span>
+          <span className="text-[var(--color-warning)]">Vételed</span>
+          <span className="tabular-nums text-[var(--color-warning)]">{money(b)}</span>
         </div>
       ))}
     </div>
@@ -89,8 +90,8 @@ function BuyMarkers({ points }: { points: { ts: number; value: number }[] }) {
               cx={cx}
               cy={cy}
               r={4}
-              fill="#fbbf24"
-              stroke="#141a2e"
+              fill={CHART.highlight}
+              stroke={CHART.surface}
               strokeWidth={1.5}
             />
           );
@@ -311,18 +312,18 @@ export default function HoldingPriceChart({
           >
             <defs>
               <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                <stop offset="0%" stopColor={CHART.brand} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={CHART.brand} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="#232b45" vertical={false} />
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
             <XAxis
               dataKey="ts"
               type="number"
               domain={[min, max]}
               tickFormatter={(v) => formatTick(Number(v), longSpan)}
-              tick={{ fill: "#8b93a7", fontSize: 12 }}
-              stroke="#232b45"
+              tick={{ fill: CHART.axis, fontSize: 12 }}
+              stroke={CHART.grid}
               minTickGap={40}
             />
             <YAxis
@@ -332,15 +333,15 @@ export default function HoldingPriceChart({
                   decimals: displayCcy === "HUF" ? 0 : 2,
                 })
               }
-              tick={{ fill: "#8b93a7", fontSize: 12 }}
-              stroke="#232b45"
+              tick={{ fill: CHART.axis, fontSize: 12 }}
+              stroke={CHART.grid}
               width={64}
             />
             <Tooltip content={<ChartTooltip displayCcy={displayCcy} />} />
             <Area
               type="monotone"
               dataKey="value"
-              stroke="#6366f1"
+              stroke={CHART.brand}
               strokeWidth={2}
               fill="url(#priceFill)"
               dot={false}
@@ -353,7 +354,7 @@ export default function HoldingPriceChart({
       </div>
       {buyDots.length > 0 && (
         <div className="mt-1 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#fbbf24]" />
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--color-warning)]" />
           Saját vételeid
         </div>
       )}

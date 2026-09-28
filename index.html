@@ -7,6 +7,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b1020" />
     <title>Portfólió</title>
+    <script>
+      // Apply the chosen skin before first paint (see src/lib/skin.ts).
+      try {
+        if (localStorage.getItem("pf-skin") === "terminal") {
+          var r = document.documentElement;
+          r.dataset.skin = "terminal";
+          if (localStorage.getItem("pf-crt") !== "0") r.dataset.crt = "";
+          document
+            .querySelector('meta[name="theme-color"]')
+            .setAttribute("content", "#050805");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -18,14 +18,15 @@ import {
 } from "../lib/forecast";
 import { formatMoney, formatCompact } from "../lib/format";
 import { usePortfolio } from "../lib/store";
+import { CHART } from "../lib/skin";
 
 const MASK = "•••";
 
 const tooltipStyle = {
-  background: "#141a2e",
-  border: "1px solid #232b45",
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
   borderRadius: 12,
-  color: "#e8ecf8",
+  color: "var(--color-text)",
 } as const;
 
 type Band3 = { pess: number; real: number; opt: number };
@@ -44,8 +45,6 @@ export interface PastForecast {
   points: { ts: number; value: number }[];
 }
 
-const BT_COLOR = "#a5b4fc";
-const SNAP_COLOR = "#fbbf24";
 
 function formatYear(ms: number): string {
   const d = new Date(ms);
@@ -178,24 +177,24 @@ export default function ForecastChart({
         >
           <defs>
             <linearGradient id="fanFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.22} />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity={0.04} />
+              <stop offset="0%" stopColor={CHART.brand} stopOpacity={0.22} />
+              <stop offset="100%" stopColor={CHART.brand} stopOpacity={0.04} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#232b45" vertical={false} />
+          <CartesianGrid stroke={CHART.grid} vertical={false} />
           <XAxis
             dataKey="ts"
             type="number"
             domain={[min, max]}
             ticks={ticks}
             tickFormatter={formatYear}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
           />
           <YAxis
             tickFormatter={(v) => (privacy ? MASK : formatCompact(v))}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
             width={52}
           />
           <Tooltip
@@ -211,10 +210,10 @@ export default function ForecastChart({
                     <div>Tényleges érték: {fmt(row.actual)}</div>
                   )}
                   {row.btReal != null && (
-                    <div style={{ color: BT_COLOR }}>
+                    <div style={{ color: CHART.alt }}>
                       Visszateszt: {fmt(row.btReal)}
                       {row.btBand && (
-                        <span className="text-[#8b93a7]">
+                        <span className="text-[var(--color-chart-axis)]">
                           {" "}
                           ({fmt(row.btBand[0])} – {fmt(row.btBand[1])})
                         </span>
@@ -225,23 +224,23 @@ export default function ForecastChart({
                     pastForecasts.map((pf, k) => {
                       const v = row[`snap${k}`];
                       return v == null ? null : (
-                        <div key={k} style={{ color: SNAP_COLOR }}>
+                        <div key={k} style={{ color: CHART.highlight }}>
                           {pf.label}: {fmt(v)}
                         </div>
                       );
                     })}
                   {!past && (
                     <>
-                      <div className="font-semibold text-[#a5b4fc]">
+                      <div className="font-semibold text-[var(--color-chart-alt)]">
                         {centerLabel}: {fmt(row.real!)}
                       </div>
                       {row.band && (
-                        <div className="text-[#8b93a7]">
+                        <div className="text-[var(--color-chart-axis)]">
                           Sáv: {fmt(row.band[0])} – {fmt(row.band[1])}
                         </div>
                       )}
                       {row.contributed != null && (
-                        <div className="text-[#8b93a7]">
+                        <div className="text-[var(--color-chart-axis)]">
                           Befektetett tőke: {fmt(row.contributed)}
                         </div>
                       )}
@@ -282,7 +281,7 @@ export default function ForecastChart({
           <Line
             type="monotone"
             dataKey="contributed"
-            stroke="#8b93a7"
+            stroke={CHART.axis}
             strokeWidth={1.5}
             strokeDasharray="4 4"
             dot={false}
@@ -293,7 +292,7 @@ export default function ForecastChart({
               type="monotone"
               dataKey="btBand"
               stroke="none"
-              fill={BT_COLOR}
+              fill={CHART.alt}
               fillOpacity={0.12}
               connectNulls
               dot={false}
@@ -305,7 +304,7 @@ export default function ForecastChart({
             <Line
               type="monotone"
               dataKey="btReal"
-              stroke={BT_COLOR}
+              stroke={CHART.alt}
               strokeWidth={1.5}
               strokeDasharray="5 4"
               connectNulls
@@ -319,7 +318,7 @@ export default function ForecastChart({
                 key={k}
                 type="monotone"
                 dataKey={`snap${k}`}
-                stroke={SNAP_COLOR}
+                stroke={CHART.highlight}
                 // Older forecasts fade out, the latest is the most visible.
                 strokeOpacity={0.35 + (0.55 * (k + 1)) / pastForecasts.length}
                 strokeWidth={1.25}
@@ -332,7 +331,7 @@ export default function ForecastChart({
             type="monotone"
             dataKey="actual"
             connectNulls
-            stroke="#e8ecf8"
+            stroke={CHART.text}
             strokeOpacity={0.7}
             strokeWidth={1.5}
             dot={false}
@@ -342,7 +341,7 @@ export default function ForecastChart({
           <Line
             type="monotone"
             dataKey="real"
-            stroke="#6366f1"
+            stroke={CHART.brand}
             strokeWidth={2.5}
             dot={false}
             name="real"
@@ -350,12 +349,12 @@ export default function ForecastChart({
           {history.length > 0 && now != null && (
             <ReferenceLine
               x={now}
-              stroke="#8b93a7"
+              stroke={CHART.axis}
               strokeDasharray="2 4"
               label={{
                 value: "ma",
                 position: "insideTopLeft",
-                fill: "#8b93a7",
+                fill: CHART.axis,
                 fontSize: 11,
               }}
             />
@@ -367,7 +366,7 @@ export default function ForecastChart({
               y={d.y}
               r={4}
               fill={d.color}
-              stroke="#141a2e"
+              stroke={CHART.surface}
               strokeWidth={1.5}
               ifOverflow="extendDomain"
             />

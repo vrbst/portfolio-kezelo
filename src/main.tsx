@@ -5,6 +5,8 @@ import { createHashRouter, RouterProvider } from "react-router-dom";
 // for headings + the big numbers → a modern fintech feel.
 import "@fontsource-variable/inter";
 import "@fontsource-variable/space-grotesk";
+// Terminal skin face (lib/skin.ts). @font-face files only download when used.
+import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
 
 // Card spotlight (see .card::after in index.css): one passive listener feeds the
