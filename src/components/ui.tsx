@@ -264,7 +264,7 @@ export function PageHeader({
   const terminal = useSkin((s) => s.skin) === "terminal";
   const { pathname } = useLocation();
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="page-header mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
         {terminal && (
           <div className="mb-1 text-xs text-[var(--color-muted)]">

@@ -7,6 +7,11 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/space-grotesk";
 // Terminal skin face (lib/skin.ts). @font-face files only download when used.
 import "@fontsource-variable/jetbrains-mono";
+// Paper skin headings/numbers and retro skin headings/numbers.
+import "@fontsource-variable/newsreader";
+import "@fontsource/pixelify-sans/400.css";
+import "@fontsource/pixelify-sans/600.css";
+import "@fontsource/pixelify-sans/700.css";
 import "./index.css";
 
 // Card spotlight (see .card::after in index.css): one passive listener feeds the

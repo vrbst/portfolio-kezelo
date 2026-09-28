@@ -703,3 +703,420 @@ html[data-skin="terminal"][data-crt] #root::after {
     display: none;
   }
 }
+
+/* ======================================================================== */
+/* ----- Paper skin -------------------------------------------------------- */
+/* ======================================================================== */
+/* Opt-in light look (lib/skin.ts): a financial newspaper — salmon paper, ink
+ * text, serif headings and numbers, hairline rules instead of glass and glow.
+ * Scoped under html[data-skin="paper"] and unlayered, like the terminal skin. */
+html[data-skin="paper"] {
+  --color-bg: #fff1e5;
+  --color-bg-soft: #f8e6d4;
+  --color-surface: #fff8f1;
+  --color-surface-2: #f5e3d1;
+  --color-border: #dfc8b2;
+  --color-muted: #6b5b4e;
+  --color-text: #1f1a17;
+
+  --color-brand: #0f5499;
+  --color-brand-2: #990f3d;
+  --color-accent: #0d7680;
+  --color-positive: #0a7d53;
+  --color-negative: #b3261e;
+  --color-warning: #a35f00;
+
+  --color-chart-axis: #7a6a5c;
+  --color-chart-alt: #5b8fc7;
+
+  --font-display:
+    "Newsreader Variable", Georgia, "Times New Roman", ui-serif, serif;
+
+  /* Near-square corners: print, not app chrome. */
+  --radius-md: 0.125rem;
+  --radius-lg: 0.125rem;
+  --radius-xl: 0.1875rem;
+  --radius-2xl: 0.1875rem;
+  --radius-3xl: 0.25rem;
+  --shadow-glow: 0 0 0 1px var(--color-brand);
+
+  color-scheme: light;
+  accent-color: var(--color-brand);
+}
+html[data-skin="paper"] ::selection {
+  background: #f2c9a8;
+  color: var(--color-text);
+}
+
+/* Plain paper instead of the ambient gradient. */
+html[data-skin="paper"] body::before {
+  display: none;
+}
+
+/* Serif headlines. */
+html[data-skin="paper"] :is(h1, h2, h3) {
+  font-family: var(--font-display);
+  letter-spacing: -0.005em;
+}
+html[data-skin="paper"] h1 {
+  font-weight: 600;
+}
+/* Page title set like a masthead: a double rule underneath. */
+html[data-skin="paper"] .page-header {
+  padding-bottom: 0.75rem;
+  border-bottom: 3px double var(--color-text);
+}
+html[data-skin="paper"] .font-display {
+  letter-spacing: 0;
+  font-feature-settings:
+    "tnum" 1,
+    "lnum" 1;
+}
+
+/* No glass, no drop shadows (focus rings still render). */
+html[data-skin="paper"] * {
+  --tw-shadow: 0 0 #0000 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Cards: a newspaper column — flat, hairline sides, a heavy rule on top. */
+html[data-skin="paper"] .card {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-top: 2px solid var(--color-text);
+  border-radius: 0;
+}
+html[data-skin="paper"] .card::after {
+  display: none;
+}
+html[data-skin="paper"] .card-hover:hover {
+  border-color: var(--color-brand);
+  border-top-color: var(--color-brand);
+}
+
+/* Gradient text / numbers → solid ink. */
+html[data-skin="paper"] .text-gradient,
+html[data-skin="paper"] .rolling-gradient {
+  background: none !important;
+  color: var(--color-text) !important;
+  -webkit-text-fill-color: currentColor;
+}
+html[data-skin="paper"] .aurora {
+  background: none;
+  animation: none;
+}
+
+/* Buttons: solid ink-blue, no gradient or glow. */
+html[data-skin="paper"] .btn-primary {
+  background: var(--color-brand);
+  color: #fff;
+}
+html[data-skin="paper"] .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+html[data-skin="paper"] .btn-ghost {
+  background: var(--color-surface);
+}
+
+/* Sidebar: the active entry reads in brand ink (white would vanish on paper). */
+html[data-skin="paper"] aside a[aria-current="page"] > div {
+  color: var(--color-brand);
+}
+
+/* Shimmer: a darker sweep so it shows on the light surface. */
+html[data-skin="paper"] .skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(31 26 23 / 0.06),
+    transparent
+  );
+}
+
+/* Recharts: square tooltips. */
+html[data-skin="paper"] .recharts-default-tooltip {
+  border-radius: 0 !important;
+}
+
+/* ======================================================================== */
+/* ----- Retro skin (Windows 95) ------------------------------------------- */
+/* ======================================================================== */
+/* Opt-in look (lib/skin.ts): the content sits in one grey window on a teal
+ * desktop, boxes are bevelled (raised panels, sunken fields), the selection is
+ * navy, headings and big numbers are pixelated. Scoped under
+ * html[data-skin="retro"] and unlayered, like the other skins. */
+html[data-skin="retro"] {
+  --color-bg: #008080;
+  --color-bg-soft: #c0c0c0;
+  --color-surface: #c0c0c0;
+  --color-surface-2: #d4d0c8;
+  --color-border: #808080;
+  --color-muted: #404040;
+  --color-text: #000000;
+
+  --color-brand: #000080;
+  --color-brand-2: #1084d0;
+  --color-accent: #008080;
+  --color-positive: #007000;
+  --color-negative: #b00000;
+  --color-warning: #6b5a00;
+
+  --color-chart-axis: #202020;
+  --color-chart-alt: #1084d0;
+
+  --font-sans:
+    Tahoma, Verdana, "MS Sans Serif", "Segoe UI", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-display: "Pixelify Sans", var(--font-sans);
+
+  --radius: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+  --shadow-glow: none;
+
+  /* Bevels: raised (buttons, panels) and sunken (fields). */
+  --bevel-out:
+    inset -1px -1px #0a0a0a, inset 1px 1px #ffffff, inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf;
+  --bevel-in:
+    inset -1px -1px #ffffff, inset 1px 1px #808080, inset -2px -2px #dfdfdf,
+    inset 2px 2px #0a0a0a;
+
+  color-scheme: light;
+  accent-color: var(--color-brand);
+}
+html[data-skin="retro"] :is(.rounded, .rounded-t, .rounded-b) {
+  border-radius: 0;
+}
+html[data-skin="retro"] ::selection {
+  background: var(--color-brand);
+  color: #fff;
+}
+html[data-skin="retro"] body::before {
+  display: none;
+}
+
+html[data-skin="retro"] :is(h1, h2) {
+  letter-spacing: 0;
+}
+html[data-skin="retro"] h3 {
+  font-family: var(--font-display);
+}
+html[data-skin="retro"] .font-display {
+  letter-spacing: 0;
+}
+
+/* No glass or soft shadows; the bevels below are explicit box-shadows. */
+html[data-skin="retro"] * {
+  --tw-shadow: 0 0 #0000 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* The page content: one maximised-ish window with a title bar. */
+html[data-skin="retro"] main > div {
+  min-height: calc(100vh - 1.5rem);
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-top: 3rem;
+  background: var(--color-surface);
+  box-shadow: var(--bevel-out);
+}
+html[data-skin="retro"] main > div::before {
+  content: "Portfólió.exe";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  right: 3px;
+  height: 1.375rem;
+  padding: 0 4.5rem 0 0.5rem;
+  display: flex;
+  align-items: center;
+  font: 700 12px/1 var(--font-sans);
+  color: #fff;
+  background: linear-gradient(90deg, #000080, #1084d0);
+  pointer-events: none;
+}
+/* Decorative minimise / maximise / close boxes at the title bar's end. */
+html[data-skin="retro"] main > div::after {
+  content: "_  □  ✕";
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  height: 1.125rem;
+  padding: 0 0.3rem;
+  display: flex;
+  align-items: center;
+  font: 700 11px/1 var(--font-sans);
+  white-space: pre;
+  color: #000;
+  background: var(--color-surface);
+  box-shadow: var(--bevel-out);
+  pointer-events: none;
+}
+@media (max-width: 767px) {
+  html[data-skin="retro"] main > div {
+    min-height: 100vh;
+    margin: 0;
+  }
+}
+
+/* Cards: raised grey panels. */
+html[data-skin="retro"] .card {
+  background: var(--color-surface);
+  border-color: transparent;
+  box-shadow: var(--bevel-out);
+}
+html[data-skin="retro"] .card::after {
+  display: none;
+}
+html[data-skin="retro"] .card-hover:hover {
+  border-color: transparent;
+}
+
+/* Gradient text / numbers → solid navy. */
+html[data-skin="retro"] .text-gradient,
+html[data-skin="retro"] .rolling-gradient {
+  background: none !important;
+  color: var(--color-brand) !important;
+  -webkit-text-fill-color: currentColor;
+}
+html[data-skin="retro"] .aurora {
+  background: none;
+  animation: none;
+}
+
+/* Buttons: grey, raised; pressed = sunken; the primary one has the default
+ * button's extra black frame. */
+html[data-skin="retro"] .btn,
+html[data-skin="retro"] .btn-primary,
+html[data-skin="retro"] .btn-ghost {
+  transition: none;
+}
+html[data-skin="retro"] .btn-primary,
+html[data-skin="retro"] .btn-ghost {
+  background: var(--color-surface);
+  color: #000;
+  border: 0;
+  box-shadow: var(--bevel-out);
+  filter: none;
+}
+html[data-skin="retro"] .btn-primary {
+  outline: 1px solid #000;
+  outline-offset: -1px;
+  font-weight: 700;
+}
+html[data-skin="retro"] .btn-primary:active:not(:disabled),
+html[data-skin="retro"] .btn-ghost:active:not(:disabled) {
+  box-shadow: var(--bevel-in);
+  transform: none;
+}
+html[data-skin="retro"] .btn-ghost:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
+/* Text fields: white and sunken. */
+html[data-skin="retro"]
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
+  background-color: #fff;
+  color: #000;
+  border-color: transparent;
+  box-shadow: var(--bevel-in);
+}
+html[data-skin="retro"] :focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: 1px;
+}
+
+/* Sidebar and mobile tab bar: grey chrome; the active entry is navy. */
+html[data-skin="retro"] aside {
+  background: var(--color-surface);
+  border-right: 0;
+  box-shadow: var(--bevel-out);
+}
+html[data-skin="retro"] aside a[aria-current="page"] > div {
+  background: var(--color-brand);
+  color: #fff;
+}
+html[data-skin="retro"] aside a[aria-current="page"] > div > div {
+  display: none;
+}
+html[data-skin="retro"] nav.fixed {
+  background: var(--color-surface);
+  border-top: 0;
+  box-shadow: inset 0 1px #fff, 0 -1px #808080;
+}
+html[data-skin="retro"] nav.fixed a[aria-current="page"] {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Chunky grey scrollbars. */
+html[data-skin="retro"] * {
+  scrollbar-width: auto;
+  scrollbar-color: #c0c0c0 #dfdfdf;
+}
+html[data-skin="retro"] *::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+  background: repeating-conic-gradient(#c0c0c0 0 25%, #ffffff 0 50%) 0 0 / 2px
+    2px;
+}
+html[data-skin="retro"] *::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: var(--bevel-out);
+}
+
+/* Loading placeholder: a sunken box with a stepping blue progress bar. */
+html[data-skin="retro"] .skeleton {
+  border: 0;
+  background: #fff;
+  box-shadow: var(--bevel-in);
+}
+html[data-skin="retro"] .skeleton::after {
+  inset: 4px auto 4px 4px;
+  width: 40%;
+  transform: none;
+  background: repeating-linear-gradient(
+    90deg,
+    #000080 0 10px,
+    transparent 10px 12px
+  );
+  animation: retro-progress 2.4s steps(12) infinite;
+}
+@keyframes retro-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: calc(100% - 8px);
+  }
+}
+
+/* Allocation donut centre: the pixel face is wide — keep 100M+ in the hole. */
+html[data-skin="retro"] .donut-amount {
+  font-size: 15px;
+}
+
+/* Recharts: the classic yellow tooltip. */
+html[data-skin="retro"] .recharts-default-tooltip {
+  background: #ffffe1 !important;
+  border: 1px solid #000 !important;
+  border-radius: 0 !important;
+  color: #000 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="retro"] .skeleton::after {
+    animation: none;
+  }
+}
