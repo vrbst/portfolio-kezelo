@@ -13,6 +13,7 @@ import {
   History,
 } from "lucide-react";
 import {
+  useMonthlyBudget,
   usePortfolio,
   usePortfolioSummary,
   useValueSeries,
@@ -50,7 +51,7 @@ import ForecastChart, {
   type PastForecast,
 } from "../components/ForecastChart";
 import type { ValuePoint } from "../lib/portfolio";
-import { loadSavingsGoals } from "../lib/savings";
+import { loadSavingsGoals, savingsGoalExpenses } from "../lib/savings";
 import {
   PageHeader,
   Card,
@@ -234,19 +235,12 @@ export default function Forecast() {
     window.addEventListener(PREFS_EVENT, onPrefs);
     return () => window.removeEventListener(PREFS_EVENT, onPrefs);
   }, []);
+  // Their progress sets how much of the coupons a goal counting them claims
+  // (spent on the goal, not reinvested — see savingsGoalExpenses).
+  const { savings: savingsProgress } = useMonthlyBudget();
   const goalExpenses = useMemo<PlannedExpense[]>(
-    () =>
-      savingsGoals
-        .filter(
-          (g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0,
-        )
-        .map((g) => ({
-          id: `goal:${g.id}`,
-          date: g.targetDate,
-          amountHuf: g.targetHuf,
-          note: g.name,
-        })),
-    [savingsGoals],
+    () => savingsGoalExpenses(savingsGoals, savingsProgress),
+    [savingsGoals, savingsProgress],
   );
   const allExpenses = useMemo(
     () =>
@@ -591,7 +585,7 @@ export default function Forecast() {
         ? `Minden vagyonérték MAI FORINTBAN értendő (${(settings.inflationPct * 100).toFixed(1)}% éves inflációval deflálva); a befektetett tőke viszont a ténylegesen befizetett névleges összeg`
         : null,
       `Horizont: ${Math.round(settings.months / 12)} év`,
-      `Kötvény-cashflow a horizonton: kamat ${huf(result.couponHuf)} Ft, lejáró tőke ${huf(result.maturityHuf)} Ft`,
+      `Kötvény-cashflow a horizonton: kamat ${huf(result.couponHuf)} Ft${result.goalCouponHuf > 0 ? ` (ebből ${huf(result.goalCouponHuf)} Ft a középtávú célokra megy, elköltve — nem fektetődik vissza)` : ""}, lejáró tőke ${huf(result.maturityHuf)} Ft`,
       `Betervezett kiadások: ${exp} (összesen ${huf(result.expenseHuf)} Ft)`,
       "",
       "Mérföldkövek:",
@@ -1506,6 +1500,14 @@ export default function Forecast() {
             settings.reinvestBondRate,
           )}
           .
+          {result.goalCouponHuf > 0 && (
+            <>
+              {" "}
+              A kamatból <span className="amt">{huf(result.goalCouponHuf)} Ft</span>{" "}
+              a középtávú célokra megy (elköltve, nem fektetődik vissza) — a
+              céldátumon már csak a maradék vonódik le.
+            </>
+          )}
         </p>
       </Card>
 
