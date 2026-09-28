@@ -193,6 +193,7 @@ export function useDayChange(): DayChange | null {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
+  const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
   const liveQuotes = usePortfolio((s) => s.liveQuotes);
@@ -201,6 +202,7 @@ export function useDayChange(): DayChange | null {
     accounts,
     transactions,
     instruments,
+    prices,
     fx,
     history,
     liveQuotes,
