@@ -351,7 +351,7 @@ function GoalRow({
               {formatMoney(p.monthlyNeededHuf)}
             </span>{" "}
             félretétel kell a cél eléréséhez
-            {p.goal.instrumentKeys.length > 0 ? (
+            {p.goal.instrumentKeys.length > 0 || (p.goal.reserves?.length ?? 0) > 0 ? (
               // The quota is per month; what this month's net purchases
               // already covered is shown apart from the total gap, so
               // "gap ÷ months" reading doesn't clash with the quota.
