@@ -299,6 +299,12 @@ export interface SavingsMonthlyStatus {
   buyKey?: string;
   /** Account of the goal's latest reserve with one (where the cash is kept). */
   reserveAccountId?: string;
+  /**
+   * The monthly setting aside starts in a later month (saveFrom) and nothing
+   * is asked this month — no coupon to reinvest, nothing bought. Not a to-do,
+   * not a "done" one either: the plan and the Alerts page leave it out.
+   */
+  notStarted: boolean;
 }
 
 /**
@@ -415,6 +421,7 @@ export function savingsMonthStates(
       reserveAccountId: [...(g.reserves ?? [])]
         .filter((r) => r.accountId && r.amountHuf > 0)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.accountId,
+      notStarted: !!p?.savingStartsOn && neededHuf <= 0 && Math.abs(boughtHuf) < 1,
     });
   }
   return out;
@@ -1071,17 +1078,40 @@ export function futureCouponOptions(
   );
 }
 
-/** Savings goals as planned expenses on their target dates (for projections:
- *  the goal amount leaves the portfolio then). */
-export function savingsGoalExpenses(goals: SavingsGoal[]): PlannedExpense[] {
+/**
+ * Savings goals as planned expenses on their target dates (for projections:
+ * the goal amount leaves the portfolio then). With the goals' `progress`, a
+ * goal that counts coupons — the ones it picked (couponIds) and, with
+ * includeCoupons, those no goal picked — claims them up to its date, at most
+ * what its instruments and cash don't cover; the projection spends them on
+ * the goal instead of reinvesting (PlannedExpense.couponCapHuf).
+ */
+export function savingsGoalExpenses(
+  goals: SavingsGoal[],
+  progress: SavingsProgress[] = [],
+): PlannedExpense[] {
+  const byId = new Map(progress.map((p) => [p.goal.id, p]));
   return goals
     .filter((g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0)
-    .map((g) => ({
-      id: `goal:${g.id}`,
-      date: g.targetDate,
-      amountHuf: g.targetHuf,
-      note: g.name,
-    }));
+    .map((g) => {
+      const p = byId.get(g.id);
+      const picks = validCouponIds(goals, g);
+      const cap =
+        p && (g.includeCoupons || picks.length > 0)
+          ? Math.max(0, g.targetHuf - (p.projectedHuf - p.couponsHuf))
+          : 0;
+      return {
+        id: `goal:${g.id}`,
+        date: g.targetDate,
+        amountHuf: g.targetHuf,
+        note: g.name,
+        ...(cap > 0 && {
+          couponCapHuf: cap,
+          ...(picks.length > 0 && { couponIds: picks }),
+          ...(g.includeCoupons && { includeCoupons: true }),
+        }),
+      };
+    });
 }
 
 // ---- Possible double counting: a buy paid from a reserve -------------------
