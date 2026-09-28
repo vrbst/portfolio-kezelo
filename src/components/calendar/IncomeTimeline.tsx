@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Wallet } from "lucide-react";
 import { formatMoney, formatCompact } from "../../lib/format";
 import { MONTHS } from "./shared";
+import { CHART, skinned, TERM } from "../../lib/skin";
 
 export type IncomeKind = "kamat" | "lejarat" | "osztalek";
 
@@ -13,10 +14,15 @@ export interface IncomeMonth {
   future: Record<IncomeKind, number>;
 }
 
-const KIND_META: { key: IncomeKind; label: string; color: string }[] = [
-  { key: "kamat", label: "Kamat", color: "#22d3ee" },
-  { key: "osztalek", label: "Osztalék", color: "#34d399" },
-  { key: "lejarat", label: "Lejárat (visszakapott tőke)", color: "#6366f1" },
+const KIND_COLOR = skinned({
+  classic: { kamat: "#22d3ee", osztalek: "#34d399", lejarat: "#6366f1" },
+  terminal: { kamat: TERM.cyan, osztalek: TERM.green, lejarat: TERM.blue },
+});
+
+const KIND_META: { key: IncomeKind; label: string }[] = [
+  { key: "kamat", label: "Kamat" },
+  { key: "osztalek", label: "Osztalék" },
+  { key: "lejarat", label: "Lejárat (visszakapott tőke)" },
 ];
 
 const sum = (r: Record<IncomeKind, number>) =>
@@ -135,7 +141,7 @@ export default function IncomeTimeline({
                           <span className="flex items-center gap-1.5 text-[var(--color-muted)]">
                             <span
                               className="h-2 w-2 rounded-full"
-                              style={{ background: k.color }}
+                              style={{ background: KIND_COLOR[k.key] }}
                             />
                             {k.label.split(" ")[0]}
                           </span>
@@ -162,7 +168,7 @@ export default function IncomeTimeline({
                       className="w-full first:rounded-t"
                       style={{
                         height: `${(m.future[k.key] / max) * 100}%`,
-                        background: hatch(k.color),
+                        background: hatch(KIND_COLOR[k.key]),
                         opacity: active ? 0.95 : 0.7,
                       }}
                     />
@@ -175,7 +181,7 @@ export default function IncomeTimeline({
                       className="w-full first:rounded-t"
                       style={{
                         height: `${(m.past[k.key] / max) * 100}%`,
-                        background: k.color,
+                        background: KIND_COLOR[k.key],
                         opacity: active ? 1 : 0.85,
                       }}
                     />
@@ -204,7 +210,7 @@ export default function IncomeTimeline({
           <span key={k.key} className="flex items-center gap-1.5">
             <span
               className="h-2.5 w-2.5 rounded-sm"
-              style={{ background: k.color }}
+              style={{ background: KIND_COLOR[k.key] }}
             />
             {k.label}
           </span>
@@ -212,7 +218,7 @@ export default function IncomeTimeline({
         <span className="flex items-center gap-1.5">
           <span
             className="h-2.5 w-2.5 rounded-sm"
-            style={{ background: hatch("#8b93a7") }}
+            style={{ background: hatch(CHART.axis) }}
           />
           várható
         </span>

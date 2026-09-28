@@ -1181,19 +1181,19 @@ export default function Forecast() {
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
           {past.points.length > 0 && (
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-4 bg-[#e8ecf8]/70" />
+              <span className="inline-block h-0.5 w-4 bg-[var(--color-text)]/70" />
               Tényleges múlt
             </span>
           )}
           {settings.showPastForecast && past.backtestNow && (
             <span className="flex items-center gap-1.5">
-              <span className="inline-block w-4 border-t-2 border-dashed border-[#a5b4fc]" />
+              <span className="inline-block w-4 border-t-2 border-dashed border-[var(--color-chart-alt)]" />
               Visszateszt
             </span>
           )}
           {settings.showPastForecast && pastForecasts.length > 0 && (
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-4 bg-[#fbbf24]" />
+              <span className="inline-block h-0.5 w-4 bg-[var(--color-warning)]" />
               Korábbi előrejelzések
             </span>
           )}

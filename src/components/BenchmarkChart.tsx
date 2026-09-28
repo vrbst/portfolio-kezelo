@@ -11,9 +11,8 @@ import {
   ReferenceLine,
 } from "recharts";
 import { formatPercent } from "../lib/format";
+import { CHART } from "../lib/skin";
 
-const PORTFOLIO_COLOR = "#6366f1";
-const BENCHMARK_COLOR = "#8b93a7";
 
 export interface BenchmarkPoint {
   date: string;
@@ -111,14 +110,14 @@ export default function BenchmarkChart({
         <span className="flex items-center gap-1.5">
           <span
             className="h-0.5 w-4 rounded"
-            style={{ background: PORTFOLIO_COLOR }}
+            style={{ background: CHART.brand }}
           />
           {names.portfolio}
         </span>
         <span className="flex items-center gap-1.5">
           <span
             className="w-4 border-t-2 border-dashed"
-            style={{ borderColor: BENCHMARK_COLOR }}
+            style={{ borderColor: CHART.axis }}
           />
           {names.benchmark}
         </span>
@@ -129,31 +128,31 @@ export default function BenchmarkChart({
             data={chartData}
             margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
           >
-            <CartesianGrid stroke="#232b45" vertical={false} />
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
             <XAxis
               dataKey="ts"
               type="number"
               domain={[min, max]}
               tickFormatter={formatMonth}
-              tick={{ fill: "#8b93a7", fontSize: 12 }}
-              stroke="#232b45"
+              tick={{ fill: CHART.axis, fontSize: 12 }}
+              stroke={CHART.grid}
               minTickGap={32}
             />
             <YAxis
               tickFormatter={(v) => formatPercent(v)}
-              tick={{ fill: "#8b93a7", fontSize: 12 }}
-              stroke="#232b45"
+              tick={{ fill: CHART.axis, fontSize: 12 }}
+              stroke={CHART.grid}
               width={56}
             />
-            <ReferenceLine y={0} stroke="#3a4468" strokeWidth={1} />
+            <ReferenceLine y={0} stroke={CHART.cursor} strokeWidth={1} />
             <Tooltip
-              cursor={{ stroke: "#3a4468", strokeWidth: 1 }}
+              cursor={{ stroke: CHART.cursor, strokeWidth: 1 }}
               content={<ChartTooltip names={names} />}
             />
             <Line
               type="monotone"
               dataKey="portfolio"
-              stroke={PORTFOLIO_COLOR}
+              stroke={CHART.brand}
               strokeWidth={2}
               dot={false}
               {...anim}
@@ -161,7 +160,7 @@ export default function BenchmarkChart({
             <Line
               type="monotone"
               dataKey="benchmark"
-              stroke={BENCHMARK_COLOR}
+              stroke={CHART.axis}
               strokeWidth={2}
               strokeDasharray="5 4"
               dot={false}

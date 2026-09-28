@@ -14,6 +14,7 @@ import AlertSettings from "../components/settings/AlertSettings";
 import BrokerFeeSettings from "../components/settings/BrokerFeeSettings";
 import PurchaseAccountSettings from "../components/settings/PurchaseAccountSettings";
 import LeftoverSettings from "../components/settings/LeftoverSettings";
+import AppearanceSettings from "../components/settings/AppearanceSettings";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -93,6 +94,8 @@ export default function Settings() {
 
         <SyncSettings />
       </div>
+
+      <AppearanceSettings />
 
       <AiSettings />
 

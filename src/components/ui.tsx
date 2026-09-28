@@ -10,8 +10,10 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { motion, animate, useReducedMotion } from "motion/react";
+import { useLocation } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { formatMoney, formatPercent } from "../lib/format";
+import { useSkin } from "../lib/skin";
 
 /** Group an integer digit-string with non-breaking thousands spaces (hu-HU). */
 function groupDigits(d: string): string {
@@ -259,11 +261,23 @@ export function PageHeader({
   subtitle?: string;
   action?: ReactNode;
 }) {
+  const terminal = useSkin((s) => s.skin) === "terminal";
+  const { pathname } = useLocation();
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
+        {terminal && (
+          <div className="mb-1 text-xs text-[var(--color-muted)]">
+            portfolio@local:
+            <span className="text-[var(--color-accent)]">
+              ~{pathname === "/" ? "" : pathname}
+            </span>
+            $
+          </div>
+        )}
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           {title}
+          {terminal && <span className="term-cursor" aria-hidden />}
         </h1>
         {subtitle && (
           <p className="mt-1 text-sm text-[var(--color-muted)]">{subtitle}</p>

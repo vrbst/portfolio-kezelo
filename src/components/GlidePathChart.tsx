@@ -11,12 +11,13 @@ import {
 } from "recharts";
 import type { WeightPoint } from "../lib/rebalance";
 import { dayTs, type Row } from "./glideChartData";
+import { CHART } from "../lib/skin";
 
 const tooltipStyle = {
-  background: "#141a2e",
-  border: "1px solid #232b45",
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
   borderRadius: 12,
-  color: "#e8ecf8",
+  color: "var(--color-text)",
 } as const;
 
 
@@ -50,21 +51,21 @@ export function GlideBucketChart({
     <div className={`${height} w-full`}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid stroke="#232b45" vertical={false} />
+          <CartesianGrid stroke={CHART.grid} vertical={false} />
           <XAxis
             dataKey="ts"
             type="number"
             domain={["dataMin", "dataMax"]}
             tickFormatter={(ts) => monthLabel(new Date(ts).toISOString().slice(0, 10))}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
             minTickGap={40}
           />
           <YAxis
             domain={[0, max]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
-            tick={{ fill: "#8b93a7", fontSize: 12 }}
-            stroke="#232b45"
+            tick={{ fill: CHART.axis, fontSize: 12 }}
+            stroke={CHART.grid}
             width={40}
           />
           <Tooltip
@@ -78,12 +79,12 @@ export function GlideBucketChart({
                     <div style={{ color }}>Tényleges: {pct(row.weight)}</div>
                   )}
                   <div>Pályacél: {pct(row.target)}</div>
-                  <div className="text-[#8b93a7]">
+                  <div className="text-[var(--color-chart-axis)]">
                     Sáv: {pct(row.band[0])} – {pct(row.band[1])}
                     {row.minApplied && " (minimális sáv)"}
                   </div>
                   {row.computed && row.minApplied && (
-                    <div className="text-[#8b93a7]">
+                    <div className="text-[var(--color-chart-axis)]">
                       Számított sáv: {pct(row.computed[0])} – {pct(row.computed[1])}
                     </div>
                   )}
@@ -113,7 +114,7 @@ export function GlideBucketChart({
             ))}
           <Line
             dataKey="target"
-            stroke="#e8ecf8"
+            stroke={CHART.text}
             strokeOpacity={0.7}
             strokeDasharray="5 4"
             dot={false}
