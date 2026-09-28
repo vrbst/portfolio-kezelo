@@ -577,7 +577,6 @@ export default function Calendar() {
                   onSelect={onSelect}
                   onZoom={() => setZoom({ year, month: m })}
                   privacy={privacy}
-                  nextEventKey={nextEvent?.key ?? null}
                 />
               ))}
             </div>
@@ -807,7 +806,6 @@ function MonthGrid({
   onSelect,
   onZoom,
   privacy,
-  nextEventKey,
 }: {
   m: number;
   year: number;
@@ -820,7 +818,6 @@ function MonthGrid({
   onSelect: (key: string) => void;
   onZoom: () => void;
   privacy: boolean;
-  nextEventKey: string | null;
 }) {
   // Hover tooltip: the day under the cursor + the rect to anchor a floating card
   // (a real card beats the browser's title tooltip).
@@ -920,7 +917,6 @@ function MonthGrid({
               ? 14 + 34 * Math.sqrt(gross / maxGross)
               : 0;
           const color = agg ? dayColor(agg) : CAT_COLOR.maturity;
-          const isNext = key === nextEventKey;
           // Event days are tinted in their OWN category colour (no frame — the
           // tint + bubble carry it); the clicked day keeps a ring highlight.
           const style: CSSProperties = isSel
@@ -964,15 +960,15 @@ function MonthGrid({
               >
                 {d}
               </span>
-              {/* Pulsing ring on the nearest upcoming inflow day. */}
-              {isNext && (
+              {/* Pulsing ring on today. */}
+              {isToday && (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span
                     className="cal-ping rounded-full"
                     style={{
                       width: 20,
                       height: 20,
-                      border: `2px solid ${color}`,
+                      border: "2px solid var(--color-brand)",
                     }}
                   />
                 </span>
