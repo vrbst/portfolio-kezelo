@@ -9,7 +9,12 @@ import {
   useMonthlyPlan,
   useToday,
 } from "../lib/store";
-import { leftoverStatusLines, leftoverTitle, recordedLeftover } from "../lib/leftover";
+import {
+  leftoverStatusLines,
+  leftoverTextLines,
+  leftoverTitle,
+  recordedLeftover,
+} from "../lib/leftover";
 import { CouponWarning } from "./IncomeQueue";
 import {
   moveInOrder,
@@ -55,12 +60,15 @@ function LineRow({
   first,
   last,
   onMove,
+  leftover,
 }: {
   line: PlanLine;
   first: boolean;
   last: boolean;
   /** Omitted: the order is fixed here (the leftover split). */
   onMove?: (dir: -1 | 1) => void;
+  /** The leftover split: what's still missing is the later months' job, not a shortfall. */
+  leftover?: boolean;
 }) {
   const n = line.need;
   const done = n.needHuf < 1;
@@ -148,12 +156,17 @@ function LineRow({
           {line.upcoming.from}-tól: {line.upcoming.label}
         </div>
       )}
-      {line.shortHuf >= 1 && (
-        <div className="mt-0.5 text-xs text-[var(--color-negative)]">
-          Alul maradt: −<Amt>{formatMoney(line.shortHuf)}</Amt> (kellene{" "}
-          <Amt>{formatMoney(n.needHuf)}</Amt>)
-        </div>
-      )}
+      {line.shortHuf >= 1 &&
+        (leftover ? (
+          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+            A célból még hiányzik: <Amt>{formatMoney(line.shortHuf)}</Amt>
+          </div>
+        ) : (
+          <div className="mt-0.5 text-xs text-[var(--color-negative)]">
+            Alul maradt: −<Amt>{formatMoney(line.shortHuf)}</Amt> (kellene{" "}
+            <Amt>{formatMoney(n.needHuf)}</Amt>)
+          </div>
+        ))}
     </li>
   );
 }
@@ -256,48 +269,54 @@ function PlanBody({
   capped?: boolean;
 }) {
   const glideSteps = plan.glidePlan?.suggestions.filter((s) => s.status === "ok") ?? [];
+  // The leftover shows only what gets money; the Havi terv shows every goal.
+  const leftover = !capped;
+  const lines = leftover ? plan.lines.filter((l) => l.allocatedHuf >= 1) : plan.lines;
   return (
     <>
     <ul className="space-y-2">
-      {plan.lines.map((l, i) => (
+      {lines.map((l, i) => (
         <LineRow
           key={l.need.key}
           line={l}
           first={i === 0}
-          last={i === plan.lines.length - 1}
+          last={i === lines.length - 1}
           onMove={onMove && ((dir) => onMove(l.need.key, dir))}
+          leftover={leftover}
         />
       ))}
-      <li className="rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="flex items-center gap-2">
-            <Badge tone="positive">Célpálya</Badge>
-            <span className="text-xs text-[var(--color-muted)]">
-              {capped ? "a maradék — mindig az utolsó" : "a teljes maradék — mindig az utolsó"}
+      {(!leftover || plan.glideHuf >= 1) && (
+        <li className="rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <Badge tone="positive">Célpálya</Badge>
+              <span className="text-xs text-[var(--color-muted)]">
+                {capped ? "a maradék — mindig az utolsó" : "a teljes maradék — mindig az utolsó"}
+              </span>
             </span>
-          </span>
-          <Amt className="font-medium tabular-nums">{formatMoney(plan.glideHuf)}</Amt>
-        </div>
-        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-          {plan.glidePlan ? (
-            <>
-              Célpont: {plan.glidePlan.flow.label} —{" "}
-              {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
-              {glideSteps.some((s) => s.costHuf > 0) &&
-                ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
-            </>
-          ) : (
-            "A célok után nem marad rá pénz."
+            <Amt className="font-medium tabular-nums">{formatMoney(plan.glideHuf)}</Amt>
+          </div>
+          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+            {plan.glidePlan ? (
+              <>
+                Célpont: {plan.glidePlan.flow.label} —{" "}
+                {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
+                {glideSteps.some((s) => s.costHuf > 0) &&
+                  ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
+              </>
+            ) : (
+              "A célok után nem marad rá pénz."
+            )}
+          </div>
+          {plan.glidePlan && plan.glidePlan.notes.length > 0 && (
+            <ul className="mt-0.5 text-xs text-[var(--color-warning)]">
+              {plan.glidePlan.notes.map((n, i) => (
+                <li key={i}>• {n}</li>
+              ))}
+            </ul>
           )}
-        </div>
-        {plan.glidePlan && plan.glidePlan.notes.length > 0 && (
-          <ul className="mt-0.5 text-xs text-[var(--color-warning)]">
-            {plan.glidePlan.notes.map((n, i) => (
-              <li key={i}>• {n}</li>
-            ))}
-          </ul>
-        )}
-      </li>
+        </li>
+      )}
       {plan.freeHuf >= 1 && (
         <li className="px-3 text-xs text-[var(--color-muted)]">
           Szabad maradék (a célpálya havi összegén felül): <Amt>{formatMoney(plan.freeHuf)}</Amt>
@@ -335,7 +354,7 @@ function PlanBody({
         </ul>
       </div>
     )}
-    {plan.shortHuf >= 1 && (
+    {plan.shortHuf >= 1 && !leftover && (
       <p className="mt-2 text-xs text-[var(--color-negative)]">
         Nem elég a pénz minden célra — összesen <Amt>{formatMoney(plan.shortHuf)}</Amt> hiányzik
         (a sorrend szerint a hátsó célok maradtak alul).
@@ -434,7 +453,7 @@ function LeftoverSection() {
                     void addReminder({
                       severity: "info",
                       title,
-                      detail: planTextLines(plan).join("; ") + ".",
+                      detail: leftoverTextLines(plan).join("; ") + ".",
                       to: "/goals",
                       plan: steps,
                     })
