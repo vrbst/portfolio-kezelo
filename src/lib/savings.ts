@@ -78,6 +78,24 @@ export interface SavingsGoal {
    */
   minDaysToMaturity?: number;
   createdAt: string;
+  /**
+   * Cash set aside for the goal (entered by hand): it counts toward the goal
+   * from its date until the target date, like a buy of the goal's instrument.
+   * A matured instrument's payout and coupons in the hold-cash window count
+   * on their own (see goalCash) — they are not entered here.
+   */
+  reserves?: CashReserve[];
+}
+
+/** Cash set aside for a savings goal. */
+export interface CashReserve {
+  id: string;
+  amountHuf: number;
+  /** YYYY-MM-DD — it counts from this day. */
+  date: string;
+  /** The account the cash sits on; missing = a bank account / elsewhere. */
+  accountId?: string;
+  note?: string;
 }
 
 export const DEFAULT_MIN_DAYS_TO_MATURITY = 30;
@@ -182,6 +200,10 @@ export interface SavingsProgress {
    * goals without assigned instruments.
    */
   thisMonthNetHuf: number;
+  /** Cash set aside by hand that counts today (see SavingsGoal.reserves). */
+  reservedHuf: number;
+  /** Money counted automatically: matured payouts + hold-window coupons. */
+  autoCashHuf: number;
   /** Adjective of the current effective month, e.g. "szeptemberi". */
   monthAdjective: string;
   /** The projection already covers the target. */
@@ -285,7 +307,9 @@ export function savingsMonthStates(
     const shares = splitAmongGoals(
       incomeHuf(t, fx),
       [...progressByGoal.values()]
-        .filter((p) => claimsCoupon(p, day))
+        // A hold-window coupon counts for the goal on its own — nothing to
+        // reinvest or set aside for it.
+        .filter((p) => claimsCoupon(p, day) && !inHoldWindow(p.goal, day, instruments))
         .map((p) => ({ goalId: p.goal.id, capHuf: room.get(p.goal.id) ?? 0 })),
     );
     for (const [id, x] of shares) {
@@ -295,13 +319,9 @@ export function savingsMonthStates(
   }
   const out: SavingsMonthlyStatus[] = [];
   for (const g of goals) {
-    const boughtHuf = netThisEffectiveMonth(
-      g,
-      transactions,
-      instruments,
-      fx,
-      now,
-    );
+    // Buys of the goal's instruments + cash set aside for it this month.
+    const boughtHuf =
+      netThisEffectiveMonth(g, transactions, instruments, fx, now) + reservedThisMonth(g, now);
     const p = progressByGoal.get(g.id);
     const baseNeededHuf = !p || p.reached ? 0 : Math.max(0, p.monthlyNeededHuf);
     // Coupons received THIS effective month — if the goal earmarks coupons
@@ -325,11 +345,10 @@ export function savingsMonthStates(
       0,
       baseNeededHuf - Math.max(0, boughtHuf - couponHuf),
     );
-    // Met once this month's purchases reach (1 − tolerance) × needed, so
-    // rounding / FX drift doesn't leave it a few hundred Ft "short". With
-    // nothing left to buy, the money is simply kept in cash — no reminder.
+    // Met once this month's purchases (or, with nothing left to buy, the cash
+    // set aside) reach (1 − tolerance) × needed, so rounding / FX drift
+    // doesn't leave it a few hundred Ft "short".
     const done =
-      holdCash ||
       neededHuf <= 0 ||
       boughtHuf >= neededHuf * (1 - GOAL_TOLERANCE);
     out.push({
@@ -426,6 +445,15 @@ export function savingsGoalAlerts(
         couponLeft > 1
           ? ` Ebből ${formatMoney(s.planHuf)} a havi megtakarításból (Havi terv), ${formatMoney(couponLeft)} a beérkezett kamat újrabefektetése.`
           : "";
+      if (s.holdCash)
+        return {
+          id: `savings-goal:${s.goalId}:${curKey}`,
+          severity: "medium" as const,
+          title: `Havi félretétel – ${s.name}`,
+          detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)}-ot tegyél félre készpénzben, és rögzítsd a célnál (a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le).`,
+          to: "/goals",
+          actionLabel: "Célok",
+        };
       return {
         id: `savings-goal:${s.goalId}:${curKey}`,
         severity: "medium" as const,
@@ -589,6 +617,35 @@ function assignedValue(
   return sum;
 }
 
+/** The goal's reserves counting on `day`: dated by then and by the target date. */
+function reservesOn(goal: SavingsGoal, day: string): CashReserve[] {
+  const target = goal.targetDate.slice(0, 10);
+  return (goal.reserves ?? []).filter((r) => r.date <= day && r.date <= target && r.amountHuf > 0);
+}
+
+const sumHuf = (rs: CashReserve[]) => rs.reduce((a, r) => a + r.amountHuf, 0);
+
+/** Of those, the ones set aside in the effective month of `now`. */
+function reservedThisMonth(goal: SavingsGoal, now: Date): number {
+  const eff = effectiveMonth(now);
+  return sumHuf(
+    reservesOn(goal, toLocalDay(now.getTime())).filter((r) =>
+      inEffectiveMonth({ date: `${r.date}T12:00:00` } as Transaction, eff),
+    ),
+  );
+}
+
+/** A coupon on `day` falls in the goal's hold-cash window (it counts on its own). */
+function inHoldWindow(
+  goal: SavingsGoal,
+  day: string,
+  instruments: Map<string, Instrument>,
+): boolean {
+  if (!goal.includeCoupons) return false;
+  const from = holdCashFrom(goal, instruments);
+  return !!from && day >= from && day <= goal.targetDate.slice(0, 10);
+}
+
 /**
  * First day of the goal's "hold cash" window: from then on none of its
  * instruments can still be bought for it (each matures within minDays, or
@@ -733,9 +790,14 @@ export function computeSavingsProgress(
     // Plus the money already the goal's in cash (a matured instrument's
     // payout, coupons credited in the hold-cash window) — see goalCash.
     const cash = cashByGoal.get(goal.id)!;
+    // …and the cash set aside by hand (this month's part counts as this
+    // month's saving, like a buy — see assignedStart).
+    const reservedHuf = sumHuf(reservesOn(goal, toLocalDay(nowMs)));
+    const reservedNowMonth = reservedThisMonth(goal, now);
     const assignedValueHuf =
       assignedValue(summaryNow, future ? summaryAt(dateMs) : summaryNow, keys, targetMs) +
-      cash.cashHuf;
+      cash.cashHuf +
+      reservedHuf;
     const assignedAtDate = assignedValueHuf;
 
     const couponsHuf = goal.includeCoupons
@@ -757,7 +819,7 @@ export function computeSavingsProgress(
     const startTxs = txs.filter(
       (t) => !(isTrade(t) && inEffectiveMonth(t, eff)),
     );
-    let assignedStart = assignedValueHuf;
+    let assignedStart = assignedValueHuf - reservedNowMonth;
     if (startTxs.length !== txs.length) {
       const nowStart = computePortfolio(
         accounts,
@@ -777,7 +839,8 @@ export function computeSavingsProgress(
             new Date(dateMs),
           )
         : nowStart;
-      assignedStart = assignedValue(nowStart, atStart, keys, targetMs) + cash.cashHuf;
+      assignedStart =
+        assignedValue(nowStart, atStart, keys, targetMs) + cash.cashHuf + reservedHuf - reservedNowMonth;
     }
     // Coupons credited THIS effective month were still ahead at its start —
     // counting them as projected there keeps a just-arrived coupon from also
@@ -826,7 +889,9 @@ export function computeSavingsProgress(
       daysLeft,
       monthlyNeededHuf,
       couponRoomHuf,
-      thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now),
+      thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now) + reservedNowMonth,
+      reservedHuf,
+      autoCashHuf: cash.cashHuf,
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
     };
