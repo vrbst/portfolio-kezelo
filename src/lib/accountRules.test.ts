@@ -199,7 +199,7 @@ describe("monthly plan with accounts", () => {
     const p = run(ctx({ fees: { broker: { fxPct: 0.005 } } }));
     const t = p.lines[0].trade!;
     expect(t.fxCostHuf).toBeCloseTo(t.amountHuf * 0.005);
-    expect(t.amountHuf + t.costHuf + t.fxCostHuf!).toBeLessThanOrEqual(50_000);
+    expect(t.amountHuf + t.costHuf + t.fxCostHuf!).toBeCloseTo(50_000);
   });
 
   it("an account that takes no deposits: no buy, the money moves on, a note says why", () => {
