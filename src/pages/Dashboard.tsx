@@ -683,7 +683,7 @@ export default function Dashboard() {
                         {slice?.name ?? "Összesen"}
                       </motion.span>
                       <span
-                        className={`amt font-display font-semibold ${
+                        className={`amt donut-amount font-display font-semibold ${
                           slice ? "text-lg" : "text-xl"
                         }`}
                       >

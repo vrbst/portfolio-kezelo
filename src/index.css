@@ -632,6 +632,13 @@ html[data-skin="terminal"] .skeleton::after {
   }
 }
 
+/* Allocation donut centre: the monospace amount must fit the 140px hole even
+ * at 100M+ ("123 456 789 Ft" = 14 glyphs). */
+html[data-skin="terminal"] .donut-amount {
+  font-size: 15px;
+  letter-spacing: -0.04em;
+}
+
 /* Recharts: mono labels, boxy tooltips. */
 html[data-skin="terminal"] .recharts-wrapper {
   font-family: var(--font-sans);
