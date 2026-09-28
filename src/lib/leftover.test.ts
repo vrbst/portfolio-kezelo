@@ -23,6 +23,9 @@ import {
   SWAPPED_DAYS,
 } from "./huCalendar";
 import { effectiveMonthKey } from "./goals";
+import { computePortfolio } from "./portfolio";
+import { accountContext } from "./accountRules";
+import { depositText, planLineText } from "./monthlyPlan";
 
 // Invented sample data — round numbers, not a real portfolio.
 
@@ -303,5 +306,34 @@ describe("/maradek", () => {
       expect(r.ok, bad).toBe(false);
       expect(r.lines).toHaveLength(1);
     }
+  });
+});
+
+describe("hold cash with an assigned instrument", () => {
+  // Target before the DKJ's maturity: the DKJ can't be bought for it.
+  const early = { ...BABA, targetDate: "2026-10-31" };
+  const instMap = new Map([[DKJ.key, DKJ], [WBIT.key, WBIT]]);
+  const summary = computePortfolio([ACC, LY], TXS, instMap, PRICES, {}, new Date(LAST_WD));
+  const ctx = accountContext({ summary, transactions: TXS, fx: {}, day: "2026-09-30", limits: {}, purchase: {}, fees: {}, reserved: new Map() });
+
+  it("the set-aside goes to the account of the goal's instrument, and says why", () => {
+    const ln = needsAt(LAST_WD, { goals: [early], settings: { pullForward: false } });
+    expect(ln.needs[0].holdCash).toBe(true);
+    expect(ln.needs[0].holdReason).toBe("DKJ 261102: a céldátum (2026-10-31) után jár le (2026-11-02)");
+    const p = buildLeftoverPlan({
+      amountHuf: 100_000,
+      needs: ln.needs,
+      glide: undefined,
+      state: null,
+      budgetHuf: 0,
+      positions: [],
+      instruments: instMap,
+      accounts: ctx,
+    });
+    expect(p.deposits.map((d) => [d.label, d.accountId, d.totalHuf])).toEqual([
+      ["Államkincstár (félretétel)", ACC.id, 100_000],
+    ]);
+    expect(depositText(p.deposits[0])).not.toMatch(/bankszámla/);
+    expect(planLineText(p.lines[0])).toMatch(/→ Államkincstár \(DKJ 261102: a céldátum/);
   });
 });
