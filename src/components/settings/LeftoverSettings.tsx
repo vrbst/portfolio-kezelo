@@ -23,8 +23,8 @@ export default function LeftoverSettings() {
       <p className="mb-4 text-xs text-[var(--color-muted)]">
         Ha egy hónapban marad pénz, a Havi terv alatti mezőben (vagy a botnak
         küldött <code>/maradek 50000</code> paranccsal) javaslatot kapsz, mire
-        menjen: a hónap még hiányzó célrészei, a közeli határidős célok
-        következő havi része, végül a célpálya.
+        menjen: a hónap még hiányzó célrészei, a közeli határidős célok teljes
+        hátralévő összege, végül a célpálya.
       </p>
       <div className="space-y-3 text-sm">
         <label className="flex flex-wrap items-center gap-2">
@@ -46,7 +46,7 @@ export default function LeftoverSettings() {
             checked={s.pullForward}
             onChange={(e) => set({ pullForward: e.target.checked })}
           />
-          A határidős célok következő havi részének előrehozása, ha a céldátum
+          A határidős célok teljes hátralévő összegének előrehozása, ha a céldátum
           <input
             type="number"
             min={1}

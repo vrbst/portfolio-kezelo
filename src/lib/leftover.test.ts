@@ -147,18 +147,22 @@ describe("leftover – order of the split", () => {
 });
 
 describe("leftover – pulling next month's part forward", () => {
-  it("on: next month's part of a goal due within X months follows the open part", () => {
+  it("on: a goal due within X months gets all it still lacks; the rest goes on", () => {
     const ln = needsAt(LAST_WD);
     expect(ln.needs.map((n) => [n.key, Math.round(n.needHuf)])).toEqual([
       ["savings:b", 200_000],
-      // (600 000 − 200 000 paid in step 1) / 2 months left
-      ["ahead:savings:b", 200_000],
+      // the whole gap (600 000) less step 1's 200 000
+      ["ahead:savings:b", 400_000],
     ]);
-    expect(ln.needs[1].name).toBe("Babaváró (októberi rész előrehozva)");
+    expect(ln.needs[1].name).toBe("Babaváró (a céldátumig hátralévő rész)");
     expect(ln.needs[1].ahead).toBe("2026. október");
     const p = plan(500_000, ln);
-    expect(p.lines.map((l) => l.allocatedHuf)).toEqual([200_000, 200_000]);
-    expect(p.glideHuf).toBe(100_000);
+    expect(p.lines.map((l) => l.allocatedHuf)).toEqual([200_000, 300_000]);
+    expect(p.glideHuf).toBe(0);
+    // More than the goal needs: it is filled, the glide path gets the rest.
+    const big = plan(5_000_000, ln);
+    expect(big.lines.map((l) => l.allocatedHuf)).toEqual([200_000, 400_000]);
+    expect(big.glideHuf).toBe(4_400_000);
   });
 
   it("off: nothing is pulled forward", () => {
@@ -225,7 +229,8 @@ describe("leftover – no double split with the Havi terv and the incoming money
 
   it("the pulled-forward part excludes what next month's recorded Havi terv already plans", () => {
     const oct: Reminder = { ...havi(200_000), id: "r2", title: "Havi terv – 2026. október (300 000 Ft)" };
-    expect(needsAt(LAST_WD, { reminders: [oct] }).needs.some((n) => n.ahead)).toBe(false);
+    const ahead = needsAt(LAST_WD, { reminders: [oct] }).needs.find((n) => n.ahead);
+    expect(Math.round(ahead!.needHuf)).toBe(200_000);
   });
 
   it("a coupon a goal claims stays with the incoming-money list, not the leftover", () => {
