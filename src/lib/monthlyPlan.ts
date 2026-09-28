@@ -367,8 +367,21 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
       venue,
       upcoming,
     };
-    if (give >= 1 && key)
+    if (give >= 1 && key) {
       line.trade = planBuy(key, give, glide, positions, instruments, fxOf(key));
+      // Whole units (a DKJ's 1 Ft face, a bond's denomination) rarely spend
+      // the money to the forint: the item shows what is actually bought
+      // (with its costs, when they come out of the money), and the rounding
+      // remainder moves on to the next item / the glide path. It is not a
+      // shortfall of the item: the money was there, a unit wasn't.
+      const t = line.trade;
+      const used =
+        glide?.buyCostMode === "extra" ? t.amountHuf : t.amountHuf + t.costHuf + (t.fxCostHuf ?? 0);
+      if (used < give) {
+        left += give - used;
+        line.allocatedHuf = used;
+      }
+    }
     lines.push(line);
   }
   let glideHuf = 0;
