@@ -10,13 +10,20 @@
     <script>
       // Apply the chosen skin before first paint (see src/lib/skin.ts).
       try {
-        if (localStorage.getItem("pf-skin") === "terminal") {
+        var colors = {
+          terminal: "#050805",
+          paper: "#fff1e5",
+          retro: "#008080",
+        };
+        var s = localStorage.getItem("pf-skin");
+        if (colors.hasOwnProperty(s)) {
           var r = document.documentElement;
-          r.dataset.skin = "terminal";
-          if (localStorage.getItem("pf-crt") !== "0") r.dataset.crt = "";
+          r.dataset.skin = s;
+          if (s === "terminal" && localStorage.getItem("pf-crt") !== "0")
+            r.dataset.crt = "";
           document
             .querySelector('meta[name="theme-color"]')
-            .setAttribute("content", "#050805");
+            .setAttribute("content", colors[s]);
         }
       } catch (e) {}
     </script>

@@ -1,7 +1,7 @@
 // Shared calendar model: day items, categories/colours and the per-day
 // aggregate used by the month grids, the zoomed month and the day panel.
 
-import { currentSkin, skinned, TERM } from "../../lib/skin";
+import { currentSkin, PAPER, RETRO, skinned, TERM } from "../../lib/skin";
 
 export const MONTHS = [
   "január",
@@ -77,6 +77,26 @@ export const CAT_COLOR: Record<DayCat, string> = skinned({
     expense: TERM.orange,
     dca: TERM.greenPale,
   },
+  paper: {
+    coupon: PAPER.teal,
+    maturity: PAPER.blue,
+    tbsz: PAPER.ochre,
+    in: PAPER.green,
+    out: PAPER.red,
+    goal: PAPER.claret,
+    expense: PAPER.plum,
+    dca: PAPER.sky,
+  },
+  retro: {
+    coupon: RETRO.teal,
+    maturity: RETRO.navy,
+    tbsz: RETRO.olive,
+    in: RETRO.green,
+    out: RETRO.red,
+    goal: RETRO.fuchsia,
+    expense: RETRO.maroon,
+    dca: RETRO.purple,
+  },
 });
 
 export const MARKER_LABEL: Partial<Record<DayCat, string>> = {
@@ -137,8 +157,8 @@ export function dayColor(agg: DayAgg): string {
 
 /** A glossy sphere fill: highlight top-left, the hue, a darker rim. */
 export const sphere = (c: string) =>
-  // Terminal skin: a flat dot, no glossy 3D shading.
-  currentSkin() === "terminal"
+  // Only the classic skin has glossy 3D shading; the others use a flat dot.
+  currentSkin() !== "classic"
     ? c
     : `radial-gradient(circle at 35% 28%, color-mix(in srgb, ${c}, white 48%), ${c} 58%, color-mix(in srgb, ${c}, black 22%))`;
 

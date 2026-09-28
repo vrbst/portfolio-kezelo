@@ -3,7 +3,7 @@ import { useSkin, type Skin } from "../../lib/skin";
 import { Card } from "../ui";
 
 /**
- * Skin picker: the default look or the terminal one. Device-local (not
+ * Skin picker: the default look or one of the alternatives. Device-local (not
  * synced) — see lib/skin.ts.
  */
 export default function AppearanceSettings() {
@@ -85,6 +85,82 @@ export default function AppearanceSettings() {
               12 345 678 Ft
               <span className="term-cursor" aria-hidden />
             </span>
+          </div>
+        </SkinOption>
+
+        <SkinOption
+          value="paper"
+          current={skin}
+          onPick={setSkin}
+          label="Újság"
+          hint="Világos lazacszínű papír, tinta, serif címek"
+        >
+          <div
+            className="flex h-full flex-col justify-center gap-1 px-3"
+            style={{
+              background: "#fff1e5",
+              borderTop: "2px solid #1f1a17",
+              fontFamily: '"Newsreader Variable", Georgia, serif',
+            }}
+          >
+            <span
+              className="text-[10px] uppercase tracking-wider"
+              style={{
+                color: "#6b5b4e",
+                fontFamily: '"Inter Variable", sans-serif',
+              }}
+            >
+              Teljes érték
+            </span>
+            <span
+              className="text-lg font-semibold"
+              style={{ color: "#1f1a17" }}
+            >
+              12 345 678 Ft{" "}
+              <span className="text-xs" style={{ color: "#0a7d53" }}>
+                ▲ 1,2%
+              </span>
+            </span>
+          </div>
+        </SkinOption>
+
+        <SkinOption
+          value="retro"
+          current={skin}
+          onPick={setSkin}
+          label="Win95"
+          hint="Szürke domború ablakok, kékeszöld asztal"
+        >
+          <div className="h-full p-1.5" style={{ background: "#008080" }}>
+            <div
+              className="flex h-full flex-col"
+              style={{
+                background: "#c0c0c0",
+                boxShadow:
+                  "inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf",
+                padding: 3,
+              }}
+            >
+              <div
+                className="flex items-center justify-between px-1 text-[10px] font-bold text-white"
+                style={{
+                  background: "linear-gradient(90deg, #000080, #1084d0)",
+                  fontFamily: "Tahoma, Verdana, sans-serif",
+                }}
+              >
+                <span>Portfólió.exe</span>
+                <span>✕</span>
+              </div>
+              <span
+                className="flex flex-1 items-center px-1.5 text-base"
+                style={{
+                  color: "#000080",
+                  fontFamily: '"Pixelify Sans", sans-serif',
+                }}
+              >
+                12 345 678 Ft
+              </span>
+            </div>
           </div>
         </SkinOption>
       </div>

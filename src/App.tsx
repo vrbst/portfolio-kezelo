@@ -17,7 +17,7 @@ import {
   useActiveAlerts,
   useAlertsReadiness,
 } from "./lib/store";
-import { useSkin } from "./lib/skin";
+import { isSnappy, useSkin } from "./lib/skin";
 
 /** Re-fetch live prices at most this often when refreshing on tab focus. */
 const REFRESH_MS = 5 * 60 * 1000;
@@ -84,9 +84,10 @@ export default function App() {
     document.documentElement.classList.toggle("privacy-on", privacy);
   }, [privacy]);
 
-  // Terminal skin: no sliding/springing — only fades remain, so it feels snappy.
+  // Terminal/retro skins: no sliding/springing — only fades remain, so they feel
+  // snappy.
   return (
-    <MotionConfig reducedMotion={skin === "terminal" ? "always" : "user"}>
+    <MotionConfig reducedMotion={isSnappy(skin) ? "always" : "user"}>
       <div className="flex min-h-screen">
         <Sidebar />
         <main className="flex-1 min-w-0">

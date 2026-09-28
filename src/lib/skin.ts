@@ -1,16 +1,21 @@
-// Visual skin: the default "classic" look or a hardcore "terminal" one
-// (phosphor green on black, monospace, square boxes, optional CRT overlay).
-// Device-local, NOT synced — each device keeps its own look.
+// Visual skin: the default "classic" look or one of the alternatives —
+// "terminal" (phosphor green on black, monospace, square boxes, optional CRT
+// overlay), "paper" (a light financial-newspaper look: salmon paper, ink,
+// serif headings) and "retro" (Windows 95: grey bevelled boxes on a teal
+// desktop, navy title bars). Device-local, NOT synced — each device keeps its
+// own look.
 //
-// CSS: every terminal rule lives under html[data-skin="terminal"] (index.css),
-// so the classic stylesheet is untouched. index.html sets the attribute before
+// CSS: every skin's rules live under html[data-skin="…"] (index.css), so the
+// classic stylesheet is untouched. index.html sets the attribute before
 // first paint so there is no flash of the wrong skin.
 // JS colours (charts, calendar categories) go through `skinned()`: the classic
 // variant holds the exact original values.
 
 import { create } from "zustand";
 
-export type Skin = "classic" | "terminal";
+export type Skin = "classic" | "terminal" | "paper" | "retro";
+
+const SKINS: readonly Skin[] = ["classic", "terminal", "paper", "retro"];
 
 const SKIN_KEY = "pf-skin";
 const CRT_KEY = "pf-crt";
@@ -19,13 +24,14 @@ const CRT_KEY = "pf-crt";
 const THEME_COLOR: Record<Skin, string> = {
   classic: "#0b1020",
   terminal: "#050805",
+  paper: "#fff1e5",
+  retro: "#008080",
 };
 
 function loadSkin(): Skin {
   try {
-    return localStorage.getItem(SKIN_KEY) === "terminal"
-      ? "terminal"
-      : "classic";
+    const v = localStorage.getItem(SKIN_KEY);
+    return SKINS.includes(v as Skin) ? (v as Skin) : "classic";
   } catch {
     return "classic";
   }
@@ -106,6 +112,11 @@ export function skinned<T extends object>(variants: Record<Skin, T>): T {
   });
 }
 
+/** Skins that drop the smooth sliding/springing motion (fades only). */
+export function isSnappy(skin: Skin): boolean {
+  return skin === "terminal" || skin === "retro";
+}
+
 // Terminal palette: ANSI-ish brights on black, green-first.
 const T = {
   green: "#33ff66",
@@ -122,6 +133,44 @@ const T = {
   axis: "#3fae5c",
   cursor: "#1f6e35",
   surface: "#0a100a",
+};
+
+// Paper palette: newsprint inks on salmon — dark enough to read on light.
+const P = {
+  ink: "#1f1a17",
+  blue: "#0f5499",
+  claret: "#990f3d",
+  teal: "#0d7680",
+  ochre: "#b86e00",
+  plum: "#593380",
+  moss: "#4f7a28",
+  sky: "#5b8fc7",
+  slate: "#66605a",
+  green: "#0a7d53",
+  red: "#b3261e",
+  grid: "#e8d5c2",
+  axis: "#7a6a5c",
+  cursor: "#d9c2ab",
+  surface: "#fff8f1",
+};
+
+// Retro palette: the 16-colour Windows palette (dark halves read on grey).
+const R = {
+  navy: "#000080",
+  blue: "#0000ff",
+  teal: "#008080",
+  green: "#008000",
+  olive: "#808000",
+  maroon: "#800000",
+  red: "#c00000",
+  purple: "#800080",
+  fuchsia: "#d000d0",
+  grey: "#808080",
+  lightBlue: "#1084d0",
+  grid: "#a8a8a8",
+  axis: "#202020",
+  cursor: "#808080",
+  surface: "#c0c0c0",
 };
 
 /** Fixed chart colours (grid, axes, main series, tooltip box). */
@@ -151,13 +200,41 @@ export const CHART = skinned({
     positive: T.green,
     negative: T.red,
   },
+  paper: {
+    grid: P.grid,
+    axis: P.axis,
+    cursor: P.cursor,
+    text: P.ink,
+    surface: P.surface,
+    brand: P.blue,
+    alt: P.sky,
+    highlight: P.ochre,
+    positive: P.green,
+    negative: P.red,
+  },
+  retro: {
+    grid: R.grid,
+    axis: R.axis,
+    cursor: R.cursor,
+    text: "#000000",
+    surface: R.surface,
+    brand: R.navy,
+    alt: R.lightBlue,
+    highlight: R.olive,
+    positive: R.green,
+    negative: R.red,
+  },
 });
 
 /** Categorical series colours (cycled) — e.g. allocation slices. */
 export const SERIES_COLORS = skinned({
   classic: ["#6366f1", "#8b5cf6", "#22d3ee", "#34d399", "#fbbf24", "#fb7185"],
   terminal: [T.green, T.cyan, T.yellow, T.magenta, T.blue, T.orange],
+  paper: [P.blue, P.claret, P.teal, P.ochre, P.plum, P.moss],
+  retro: [R.navy, R.red, R.teal, R.olive, R.purple, R.green],
 });
 
-/** Terminal counterparts used by the other colour tables. */
+/** Per-skin counterparts used by the other colour tables. */
 export const TERM = T;
+export const PAPER = P;
+export const RETRO = R;

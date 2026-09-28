@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Wallet } from "lucide-react";
 import { formatMoney, formatCompact } from "../../lib/format";
 import { MONTHS } from "./shared";
-import { CHART, skinned, TERM } from "../../lib/skin";
+import { CHART, PAPER, RETRO, skinned, TERM } from "../../lib/skin";
 
 export type IncomeKind = "kamat" | "lejarat" | "osztalek";
 
@@ -17,6 +17,8 @@ export interface IncomeMonth {
 const KIND_COLOR = skinned({
   classic: { kamat: "#22d3ee", osztalek: "#34d399", lejarat: "#6366f1" },
   terminal: { kamat: TERM.cyan, osztalek: TERM.green, lejarat: TERM.blue },
+  paper: { kamat: PAPER.teal, osztalek: PAPER.green, lejarat: PAPER.blue },
+  retro: { kamat: RETRO.teal, osztalek: RETRO.green, lejarat: RETRO.navy },
 });
 
 const KIND_META: { key: IncomeKind; label: string }[] = [
