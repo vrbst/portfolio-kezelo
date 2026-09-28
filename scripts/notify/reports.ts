@@ -225,7 +225,8 @@ export function goalsText(ctx: Context): string {
         `${p.reached ? "✅" : "⏳"} <b>${esc(p.goal.name)}</b> – ${ft(p.targetHuf)}, ${dayLabel(p.goal.targetDate)}`,
         `   most ${Math.round(p.progressPct * 100)}%, a határidőre várhatóan ${Math.round(p.projectedPct * 100)}%` +
           reserveLine(ctx, p) +
-          (p.reached
+          // No monthly line before a later saving start (nothing asked yet).
+          (p.reached || (p.savingStartsOn && Math.abs(p.thisMonthNetHuf) < 1)
             ? ""
             : `\n   ${p.monthAdjective} keret: ${ft(p.monthlyNeededHuf)}, ebből teljesítve ${ft(p.thisMonthNetHuf)}`),
       );
