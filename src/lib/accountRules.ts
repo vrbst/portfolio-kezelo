@@ -292,9 +292,9 @@ export function blockedText(v: Venue): string {
 }
 
 /**
- * An alert for each instrument whose account for new buys is, from today,
- * one that isn't in the ledger yet — it disappears once a matching account
- * is imported.
+ * One alert per account that new buys should go to from today but that isn't
+ * in the ledger yet (naming every instrument waiting for it) — it disappears
+ * once a matching account is imported.
  */
 export function missingVenueAlerts(
   purchase: PurchaseAccounts,
@@ -302,20 +302,25 @@ export function missingVenueAlerts(
   day: string,
   instrumentName: (key: string) => string,
 ): Alert[] {
-  const out: Alert[] = [];
-  for (const key of Object.keys(purchase)) {
+  const byAccount = new Map<string, { label: string; from: string; names: string[] }>();
+  for (const key of Object.keys(purchase).sort()) {
     const e = purchaseEntryAt(purchase, key, day);
     if (!e || !("pending" in e.target)) continue;
     if (resolvePending(e.target.pending, accounts)) continue;
     const label = pendingLabel(e.target.pending);
-    out.push({
-      id: `venue-missing:${key}:${e.from}`,
-      severity: "medium",
-      title: `Hiányzó vételi számla – ${label}`,
-      detail: `${instrumentName(key)} új vételei ${e.from}-tól ide mennek, de a számla még nincs a nyilvántartásban. Nyisd meg; az első import után automatikusan ide kötődik.`,
-      to: "/settings",
-      actionLabel: "Vételi számlák",
-    });
+    const p = e.target.pending;
+    const id = `${p.provider}:${p.kind}:${p.tbszYear ?? ""}`;
+    const cur = byAccount.get(id) ?? { label, from: e.from, names: [] };
+    cur.names.push(instrumentName(key));
+    if (e.from < cur.from) cur.from = e.from;
+    byAccount.set(id, cur);
   }
-  return out;
+  return [...byAccount].map(([id, a]) => ({
+    id: `venue-missing:${id}:${a.from}`,
+    severity: "medium" as const,
+    title: `Hiányzó vételi számla – ${a.label}`,
+    detail: `${a.names.join(", ")} új vételei ${a.from}-tól ide mennek, de a számla még nincs a nyilvántartásban. Nyisd meg; az első import után automatikusan ide kötődik.`,
+    to: "/settings",
+    actionLabel: "Vételi számlák",
+  }));
 }
