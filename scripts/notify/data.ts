@@ -36,6 +36,7 @@ import {
   type GoalProgress,
 } from "../../src/lib/goals";
 import {
+  reservedCashByAccount,
   loadSavingsGoals,
   savingsGoalAlerts,
   computeSavingsProgress,
@@ -218,11 +219,15 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
   const alertState: AlertState = snapshot.alertState ?? {};
   const deletedReminders = new Set(snapshot.deletedReminderIds ?? []);
   const glideVersions = loadGlideVersions();
+  // Cash set aside for savings goals is not free cash (glide path, idle cash).
+  const reserved = reservedCashByAccount(savingsGoals, toLocalDay(at.getTime()));
   const glide = glideStateFrom(
     glideVersions,
     summary,
     fx,
     toLocalDay(at.getTime()),
+    undefined,
+    reserved,
   );
   const glideConfig = latestConfig(glideVersions);
   const savings = computeSavingsProgress(
@@ -245,6 +250,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     limits: loadAccountLimits(),
     purchase,
     fees: loadBrokerFees(),
+    reserved,
   });
   const incomeState = loadIncomeState();
   const income = allocateIncome(
@@ -266,6 +272,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
       { ...DEFAULT_ALERT_CONFIG, idleCashHuf: env.idleCashHuf },
       undefined,
       transactions,
+      reserved,
     ),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(

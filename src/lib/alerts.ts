@@ -136,6 +136,8 @@ export function computeAlerts(
   now: Date = new Date(),
   /** Used to hide coupon events whose payment has already been imported. */
   transactions: Transaction[] = [],
+  /** Cash set aside for savings goals, per account — not idle. */
+  reserved?: Map<string, number>,
 ): Alert[] {
   const out: Alert[] = [];
 
@@ -153,12 +155,13 @@ export function computeAlerts(
 
   // 1) Idle cash above the threshold, per account.
   for (const acc of summary.accounts) {
-    if (acc.cashValueHuf > config.idleCashHuf) {
+    const idle = acc.cashValueHuf - (reserved?.get(acc.account.id) ?? 0);
+    if (idle > config.idleCashHuf) {
       out.push({
         id: `idle-cash:${acc.account.id}`,
         severity: "medium",
         title: `Parlagon álló készpénz – ${acc.account.name}`,
-        detail: `${formatMoney(acc.cashValueHuf)} fekszik a számlán. Érdemes lehet befektetni.`,
+        detail: `${formatMoney(idle)} fekszik a számlán${reserved?.get(acc.account.id) ? " (a célokra félretett részen felül)" : ""}. Érdemes lehet befektetni.`,
         to: `/accounts/${acc.account.id}`,
         actionLabel: "Számla megnyitása",
       });

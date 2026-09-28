@@ -617,6 +617,47 @@ function assignedValue(
   return sum;
 }
 
+/**
+ * Account id → cash set aside on it for goals still ahead: not free cash, so
+ * the glide path doesn't suggest investing it and it raises no idle-cash
+ * alert. Past a goal's date its reserves no longer hold the cash.
+ */
+export function reservedCashByAccount(
+  goals: SavingsGoal[],
+  day: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const g of goals) {
+    if (g.targetDate.slice(0, 10) < day) continue;
+    for (const r of reservesOn(g, day))
+      if (r.accountId) out.set(r.accountId, (out.get(r.accountId) ?? 0) + r.amountHuf);
+  }
+  return out;
+}
+
+/**
+ * An account's cash per currency minus the part set aside (HUF first, then
+ * the other currencies at today's rate). Native amounts.
+ */
+export function freeCashOf(
+  cash: Record<string, number>,
+  reservedHuf: number,
+  fx: Record<string, number>,
+): Record<string, number> {
+  const out = { ...cash };
+  let left = Math.max(0, reservedHuf);
+  const ccys = Object.keys(out).sort((a, b) => (a === "HUF" ? -1 : b === "HUF" ? 1 : 0));
+  for (const ccy of ccys) {
+    if (left <= 0) break;
+    const rate = ccy === "HUF" ? 1 : (fx[ccy] ?? 0);
+    if (!(rate > 0) || out[ccy] <= 0) continue;
+    const take = Math.min(out[ccy] * rate, left);
+    out[ccy] -= take / rate;
+    left -= take;
+  }
+  return out;
+}
+
 /** The goal's reserves counting on `day`: dated by then and by the target date. */
 function reservesOn(goal: SavingsGoal, day: string): CashReserve[] {
   const target = goal.targetDate.slice(0, 10);

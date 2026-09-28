@@ -28,6 +28,7 @@ import {
   savingsGoalAlerts,
   type SavingsGoal,
   type SavingsProgress,
+  reservedCashByAccount,
 } from "./savings";
 import {
   allocateIncome,
@@ -237,8 +238,9 @@ const cachedAlerts = sharedMemo(
     purchase: PurchaseAccounts,
     day: string,
     accountCtx: AccountContext,
+    reserved: Map<string, number>,
   ) => [
-    ...computeAlerts(summary, config, undefined, transactions),
+    ...computeAlerts(summary, config, undefined, transactions, reserved),
     ...missingVenueAlerts(
       purchase,
       accounts,
@@ -313,6 +315,7 @@ export function useActiveAlerts(): Alert[] {
   const purchase = usePurchaseAccounts();
   const day = useToday();
   const accountCtx = useAccountContext();
+  const reserved = useReservedCash();
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -331,6 +334,7 @@ export function useActiveAlerts(): Alert[] {
     purchase,
     day,
     accountCtx,
+    reserved,
   );
 }
 
@@ -401,7 +405,15 @@ export function useGlideState(versions: GlideConfig[]): AllocationState | null {
   const fx = usePortfolio((s) => s.fx);
   const day = useToday();
   const fees = useBrokerFees();
-  return cachedGlideState(versions, summary, fx, day, fees);
+  const reserved = useReservedCash();
+  return cachedGlideState(versions, summary, fx, day, fees, reserved);
+}
+
+const cachedReserved = sharedMemo(reservedCashByAccount);
+
+/** Cash set aside for savings goals, per account (not free cash) — today. */
+export function useReservedCash(): Map<string, number> {
+  return cachedReserved(useSavingsGoals(), useToday());
 }
 
 const cachedWeightHistory = sharedMemo(
@@ -699,7 +711,8 @@ const cachedAccountContext = sharedMemo(
     limits: AccountLimits,
     purchase: PurchaseAccounts,
     fees: BrokerFees,
-  ) => accountContext({ summary, transactions, fx, day, limits, purchase, fees }),
+    reserved: Map<string, number>,
+  ) => accountContext({ summary, transactions, fx, day, limits, purchase, fees, reserved }),
 );
 
 /** Accounts, their limits and the accounts for new buys — today. */
@@ -712,6 +725,7 @@ export function useAccountContext(): AccountContext {
     useAccountLimits(),
     usePurchaseAccounts(),
     useBrokerFees(),
+    useReservedCash(),
   );
 }
 

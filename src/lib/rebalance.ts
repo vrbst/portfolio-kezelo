@@ -28,6 +28,7 @@ import {
   type OutOfBandMode,
 } from "./glidePath";
 import { loadBrokerFees, type BrokerFees } from "./planPrefs";
+import { freeCashOf } from "./savings";
 import {
   accountById,
   accountCashHuf,
@@ -256,6 +257,8 @@ export function positionsFromSummary(
   bondsAtFace: boolean,
   day: string,
   brokerFees: BrokerFees = loadBrokerFees(),
+  /** Account id → cash set aside for savings goals (not free cash). */
+  reserved?: Map<string, number>,
 ): Position[] {
   const map = new Map<string, Position>();
   // The broker of a position held at several = where most of it sits.
@@ -302,7 +305,10 @@ export function positionsFromSummary(
         brokerCost: brokerFees[acc.account.provider],
       });
     }
-    for (const [ccy, amt] of Object.entries(acc.cash)) {
+    const cash = reserved?.get(acc.account.id)
+      ? freeCashOf(acc.cash, reserved.get(acc.account.id)!, fx)
+      : acc.cash;
+    for (const [ccy, amt] of Object.entries(cash)) {
       if (Math.abs(amt) < 1e-9) continue;
       add({
         key: cashKey(ccy),
@@ -1288,6 +1294,8 @@ export function glideStateFrom(
   fx: Record<string, number>,
   day: string,
   brokerFees: BrokerFees = loadBrokerFees(),
+  /** Cash set aside for savings goals, per account (not free cash). */
+  reserved?: Map<string, number>,
 ): AllocationState | null {
   let cfg: GlideConfig | undefined;
   for (const v of versions)
@@ -1300,7 +1308,7 @@ export function glideStateFrom(
   if (!cfg || cfg.buckets.length === 0) return null;
   return allocationState(
     cfg,
-    positionsFromSummary(summary, fx, cfg.bondsAtFace, day, brokerFees),
+    positionsFromSummary(summary, fx, cfg.bondsAtFace, day, brokerFees, reserved),
     day,
   );
 }
