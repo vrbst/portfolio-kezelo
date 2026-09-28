@@ -134,15 +134,32 @@ export default function SavingsTargets() {
   }
 
   return (
-    <Card className="p-5">
+    <Card className="p-6">
       <div className="mb-1 flex items-center gap-2">
         <Target className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Középtávú célok</h2>
       </div>
-      <p className="mb-3 text-sm text-[var(--color-muted)]">
+      <p className="mb-4 max-w-3xl text-sm text-[var(--color-muted)]">
         Célösszeg egy dátumra, mögé rendelt eszközökkel (pl. DKJ). Az app
         mutatja az előrehaladást és a havi szükséges félretételt.
       </p>
+
+      {progress.length > 0 && (
+        <div className="mb-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,24rem),1fr))] gap-4">
+          {progress.map((p) => (
+            <GoalRow
+              key={p.goal.id}
+              progress={p}
+              planHuf={planHuf.get(p.goal.id) ?? 0}
+              conflicts={conflicts.filter((c) => c.goalId === p.goal.id)}
+              holdings={holdings}
+              nameOf={nameOf}
+              onUpdate={update}
+              onRemove={remove}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Új cél */}
       {!adding ? (
@@ -187,22 +204,6 @@ export default function SavingsTargets() {
         </div>
       )}
 
-      {progress.length > 0 && (
-        <div className="mt-4 space-y-4">
-          {progress.map((p) => (
-            <GoalRow
-              key={p.goal.id}
-              progress={p}
-              planHuf={planHuf.get(p.goal.id) ?? 0}
-              conflicts={conflicts.filter((c) => c.goalId === p.goal.id)}
-              holdings={holdings}
-              nameOf={nameOf}
-              onUpdate={update}
-              onRemove={remove}
-            />
-          ))}
-        </div>
-      )}
     </Card>
   );
 }
