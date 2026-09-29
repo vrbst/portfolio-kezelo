@@ -11,6 +11,7 @@ import {
 } from "../lib/incomeFlow";
 import { formatMoney } from "../lib/format";
 import { Amt } from "./ui";
+import PrivateText from "./PrivateText";
 
 /** Saves the event's split as ONE planned-transaction reminder and marks it distributed. */
 function saveAsPlan(
@@ -79,12 +80,12 @@ export default function IncomeQueue({
               <div className="font-medium">{incomeEventTitle(a.event)}</div>
               <div className="mt-0.5 text-xs text-[var(--color-muted)]">
                 {a.payoutOf?.length || a.pickedBy ? (
-                  incomeSplitText(a)
+                  <PrivateText text={incomeSplitText(a)} />
                 ) : (
                   <>
                     {a.goals.map((g) => (
                       <span key={g.goalId}>
-                        {g.name}: <Amt>{formatMoney(g.huf)}</Amt> →{" "}
+                        <span className="priv">{g.name}</span>: <Amt>{formatMoney(g.huf)}</Amt> →{" "}
                       </span>
                     ))}
                     célpálya: <Amt>{formatMoney(a.glideHuf)}</Amt>

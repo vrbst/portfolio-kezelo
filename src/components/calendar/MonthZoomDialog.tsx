@@ -187,7 +187,7 @@ export default function MonthZoomDialog({
                     <span
                       key={k}
                       className="flex min-w-0 items-center gap-1 text-[10px] leading-tight"
-                      title={it.title}
+                      title={privacy ? undefined : it.title}
                     >
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
