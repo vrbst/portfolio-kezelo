@@ -34,6 +34,8 @@ import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import DayChangeBreakdown from "../components/DayChangeBreakdown";
+import UnlockDialog from "../components/UnlockDialog";
+import { hasLock } from "../lib/privacyLock";
 import {
   PageHeader,
   StatCard,
@@ -108,6 +110,12 @@ export default function Dashboard() {
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const privacy = usePortfolio((s) => s.privacy);
   const togglePrivacy = usePortfolio((s) => s.togglePrivacy);
+  // Hiding is free; revealing asks for the lock password / biometric if set.
+  const [unlocking, setUnlocking] = useState(false);
+  const onPrivacyClick = () => {
+    if (privacy && hasLock()) setUnlocking(true);
+    else togglePrivacy();
+  };
 
   const valueSeries = useValueSeries();
 
@@ -330,7 +338,7 @@ export default function Dashboard() {
             )}
             <button
               className="btn-ghost"
-              onClick={togglePrivacy}
+              onClick={onPrivacyClick}
               title={privacy ? "Összegek megjelenítése" : "Összegek elrejtése"}
             >
               {privacy ? (
@@ -342,6 +350,15 @@ export default function Dashboard() {
                 {privacy ? "Megmutat" : "Elrejt"}
               </span>
             </button>
+            {unlocking && (
+              <UnlockDialog
+                onClose={() => setUnlocking(false)}
+                onSuccess={() => {
+                  setUnlocking(false);
+                  if (usePortfolio.getState().privacy) togglePrivacy();
+                }}
+              />
+            )}
             <button
               className="btn-ghost"
               onClick={() => refreshPrices()}
