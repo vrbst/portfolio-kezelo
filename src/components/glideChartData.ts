@@ -53,6 +53,10 @@ export interface Row {
   computed?: [number, number];
   /** The minimum band sets the width on this day (preview only). */
   minApplied?: boolean;
+  /** Expected weight from the inflows alone (see glideProjection). */
+  projZero?: number;
+  /** Expected weight with the assumed return. */
+  projReal?: number;
 }
 
 export const dayTs = (day: string) => Date.parse(`${day}T00:00:00Z`);

@@ -45,7 +45,10 @@ export function GlideBucketChart({
 }) {
   const max = Math.min(
     1,
-    Math.max(0.1, ...rows.map((r) => Math.max(r.band[1], r.weight ?? 0))) + 0.05,
+    Math.max(
+      0.1,
+      ...rows.map((r) => Math.max(r.band[1], r.weight ?? 0, r.projZero ?? 0, r.projReal ?? 0)),
+    ) + 0.05,
   );
   return (
     <div className={`${height} w-full`}>
@@ -79,6 +82,12 @@ export function GlideBucketChart({
                     <div style={{ color }}>Tényleges: {pct(row.weight)}</div>
                   )}
                   <div>Pályacél: {pct(row.target)}</div>
+                  {row.projZero != null && row.weight == null && (
+                    <div style={{ color }}>Várható (csak befizetés): {pct(row.projZero)}</div>
+                  )}
+                  {row.projReal != null && row.weight == null && (
+                    <div style={{ color }}>Várható (hozammal): {pct(row.projReal)}</div>
+                  )}
                   <div className="text-[var(--color-chart-axis)]">
                     Sáv: {pct(row.band[0])} – {pct(row.band[1])}
                     {row.minApplied && " (minimális sáv)"}
@@ -121,6 +130,31 @@ export function GlideBucketChart({
             strokeWidth={1.5}
             isAnimationActive={false}
           />
+          {rows.some((r) => r.projZero != null) && (
+            <Line
+              dataKey="projZero"
+              stroke={color}
+              strokeDasharray="1 3"
+              strokeLinecap="round"
+              dot={false}
+              strokeWidth={2}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
+          {rows.some((r) => r.projReal != null) && (
+            <Line
+              dataKey="projReal"
+              stroke={color}
+              strokeOpacity={0.55}
+              strokeDasharray="1 3"
+              strokeLinecap="round"
+              dot={false}
+              strokeWidth={2}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
           <Line
             dataKey="weight"
             stroke={color}
@@ -174,10 +208,15 @@ export default function GlidePathChart({
         Az idősoros grafikonhoz legalább két hónapnyi adat kell.
       </p>
     );
-  const last = rows[rows.length - 1].day;
+  const last = rows[rows.length - 1];
+  const ahead = future.filter((r) => r.day > last.day);
+  // The expected-weight lines start from today's actual weight.
+  const joined = ahead.some((r) => r.projZero != null || r.projReal != null)
+    ? [...rows.slice(0, -1), { ...last, projZero: last.weight, projReal: last.weight }]
+    : rows;
   return (
     <GlideBucketChart
-      rows={[...rows, ...future.filter((r) => r.day > last)]}
+      rows={[...joined, ...ahead]}
       color={color}
     />
   );
