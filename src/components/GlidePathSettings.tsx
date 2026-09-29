@@ -29,14 +29,23 @@ import {
   type Position,
 } from "../lib/rebalance";
 import { formatMoney } from "../lib/format";
-import { BOND_TYPES } from "../lib/bonds";
+import { BOND_TYPES, futureBondCashflows } from "../lib/bonds";
+import { loadForecastSettings } from "../lib/forecast";
+import { projectGlide, REACH_TOLERANCE, type GlideProjection } from "../lib/glideProjection";
 import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
-import { BUCKET_COLORS, previewRows } from "./glideChartData";
+import { BUCKET_COLORS, previewRows, type Row } from "./glideChartData";
 import GlidePathEditor from "./GlidePathEditor";
 
 const pct = (v: number) =>
   `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
+
+/** How far the expected-weight projection looks for the arrival. */
+const PROJECTION_YEARS = 15;
+
+const MONTH_NAMES = ["jan.", "febr.", "márc.", "ápr.", "máj.", "jún.", "júl.", "aug.", "szept.", "okt.", "nov.", "dec."];
+/** "2031. ápr." */
+const monthOf = (day: string) => `${day.slice(0, 4)}. ${MONTH_NAMES[+day.slice(5, 7) - 1]}`;
 
 const STATUS: Record<BandStatus, { label: string; tone: "positive" | "warning" | "neutral" }> = {
   within: { label: "Sávon belül", tone: "positive" },
@@ -86,7 +95,7 @@ export default function GlidePathSettings() {
   const cfg = latestConfig(versions);
   const active = isActive(cfg);
   const today = useToday();
-  const { breakdown } = useMonthlyBudget();
+  const { breakdown, savings } = useMonthlyBudget();
   const amountSource = glideAmountSource(breakdown, cfg);
 
   const [editing, setEditing] = useState<GlideConfig | null>(null);
@@ -107,6 +116,32 @@ export default function GlidePathSettings() {
   );
 
   const positionsAt = usePositionsAt();
+
+  // Expected weights from the inflows (free coupons and redemptions, the
+  // monthly amount, DCA into a bucket): flat prices and the Forecast page's
+  // "reális" return.
+  const transactions = usePortfolio((s) => s.transactions);
+  const dcaGoals = usePortfolio((s) => s.goals);
+  const projection = useMemo(() => {
+    if (!state || !cfg || !isActive(cfg)) return undefined;
+    const base = {
+      cfg,
+      state,
+      instruments: new Map(instruments.map((i) => [i.key, i])),
+      cashflows: futureBondCashflows(summary, new Date(), transactions),
+      savings,
+      dcaGoals,
+      budgetHuf: breakdown.budgetHuf,
+      today,
+      until: `${+today.slice(0, 4) + PROJECTION_YEARS}${today.slice(4)}`,
+    };
+    const real = loadForecastSettings().annualReturn.real;
+    return {
+      zero: projectGlide({ ...base, annualReturn: 0 }),
+      real: projectGlide({ ...base, annualReturn: real }),
+      realPct: real,
+    };
+  }, [state, cfg, instruments, summary, transactions, savings, dcaGoals, breakdown.budgetHuf, today]);
 
   const startEdit = useCallback(
     (from?: GlideConfig) => {
@@ -148,18 +183,24 @@ export default function GlidePathSettings() {
     ? checkDays(cfg.checkFrequency, today, `${+today.slice(0, 4) + 1}${today.slice(4)}`).find((d) => d > today)
     : undefined;
   const sortedVersions = [...versions].reverse();
-  // The path ahead (latest version): monthly until the last end date.
+  // The path ahead (latest version): monthly until the last end date — or
+  // until the inflows-only projection arrives, when that is later.
   const bucket = cfg?.buckets.find((b) => b.id === selected);
-  const future =
+  const pathEnd = cfg ? cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today) : today;
+  const chartEnd = [pathEnd, projection?.zero.reachedOn ?? ""].reduce((m, d) => (d > m ? d : m));
+  const projAt = (p: GlideProjection | undefined) =>
+    new Map((p?.points ?? []).map((x) => [x.day, x.weights]));
+  const zeroAt = projAt(projection?.zero);
+  const realAt = projAt(projection?.real);
+  const future: Row[] =
     cfg && bucket
-      ? previewRows(
-          checkDays(
-            "monthly",
-            today,
-            cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today),
-          ),
-          (day) => bandLimits(bucket, day, pathTargets(cfg, day).get(bucket.id) ?? 0),
-        )
+      ? previewRows(checkDays("monthly", today, chartEnd), (day) =>
+          bandLimits(bucket, day, pathTargets(cfg, day).get(bucket.id) ?? 0),
+        ).map((r) => ({
+          ...r,
+          projZero: zeroAt.get(r.day)?.[bucket.id],
+          projReal: realAt.get(r.day)?.[bucket.id],
+        }))
       : [];
 
   return (
@@ -293,6 +334,27 @@ export default function GlidePathSettings() {
                 color={colorOf(selected)}
                 future={future}
               />
+              {projection && (
+                <p className="mt-2 text-xs text-[var(--color-muted)]">
+                  <span className="font-medium text-[var(--color-text)]">Várható arány</span>{" "}
+                  (pontozott vonalak: élénk = csak befizetés, halvány = hozammal) — a
+                  végső célsúlyok elérése (±{(REACH_TOLERANCE * 100).toLocaleString("hu-HU")} százalékpont):
+                  csak befizetésből{" "}
+                  <span className="font-medium text-[var(--color-text)]">
+                    {projection.zero.reachedOn ? monthOf(projection.zero.reachedOn) : `${PROJECTION_YEARS} éven belül nem`}
+                  </span>
+                  , évi {pct(projection.realPct)} hozammal{" "}
+                  <span className="font-medium text-[var(--color-text)]">
+                    {projection.real.reachedOn ? monthOf(projection.real.reachedOn) : `${PROJECTION_YEARS} éven belül nem`}
+                  </span>{" "}
+                  (a pálya vége: {monthOf(pathEnd)}). Számol a szabad kuponokkal és
+                  lejáratokkal, a célpálya havi összegével (a célok lejártával
+                  újraszámolva) és a csoportba tartozó DCA vételekkel; a célhoz
+                  rendelt kupon és lejárat kimarad. A pénz a végső célsúlyok felé
+                  megy; az állampapír és a készpénz értéke nem változik, a hozam
+                  (az Előrejelzés „reális” forgatókönyve) csak a többire vonatkozik.
+                </p>
+              )}
             </div>
           )}
         </div>
