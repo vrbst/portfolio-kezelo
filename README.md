@@ -45,6 +45,10 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   megmaradt pénz előbb a hónap hiányzó célrészeire, majd a közeli határidős
   célok teljes hátralévő összegére, végül a célpályára megy; a hónap utolsó
   munkanapján (magyar munkanap-naptár) a bot rákérdez.
+- **„Ha most eladnék mindent”** – a Telegram-bot `/eladas` parancsa megmondja,
+  mennyi pénzed lenne, ha ma mindent eladnál: a TBSZ-eken a hozam adójával (a
+  számla aktuális szakaszának kulcsával), az állampapíroknál a lejárat előtti
+  visszaváltási díjjal (alapból 1%) csökkentve, számlánkénti bontásban.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz
