@@ -91,7 +91,7 @@ function LineRow({
           <Badge tone={n.ahead ? "positive" : n.kind === "savings" ? "warning" : "neutral"}>
             {n.ahead ? "Előrehozás" : n.kind === "savings" ? "Határidős cél" : "DCA"}
           </Badge>
-          <span className="truncate font-medium">{n.name}</span>
+          <span className={`truncate font-medium ${n.kind === "savings" ? "priv" : ""}`}>{n.name}</span>
         </span>
         <span className="tabular-nums">
           {done ? (
