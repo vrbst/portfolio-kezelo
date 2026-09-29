@@ -36,6 +36,7 @@ import {
 } from "../../src/lib/leftover";
 import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
+import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
 import { esc } from "./telegram";
 
@@ -169,6 +170,39 @@ export function statusText(ctx: Context): string {
   }
   if (ctx.alerts.length)
     lines.push("", `⚠️ ${ctx.alerts.length} aktív teendő – /teendok`);
+  return lines.join("\n");
+}
+
+/** /eladas: what selling everything today would net (fees and TBSZ tax off). */
+export function liquidationText(ctx: Context): string {
+  const l = portfolioLiquidation(ctx.summary, ctx.at);
+  const lines = [
+    `💸 <b>Ha most eladnál mindent: ${ft(l.netHuf)}</b>`,
+    `Bruttó érték: ${ft(l.grossHuf)}`,
+  ];
+  if (l.saleCostHuf > 0.5) lines.push(`Visszaváltási díj: −${ft(l.saleCostHuf)}`);
+  if (l.taxHuf > 0.5) lines.push(`TBSZ-adó: −${ft(l.taxHuf)}`);
+  lines.push("");
+  for (const a of l.accounts) {
+    if (Math.abs(a.grossHuf) < 1) continue;
+    const off: string[] = [];
+    if (a.saleCostHuf > 0.5) off.push(`díj −${mft(a.saleCostHuf)}`);
+    if (a.taxRate != null)
+      off.push(
+        a.taxHuf > 0.5
+          ? `adó ${Math.round(a.taxRate * 100)}% −${mft(a.taxHuf)}`
+          : a.taxRate === 0
+            ? "adómentes"
+            : "nincs adóköteles hozam",
+      );
+    lines.push(
+      `• ${shortName(a.account.name)}: <b>${mft(a.netHuf)}</b>${off.length ? ` (${off.join(", ")})` : ""}`,
+    );
+  }
+  lines.push(
+    "",
+    "<i>Mai árakon. A TBSZ-en csak a hozam adózik (a jelenlegi szakasz kulcsával); a kötvények lejárat előtti visszaváltási díja (alapból a névérték 1%-a) levonva.</i>",
+  );
   return lines.join("\n");
 }
 
@@ -543,6 +577,7 @@ export const HELP = [
   "/elorejelzes – 1–20 éves előrejelzés",
   "/heti – heti összefoglaló most",
   "/havi – előző havi zárás most",
+  "/eladas – mennyi pénzed lenne, ha most eladnál mindent (díj, TBSZ-adó levonva)",
   "/maradek 50000 – hová menjen a hónapban megmaradt pénz",
   "",
   "Magamtól szólok: új teendőnél, nagy napi mozgásnál, vasárnap este heti, a hónap elején havi jelentéssel, a hónap utolsó munkanapján a maradékért.",

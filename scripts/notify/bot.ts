@@ -36,6 +36,7 @@ import {
   appRecordedLeftover,
   leftoverAnswer,
   leftoverPromptText,
+  liquidationText,
   monthlyText,
   pct,
   sft,
@@ -122,6 +123,7 @@ const COMMANDS = [
   { command: "elorejelzes", description: "1–20 éves előrejelzés" },
   { command: "heti", description: "Heti összefoglaló most" },
   { command: "havi", description: "Előző havi zárás most" },
+  { command: "eladas", description: "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
   { command: "maradek", description: "Hónap végi maradék elosztása (pl. /maradek 50000)" },
   { command: "help", description: "Súgó" },
 ];
@@ -192,6 +194,7 @@ class Bot {
       "/elorejelzes": forecastText,
       "/heti": weeklyText,
       "/havi": monthlyText,
+      "/eladas": liquidationText,
     };
     if (cmd === "/start" || cmd === "/help" || !handlers[cmd]) {
       await this.say(HELP);
