@@ -15,6 +15,7 @@ import BrokerFeeSettings from "../components/settings/BrokerFeeSettings";
 import PurchaseAccountSettings from "../components/settings/PurchaseAccountSettings";
 import LeftoverSettings from "../components/settings/LeftoverSettings";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
+import PrivacyLockSettings from "../components/settings/PrivacyLockSettings";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -96,6 +97,8 @@ export default function Settings() {
       </div>
 
       <AppearanceSettings />
+
+      <PrivacyLockSettings />
 
       <AiSettings />
 
