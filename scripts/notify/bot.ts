@@ -364,7 +364,9 @@ class Bot {
     }
     if (posLines.length) await this.notify(posLines.join("\n"));
 
-    // 3) Stale data: no sync in 2 weeks, price file 3+ days old.
+    // 3) Stale data: no sync in 2 weeks, price file 4+ days old (the price
+    // workflow runs on weekdays only and GitHub often starts it hours late,
+    // so Friday evening → Monday evening can exceed 3 days).
     const stale: [string, number, string][] = [
       [
         "sync",
@@ -374,11 +376,11 @@ class Bot {
       [
         "prices",
         hoursSince(ctx.priceFile?.updatedAt) / 24,
-        "📉 Az árfolyamfájl 3+ napja nem frissült – lehet, hogy a GitHub Actions árfrissítés hibára futott.",
+        "📉 Az árfolyamfájl 4+ napja nem frissült – lehet, hogy a GitHub Actions árfrissítés hibára futott.",
       ],
     ];
     for (const [key, days, msg] of stale) {
-      const limit = key === "sync" ? 14 : 3;
+      const limit = key === "sync" ? 14 : 4;
       if (days > limit && hoursSince(st.warned[key]) > 24 * 7) {
         st.warned[key] = now.toISOString();
         await this.notify(msg);
