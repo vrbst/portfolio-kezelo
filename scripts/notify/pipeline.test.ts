@@ -1,16 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { applyRemotePrefs } from "../../src/lib/prefs";
 import { computeReturns } from "../../src/lib/returns";
 import { portfolioLiquidation } from "../../src/lib/liquidation";
 import { tbszStatus } from "../../src/lib/tbsz";
-import {
-  fixtureHistory,
-  fixturePriceFile,
-  fixtureQuotes,
-  fixtureSnapshot,
-} from "../../src/test/fixture";
-import { buildContext, type Context } from "./data";
-import { installLocalStorage } from "./env";
+import type { Context } from "./data";
+import { contextAt } from "./testContext";
 import {
   alertsText,
   eventsText,
@@ -32,34 +25,6 @@ import {
 // built from them. Any change to a number shows up as a diff in
 // __snapshots__/*.txt. A change you intended: review the diff, then run
 // `npm run test:update` and commit the updated snapshot with the change.
-
-function contextAt(localWallClock: [number, number, number, number]): Context {
-  const [y, m, d, h] = localWallClock;
-  const at = new Date(y, m - 1, d, h, 0);
-  vi.useFakeTimers({ toFake: ["Date"], now: at });
-  const snapshot = fixtureSnapshot();
-  installLocalStorage();
-  applyRemotePrefs(snapshot.prefs);
-  const day = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  // The price file is from the previous trading evening, like in real use.
-  const history = fixtureHistory(day);
-  history.prices = Object.fromEntries(
-    Object.entries(history.prices).map(([k, s]) => [k, s.filter(([dd]) => dd < day)]),
-  );
-  history.fx = Object.fromEntries(
-    Object.entries(history.fx).map(([k, s]) => [k, s.filter(([dd]) => dd < day)]),
-  );
-  const priceFile = fixturePriceFile(history);
-  return buildContext({
-    snapshot,
-    priceFile,
-    history,
-    ...fixtureQuotes(priceFile),
-    at,
-    idleCashHuf: 100_000,
-    reserveGraceDays: 45,
-  });
-}
 
 const r0 = (n: number) => Math.round(n);
 const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
