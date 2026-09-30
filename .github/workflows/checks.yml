@@ -1,0 +1,60 @@
+name: Ellenőrzések
+
+# Runs on every pull request, and before every deploy (deploy.yml calls it).
+# A red check here blocks the deploy.
+
+on:
+  pull_request:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Lint (a UTC-napos dátumkezelést is tiltja)
+        run: npm run lint
+
+      # The app is used in Budapest; tests default to Europe/Budapest (see
+      # vite.config.ts). Two more zones catch date code that only works by
+      # accident in one of them.
+      - name: Unit + pipeline tests (Europe/Budapest)
+        run: npm test
+      - name: Unit tests (UTC)
+        run: npm test
+        env:
+          TZ: UTC
+      - name: Unit tests (America/New_York)
+        run: npm test
+        env:
+          TZ: America/New_York
+
+      - name: Build (típusellenőrzéssel)
+        run: npm run build
+
+      - name: Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser tests (e2e)
+        run: npx playwright test
+        env:
+          CI: "true"
+      - name: E2E report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            e2e/.report
+            e2e/.results
+          retention-days: 7
