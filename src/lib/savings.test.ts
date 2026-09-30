@@ -230,6 +230,33 @@ describe("savings goal – instruments too close to maturity", () => {
   });
 });
 
+describe("savings goal – series marked \"nem vehető\" in the settings", () => {
+  // The same as the goal-level "no longer purchasable" mark: an earlier coupon
+  // (before the hold-cash window) must not become the goal's money.
+  const OLD_COUPON = tx({ id: "kupon-marc", date: "2026-03-10", type: "interest", instrumentKey: BOND.key, grossAmount: 300_000, netAmount: 300_000 });
+  const txs = [...BASE_TXS, OLD_COUPON];
+  const flagged = new Map([BOND, { ...DKJ, notBuyable: true }].map((i) => [i.key, i]));
+  const byGoal: SavingsGoal = { ...GOAL, unbuyableKeys: [DKJ.key] };
+  const day = at("2026-10-05");
+
+  it("the progress matches the goal-level mark", () => {
+    const a = computeSavingsProgress([GOAL], [ACC], txs, flagged, new Map(), {}, day)[0];
+    const b = computeSavingsProgress([byGoal], [ACC], txs, instruments, new Map(), {}, day)[0];
+    expect(a.autoCashHuf).toBe(0);
+    expect(a.projectedHuf).toBeCloseTo(b.projectedHuf);
+    expect(a.monthlyNeededHuf).toBeCloseTo(b.monthlyNeededHuf);
+  });
+
+  it("the month's set-aside to-do stays until the reserve covers it", () => {
+    const s = savingsMonthlyStatus([GOAL], [ACC], txs, flagged, new Map(), {}, day)[0];
+    expect(s.holdCash).toBe(true);
+    expect(s.done).toBe(false);
+    expect(s.missingHuf).toBeGreaterThan(0);
+    const alerts = savingsGoalAlerts([GOAL], [ACC], txs, flagged, new Map(), {}, day);
+    expect(alerts.map((a) => a.title)).toEqual(["Havi félretétel – Cél"]);
+  });
+});
+
 describe("savings goal – maturity stored as an ISO timestamp", () => {
   // Stored the way the importer does: local midnight of 28 Oct, as UTC ISO
   // (e.g. "2026-10-27T23:00:00.000Z" in CEST). It must read as 28 Oct.
