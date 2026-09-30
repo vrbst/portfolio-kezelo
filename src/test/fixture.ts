@@ -144,8 +144,9 @@ function lightyearMonth(acct: string, y: number, m: number, huf: number, eurHuf:
   ];
   const buy = (key: string, price: number, budget: number, min: number) => {
     const qty = Math.floor((budget / price) * 1e4) / 1e4;
-    const gross = Math.round(qty * price * 100) / 100;
-    out.push(tx({ accountId: acct, date: local(y, m, 3, 15, min), type: "buy", instrumentKey: key, quantity: qty, pricePerUnit: price, currency: "EUR", grossAmount: gross, fee: 1, netAmount: -(gross + 1) }));
+    // Lightyear: the gross amount of a buy includes its fee.
+    const gross = Math.round((qty * price + 1) * 100) / 100;
+    out.push(tx({ accountId: acct, date: local(y, m, 3, 15, min), type: "buy", instrumentKey: key, quantity: qty, pricePerUnit: price, currency: "EUR", grossAmount: gross, fee: 1, netAmount: -gross }));
   };
   const wbitBudget = Math.round(eur * 0.1 * 100) / 100;
   buy(VWCE, vwce, eur - wbitBudget - 3, 30);
