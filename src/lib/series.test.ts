@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
-import { dayChangeBreakdown } from "./series";
+import { buildValueSeries, dayChangeBreakdown } from "./series";
 
 // Invented sample data: a Lightyear account with 10 units of a EUR ETF and
 // 50 EUR of cash. Yesterday: price 100, EUR/HUF 390; today: 110, 400.
@@ -56,5 +56,59 @@ describe("dayChangeBreakdown", () => {
     expect(items).toEqual([
       expect.objectContaining({ kind: "other", abs: -500 }),
     ]);
+  });
+});
+
+// Invented sample data: two HUF accounts. Dates are local midnights (as the
+// importers store them), built from the local date so the test means the same
+// in any time zone.
+const localMidnightIso = (m0: number, d: number) => new Date(2026, m0, d).toISOString();
+const BANK: Account = { id: "bank", name: "Bank", provider: "manual", kind: "cash", currency: "HUF" };
+const AK: Account = { id: "ak", name: "Kincstár", provider: "treasury", kind: "treasury", currency: "HUF" };
+const flow = (id: string, accountId: string, d: number, amt: number): Transaction => ({
+  id,
+  accountId,
+  date: localMidnightIso(8, d),
+  type: amt > 0 ? "deposit" : "withdrawal",
+  currency: "HUF",
+  grossAmount: Math.abs(amt),
+  netAmount: amt,
+});
+const invested = (txs: Transaction[], nowDay: number) => {
+  const s = buildValueSeries([BANK, AK], txs, new Map(), new Map(), {}, null, new Date(2026, 8, nowDay, 12));
+  // Without history only trade days are sampled: read the last sample on/before.
+  return { get: (day: string) => s.filter((p) => p.date <= day).at(-1)?.invested };
+};
+
+describe("buildValueSeries — flows", () => {
+  it("files a local-midnight deposit under its own local day", () => {
+    const inv = invested([flow("a", "bank", 1, 1_000_000), flow("b", "ak", 30, 200_000)], 30);
+    expect(inv.get("2026-09-29")).toBe(1_000_000);
+    expect(inv.get("2026-09-30")).toBe(1_200_000);
+  });
+
+  it("does not pair unrelated amounts as money in transit", () => {
+    const inv = invested(
+      [flow("a", "bank", 1, 1_000_000), flow("w", "bank", 26, -90_000), flow("d", "ak", 30, 200_000)],
+      30,
+    );
+    expect(inv.get("2026-09-26")).toBe(910_000);
+    expect(inv.get("2026-09-29")).toBe(910_000);
+    expect(inv.get("2026-09-30")).toBe(1_110_000);
+  });
+
+  it("bridges a same-amount transfer within 4 days, not later", () => {
+    const within = invested(
+      [flow("a", "bank", 1, 1_000_000), flow("w", "bank", 26, -200_000), flow("d", "ak", 30, 200_000)],
+      30,
+    );
+    expect(within.get("2026-09-27")).toBe(1_000_000);
+    expect(within.get("2026-09-30")).toBe(1_000_000);
+    const late = invested(
+      [flow("a", "bank", 1, 1_000_000), flow("w", "bank", 25, -200_000), flow("d", "ak", 30, 200_000)],
+      30,
+    );
+    expect(late.get("2026-09-27")).toBe(800_000);
+    expect(late.get("2026-09-30")).toBe(1_000_000);
   });
 });
