@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Target, Plus, Trash2, X, Pencil, Check, BellPlus, Coins } from "lucide-react";
+import { Target, Plus, Trash2, X, Pencil, Check, BellPlus, Coins, Ban } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
@@ -429,10 +429,11 @@ function GoalRow({
           ),
         ) && (
           <p className="mt-1 text-xs text-[var(--color-warning,#fbbf24)]">
-            A hozzárendelt eszközök a vétel után{" "}
-            {p.goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY} napon
-            belül vagy a céldátum után járnak le — tartsd készpénzben a
-            céldátumig.
+            {p.goal.instrumentKeys.every((k) => p.goal.unbuyableKeys?.includes(k))
+              ? "A hozzárendelt eszközök már nem vásárolhatók"
+              : `A hozzárendelt eszközök a vétel után ${p.goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY} napon belül vagy a céldátum után járnak le, vagy már nem vásárolhatók`}{" "}
+            — tartsd készpénzben a céldátumig, és rögzítsd félretételként
+            (pl. a kincstári pénzszámlán).
           </p>
         )}
 
@@ -569,25 +570,52 @@ function GoalRow({
       {/* Assigned instruments */}
       <div className="mt-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          {g.instrumentKeys.map((key) => (
-            <span
-              key={key}
-              className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
-            >
-              <span className="priv">{nameOf(key)}</span>
-              <button
-                className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
-                onClick={() =>
-                  onUpdate(g.id, {
-                    instrumentKeys: g.instrumentKeys.filter((k) => k !== key),
-                  })
-                }
-                title="Eltávolítás"
+          {g.instrumentKeys.map((key) => {
+            const unbuyable = !!g.unbuyableKeys?.includes(key);
+            return (
+              <span
+                key={key}
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5 text-xs"
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                <span className={`priv ${unbuyable ? "line-through opacity-60" : ""}`}>
+                  {nameOf(key)}
+                </span>
+                <button
+                  className={
+                    unbuyable
+                      ? "text-[var(--color-warning,#fbbf24)]"
+                      : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  }
+                  onClick={() => {
+                    const rest = (g.unbuyableKeys ?? []).filter((k) => k !== key);
+                    const next = unbuyable ? rest : [...rest, key];
+                    onUpdate(g.id, { unbuyableKeys: next.length ? next : undefined });
+                  }}
+                  title={
+                    unbuyable
+                      ? "Jelölve: már nem vásárolható — kattints, ha mégis vehető"
+                      : "Már nem vásárolható (pl. lezárult a sorozat értékesítése): ne javasolja a vételét, a pénz készpénzben várja a céldátumot"
+                  }
+                >
+                  <Ban className="h-3 w-3" />
+                </button>
+                <button
+                  className="text-[var(--color-muted)] hover:text-[var(--color-negative)]"
+                  onClick={() =>
+                    onUpdate(g.id, {
+                      instrumentKeys: g.instrumentKeys.filter((k) => k !== key),
+                      unbuyableKeys: g.unbuyableKeys?.filter((k) => k !== key).length
+                        ? g.unbuyableKeys.filter((k) => k !== key)
+                        : undefined,
+                    })
+                  }
+                  title="Eltávolítás"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            );
+          })}
           {g.instrumentKeys.length === 0 && (
             <span className="text-xs text-[var(--color-muted)]">
               Rendelj hozzá eszközöket (pl. a célra vett DKJ-t):

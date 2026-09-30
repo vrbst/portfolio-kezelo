@@ -104,11 +104,11 @@ export default function PriceChartDialog({
     );
     // Pad today to the end of its session (or to as long as yesterday was),
     // so the chart shows the part of the day that is still ahead.
+    // A borrowed 24/7 curve doesn't follow the listing's session.
+    const session = quote.intradayFrom ? undefined : quote.session;
     const start = todayT[0];
-    const full = quote.session
-      ? Math.round(
-          (quote.session.end - (start ?? quote.session.start)) / BAR_MS,
-        )
+    const full = session
+      ? Math.round((session.end - (start ?? session.start)) / BAR_MS)
       : Math.max(prev.length, 1);
     for (let k = today.length; k < full && start != null; k++)
       rows.push({ i: rows.length, t: start + k * BAR_MS });

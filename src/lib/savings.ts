@@ -80,6 +80,13 @@ export interface SavingsGoal {
    * date. With none left the advice is to hold cash until the date.
    */
   minDaysToMaturity?: number;
+  /**
+   * Assigned instruments marked by hand as no longer purchasable (e.g. a DKJ
+   * series whose sale has closed). They are never suggested for a buy; with
+   * none left the goal holds cash — a reserve set aside for it (e.g. on the
+   * treasury cash account) then fulfils the month.
+   */
+  unbuyableKeys?: string[];
   createdAt: string;
   /**
    * Cash set aside for the goal (entered by hand): it counts toward the goal
@@ -139,12 +146,14 @@ function maturityDay(inst: Instrument | undefined): string | undefined {
  * Can a buy of `inst` today still serve the goal? Not if it matures within N
  * days of the buy (too short to be worth it, or already gone) or after the
  * target date (it would have to be sold early). No maturity (e.g. an ETF): yes.
+ * Never one marked as no longer purchasable (unbuyableKeys).
  */
 export function suitableForGoalBuy(
   inst: Instrument | undefined,
   goal: SavingsGoal,
   today: string,
 ): boolean {
+  if (inst && goal.unbuyableKeys?.includes(inst.key)) return false;
   const mat = maturityDay(inst);
   if (!mat) return true;
   const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
@@ -476,6 +485,7 @@ function holdReasonText(
   const parts = goal.instrumentKeys.map((k) => {
     const inst = instruments.get(k);
     const name = inst?.name ?? k;
+    if (goal.unbuyableKeys?.includes(k)) return `${name}: már nem vásárolható`;
     const mat = maturityDay(inst);
     if (!mat) return `${name}: nem vehető`;
     if (mat <= today) return `${name}: már lejárt (${mat})`;
@@ -485,10 +495,17 @@ function holdReasonText(
   return parts.length ? parts.join("; ") : undefined;
 }
 
+/** Why the goal's money waits in cash (the per-instrument reason if known). */
+function holdWhy(s: SavingsMonthlyStatus): string {
+  return (
+    s.holdReason ??
+    `a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le`
+  );
+}
+
 /** The "hold it in cash" advice line for a goal with nothing left to buy. */
 export function holdCashAdvice(s: SavingsMonthlyStatus): string {
-  const why =
-    `a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le`;
+  const why = holdWhy(s);
   if (s.missingHuf > 0)
     return `${s.monthLabel}: tartsd készpénzben a céldátumig — ${formatMoney(s.missingHuf)} (${why}).`;
   if (s.boughtHuf >= 1)
@@ -535,7 +552,7 @@ export function savingsGoalAlerts(
           id: `savings-goal:${s.goalId}:${curKey}`,
           severity: "medium" as const,
           title: `Havi félretétel – ${s.name}`,
-          detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)}-ot tegyél félre készpénzben, és rögzítsd a célnál (a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le).`,
+          detail: `${s.monthLabel}: ${formatMoney(s.boughtHuf)} / ${formatMoney(s.neededHuf)} — még ${formatMoney(s.missingHuf)}-ot tegyél félre készpénzben, és rögzítsd a célnál félretételként (${holdWhy(s)}).`,
           to: "/goals",
           actionLabel: "Célok",
         };
@@ -707,17 +724,27 @@ function assignedValue(
  * the glide path doesn't suggest investing it and it raises no idle-cash
  * alert. Past a goal's date its reserves no longer hold the cash. With the
  * ledger (`txs`), the credited coupons a goal picked (couponIds) are held
- * on their account too.
+ * on their account too. With `withinDays`, only the goals due within that
+ * many days of `day` count — the idle-cash alert uses it: money parked for a
+ * far-off goal is still idle (it could sit in a DKJ until then).
  */
 export function reservedCashByAccount(
   goals: SavingsGoal[],
   day: string,
   txs: Transaction[] = [],
   fx: Record<string, number> = {},
+  withinDays?: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
   const add = (acc: string, huf: number) => out.set(acc, (out.get(acc) ?? 0) + huf);
-  const ahead = goals.filter((g) => g.targetDate.slice(0, 10) >= day);
+  const last =
+    withinDays === undefined
+      ? undefined
+      : toLocalDay(Date.parse(`${day}T12:00:00`) + Math.max(0, withinDays) * DAY_MS);
+  const ahead = goals.filter((g) => {
+    const target = g.targetDate.slice(0, 10);
+    return target >= day && (last === undefined || target <= last);
+  });
   for (const g of ahead)
     for (const r of reservesOn(g, day)) if (r.accountId) add(r.accountId, r.amountHuf);
   if (ahead.some((g) => g.couponIds?.length))

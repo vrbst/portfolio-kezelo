@@ -312,7 +312,10 @@ function PriceTile({
               prevClose={
                 quote.intradayFrom ? quote.prevDay?.at(-1) : quote.prevClose
               }
-              session={quote.session}
+              // The listing's session only fits its own bars: a borrowed
+              // 24/7 curve (BTC-EUR) would overflow a 14-hour window and pile
+              // up on the right edge, so it is laid out as a whole day.
+              session={quote.intradayFrom ? undefined : quote.session}
               stroke={
                 !curveLive
                   ? "var(--color-muted)"

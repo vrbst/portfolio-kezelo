@@ -191,6 +191,27 @@ describe("savings goal – instruments too close to maturity", () => {
     expect(s.holdCash).toBe(false);
     expect(s.instrumentNames).toBe("DKJ 261201");
   });
+
+  it("a series marked as no longer purchasable: hold cash, and a reserve fulfils the month", () => {
+    const g = goal({ unbuyableKeys: [DKJ.key] });
+    const day = "2026-10-05";
+    const stat = (gg: SavingsGoal) =>
+      savingsMonthlyStatus([gg], [ACC], BASE_TXS, instruments, new Map(), {}, at(day))[0];
+    expect(suitableForGoalBuy(DKJ, g, day)).toBe(false);
+    const s = stat(g);
+    expect(s.holdCash).toBe(true);
+    expect(s.holdReason).toBe("DKJ 261201: már nem vásárolható");
+    const alerts = savingsGoalAlerts([g], [ACC], BASE_TXS, instruments, new Map(), {}, at(day));
+    expect(alerts.map((a) => a.title)).toEqual(["Havi félretétel – Cél"]);
+    expect(alerts[0].detail).toMatch(/már nem vásárolható/);
+    // The month's part kept on the treasury cash account, recorded as a reserve.
+    const kept = goal({
+      unbuyableKeys: [DKJ.key],
+      reserves: [{ id: "r", amountHuf: Math.ceil(s.neededHuf), date: day, accountId: ACC.id }],
+    });
+    expect(stat(kept).done).toBe(true);
+    expect(savingsGoalAlerts([kept], [ACC], BASE_TXS, instruments, new Map(), {}, at(day))).toEqual([]);
+  });
 });
 
 describe("savings goal – maturity stored as an ISO timestamp", () => {

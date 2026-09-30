@@ -371,6 +371,12 @@ body::before {
   -webkit-user-select: none;
   transition: filter 0.15s ease;
 }
+/* The value flash animates `filter` (drop-shadow), which would override the
+ * blur above for its 0.9 s and show the amount — so no flash in privacy mode. */
+.privacy-on .amt.flash-up,
+.privacy-on .amt.flash-down {
+  animation: none;
+}
 .privacy-on .recharts-yAxis .recharts-cartesian-axis-tick-value,
 .privacy-on .recharts-tooltip-wrapper {
   filter: blur(6px);
