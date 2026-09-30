@@ -185,8 +185,8 @@ const quoteDay = (q: { price: number; prevClose?: number } | undefined) =>
 
 /**
  * /arfolyam: current prices — EUR/HUF (and any other currency held) first,
- * then every held stock / ETF / fund with its daily change and the move
- * against the average cost. Prices without a live quote come from the
+ * then every held stock / ETF / fund with its daily change (largest position
+ * first). Prices without a live quote come from the
  * committed price file (last close), marked as such.
  */
 export function quotesText(ctx: Context): string {
@@ -224,11 +224,7 @@ export function quotesText(ctx: Context): string {
       continue;
     }
     const q = ctx.liveQuotes[h.instrumentKey];
-    const avg = h.quantity > 0 ? h.costBasisCcy / h.quantity : 0;
-    const vsAvg = avg > 0 ? `, átlagárhoz ${pct(price / avg - 1)}` : "";
-    lines.push(
-      `• ${name}: <b>${px(price, h.currency)}</b>${q ? quoteDay(q) : closeMark}\n   ${h.quantity.toLocaleString("hu-HU", { maximumFractionDigits: 4 })} db → ${mft(h.marketValueHuf)}${vsAvg}`,
-    );
+    lines.push(`• ${name}: <b>${px(price, h.currency)}</b>${q ? quoteDay(q) : closeMark}`);
   }
   if (ctx.priceFile?.updatedAt && held.some((h) => !ctx.liveQuotes[h.instrumentKey]))
     lines.push("", `<i>záró = az árfolyamfájl szerint (${dayLabel(ctx.priceFile.updatedAt)})</i>`);
