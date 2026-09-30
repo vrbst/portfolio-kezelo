@@ -51,8 +51,8 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   visszaváltási díjjal (alapból 1%) csökkentve, számlánkénti bontásban.
 - **Árfolyamok a botban** – a Telegram-bot `/arfolyam` parancsa elsőként az
   EUR/HUF-ot (és a tartott papírok többi devizáját) mutatja, utána minden
-  tartott részvényt és ETF-et: aktuális ár saját devizában, napi változás,
-  darabszám, pozícióérték és eltérés az átlagártól. Ahol nincs élő ár, az
+  tartott részvényt és ETF-et: aktuális ár saját devizában és napi változás.
+  Ahol nincs élő ár, az
   árfolyamfájl záróára jelenik meg, jelölve.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
