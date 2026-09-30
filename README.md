@@ -81,9 +81,34 @@ Vite · React 19 · TypeScript · Tailwind CSS v4 · Motion · Recharts · Dexie
 npm install
 npm run dev      # fejlesztői szerver (http://localhost:5173)
 npm run lint     # ESLint (a deploy is lefuttatja)
-npm test         # unit tesztek (Vitest; a deploy is lefuttatja)
+npm test         # unit, szabály- és láncteszt (Vitest; a deploy is lefuttatja)
+npm run test:e2e # böngészős teszt a megépített appon (Playwright)
 npm run build    # produkciós build a dist/ mappába
 ```
+
+## Tesztek
+
+Minden pull requesten és minden deploy előtt lefut
+(`.github/workflows/checks.yml`); ha bármelyik piros, nincs deploy.
+
+| Réteg | Hol | Mit fog meg |
+| --- | --- | --- |
+| Egységtesztek | `src/lib/*.test.ts` | egy-egy számítás kézzel ellenőrzött értékekkel |
+| Időzóna | a tesztek Budapest, UTC és New York időzónában is futnak | nappal elcsúszó lejárat, befizetés, kupon (UTC-nap a helyi nap helyett) |
+| Láncteszt (pillanatfelvétel) | `scripts/notify/pipeline.test.ts` | bármely szám vagy botszöveg változása a teljes láncon (portfólió → célok → havi terv → maradék → riasztások → előrejelzés) |
+| Szabálytesztek | `scripts/notify/invariants.test.ts`, `src/lib/properties.test.ts` | véletlen napokon és összegekkel: pénz nem vész el és nem keletkezik, cél nem kap a hiányánál többet, a tétel = „Hová utald?”, nincs morzsa-vétel, nincs dupla riasztás, a szinkron nem töröl |
+| Böngésző | `e2e/app.spec.ts` | oldalhiba, telefonon kilógó elem, adatvédelmi módban olvasható összeg vagy célnév |
+
+A tesztek egy **kitalált** portfólión futnak (`src/test/fixture.ts`) — valódi
+adat soha nem kerül a repóba.
+
+Ha egy szám **szándékosan** változik, a láncteszt diffet mutat a
+`scripts/notify/__snapshots__/*.txt` fájlokban: nézd át, majd
+`npm run test:update`, és commitold a frissített fájlokat a változással együtt.
+
+Dátumkezelés: a `toISOString().slice(0, 10)` és a `tranzakció.date.slice(0, 10)`
+mintát az ESLint tiltja (Budapesten a helyi éjfél UTC-ben az előző nap) —
+a `src/lib/day.ts` segédfüggvényeit használd.
 
 ## Importálható fájlok
 
@@ -110,8 +135,9 @@ számítanak bele a készpénzbe / hozamba (de a tranzakció-listában látható
 
 ## Deploy
 
-Minden `main`-re pusholt commit után a `.github/workflows/deploy.yml` lintel,
-buildel és GitHub Pages-re teszi az appot.
+Minden `main`-re pusholt commit után a `.github/workflows/deploy.yml` lefuttatja
+az összes ellenőrzést (lint, tesztek három időzónában, build, böngészős teszt),
+és csak ha mind zöld, GitHub Pages-re teszi az appot.
 
 ## Árfolyamok frissítése
 

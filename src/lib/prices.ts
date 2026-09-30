@@ -6,6 +6,7 @@
 //  - EUR/HUF is refreshed live from frankfurter.app (CORS-friendly, no key).
 
 import { PREFS_EVENT, touchPref } from "./prefs";
+import { utcDay } from "./day";
 
 export interface PriceEntry {
   price: number;
@@ -382,7 +383,8 @@ async function fetchYahooHistory(
     for (let i = 0; i < ts.length; i++) {
       const c = close[i];
       if (typeof c !== "number" || c <= 0) continue;
-      const day = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+      // Daily bars are stamped inside the trading day, so the UTC day is it.
+      const day = utcDay(ts[i] * 1000);
       series.push([day, c]);
     }
     return series.length ? { series, currency: r?.meta?.currency } : null;

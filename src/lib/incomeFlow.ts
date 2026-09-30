@@ -34,6 +34,7 @@ import {
   isBondCoupon,
   splitAmongGoals,
 } from "./incomeClaims";
+import { txDay } from "./day";
 
 export type IncomeKind = "coupon" | "interest" | "dividend" | "redemption";
 
@@ -89,7 +90,7 @@ export function incomeEvents(
     if (t.internal) continue;
     if (t.type !== "interest" && t.type !== "dividend" && t.type !== "redemption")
       continue;
-    const day = t.date.slice(0, 10);
+    const day = txDay(t.date);
     if (day < since) continue;
     const amountHuf = incomeHuf(t, fx);
     if (!(amountHuf > 0)) continue;

@@ -29,6 +29,7 @@ import type { PlannedTrade } from "../lib/alerts";
 import { effectiveMonthLabel } from "../lib/goals";
 import { formatMoney } from "../lib/format";
 import { AmountInput, Amt, Badge } from "./ui";
+import PrivateText from "./PrivateText";
 
 /** The whole plan as planned trades (goal buys, hold-cash lines, glide buys). */
 function plannedTrades(plan: MonthlyPlan): PlannedTrade[] {
@@ -300,9 +301,16 @@ function PlanBody({
             {plan.glidePlan ? (
               <>
                 Célpont: {plan.glidePlan.flow.label} —{" "}
-                {glideSteps.length ? glideSteps.map(suggestionText).join("; ") : "nincs javasolt vétel"}
-                {glideSteps.some((s) => s.costHuf > 0) &&
-                  ` (díj ≈ ${formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))})`}
+                {glideSteps.length ? (
+                  <PrivateText text={glideSteps.map(suggestionText).join("; ")} amounts />
+                ) : (
+                  "nincs javasolt vétel"
+                )}
+                {glideSteps.some((s) => s.costHuf > 0) && (
+                  <>
+                    {" "}(díj ≈ <Amt>{formatMoney(glideSteps.reduce((a, s) => a + s.costHuf, 0))}</Amt>)
+                  </>
+                )}
               </>
             ) : (
               "A célok után nem marad rá pénz."
@@ -338,7 +346,9 @@ function PlanBody({
                   <span className="text-xs text-[var(--color-warning)]"> — még nincs, nyisd meg</span>
                 )}
                 {d.items.length > 0 && (
-                  <span className="text-xs text-[var(--color-muted)]"> = {d.items.join(" + ")}</span>
+                  <span className="text-xs text-[var(--color-muted)]">
+                    {" "}= <PrivateText text={d.items.join(" + ")} />
+                  </span>
                 )}
               </span>
               <span className="tabular-nums">

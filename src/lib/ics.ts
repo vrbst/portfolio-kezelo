@@ -1,6 +1,8 @@
 // Minimal iCalendar (.ics, RFC 5545) writer for all-day events — enough for
 // Google / Apple / Outlook calendars to import the portfolio's future dates.
 
+import { addDaysIso } from "./day";
+
 export interface IcsEvent {
   /** Stable id, so a re-import updates instead of duplicating. */
   uid: string;
@@ -33,9 +35,7 @@ function fold(line: string): string {
 
 const compact = (iso: string) => iso.slice(0, 10).replace(/-/g, "");
 function nextDay(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d + 1));
-  return t.toISOString().slice(0, 10).replace(/-/g, "");
+  return addDaysIso(iso.slice(0, 10), 1).replace(/-/g, "");
 }
 
 export function buildIcs(calName: string, events: IcsEvent[]): string {

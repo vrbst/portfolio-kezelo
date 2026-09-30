@@ -8,6 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+
+# Playwright
+e2e/.results/
+e2e/.report/
 dist
 dist-ssr
 *.local

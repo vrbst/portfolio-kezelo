@@ -72,6 +72,8 @@ export function num(value: string | undefined | null): number | undefined {
   if (s === "") return undefined;
   // Drop spaces (thousands) and currency symbols.
   let cleaned = s.replace(/\s/g, "").replace(/[^0-9.,-]/g, "");
+  // No digit at all ("abc", "n/a"): not an amount — not 0.
+  if (!/\d/.test(cleaned)) return undefined;
   // If both separators present, the last one is the decimal separator.
   const lastComma = cleaned.lastIndexOf(",");
   const lastDot = cleaned.lastIndexOf(".");
@@ -85,10 +87,12 @@ export function num(value: string | undefined | null): number | undefined {
     // Only commas: a single comma NOT followed by exactly 3 digits is a
     // decimal separator ("1,5", "0,123456"); otherwise the commas are
     // thousands grouping ("1,234", "1,234,567") and are dropped.
+    // "0,125" can't be grouping (no thousands start with 0): a decimal.
     const single = cleaned.indexOf(",") === lastComma;
     const trailing = cleaned.length - lastComma - 1;
+    const zeroInt = /^-?0,/.test(cleaned);
     cleaned =
-      single && trailing !== 3
+      single && (trailing !== 3 || zeroInt)
         ? cleaned.replace(",", ".")
         : cleaned.replace(/,/g, "");
   }

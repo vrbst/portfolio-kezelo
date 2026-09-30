@@ -36,6 +36,7 @@ import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
 import { BUCKET_COLORS, previewRows, type Row } from "./glideChartData";
 import GlidePathEditor from "./GlidePathEditor";
+import PrivateText from "./PrivateText";
 
 const pct = (v: number) =>
   `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
@@ -304,7 +305,7 @@ export default function GlidePathSettings() {
                 breakdown.glideMode === "legacy" ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]"
               }`}
             >
-              {amountSource}
+              <PrivateText text={amountSource} amounts />
             </p>
           )}
 

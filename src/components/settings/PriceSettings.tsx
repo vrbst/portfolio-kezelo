@@ -139,7 +139,7 @@ function PriceRow({
             />
           )}
         </div>
-        <label className="mt-1.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+        <label className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-[var(--color-muted)]">
           szimbólum:
           <input
             value={sym}
@@ -150,21 +150,24 @@ function PriceRow({
             title="Yahoo szimbólum kézi felülírása. Üresen hagyva automatikus."
             className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-xs"
           />
-          <span className="ml-2">TER:</span>
-          <input
-            key={`ter:${inst.terPct ?? ""}`}
-            type="number"
-            step="0.01"
-            min={0}
-            defaultValue={
-              inst.terPct != null ? +(inst.terPct * 100).toFixed(3) : ""
-            }
-            onBlur={(e) => saveTer(e.target.value)}
-            placeholder="pl. 0.22"
-            title="Az alap éves költséghányada (TER) százalékban — a Hozam oldal költségbecsléséhez."
-            className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
-          />
-          <span>%</span>
+          {/* TER + its field + "%" wrap together on a phone. */}
+          <span className="flex items-center gap-2 sm:ml-2">
+            TER:
+            <input
+              key={`ter:${inst.terPct ?? ""}`}
+              type="number"
+              step="0.01"
+              min={0}
+              defaultValue={
+                inst.terPct != null ? +(inst.terPct * 100).toFixed(3) : ""
+              }
+              onBlur={(e) => saveTer(e.target.value)}
+              placeholder="pl. 0.22"
+              title="Az alap éves költséghányada (TER) százalékban — a Hozam oldal költségbecsléséhez."
+              className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
+            />
+            %
+          </span>
         </label>
       </div>
       <div className="text-right">

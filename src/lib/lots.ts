@@ -10,6 +10,7 @@ import {
   type FxHistory,
   type PriceMap,
 } from "./portfolio";
+import { txDay } from "./day";
 
 export interface PurchaseLot {
   /** ISO day (YYYY-MM-DD). */
@@ -95,7 +96,7 @@ function nettedOpenLots(
       if (qty <= 0) continue;
       const costCcy = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
       const lot: OpenLot = {
-        date: t.date.slice(0, 10),
+        date: txDay(t.date),
         accountId: t.accountId,
         originalQuantity: qty,
         remaining: qty,

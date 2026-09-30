@@ -1,0 +1,198 @@
+==== számok ====
+összérték 11176232 | papírok 10796174 | készpénz 380058
+nettó befizetés 9700000 | bekerülés 9644821 | nem realizált 1151353 | realizált 0 | kamat 325000
+  számla ly-cash: érték 0, készpénz 0, 
+  számla ly-tbsz25: érték 2291799, készpénz 9497, IE00BK5BQT80×28.7031=2040233, GB00BJYDH287×37.7228=242069
+  számla ly-tbsz26: érték 4121243, készpénz 7131, IE00BK5BQT80×52.4738=3729868, GB00BJYDH287×59.8787=384245
+  számla mak: érték 4763189, készpénz 363430, HU0000TESZT1×2500000=2611301, HU0000TESZT2×1000000=1000000, HU0000TESZT3×500000=491447, HU0000TESZT4×300000=297011
+hozam: {"simplePct":0.1522,"xirrPct":0.1248,"xirrCumulativePct":0.2472,"twrPct":0.1121,"twrCumulativePct":0.2209,"twrIndex":[{"date":"2025-01-03","cum":0},{"date":"2025-02-03","cum":0.0103},{"date":"2025-03-01","cum":0.0103},{"date":"2025-03-03","cum":0.0115},{"date":"2025-03-04","cum":0.0406},{"date":"2025-03-17","cum":0.0419},{"date":"2025-04-03","cum":0.0454},{"date":"2025-05-03","cum":0.0509},{"date":"2025-06-03","cum":0.0567},{"date":"2025-07-03","cum":0.0629},{"date":"2025-08-03","cum":0.0696},{"date":"2025-09-03","cum":0.0767},{"date":"2025-10-03","cum":0.0842},{"date":"2025-11-03","cum":0.0918},{"date":"2025-11-20","cum":0.0932},{"date":"2025-12-03","cum":0.1},{"date":"2026-01-03","cum":0.0909},{"date":"2026-02-03","cum":0.0977},{"date":"2026-02-10","cum":0.0983},{"date":"2026-03-03","cum":0.1047},{"date":"2026-03-16","cum":0.1058},{"date":"2026-04-03","cum":0.1124},{"date":"2026-05-03","cum":0.1198},{"date":"2026-05-14","cum":0.1207},{"date":"2026-06-03","cum":0.1278},{"date":"2026-07-03","cum":0.136},{"date":"2026-08-03","cum":0.1441},{"date":"2026-08-28","cum":0.1461},{"date":"2026-09-03","cum":0.1523},{"date":"2026-11-20","cum":0.2209}],"days":686}
+eladás most: bruttó 11176232, költség 25000, adó 283652, nettó 10867580
+TBSZ 2025: {"year":2025,"phase":"locked","phaseLabel":"Lekötés (3 év előtt)","szjaRate":0.15,"szochoRate":0.13,"taxRate":0.28,"taxLabel":"Megszakításkor 28% (15% szja + 13% szocho) a hozamra.","hasSzocho":true,"milestones":[{"key":"deposit","date":"2025-12-31 23:59:59","label":"Gyűjtőév vége","hint":"Utolsó nap, amikor befizethetsz erre a TBSZ-re.","done":true},{"key":"three","date":"2028-12-31 23:59:59","label":"3 éves lekötés","hint":"Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.","done":false},{"key":"five","date":"2030-12-31 23:59:59","label":"5 éves lejárat","hint":"A teljes hozam adómentes — sem szja, sem szocho.","done":false}],"next":{"key":"three","date":"2028-12-31 23:59:59","label":"3 éves lekötés","hint":"Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.","done":false},"daysToNext":773,"progress":0.314}
+értékgörbe: 359 pont, utolsó {"date":"2026-11-20","value":11176232,"invested":9700000}
+napi változás: {"abs":37592.3206,"pct":0.0034,"note":"ma","breakdown":[{"kind":"fx","label":"EUR/HUF árfolyam","abs":13007.8699,"pct":0.002},{"kind":"price","label":"ETF-árfolyamok","abs":24584.4508,"pct":0.0039,"children":[{"label":"VWCE","abs":34188.6824,"pct":0.006},{"label":"WBIT","abs":-9604.2316,"pct":-0.0151}]}]}
+cél {"goal":{"id":"g-babavaro","name":"Babakocsi","targetHuf":1300000,"targetDate":"2026-12-20","instrumentKeys":["HU0000TESZT2"],"includeCoupons":true,"monthlyReminder":true,"createdAt":"2025-11-01 10:00:00","reserves":[{"id":"r1","amountHuf":100000,"date":"2026-08-31","accountId":"mak"}]},"assignedValueHuf":1100000,"couponsHuf":0,"pickedCouponsHuf":0,"projectedHuf":1100000,"targetHuf":1300000,"progressPct":1,"projectedPct":1,"gapHuf":200000,"monthsLeft":2,"daysLeft":31,"monthlyNeededHuf":100000,"plannedMonthlyHuf":100000,"couponRoomHuf":200000,"thisMonthNetHuf":0,"reservedHuf":100000,"autoCashHuf":0,"monthAdjective":"novemberi","reached":false}
+cél {"goal":{"id":"g-auto","name":"Autó","targetHuf":2500000,"targetDate":"2027-09-30","instrumentKeys":["HU0000TESZT3"],"includeCoupons":false,"monthlyReminder":true,"createdAt":"2026-05-01 10:00:00","saveFrom":"2026-10-01"},"assignedValueHuf":500000,"couponsHuf":0,"pickedCouponsHuf":0,"projectedHuf":500000,"targetHuf":2500000,"progressPct":0,"projectedPct":0,"gapHuf":2000000,"monthsLeft":12,"daysLeft":314,"monthlyNeededHuf":166667,"plannedMonthlyHuf":166667,"couponRoomHuf":2000000,"thisMonthNetHuf":0,"reservedHuf":0,"autoCashHuf":0,"monthAdjective":"novemberi","reached":false}
+cél {"goal":{"id":"g-nyaralas","name":"Nyaralás","targetHuf":600000,"targetDate":"2027-06-30","instrumentKeys":["HU0000TESZT4"],"includeCoupons":true,"monthlyReminder":true,"createdAt":"2026-02-01 10:00:00"},"assignedValueHuf":300000,"couponsHuf":162500,"pickedCouponsHuf":0,"projectedHuf":462500,"targetHuf":600000,"progressPct":1,"projectedPct":1,"gapHuf":137500,"monthsLeft":9,"daysLeft":222,"monthlyNeededHuf":15278,"plannedMonthlyHuf":15278,"couponRoomHuf":137500,"thisMonthNetHuf":0,"reservedHuf":0,"autoCashHuf":0,"monthAdjective":"novemberi","reached":false}
+célpálya: {"day":"2026-11-20","totalHuf":10659844.113,"buckets":[{"bucket":{"id":"eq","name":"Részvény","finalWeight":0.5,"start":{"mode":"manual","weight":0.6},"startDate":"2026-01-01","endDate":"2030-01-01","interpolation":"linear","band":{"kind":"abs","pp":0.05}},"valueHuf":5770100.3391,"weight":0.5413,"target":0.5779,"low":0.5279,"high":0.6279,"status":"within"},{"bucket":{"id":"crypto","name":"Kripto","finalWeight":0.05,"start":{"mode":"manual","weight":0.05},"startDate":"2026-01-01","endDate":"2030-01-01","interpolation":"linear","band":{"kind":"rel","pct":0.3,"minPp":0.01}},"valueHuf":626313.7739,"weight":0.0588,"target":0.05,"low":0.035,"high":0.065,"status":"within"},{"bucket":{"id":"bond","name":"Kötvény","finalWeight":0.45,"start":{"mode":"manual","weight":0.35},"startDate":"2026-01-01","endDate":"2030-01-01","interpolation":"linear","band":{"kind":"abs","pp":0.05}},"valueHuf":4263430,"weight":0.4,"target":0.3721,"low":0.3221,"high":0.4221,"status":"within"}],"positions":[{"key":"IE00BK5BQT80","name":"VWCE","valueHuf":5770100.3391,"quantity":81.1769,"unitPriceHuf":71080.5702,"provider":"lightyear","brokerCost":{"buy":{"fixedHuf":400},"sell":{"fixedHuf":400},"fxPct":0.0035},"rule":{"bucketId":"eq","sellable":true,"acceptsContributions":true,"fractional":true}},{"key":"GB00BJYDH287","name":"WBIT","valueHuf":626313.7739,"quantity":97.6015,"unitPriceHuf":6417.0507,"provider":"lightyear","brokerCost":{"buy":{"fixedHuf":400},"sell":{"fixedHuf":400},"fxPct":0.0035},"rule":{"bucketId":"crypto","sellable":true,"acceptsContributions":true,"fractional":true}},{"key":"HU0000TESZT1","name":"Fix Magyar Állampapír 2030/I","valueHuf":2500000,"quantity":2500000,"unitPriceHuf":1,"bondSellCostPct":0.01,"provider":"allamkincstar","brokerCost":{},"rule":{"bucketId":"bond","sellable":false,"acceptsContributions":true}},{"key":"HU0000TESZT2","name":"Diszkont Kincstárjegy D261118","valueHuf":1000000,"quantity":1000000,"unitPriceHuf":1,"provider":"allamkincstar","brokerCost":{},"rule":{"bucketId":"bond","sellable":false,"acceptsContributions":true}},{"key":"HU0000TESZT3","name":"Diszkont Kincstárjegy D270512","valueHuf":500000,"quantity":500000,"unitPriceHuf":1,"provider":"allamkincstar","brokerCost":{},"rule":{"bucketId":"bond","sellable":false,"acceptsContributions":true}},{"key":"cash:HUF","name":"Készpénz HUF","valueHuf":263430,"rule":{"bucketId":"bond","sellable":true,"acceptsContributions":true}}],"unassigned":[{"key":"cash:EUR","name":"Készpénz EUR","valueHuf":16628.3256},{"key":"HU0000TESZT4","name":"Diszkont Kincstárjegy D270310","valueHuf":300000,"quantity":300000,"unitPriceHuf":1,"provider":"allamkincstar","brokerCost":{}}]}
+riasztások: [medium] idle-cash:mak – Parlagon álló készpénz – Államkincstár (12345678)
+  [medium] goal:dca-vwce:2026-10 – Cél – VWCE (havi)
+  [info] reminder:rem-1 – Kupon-import ellenőrzése
+  [medium] savings-goal:g-babavaro:2026-10 – Havi félretétel – Babakocsi
+  [medium] savings-goal:g-auto:2026-10 – Havi vásárlás – Autó
+  [medium] savings-goal:g-nyaralas:2026-10 – Havi félretétel – Nyaralás
+  [high] maturity-import:HU0000TESZT2:2026-11-18 – Lejárat – Diszkont Kincstárjegy D261118
+
+==== /allapot ====
+💼 <b>Portfólió – 11 176 232 Ft</b>
+📈 ma: +37 592 Ft (+0,34%)
+Összes eredmény: +1 476 232 Ft (+15,2%)
+Befektetett tőke: 9 700 000 Ft
+
+• Lightyear TBSZ 2025: 2,29 M Ft
+• Lightyear TBSZ 2026: 4,12 M Ft
+• Államkincstár: 4,76 M Ft
+
+<b>Legnagyobb pozíciók</b>
+• VWCE: 5,77 M Ft (ma +0,6%)
+• FixMÁP 2030/I: 2,61 M Ft
+• DKJ D261118: 1,00 M Ft
+• WBIT: 626 314 Ft (ma −1,5%)
+• DKJ D270512: 491 447 Ft
+• DKJ D270310: 297 011 Ft
+
+⚠️ 7 aktív teendő – /teendok
+
+==== /arfolyam ====
+💱 <b>Árfolyamok</b>
+
+<b>EUR/HUF: 394,41</b> (ma +0,20%)
+
+• VWCE: <b>180,22 EUR</b> (ma +0,60%)
+• WBIT: <b>16,27 EUR</b> (ma −1,51%)
+
+==== /eladas ====
+💸 <b>Ha most eladnál mindent: 10 867 580 Ft</b>
+Bruttó érték: 11 176 232 Ft
+Visszaváltási díj: −25 000 Ft
+TBSZ-adó: −283 652 Ft
+
+• Lightyear TBSZ 2025: <b>2,15 M Ft</b> (adó 28% −137 704 Ft)
+• Lightyear TBSZ 2026: <b>3,98 M Ft</b> (adó 28% −145 948 Ft)
+• Államkincstár: <b>4,74 M Ft</b> (díj −25 000 Ft)
+
+<i>Mai árakon. A TBSZ-en csak a hozam adózik (a jelenlegi szakasz kulcsával); a kötvények lejárat előtti visszaváltási díja (alapból a névérték 1%-a) levonva.</i>
+
+==== /esemenyek ====
+🗓 <b>Események – következő 60 nap</b>
+🗓 2026. dec. 31. (41 nap múlva): TBSZ 2026 — Gyűjtőév vége
+
+==== /riasztasok ====
+⚠️ <b>Aktív teendők (7)</b>
+
+🟠 <b>Parlagon álló készpénz – Államkincstár (12345678)</b>
+263 430 Ft fekszik a számlán (a hamarosan esedékes célokra félretett részen felül). Érdemes lehet befektetni.
+
+🟠 <b>Cél – VWCE (havi)</b>
+2026. november: 0 Ft / 100 000 Ft — még 100 000 Ft hiányzik
+
+🔵 <b>Kupon-import ellenőrzése</b>
+
+🟠 <b>Havi félretétel – Babakocsi</b>
+2026. november: 0 Ft / 100 000 Ft — még 100 000 Ft-ot tegyél félre készpénzben, és rögzítsd a célnál félretételként (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18)).
+
+🟠 <b>Havi vásárlás – Autó</b>
+2026. november: 0 Ft / 166 667 Ft — még 166 667 Ft kell a célhoz rendelt eszközből (Diszkont Kincstárjegy D270512).
+
+🟠 <b>Havi félretétel – Nyaralás</b>
+2026. november: 0 Ft / 15 278 Ft — még 15 278 Ft-ot tegyél félre készpénzben, és rögzítsd a célnál félretételként (Diszkont Kincstárjegy D270310: nem vehetőnek jelölve).
+
+🔴 <b>Lejárat – Diszkont Kincstárjegy D261118</b>
+A 2026. 11. 18. lejárt (~1 000 000 Ft), de még szerepel a portfólióban. Importáld az adatokat a beváltás rögzítéséhez.
+
+==== /celok ====
+🎯 <b>Rendszeres vásárlások</b>
+⏳ VWCE (2026. november): 0 Ft / 100 000 Ft – még 100 000 Ft
+
+🏦 <b>Középtávú célok</b>
+⏳ <b>Babakocsi</b> – 1 300 000 Ft, 2026. dec. 20.
+   most 85%, a határidőre várhatóan 85%
+   félretéve: 100 000 Ft – Államkincstár (12345678)
+   novemberi keret: 100 000 Ft, ebből teljesítve 0 Ft
+⏳ <b>Autó</b> – 2 500 000 Ft, 2027. sze. 30.
+   most 20%, a határidőre várhatóan 20%
+   novemberi keret: 166 667 Ft, ebből teljesítve 0 Ft
+⏳ <b>Nyaralás</b> – 600 000 Ft, 2027. jún. 30.
+   most 50%, a határidőre várhatóan 77%
+   novemberi keret: 15 278 Ft, ebből teljesítve 0 Ft
+
+==== /elorejelzes ====
+🔮 <b>Előrejelzés</b> (névleges Ft)
+Havi megtakarítás: 200 000 Ft
+Hozam: 3,0% / 6,0% / 9,0% (pessz. / reális / opt.)
+
++1 év: <b>9 713 001 Ft</b>
+   sáv 9 515 753 Ft – 9 910 218 Ft
++3 év: <b>15 830 456 Ft</b>
+   sáv 15 085 158 Ft – 16 613 240 Ft
++5 év: <b>22 853 232 Ft</b>
+   sáv 21 013 212 Ft – 24 858 639 Ft
++10 év: <b>44 141 711 Ft</b>
+   sáv 37 116 990 Ft – 52 656 047 Ft
+
+==== heti ====
+📊 <b>Heti összefoglaló – 2026. nov. 20.</b>
+
+Vagyon: <b>11 176 232 Ft</b>
+📉 Heti piaci eredmény: −33 457 Ft (−0,3%)
+
+<b>Pozíciók a héten</b>
+• VWCE: +0,3%
+• WBIT: −3,6%
+
+<b>Még hiányzó vásárlások</b>
+⏳ VWCE: még 100 000 Ft
+
+⚠️ 7 aktív teendő – /teendok
+
+==== havi ====
+🗓 <b>Havi zárás – 2026. október</b>
+
+Hónap végi vagyon: <b>11 242 988 Ft</b>
+📈 Havi piaci eredmény: +174 544 Ft (+1,6%)
+Nettó befizetés: +0 Ft (havi keret 200 000 Ft – még 200 000 Ft hiányzott)
+Idei piaci eredmény: +1 061 473 Ft
+
+<b>Célpálya (tény / pálya, sáv)</b>
+✅ Részvény: 54% / 58% (53%–63%; −390 137 Ft)
+✅ Kripto: 6% / 5% (4%–7%; +93 322 Ft)
+✅ Kötvény: 40% / 37% (32%–42%; +296 815 Ft)
+
+💶 <b>Havi terv – 2026. november</b> (200 000 Ft)
+→ Babakocsi: tartsd készpénzben a céldátumig 100 000 Ft (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18))
+→ Nyaralás: tartsd készpénzben a céldátumig 15 278 Ft → Államkincstár (12345678) (Diszkont Kincstárjegy D270310: nem vehetőnek jelölve)
+→ Autó: Diszkont Kincstárjegy D270512 vétel 84 722 Ft (86 196 db, díj 0 Ft) → Államkincstár (12345678) — alul maradt: −81 944 Ft
+→ VWCE (DCA): nem jut rá pénz — alul maradt: −100 000 Ft
+→ Célpálya: a célok után nem marad rá pénz
+→ Befizetések (a fentiek számlánként): Államkincstár (12345678) (félretétel): 115 278 Ft = Babakocsi + Nyaralás; Államkincstár (12345678): 84 722 Ft = Autó
+⚠️ Nem elég a pénz minden célra — összesen 181 944 Ft hiányzik.
+
+🎯 <b>Rendszeres vásárlások</b>
+⏳ VWCE (2026. november): 0 Ft / 100 000 Ft – még 100 000 Ft
+
+🏦 <b>Középtávú célok</b>
+⏳ <b>Babakocsi</b> – 1 300 000 Ft, 2026. dec. 20.
+   most 85%, a határidőre várhatóan 85%
+   félretéve: 100 000 Ft – Államkincstár (12345678)
+   novemberi keret: 100 000 Ft, ebből teljesítve 0 Ft
+⏳ <b>Autó</b> – 2 500 000 Ft, 2027. sze. 30.
+   most 20%, a határidőre várhatóan 20%
+   novemberi keret: 166 667 Ft, ebből teljesítve 0 Ft
+⏳ <b>Nyaralás</b> – 600 000 Ft, 2027. jún. 30.
+   most 50%, a határidőre várhatóan 77%
+   novemberi keret: 15 278 Ft, ebből teljesítve 0 Ft
+
+==== maradék kérdés ====
+🐷 <b>Hónap vége – 2026. november</b>
+Havi keret: 200 000 Ft · teljesítve: 0 Ft
+Még hiányzó célrészek: Babakocsi 100 000 Ft; Nyaralás 15 278 Ft; Autó 166 667 Ft; VWCE (DCA) 100 000 Ft
+
+Maradt pénz ebben a hónapban? Írd meg az összeget, pl. <code>/maradek 50000</code>, és megmondom, mire menjen.
+
+==== /maradek 80000 ====
+🐷 <b>Hónap végi maradék – 2026. november: 80 000 Ft</b>
+→ Babakocsi: tartsd készpénzben a céldátumig 80 000 Ft (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18))
+→ Befizetések (a fentiek számlánként): Államkincstár (12345678) (félretétel): 80 000 Ft = Babakocsi
+
+Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez tervként rögzíthető.
+
+==== /maradek 900000 ====
+🐷 <b>Hónap végi maradék – 2026. november: 900 000 Ft</b>
+→ Babakocsi: tartsd készpénzben a céldátumig 100 000 Ft (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18))
+→ Nyaralás: tartsd készpénzben a céldátumig 15 278 Ft → Államkincstár (12345678) (Diszkont Kincstárjegy D270310: nem vehetőnek jelölve)
+→ Autó: Diszkont Kincstárjegy D270512 vétel 166 667 Ft (169 567 db, díj 0 Ft) → Államkincstár (12345678)
+→ VWCE (DCA): VWCE vétel 99 253 Ft (1,3963 db, díj 400 Ft, váltás 347 Ft) → Lightyear TBSZ 2026 (LY-TESZT26) · 2027-01-01-tól: Lightyear TBSZ 2027
+→ Babakocsi (a céldátumig hátralévő rész): tartsd készpénzben a céldátumig 100 000 Ft (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18))
+→ Célpálya (418 056 Ft, célpont: a mai pályacél): Vétel: VWCE 5,8553 db (≈ 416 198 Ft) → Lightyear TBSZ 2026 (LY-TESZT26) · 2027-01-01-tól: Lightyear TBSZ 2027
+→ Befizetések (a fentiek számlánként): Lightyear TBSZ 2026 (LY-TESZT26): 518 055 Ft = VWCE (DCA) + Célpálya (ebből váltás 1804 Ft); Államkincstár (12345678) (félretétel): 215 278 Ft = Babakocsi + Nyaralás + Babakocsi (a céldátumig hátralévő rész); Államkincstár (12345678): 166 667 Ft = Autó
+
+Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez tervként rögzíthető.

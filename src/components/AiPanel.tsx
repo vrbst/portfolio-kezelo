@@ -81,6 +81,7 @@ import {
   type Conversation,
   type DisplayTurn,
 } from "../lib/aiChat";
+import { txDay } from "../lib/day";
 
 const usd = (n: number) =>
   n < 0.01 ? `${(n * 100).toFixed(2)} cent` : `$${n.toFixed(2)}`;
@@ -159,10 +160,10 @@ export default function AiPanel() {
     const monthKey = effectiveMonthKey(now);
     const yearAgo = new Date(now);
     yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-    const yearAgoIso = yearAgo.toISOString().slice(0, 10);
+    const yearAgoIso = toLocalDay(yearAgo);
     const inYear = new Date(now);
     inYear.setFullYear(inYear.getFullYear() + 1);
-    const inYearIso = inYear.toISOString().slice(0, 10);
+    const inYearIso = toLocalDay(inYear);
     let thisMonthNet = 0;
     let last12 = 0;
     for (const t of transactions) {
@@ -172,10 +173,10 @@ export default function AiPanel() {
         if (t.type === "deposit") thisMonthNet += huf;
         if (t.type === "withdrawal") thisMonthNet -= huf;
       }
-      if ((t.type === "interest" || t.type === "dividend") && t.date.slice(0, 10) >= yearAgoIso)
+      if ((t.type === "interest" || t.type === "dividend") && txDay(t.date) >= yearAgoIso)
         last12 += huf;
     }
-    const next12 = cashflows.filter((c) => c.date.slice(0, 10) < inYearIso);
+    const next12 = cashflows.filter((c) => txDay(c.date) < inYearIso);
     return buildAiPortfolioContext(summary, fx, returns, {
       dayChange,
       series,
@@ -438,7 +439,7 @@ export default function AiPanel() {
     const big = cashflows.find((c) => c.kind === "maturity");
     if (big)
       s.push(
-        `Mit érdemes kezdeni a ${big.date.slice(0, 10)}-i lejárattal?`,
+        `Mit érdemes kezdeni a ${txDay(big.date)}-i lejárattal?`,
       );
     s.push("Mekkora a devizakockázatom, és kell-e vele foglalkoznom?");
     if (toggles.tools)

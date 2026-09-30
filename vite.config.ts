@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { execSync } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -65,6 +66,13 @@ function emitVersionJson(): Plugin {
 // without server-side routing config.
 export default defineConfig({
   base: "./",
+  test: {
+    // The app is used in Budapest; in UTC (the CI default) local midnight IS
+    // UTC midnight, so one-day-off date bugs stay invisible. Tests default to
+    // Budapest; CI also runs them with TZ=UTC and TZ=America/New_York.
+    env: { TZ: process.env.TZ || "Europe/Budapest" },
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
+  },
   plugins: [
     emitVersionJson(),
     react(),

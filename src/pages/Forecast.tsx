@@ -60,6 +60,7 @@ import {
   AmountInput,
 } from "../components/ui";
 import { formatMoney } from "../lib/format";
+import { txDay } from "../lib/day";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
 const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
@@ -316,7 +317,7 @@ export default function Forecast() {
     // Last sample of every completed month in the window.
     const byMonth = new Map<string, ValuePoint>();
     for (const p of valueSeries) {
-      const k = p.date.slice(0, 7);
+      const k = txDay(p.date).slice(0, 7);
       if (k < fromKey || k >= curKey) continue;
       byMonth.set(k, p);
     }
@@ -425,9 +426,12 @@ export default function Forecast() {
       runDet(over).points[i].real - base;
     const bump = monthlySaving > 0 ? Math.round(monthlySaving * 0.1) : 20_000;
     const ret = settings.annualReturn;
-    const rows = [
+    // `amount` is shown blurred in privacy mode: 10% of the monthly saving
+    // would give the saving away.
+    const rows: { label: string; amount?: string; delta: number }[] = [
       {
-        label: `Havi megtakarítás +${huf(bump)} Ft`,
+        label: "Havi megtakarítás +",
+        amount: `${huf(bump)} Ft`,
         delta: endOf({ monthlySavingHuf: monthlySaving + bump }),
       },
       {
@@ -1398,7 +1402,10 @@ export default function Forecast() {
             {sensitivity.map((r) => (
               <li key={r.label}>
                 <div className="flex justify-between gap-3">
-                  <span>{r.label}</span>
+                  <span>
+                    {r.label}
+                    {r.amount && <span className="amt inline-block">{r.amount}</span>}
+                  </span>
                   <span
                     className={`amt tabular-nums ${
                       r.delta >= 0

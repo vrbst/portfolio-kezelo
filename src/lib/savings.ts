@@ -54,6 +54,7 @@ import {
   isBondCoupon,
   splitAmongGoals,
 } from "./incomeClaims";
+import { txDay } from "./day";
 
 export interface SavingsGoal {
   id: string;
@@ -382,7 +383,7 @@ export function savingsMonthStates(
     )
     .sort((a, b) => a.date.localeCompare(b.date));
   for (const t of monthCoupons) {
-    const day = t.date.slice(0, 10);
+    const day = txDay(t.date);
     const shares = splitAmongGoals(
       incomeHuf(t, fx),
       [...progressByGoal.values()]
@@ -1056,7 +1057,7 @@ export function computeSavingsProgress(
             (t) =>
               isBondCoupon(t, instruments) &&
               inEffectiveMonth(t, eff) &&
-              t.date.slice(0, 10) <= goal.targetDate &&
+              txDay(t.date) <= goal.targetDate &&
               !(holdFrom && toLocalDay(dayMsOf(t.date)) >= holdFrom) &&
               // A picked coupon is its goal's cash (assignedStart) already.
               !couponOwner(goals, t.instrumentKey, toLocalDay(dayMsOf(t.date))),
