@@ -9,6 +9,7 @@
 // (their amounts don't match exactly: fees make e.g. 40 000 vs 40 003 Ft).
 
 import type { Transaction } from "./model";
+import { txDay } from "./day";
 
 /** One display row: a transaction, optionally with folded conversion legs. */
 export interface TxRow {
@@ -37,7 +38,7 @@ export function groupTransactions(txs: Transaction[]): TxRow[] {
       head.grossAmount == null
     )
       continue;
-    const day = head.date.slice(0, 10);
+    const day = txDay(head.date);
     const amt = Math.abs(head.grossAmount);
     const headMs = Date.parse(head.date);
 
@@ -49,7 +50,7 @@ export function groupTransactions(txs: Transaction[]): TxRow[] {
     for (const c of conversions) {
       if (consumed.has(c.id)) continue;
       if (c.currency !== head.currency) continue;
-      if (c.date.slice(0, 10) !== day) continue;
+      if (txDay(c.date) !== day) continue;
       const g = c.grossAmount ?? c.netAmount ?? 0;
       if (head.type === "buy" ? g <= 0 : g >= 0) continue;
       if (Math.abs(Math.abs(g) - amt) > EPS) continue;

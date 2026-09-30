@@ -6,7 +6,7 @@
 
 import type { BondTerms, Instrument, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
-import { toLocalDay } from "./day";
+import { toLocalDay, txDay } from "./day";
 
 export const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -372,7 +372,7 @@ export function bondCashflowForecast(
   for (const cf of futureBondCashflows(summary, now, transactions)) {
     const ms = parseDayMs(cf.date);
     if (!Number.isFinite(ms) || ms > horizonMs) continue;
-    const key = cf.date.slice(0, 7);
+    const key = txDay(cf.date).slice(0, 7);
     let b = byKey.get(key);
     if (!b) {
       b = { key, couponHuf: 0, maturityHuf: 0, totalHuf: 0, items: [] };

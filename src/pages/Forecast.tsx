@@ -60,6 +60,7 @@ import {
   AmountInput,
 } from "../components/ui";
 import { formatMoney } from "../lib/format";
+import { txDay } from "../lib/day";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
 const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
@@ -316,7 +317,7 @@ export default function Forecast() {
     // Last sample of every completed month in the window.
     const byMonth = new Map<string, ValuePoint>();
     for (const p of valueSeries) {
-      const k = p.date.slice(0, 7);
+      const k = txDay(p.date).slice(0, 7);
       if (k < fromKey || k >= curKey) continue;
       byMonth.set(k, p);
     }

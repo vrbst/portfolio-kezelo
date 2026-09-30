@@ -28,6 +28,17 @@ export function utcDay(t: number | Date): string {
   return new Date(t).toISOString().slice(0, 10); // eslint-disable-line no-restricted-syntax
 }
 
+/**
+ * The local calendar day of a stored date: a transaction's ISO instant
+ * ("2026-08-31T22:00:00.000Z" = 1 Sep, local midnight) or a bare day
+ * ("2026-09-01", returned as is). Slicing the instant would give the UTC day.
+ */
+export function txDay(s: string): string {
+  if (!s.includes("T")) return s.slice(0, 10);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s.slice(0, 10) : toLocalDay(d);
+}
+
 /** "YYYY-MM-DD" + `n` calendar days, independent of the time zone and DST. */
 export function addDaysIso(day: string, n: number): string {
   const ms = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10));

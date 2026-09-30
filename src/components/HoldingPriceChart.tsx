@@ -13,7 +13,7 @@ import {
   DefaultZIndexes,
 } from "recharts";
 import { formatMoney } from "../lib/format";
-import { toLocalDay } from "../lib/day";
+import { toLocalDay, txDay } from "../lib/day";
 import { CHART } from "../lib/skin";
 
 interface ChartRow {
@@ -229,7 +229,7 @@ export default function HoldingPriceChart({
       return best;
     };
     for (const b of buys) {
-      const day = b.date.slice(0, 10);
+      const day = txDay(b.date);
       if (day < cutoff) continue;
       const rate = showHuf ? fxAt(day) : 1;
       if (rate == null) continue;

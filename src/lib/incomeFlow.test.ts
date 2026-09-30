@@ -269,3 +269,25 @@ describe("distributed marks", () => {
     ).toEqual({ since: "2026-09-20", allocated: ["a", "b"] });
   });
 });
+
+describe("incomeEvents – treasury dates stored as local midnight", () => {
+  // The treasury importer stores a booking day as the ISO instant of LOCAL
+  // midnight ("2026-09-01" → "2026-08-31T22:00:00.000Z" in Budapest).
+  const acc: Account = { id: "k", name: "Kincstár", provider: "allamkincstar", kind: "treasury", currency: "HUF" };
+  const bond: Instrument = { key: "fix", name: "Fix", type: "gov_bond", currency: "HUF", faceValue: 1 };
+  const coupon: Transaction = {
+    id: "c",
+    accountId: "k",
+    date: new Date(2026, 8, 1).toISOString(),
+    type: "interest",
+    instrumentKey: "fix",
+    currency: "HUF",
+    grossAmount: 50_000,
+    netAmount: 50_000,
+  };
+
+  it("a coupon on the tracking start day is listed, on its own day", () => {
+    const ev = incomeEvents([coupon], new Map([["fix", bond]]), [acc], {}, "2026-09-01");
+    expect(ev.map((e) => e.day)).toEqual(["2026-09-01"]);
+  });
+});

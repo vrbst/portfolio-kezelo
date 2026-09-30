@@ -11,6 +11,7 @@ import {
   type PriceMap,
 } from "./portfolio";
 import { asOf, buildValueSeries, type ValueHistory } from "./series";
+import { txDay } from "./day";
 
 /** Benchmark for the TWR comparison: a global all-world equity ETF. */
 export const BENCHMARK = {
@@ -183,9 +184,9 @@ export function computeReturns(
     if (!started) {
       started = true;
       firstMs = Date.parse(prev.date);
-      twrIndex.push({ date: prev.date.slice(0, 10), cum: 0 });
+      twrIndex.push({ date: txDay(prev.date), cum: 0 });
     }
-    twrIndex.push({ date: cur.date.slice(0, 10), cum: factor - 1 });
+    twrIndex.push({ date: txDay(cur.date), cum: factor - 1 });
   }
   if (started) {
     twrCumulativePct = factor - 1;

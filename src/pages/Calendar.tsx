@@ -53,6 +53,7 @@ import IncomeTimeline, {
 } from "../components/calendar/IncomeTimeline";
 import { DayPanel, DaySheet } from "../components/calendar/DayPanel";
 import MonthZoomDialog from "../components/calendar/MonthZoomDialog";
+import { txDay } from "../lib/day";
 
 /**
  * Map a transaction type to a calendar category, or null to skip it. This is an
@@ -233,7 +234,7 @@ export default function Calendar() {
       push(e.date, {
         title: e.note ? `Kiadás: ${e.note}` : "Betervezett kiadás",
         noteHuf: e.amountHuf,
-        future: e.date.slice(0, 10) >= todayIso,
+        future: txDay(e.date) >= todayIso,
         tag: "kiadás",
         cat: "expense",
       });
@@ -341,7 +342,7 @@ export default function Calendar() {
     let prevYtd = 0;
     for (const t of transactions) {
       if (t.type !== "interest" && t.type !== "dividend") continue;
-      const d = t.date.slice(0, 10);
+      const d = txDay(t.date);
       const y = Number(d.slice(0, 4));
       if (y === year) cur += txHuf(t);
       else if (y === year - 1 && d.slice(5) <= md) prevYtd += txHuf(t);
@@ -360,7 +361,7 @@ export default function Calendar() {
       horizon.getDate(),
     );
     const coupons = cashflows
-      .filter((c) => c.kind === "coupon" && c.date.slice(0, 10) < lim)
+      .filter((c) => c.kind === "coupon" && txDay(c.date) < lim)
       .reduce((s, c) => s + c.amountHuf, 0);
     return coupons / 365;
   }, [cashflows, today]);
@@ -412,11 +413,11 @@ export default function Calendar() {
     for (const t of transactions) {
       if (t.internal || isInternalTransfer(t)) continue;
       const kind = TX_INCOME[t.type];
-      const m = kind && index.get(t.date.slice(0, 7));
+      const m = kind && index.get(txDay(t.date).slice(0, 7));
       if (m) m.past[kind] += txHuf(t);
     }
     for (const c of cashflows) {
-      const m = index.get(c.date.slice(0, 7));
+      const m = index.get(txDay(c.date).slice(0, 7));
       if (m) m.future[c.kind === "coupon" ? "kamat" : "lejarat"] += c.amountHuf;
     }
     return months;

@@ -23,7 +23,7 @@ import {
   type ForecastAssumptions,
 } from "./forecast";
 import { assetClassLabel, txTypeLabel } from "./labels";
-import { addDaysIso, toLocalDay, todayLocal } from "./day";
+import { addDaysIso, toLocalDay, todayLocal, txDay } from "./day";
 
 /** Everything the tools read — the same state the pages show. */
 export interface ToolEnv {
@@ -303,12 +303,12 @@ const getTransactions: ClientTool = {
       .filter((t) => !t.internal && !isInternalTransfer(t))
       .filter((t) => !inst || t.instrumentKey === inst.key)
       .filter((t) => !type || t.type === type)
-      .filter((t) => (!from || t.date.slice(0, 10) >= from) && (!to || t.date.slice(0, 10) <= to))
+      .filter((t) => (!from || txDay(t.date) >= from) && (!to || txDay(t.date) <= to))
       .sort((a, b) => b.date.localeCompare(a.date));
     return JSON.stringify({
       total_matching: rows.length,
       transactions: rows.slice(0, limit).map((t) => ({
-        date: t.date.slice(0, 10),
+        date: txDay(t.date),
         type: t.type,
         instrument: t.instrumentKey ? (names.get(t.instrumentKey) ?? t.instrumentKey) : null,
         quantity: t.quantity ?? null,
@@ -411,9 +411,9 @@ const getCashflows: ClientTool = {
     const until = toLocalDay(lim);
     return JSON.stringify(
       env.cashflows
-        .filter((c) => c.date.slice(0, 10) <= until)
+        .filter((c) => txDay(c.date) <= until)
         .map((c) => ({
-          date: c.date.slice(0, 10),
+          date: txDay(c.date),
           kind: c.kind,
           title: c.title,
           amount_huf: round(c.amountHuf),
