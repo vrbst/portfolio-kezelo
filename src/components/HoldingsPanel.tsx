@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Layers, ChevronRight, Target } from "lucide-react";
+import { Layers, ChevronRight, Target, Wallet } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { consolidatedHoldings, purchaseLots, bondLots } from "../lib/portfolio";
 import { loadSavingsGoals } from "../lib/savings";
@@ -61,7 +61,20 @@ export default function HoldingsPanel({
     return m;
   }, [savingsGoals]);
 
-  if (rows.length === 0) return null;
+  // Cash balances aren't instruments, so consolidatedHoldings skips them; list
+  // each account's cash (e.g. the Államkincstár pénzszámla) as its own row.
+  const cashRows = summary.accounts
+    .filter((a) => a.cashValueHuf > 0.5)
+    .map((a) => ({
+      account: a.account,
+      valueHuf: a.cashValueHuf,
+      foreign: Object.entries(a.cash).filter(
+        ([ccy, amt]) => ccy !== "HUF" && Math.abs(amt) > 1e-6,
+      ),
+    }))
+    .sort((a, b) => b.valueHuf - a.valueHuf);
+
+  if (rows.length === 0 && cashRows.length === 0) return null;
 
   const toggle = (key: string) =>
     setOpen((prev) => {
@@ -248,6 +261,59 @@ export default function HoldingsPanel({
                     </tr>
                   )}
                 </Fragment>
+              );
+            })}
+            {cashRows.map((c) => {
+              const weight =
+                total > 0 ? Math.min((c.valueHuf / total) * 100, 100) : 0;
+              return (
+                <tr
+                  key={`cash:${c.account.id}`}
+                  className="border-b border-[var(--color-border)]/50 last:border-0 hover:bg-[var(--color-surface-2)]/40"
+                  style={
+                    weight > 0
+                      ? {
+                          backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--color-brand) 10%, transparent) ${weight}%, transparent ${weight}%)`,
+                        }
+                      : undefined
+                  }
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
+                        <Wallet className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-medium">Készpénz</div>
+                        <div
+                          className={`mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)] ${
+                            expandable ? "pl-5" : ""
+                          }`}
+                        >
+                          <Badge tone="neutral">Pénzszámla</Badge>
+                          <span className="priv">{c.account.name}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right text-[var(--color-muted)]">
+                    —
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium tabular-nums">
+                    <div className="amt">{formatMoney(c.valueHuf)}</div>
+                    {c.foreign.map(([ccy, amt]) => (
+                      <div
+                        key={ccy}
+                        className="amt text-xs font-normal text-[var(--color-muted)]"
+                      >
+                        {formatMoney(amt, ccy)}
+                      </div>
+                    ))}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-[var(--color-muted)]">—</span>
+                  </td>
+                </tr>
               );
             })}
           </tbody>
