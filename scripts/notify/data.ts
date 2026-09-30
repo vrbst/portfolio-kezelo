@@ -272,9 +272,14 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     ...missingVenueAlerts(purchase, accounts, day, (k) => instMap.get(k)?.name ?? k),
     ...computeAlerts(
       summary,
-      { ...DEFAULT_ALERT_CONFIG, idleCashHuf: env.idleCashHuf },
+      {
+        ...DEFAULT_ALERT_CONFIG,
+        idleCashHuf: env.idleCashHuf,
+        reserveGraceDays: env.reserveGraceDays,
+      },
       undefined,
       transactions,
+      reservedCashByAccount(savingsGoals, day, [], {}, env.reserveGraceDays),
       reserved,
     ),
     ...goalAlerts(goalProgress),

@@ -8,12 +8,21 @@ export default function AlertSettings() {
   const tbszCheck = usePortfolio((s) => s.alertConfig.tbszCheck);
   const setIdleCashThreshold = usePortfolio((s) => s.setIdleCashThreshold);
   const setTbszCheckEnabled = usePortfolio((s) => s.setTbszCheckEnabled);
+  const graceDays = usePortfolio((s) => s.alertConfig.reserveGraceDays);
+  const setReserveGraceDays = usePortfolio((s) => s.setReserveGraceDays);
   const [draft, setDraft] = useState(String(idleCashHuf));
+  const [graceDraft, setGraceDraft] = useState(String(graceDays));
 
   function commit() {
     const v = Number(draft.replace(/\s/g, ""));
     if (Number.isFinite(v) && v > 0) setIdleCashThreshold(v);
     else setDraft(String(idleCashHuf));
+  }
+
+  function commitGrace() {
+    const v = Number(graceDraft.trim());
+    if (graceDraft.trim() !== "" && Number.isInteger(v) && v >= 0) setReserveGraceDays(v);
+    else setGraceDraft(String(graceDays));
   }
 
   return (
@@ -56,10 +65,32 @@ export default function AlertSettings() {
             <span className="text-sm text-[var(--color-muted)]">Ft</span>
           </div>
         </label>
+        <label className="mt-4 flex flex-col gap-1">
+          <span className="text-sm">Célra félretett készpénz türelmi ideje</span>
+          <span className="text-xs text-[var(--color-muted)]">
+            A célhoz rendelt (pl. kincstári pénzszámlán félretett) készpénz csak
+            akkor nem számít parlagon állónak, ha a cél dátuma ennyi napon belül
+            van. Messzebbi célnál a figyelmeztetés megjelenik — addig egy a
+            céldátumig lejáró papírban is lehetne.
+          </span>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={graceDraft}
+              onChange={(e) => setGraceDraft(e.target.value)}
+              onBlur={commitGrace}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              className="w-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-right text-sm tabular-nums"
+            />
+            <span className="text-sm text-[var(--color-muted)]">nap</span>
+          </div>
+        </label>
       </div>
       <p className="mt-4 text-xs text-[var(--color-muted)]">
         A figyelmeztetések állapota (elvetés) a felhős szinkronon át minden
-        eszközödön egységes. A küszöb eszközönként állítható.
+        eszközödön egységes. A küszöb és a türelmi idő eszközönként állítható.
       </p>
     </Card>
   );

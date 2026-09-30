@@ -21,6 +21,8 @@ export interface NotifyEnv {
   pricesRepo: string;
   /** Idle-cash alert threshold (HUF) — per-device in the app, set here. */
   idleCashHuf: number;
+  /** Set-aside goal cash is not idle within this many days of the goal's date. */
+  reserveGraceDays: number;
   /** Daily portfolio move (%) that triggers a "big move" message. */
   bigMovePct: number;
   /** Daily move (%) of a single position that triggers a message. */
@@ -56,6 +58,10 @@ export function loadEnv(): NotifyEnv {
     syncPath: e.SYNC_PATH || "data.json",
     pricesRepo: e.PRICES_REPO || "vrbst/portfolio-kezelo",
     idleCashHuf: Number(e.NOTIFY_IDLE_CASH_HUF) || 100_000,
+    reserveGraceDays:
+      e.NOTIFY_RESERVE_GRACE_DAYS && Number(e.NOTIFY_RESERVE_GRACE_DAYS) >= 0
+        ? Number(e.NOTIFY_RESERVE_GRACE_DAYS)
+        : 45,
     bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
     quiet: [toMinutes(qs), toMinutes(qe)],

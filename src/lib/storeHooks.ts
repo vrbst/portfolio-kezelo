@@ -246,8 +246,9 @@ const cachedAlerts = sharedMemo(
     day: string,
     accountCtx: AccountContext,
     reserved: Map<string, number>,
+    reservedSoon: Map<string, number>,
   ) => [
-    ...computeAlerts(summary, config, undefined, transactions, reserved),
+    ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved),
     ...missingVenueAlerts(
       purchase,
       accounts,
@@ -327,6 +328,15 @@ export function useActiveAlerts(): Alert[] {
   const day = useToday();
   const accountCtx = useAccountContext();
   const reserved = useReservedCash();
+  // Only goals due within the grace days keep their set-aside cash from
+  // counting as idle.
+  const reservedSoon = cachedReservedSoon(
+    savingsGoals,
+    day,
+    transactions,
+    fx,
+    config.reserveGraceDays,
+  );
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -346,6 +356,7 @@ export function useActiveAlerts(): Alert[] {
     day,
     accountCtx,
     reserved,
+    reservedSoon,
   );
 }
 
@@ -421,6 +432,7 @@ export function useGlideState(versions: GlideConfig[]): AllocationState | null {
 }
 
 const cachedReserved = sharedMemo(reservedCashByAccount);
+const cachedReservedSoon = sharedMemo(reservedCashByAccount);
 
 /** Cash set aside for savings goals, per account (not free cash) — today. */
 export function useReservedCash(): Map<string, number> {
