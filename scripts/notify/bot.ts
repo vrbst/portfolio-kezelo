@@ -39,6 +39,7 @@ import {
   liquidationText,
   monthlyText,
   pct,
+  quotesText,
   sft,
   statusText,
   weeklyText,
@@ -117,6 +118,7 @@ function isQuiet(env: NotifyEnv, d = new Date()): boolean {
 
 const COMMANDS = [
   { command: "allas", description: "Aktuális vagyon, napi változás" },
+  { command: "arfolyam", description: "EUR/HUF és a tartott papírok árfolyama" },
   { command: "teendok", description: "Aktív figyelmeztetések" },
   { command: "esemenyek", description: "Következő 30 nap eseményei" },
   { command: "cel", description: "Célok állása" },
@@ -188,6 +190,7 @@ class Bot {
     }
     const handlers: Record<string, (c: Context) => string> = {
       "/allas": statusText,
+      "/arfolyam": quotesText,
       "/teendok": alertsText,
       "/esemenyek": (c) => eventsText(c, 30),
       "/cel": goalsText,

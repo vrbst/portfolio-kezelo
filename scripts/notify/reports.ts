@@ -173,6 +173,68 @@ export function statusText(ctx: Context): string {
   return lines.join("\n");
 }
 
+/** Price in its own currency: "123,45 EUR" (HUF without decimals). */
+const px = (n: number, ccy: string) =>
+  ccy === "HUF"
+    ? ft(n)
+    : `${n.toLocaleString("hu-HU", { minimumFractionDigits: 2, maximumFractionDigits: n < 10 ? 4 : 2 })} ${esc(ccy)}`;
+
+/** Daily change of a live quote, " (ma +0,4%)", or "" without a base. */
+const quoteDay = (q: { price: number; prevClose?: number } | undefined) =>
+  q?.prevClose && q.price ? ` (ma ${pct(q.price / q.prevClose - 1, 2)})` : "";
+
+/**
+ * /arfolyam: current prices — EUR/HUF (and any other currency held) first,
+ * then every held stock / ETF / fund with its daily change and the move
+ * against the average cost. Prices without a live quote come from the
+ * committed price file (last close), marked as such.
+ */
+export function quotesText(ctx: Context): string {
+  const lines = ["💱 <b>Árfolyamok</b>", ""];
+  const held = consolidatedHoldings(ctx.summary).filter(
+    (h) =>
+      h.quantity > 1e-9 &&
+      ["etf", "stock", "fund"].includes(h.instrument?.type ?? ""),
+  );
+  const closeMark = " <i>(záró)</i>";
+
+  const ccys = [
+    "EUR",
+    ...new Set(held.map((h) => h.currency).filter((c) => c !== "HUF" && c !== "EUR")),
+  ];
+  for (const c of ccys) {
+    const r = ctx.fx[c];
+    if (!r) continue;
+    const q = ctx.liveQuotes[c];
+    lines.push(
+      `<b>${esc(c)}/HUF: ${r.toLocaleString("hu-HU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>${q ? quoteDay(q) : closeMark}`,
+    );
+  }
+
+  if (!held.length) {
+    lines.push("", "Nincs részvény- vagy ETF-pozíció.");
+    return lines.join("\n");
+  }
+  lines.push("");
+  for (const h of held.sort((a, b) => b.marketValueHuf - a.marketValueHuf)) {
+    const price = ctx.prices.get(h.instrumentKey);
+    const name = shortName(h.instrument?.name ?? h.instrumentKey);
+    if (price == null) {
+      lines.push(`• ${name}: nincs árfolyam`);
+      continue;
+    }
+    const q = ctx.liveQuotes[h.instrumentKey];
+    const avg = h.quantity > 0 ? h.costBasisCcy / h.quantity : 0;
+    const vsAvg = avg > 0 ? `, átlagárhoz ${pct(price / avg - 1)}` : "";
+    lines.push(
+      `• ${name}: <b>${px(price, h.currency)}</b>${q ? quoteDay(q) : closeMark}\n   ${h.quantity.toLocaleString("hu-HU", { maximumFractionDigits: 4 })} db → ${mft(h.marketValueHuf)}${vsAvg}`,
+    );
+  }
+  if (ctx.priceFile?.updatedAt && held.some((h) => !ctx.liveQuotes[h.instrumentKey]))
+    lines.push("", `<i>záró = az árfolyamfájl szerint (${dayLabel(ctx.priceFile.updatedAt)})</i>`);
+  return lines.join("\n");
+}
+
 /** /eladas: what selling everything today would net (fees and TBSZ tax off). */
 export function liquidationText(ctx: Context): string {
   const l = portfolioLiquidation(ctx.summary, ctx.at);
@@ -571,6 +633,7 @@ export const HELP = [
   "🤖 <b>Portfolio Tracker</b>",
   "",
   "/allas – aktuális vagyon, napi változás",
+  "/arfolyam – EUR/HUF és a tartott részvények, ETF-ek aktuális árfolyama",
   "/teendok – aktív figyelmeztetések",
   "/esemenyek – következő 30 nap (kupon, lejárat, TBSZ)",
   "/cel – célok állása",
