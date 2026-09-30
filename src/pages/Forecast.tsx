@@ -426,9 +426,12 @@ export default function Forecast() {
       runDet(over).points[i].real - base;
     const bump = monthlySaving > 0 ? Math.round(monthlySaving * 0.1) : 20_000;
     const ret = settings.annualReturn;
-    const rows = [
+    // `amount` is shown blurred in privacy mode: 10% of the monthly saving
+    // would give the saving away.
+    const rows: { label: string; amount?: string; delta: number }[] = [
       {
-        label: `Havi megtakarítás +${huf(bump)} Ft`,
+        label: "Havi megtakarítás +",
+        amount: `${huf(bump)} Ft`,
         delta: endOf({ monthlySavingHuf: monthlySaving + bump }),
       },
       {
@@ -1399,7 +1402,10 @@ export default function Forecast() {
             {sensitivity.map((r) => (
               <li key={r.label}>
                 <div className="flex justify-between gap-3">
-                  <span>{r.label}</span>
+                  <span>
+                    {r.label}
+                    {r.amount && <span className="amt inline-block">{r.amount}</span>}
+                  </span>
                   <span
                     className={`amt tabular-nums ${
                       r.delta >= 0

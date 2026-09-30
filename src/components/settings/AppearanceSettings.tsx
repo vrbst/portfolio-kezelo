@@ -207,7 +207,8 @@ function SkinOption({
           : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"
       }`}
     >
-      <div className="h-20 overflow-hidden">{children}</div>
+      {/* A fixed sample amount, not the user's: no blur needed. */}
+      <div className="h-20 overflow-hidden" data-privacy="public">{children}</div>
       <div className="flex items-start gap-2 px-1 pb-1">
         <span
           className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${

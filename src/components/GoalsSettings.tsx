@@ -131,9 +131,13 @@ export default function GoalsSettings() {
                     {formatMoney(p.investedHuf)} / {formatMoney(p.targetHuf)}
                   </span>
                   <span className="text-[var(--color-muted)]">
-                    {p.done
-                      ? "Teljesítve ✓"
-                      : `még ${formatMoney(p.remainingHuf)}`}
+                    {p.done ? (
+                      "Teljesítve ✓"
+                    ) : (
+                      <>
+                        még <span className="amt inline-block">{formatMoney(p.remainingHuf)}</span>
+                      </>
+                    )}
                   </span>
                 </div>
               </div>

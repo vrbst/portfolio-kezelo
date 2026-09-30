@@ -119,79 +119,82 @@ export default function LivePricesPanel() {
           );
         })();
 
+  // Market prices are public: they stay readable in privacy mode.
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <LineChart className="h-5 w-5 text-[var(--color-brand)]" />
-          <h2 className="text-lg font-semibold">Élő árfolyamok</h2>
+    <div data-privacy="public">
+      <Card className="p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <LineChart className="h-5 w-5 text-[var(--color-brand)]" />
+            <h2 className="text-lg font-semibold">Élő árfolyamok</h2>
+          </div>
+          <button
+            className="btn-ghost"
+            onClick={() => refreshPrices()}
+            disabled={pricesLoading}
+            title={
+              priceUpdatedAt
+                ? `Frissítve: ${formatDateTime(priceUpdatedAt)}`
+                : "Frissítés"
+            }
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${pricesLoading ? "animate-spin" : ""}`}
+            />
+            {priceUpdatedAt && (
+              <span className="hidden text-xs font-normal text-[var(--color-muted)] sm:inline">
+                {formatDateTime(priceUpdatedAt)}
+              </span>
+            )}
+          </button>
         </div>
-        <button
-          className="btn-ghost"
-          onClick={() => refreshPrices()}
-          disabled={pricesLoading}
-          title={
-            priceUpdatedAt
-              ? `Frissítve: ${formatDateTime(priceUpdatedAt)}`
-              : "Frissítés"
-          }
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${pricesLoading ? "animate-spin" : ""}`}
-          />
-          {priceUpdatedAt && (
-            <span className="hidden text-xs font-normal text-[var(--color-muted)] sm:inline">
-              {formatDateTime(priceUpdatedAt)}
-            </span>
+
+        {session?.session && (
+          <div className="-mt-2 mb-3">
+            <MarketStatus
+              session={session.session}
+              exchange={session.exchange}
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          {eurHuf && (
+            <PriceTile
+              label="EUR/HUF"
+              value={formatMoney(eurHuf, "HUF", { decimals: 2 })}
+              sub="Euró árfolyam"
+              live
+              quote={eurQuote}
+              mark={<CurrencyMark symbol="€" />}
+              onOpen={() => setOpenKey("EUR")}
+            />
           )}
-        </button>
-      </div>
-
-      {session?.session && (
-        <div className="-mt-2 mb-3">
-          <MarketStatus
-            session={session.session}
-            exchange={session.exchange}
-          />
+          {tiles.map((t) => (
+            <PriceTile
+              key={t.key}
+              label={t.label}
+              value={formatMoney(t.price, t.currency, { decimals: 2 })}
+              sub={
+                t.hufEquiv != null ? `≈ ${formatMoney(t.hufEquiv, "HUF")}` : t.sub
+              }
+              live={t.live}
+              manual={t.manual}
+              quote={t.quote}
+              instrument={t.instrument}
+              onOpen={() => setOpenKey(t.key)}
+            />
+          ))}
         </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-2">
-        {eurHuf && (
-          <PriceTile
-            label="EUR/HUF"
-            value={formatMoney(eurHuf, "HUF", { decimals: 2 })}
-            sub="Euró árfolyam"
-            live
-            quote={eurQuote}
-            mark={<CurrencyMark symbol="€" />}
-            onOpen={() => setOpenKey("EUR")}
+        {opened && opened.quote.intraday && (
+          <PriceChartDialog
+            {...opened}
+            live={isCurveLive(opened.quote, now)}
+            onClose={() => setOpenKey(null)}
           />
         )}
-        {tiles.map((t) => (
-          <PriceTile
-            key={t.key}
-            label={t.label}
-            value={formatMoney(t.price, t.currency, { decimals: 2 })}
-            sub={
-              t.hufEquiv != null ? `≈ ${formatMoney(t.hufEquiv, "HUF")}` : t.sub
-            }
-            live={t.live}
-            manual={t.manual}
-            quote={t.quote}
-            instrument={t.instrument}
-            onOpen={() => setOpenKey(t.key)}
-          />
-        ))}
-      </div>
-      {opened && opened.quote.intraday && (
-        <PriceChartDialog
-          {...opened}
-          live={isCurveLive(opened.quote, now)}
-          onClose={() => setOpenKey(null)}
-        />
-      )}
-    </Card>
+      </Card>
+    </div>
   );
 }
 
