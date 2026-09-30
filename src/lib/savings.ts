@@ -136,7 +136,22 @@ function maturityDay(inst: Instrument | undefined): string | undefined {
 }
 
 /**
- * Can a buy of `inst` today still serve the goal? Not if it matures within N
+ * Can the series still be bought at all today? Not once it has matured
+ * (automatic) or when the user marked it "nem vehető" by hand.
+ */
+export function buyState(
+  inst: Instrument | undefined,
+  today: string,
+): "buyable" | "matured" | "manual" {
+  const mat = maturityDay(inst);
+  if (mat && mat <= today) return "matured";
+  if (inst?.notBuyable) return "manual";
+  return "buyable";
+}
+
+/**
+ * Can a buy of `inst` today still serve the goal? Never if the series is
+ * marked "nem vehető". Not if it matures within N
  * days of the buy (too short to be worth it, or already gone) or after the
  * target date (it would have to be sold early). No maturity (e.g. an ETF): yes.
  */
@@ -145,6 +160,7 @@ export function suitableForGoalBuy(
   goal: SavingsGoal,
   today: string,
 ): boolean {
+  if (inst?.notBuyable) return false;
   const mat = maturityDay(inst);
   if (!mat) return true;
   const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
@@ -477,8 +493,9 @@ function holdReasonText(
     const inst = instruments.get(k);
     const name = inst?.name ?? k;
     const mat = maturityDay(inst);
+    if (mat && mat <= today) return `${name}: már lejárt (${mat})`;
+    if (inst?.notBuyable) return `${name}: nem vehetőnek jelölve`;
     if (!mat) return `${name}: nem vehető`;
-    if (mat <= today) return `${name}: már lejárt (${mat})`;
     if (mat > target) return `${name}: a céldátum (${target}) után jár le (${mat})`;
     return `${name}: ${n} napon belül lejár (${mat})`;
   });
@@ -488,7 +505,7 @@ function holdReasonText(
 /** The "hold it in cash" advice line for a goal with nothing left to buy. */
 export function holdCashAdvice(s: SavingsMonthlyStatus): string {
   const why =
-    `a hozzárendelt eszközök a vétel után ${s.minDays} napon belül vagy a céldátum után járnak le`;
+    `a hozzárendelt eszközök nem vehetők, vagy a vétel után ${s.minDays} napon belül, illetve a céldátum után járnak le`;
   if (s.missingHuf > 0)
     return `${s.monthLabel}: tartsd készpénzben a céldátumig — ${formatMoney(s.missingHuf)} (${why}).`;
   if (s.boughtHuf >= 1)
@@ -797,7 +814,9 @@ function holdCashFrom(
   const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
   let last = "";
   for (const k of goal.instrumentKeys) {
-    const mat = maturityDay(instruments.get(k));
+    const inst = instruments.get(k);
+    if (inst?.notBuyable) continue; // marked "nem vehető" — no buy window
+    const mat = maturityDay(inst);
     if (!mat) return undefined;
     if (mat > target) continue; // never buyable for the goal
     // Buyable while mat > today + n days → not any more from mat − n.

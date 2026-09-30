@@ -429,9 +429,9 @@ function GoalRow({
           ),
         ) && (
           <p className="mt-1 text-xs text-[var(--color-warning,#fbbf24)]">
-            A hozzárendelt eszközök a vétel után{" "}
+            A hozzárendelt eszközök nem vehetők, vagy a vétel után{" "}
             {p.goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY} napon
-            belül vagy a céldátum után járnak le — tartsd készpénzben a
+            belül, illetve a céldátum után járnak le — tartsd készpénzben a
             céldátumig.
           </p>
         )}

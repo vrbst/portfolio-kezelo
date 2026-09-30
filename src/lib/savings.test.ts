@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
 import {
+  buyState,
   computeSavingsProgress,
   holdCashAdvice,
   reservedCashByAccount,
@@ -155,6 +156,21 @@ describe("savings goal – coupon room is the actual shortfall", () => {
     const buy = tx({ id: "b-dkj-3", date: "2026-10-15", type: "buy", instrumentKey: DKJ.key, quantity: 450_000, grossAmount: 440_000, netAmount: -440_000 });
     const s = status([...BASE_TXS, COUPON, buy], at("2026-10-20"));
     expect(s.couponHuf).toBeCloseTo(150_000);
+  });
+});
+
+describe("series buyability", () => {
+  it("a matured series is automatically not buyable", () => {
+    expect(buyState(DKJ, "2026-11-30")).toBe("buyable");
+    expect(buyState(DKJ, "2026-12-01")).toBe("matured");
+    expect(buyState({ ...DKJ, notBuyable: true }, "2026-12-02")).toBe("matured");
+  });
+
+  it("a series marked by hand is not buyable, not even for a goal", () => {
+    const marked = { ...DKJ, notBuyable: true };
+    expect(buyState(marked, "2026-10-01")).toBe("manual");
+    expect(suitableForGoalBuy(marked, { ...GOAL }, "2026-10-01")).toBe(false);
+    expect(suitableForGoalBuy(DKJ, { ...GOAL }, "2026-10-01")).toBe(true);
   });
 });
 

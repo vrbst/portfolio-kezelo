@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Landmark } from "lucide-react";
-import { usePortfolio } from "../../lib/store";
+import { usePortfolio, useToday } from "../../lib/store";
 import { Card, Badge, AmountInput } from "../ui";
 import { instrumentTypeLabel } from "../../lib/labels";
 import type { BondTerms, Instrument } from "../../lib/model";
 import { toLocalDay } from "../../lib/portfolio";
+import { buyState } from "../../lib/savings";
 
 /** A maturity as its LOCAL day ("2026-10-27T23:00:00.000Z" → 2026-10-28). */
 const dayOf = (s: string | undefined) =>
@@ -25,12 +26,22 @@ const inputCls =
 export default function BondSeriesSettings() {
   const instruments = usePortfolio((s) => s.instruments);
   const updateInstrument = usePortfolio((s) => s.updateInstrument);
+  const today = useToday();
 
   const bonds = instruments.filter((i) => BOND_TYPES.has(i.type));
   if (bonds.length === 0) return null;
 
   const setBond = (inst: Instrument, patch: Partial<BondTerms>) =>
     updateInstrument(inst.key, { bond: { ...inst.bond, ...patch } });
+
+  // Series the user can still toggle (a matured one is "nem vehető" anyway).
+  const open = bonds.filter((i) => buyState(i, today) !== "matured");
+  const setAll = (notBuyable: boolean) =>
+    Promise.all(
+      open
+        .filter((i) => !!i.notBuyable !== notBuyable)
+        .map((i) => updateInstrument(i.key, { notBuyable: notBuyable || undefined })),
+    );
 
   return (
     <Card className="mt-4 p-6">
@@ -49,14 +60,38 @@ export default function BondSeriesSettings() {
         első (tört) kamat összegét kézzel is megadhatod (a MÁK-érték), mert a
         tört periódus nem számolható forintra pontosan. A diszkont
         kincstárjegyek automatikusan a vételár → névérték akkrécióval
-        értékelődnek.
+        értékelődnek. A lejárt sorozat automatikusan „nem vehető", de bármelyiket
+        kézzel is annak jelölheted (pl. lezárult DKJ-jegyzés) — a megtakarítási
+        célok nem javasolnak bele vételt.
       </p>
+
+      {open.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`${inputCls} hover:bg-[var(--color-surface-2)] disabled:opacity-50`}
+            disabled={open.every((i) => i.notBuyable)}
+            onClick={() => setAll(true)}
+          >
+            Mind nem vehető
+          </button>
+          <button
+            type="button"
+            className={`${inputCls} hover:bg-[var(--color-surface-2)] disabled:opacity-50`}
+            disabled={open.every((i) => !i.notBuyable)}
+            onClick={() => setAll(false)}
+          >
+            Mind vehető
+          </button>
+        </div>
+      )}
 
       <div className="space-y-3">
         {bonds.map((inst) => {
           const isTbill = inst.type === "tbill";
           const b = inst.bond ?? {};
           const missing = !isTbill && b.couponRate == null;
+          const state = buyState(inst, today);
           return (
             <div
               key={inst.key}
@@ -67,9 +102,35 @@ export default function BondSeriesSettings() {
                 <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
                 {missing && <Badge tone="warning">hiányzó adat</Badge>}
                 {!isTbill && !missing && <Badge tone="positive">megadva</Badge>}
+                {state === "matured" && (
+                  <Badge tone="neutral">lejárt — nem vehető</Badge>
+                )}
+                {state === "manual" && (
+                  <Badge tone="warning">nem vehető</Badge>
+                )}
                 <span className="text-xs text-[var(--color-muted)]">
                   lejárat: {dayOf(b.maturity ?? inst.maturity) ?? "—"}
                 </span>
+                <label
+                  className="ml-auto flex items-center gap-1.5 text-xs text-[var(--color-muted)]"
+                  title={
+                    state === "matured"
+                      ? "A sorozat lejárt, ezért automatikusan nem vehető."
+                      : "Kézzel nem vehetőnek jelölés (pl. lezárult a jegyzés)."
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={state !== "buyable"}
+                    disabled={state === "matured"}
+                    onChange={(e) =>
+                      updateInstrument(inst.key, {
+                        notBuyable: e.target.checked || undefined,
+                      })
+                    }
+                  />
+                  Nem vehető
+                </label>
               </div>
 
               {isTbill ? (
