@@ -499,9 +499,14 @@ export default function AccountDetail() {
                                   {instrumentTypeLabel[h.instrument.type]}
                                 </Badge>
                               )}
-                              {h.instrument?.maturity && (
+                              {(h.instrument?.bond?.maturity ??
+                                h.instrument?.maturity) && (
                                 <span>
-                                  lejárat: {formatDate(h.instrument.maturity)}
+                                  lejárat:{" "}
+                                  {formatDate(
+                                    h.instrument?.bond?.maturity ??
+                                      h.instrument?.maturity,
+                                  )}
                                 </span>
                               )}
                               {h.instrument?.isin && (

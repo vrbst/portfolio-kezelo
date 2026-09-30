@@ -89,6 +89,11 @@ export interface Instrument {
   bond?: BondTerms;
   /** ETFs/funds: annual total expense ratio (fraction, e.g. 0.0022 = 0,22%). */
   terPct?: number;
+  /**
+   * Bonds/T-bills: kézzel „nem vehető"-nek jelölve (pl. a DKJ-sorozat
+   * jegyzése lezárult). A lejárt sorozat enélkül is automatikusan nem vehető.
+   */
+  notBuyable?: boolean;
 }
 
 /** Normalised transaction type across all providers. */

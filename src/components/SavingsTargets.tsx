@@ -429,7 +429,11 @@ function GoalRow({
           ),
         ) && (
           <p className="mt-1 text-xs text-[var(--color-warning,#fbbf24)]">
-            {p.goal.instrumentKeys.every((k) => p.goal.unbuyableKeys?.includes(k))
+            {p.goal.instrumentKeys.every(
+              (k) =>
+                p.goal.unbuyableKeys?.includes(k) ||
+                instruments.find((i) => i.key === k)?.notBuyable,
+            )
               ? "A hozzárendelt eszközök már nem vásárolhatók"
               : `A hozzárendelt eszközök a vétel után ${p.goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY} napon belül vagy a céldátum után járnak le, vagy már nem vásárolhatók`}{" "}
             — tartsd készpénzben a céldátumig, és rögzítsd félretételként
