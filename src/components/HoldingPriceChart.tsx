@@ -13,6 +13,7 @@ import {
   DefaultZIndexes,
 } from "recharts";
 import { formatMoney } from "../lib/format";
+import { toLocalDay } from "../lib/day";
 import { CHART } from "../lib/skin";
 
 interface ChartRow {
@@ -191,7 +192,7 @@ export default function HoldingPriceChart({
     if (!Number.isFinite(days)) return "";
     const d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
+    return toLocalDay(d);
   }, [range]);
 
   const chartData = useMemo(() => {

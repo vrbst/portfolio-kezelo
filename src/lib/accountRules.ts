@@ -13,6 +13,7 @@ import { accountKindLabel, providerLabel } from "./labels";
 import type { BrokerFee, BrokerFees } from "./planPrefs";
 import type { Alert } from "./alerts";
 import { freeCashOf } from "./savings";
+import { addDaysIso } from "./day";
 
 export interface AccountLimit {
   /** Money may not leave the account up to and including this day. */
@@ -281,7 +282,7 @@ export function upcomingVenueChange(
   key: string,
   horizonDays = 62,
 ): { from: string; label: string } | undefined {
-  const until = new Date(Date.parse(ctx.day) + horizonDays * 86_400_000).toISOString().slice(0, 10);
+  const until = addDaysIso(ctx.day, horizonDays);
   const next = (ctx.purchase[key] ?? [])
     .filter((e) => e.from > ctx.day && e.from <= until)
     .sort((x, y) => x.from.localeCompare(y.from))[0];

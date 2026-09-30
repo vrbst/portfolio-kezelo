@@ -159,10 +159,10 @@ export default function AiPanel() {
     const monthKey = effectiveMonthKey(now);
     const yearAgo = new Date(now);
     yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-    const yearAgoIso = yearAgo.toISOString().slice(0, 10);
+    const yearAgoIso = toLocalDay(yearAgo);
     const inYear = new Date(now);
     inYear.setFullYear(inYear.getFullYear() + 1);
-    const inYearIso = inYear.toISOString().slice(0, 10);
+    const inYearIso = toLocalDay(inYear);
     let thisMonthNet = 0;
     let last12 = 0;
     for (const t of transactions) {

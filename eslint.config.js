@@ -21,6 +21,17 @@ export default defineConfig([
     rules: {
       // `const { raw: _raw, ...rest } = x` — dropping a field via rest is intended.
       '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+      // The UTC day of a local-midnight instant is the day before in Budapest —
+      // the cause of several one-day-off bugs. Use src/lib/day.ts instead.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(slice|substring|substr)$/][arguments.1.value=10][callee.object.callee.property.name='toISOString'], CallExpression[callee.property.name='split'][callee.object.callee.property.name='toISOString']",
+          message:
+            'toISOString() a UTC napot adja (Budapesten helyi éjfélnél az előző napot). Használd a src/lib/day.ts segédfüggvényeit: toLocalDay / todayLocal / addDaysIso / utcDay.',
+        },
+      ],
     },
   },
 ])

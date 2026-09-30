@@ -12,6 +12,7 @@ import {
 import type { WeightPoint } from "../lib/rebalance";
 import { dayTs, type Row } from "./glideChartData";
 import { CHART } from "../lib/skin";
+import { utcDay } from "../lib/day";
 
 const tooltipStyle = {
   background: "var(--color-surface)",
@@ -59,7 +60,7 @@ export function GlideBucketChart({
             dataKey="ts"
             type="number"
             domain={["dataMin", "dataMax"]}
-            tickFormatter={(ts) => monthLabel(new Date(ts).toISOString().slice(0, 10))}
+            tickFormatter={(ts) => monthLabel(utcDay(ts))}
             tick={{ fill: CHART.axis, fontSize: 12 }}
             stroke={CHART.grid}
             minTickGap={40}

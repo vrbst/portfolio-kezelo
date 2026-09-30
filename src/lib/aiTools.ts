@@ -23,6 +23,7 @@ import {
   type ForecastAssumptions,
 } from "./forecast";
 import { assetClassLabel, txTypeLabel } from "./labels";
+import { addDaysIso, toLocalDay, todayLocal } from "./day";
 
 /** Everything the tools read — the same state the pages show. */
 export interface ToolEnv {
@@ -63,9 +64,8 @@ const isoDate = (v: unknown): string | null => {
   return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 };
 const round = (n: number) => Math.round(n);
-const today = () => new Date().toISOString().slice(0, 10);
-const daysAgo = (d: number) =>
-  new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10);
+const today = () => todayLocal();
+const daysAgo = (d: number) => addDaysIso(todayLocal(), -d);
 
 /** Instrument by ticker / ISIN / name fragment (case-insensitive). */
 function findInstrument(env: ToolEnv, q: string): Instrument | undefined {
@@ -408,7 +408,7 @@ const getCashflows: ClientTool = {
     const months = int(i.months, 1, 120) ?? 24;
     const lim = new Date();
     lim.setMonth(lim.getMonth() + months);
-    const until = lim.toISOString().slice(0, 10);
+    const until = toLocalDay(lim);
     return JSON.stringify(
       env.cashflows
         .filter((c) => c.date.slice(0, 10) <= until)

@@ -6,6 +6,7 @@
 
 import type { BondTerms, Instrument, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
+import { toLocalDay } from "./day";
 
 export const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -39,13 +40,8 @@ function addMonths(ms: number, months: number): number {
   return d.getTime();
 }
 
-/** Local-midnight ms -> "YYYY-MM-DD" (avoids the UTC shift of toISOString). */
-export function toLocalDay(ms: number): string {
-  const d = new Date(ms);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
+// Local-midnight ms -> "YYYY-MM-DD"; lives in day.ts, re-exported for old imports.
+export { toLocalDay };
 
 /**
  * Elszámolási vágás órája (helyi idő): eddig az aznapi, utána a következő nap.

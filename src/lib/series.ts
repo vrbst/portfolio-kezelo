@@ -6,6 +6,7 @@
 import type { Account, Instrument, Transaction } from "./model";
 import type { LiveQuote } from "./prices";
 import { toLocalDay } from "./bonds";
+import { addDaysIso, utcDay } from "./day";
 import {
   buildFxHistory,
   computePortfolio,
@@ -291,7 +292,7 @@ export function buildValueSeries(
     const spanDays = (endMs - startMs) / 86_400_000;
     const stepDays = spanDays <= 370 ? 1 : Math.ceil(spanDays / 370);
     for (let t = startMs; t <= endMs; t += stepDays * 86_400_000)
-      dayset.add(new Date(t).toISOString().slice(0, 10));
+      dayset.add(utcDay(t));
   }
   const days = [...dayset].filter((d) => d <= todayIso).sort();
 
@@ -536,9 +537,7 @@ export function computeDayChange(
   }
   const eurPrev = liveQuotes["EUR"]?.prevClose;
   if (eurPrev != null || Object.keys(prevCloses).length > 0) {
-    const d = new Date(`${last.date}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 1);
-    const prevDay = d.toISOString().slice(0, 10);
+    const prevDay = addDaysIso(last.date, -1);
     const overrides: DayOverrides = {
       prices: prevCloses,
       fx: eurPrev != null ? { EUR: eurPrev } : undefined,

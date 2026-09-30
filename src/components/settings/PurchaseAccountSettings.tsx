@@ -18,6 +18,7 @@ import {
 } from "../../lib/accountRules";
 import { providerLabel } from "../../lib/incomeFlow";
 import type { AccountKind } from "../../lib/model";
+import { todayLocal } from "../../lib/day";
 import { Card } from "../ui";
 
 const INPUT =
@@ -232,7 +233,7 @@ export default function PurchaseAccountSettings() {
                   setRows(key, [
                     ...rows,
                     {
-                      from: new Date().toISOString().slice(0, 10),
+                      from: todayLocal(),
                       target: { accountId: v.account?.id ?? accounts[0].id },
                     },
                   ])

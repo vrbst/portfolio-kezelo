@@ -15,6 +15,7 @@ import type { PortfolioSummary } from "./portfolio";
 import { toHuf, toLocalDay } from "./portfolio";
 import { BOND_TYPES, DEFAULT_BOND_SALE_COST } from "./bonds";
 import { formatMoney } from "./format";
+import { addDaysIso } from "./day";
 import {
   cashKey,
   DEFAULT_QTY_DECIMALS,
@@ -131,7 +132,7 @@ export function pathTargets(cfg: GlideConfig, day: string): Map<string, number> 
 
 /** `day` + `n` calendar days (YYYY-MM-DD). */
 function addDays(day: string, n: number): string {
-  return new Date(dayMs(day) + n * 86_400_000).toISOString().slice(0, 10);
+  return addDaysIso(day, n);
 }
 
 /**
