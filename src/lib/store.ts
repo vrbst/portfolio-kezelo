@@ -31,6 +31,7 @@ import {
   loadAlertConfig,
   saveIdleCashThreshold,
   saveTbszCheck,
+  saveReserveGraceDays,
   reconcileAlertState,
   REMINDER_ALERT_PREFIX,
   type Alert,
@@ -98,6 +99,8 @@ interface PortfolioState {
   restoreAlert: (id: string) => Promise<void>;
   setIdleCashThreshold: (huf: number) => void;
   setTbszCheckEnabled: (enabled: boolean) => void;
+  /** Days before a goal's date from which its set-aside cash is not idle. */
+  setReserveGraceDays: (days: number) => void;
 
   /** Fixed savings goals (DCA), synced. */
   goals: Goal[];
@@ -869,6 +872,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   setTbszCheckEnabled: (enabled) => {
     saveTbszCheck(enabled);
     set((s) => ({ alertConfig: { ...s.alertConfig, tbszCheck: enabled } }));
+  },
+
+  setReserveGraceDays: (days) => {
+    saveReserveGraceDays(days);
+    set((s) => ({ alertConfig: { ...s.alertConfig, reserveGraceDays: days } }));
   },
 
   addGoal: async (goal) => {

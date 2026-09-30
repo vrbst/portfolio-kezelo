@@ -181,8 +181,10 @@ export default function GoalReserves({
       </div>
       <p className="mt-1 text-[var(--color-muted)]">
         A félretett összeg a céldátumig a célba számít, és a számláján nem számít
-        szabad készpénznek (nem javasol belőle befektetést). Ha belőle veszed
-        meg a cél papírját, csökkentsd.
+        szabad készpénznek (nem javasol belőle befektetést). Parlagon álló
+        készpénzként csak akkor nem jelez, ha a céldátum a beállított türelmi
+        időn (alapból 30 nap) belül van. Ha belőle veszed meg a cél papírját,
+        csökkentsd.
       </p>
     </div>
   );

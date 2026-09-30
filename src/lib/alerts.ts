@@ -46,30 +46,50 @@ export interface AlertConfig {
   eventHorizonDays: number;
   /** Whether the "current-year TBSZ" check is active at all. */
   tbszCheck: boolean;
+  /**
+   * Cash set aside for a savings goal only stops counting as idle once the
+   * goal's date is at most this many days away; before that it is idle money
+   * (it could sit in a DKJ maturing by the date).
+   */
+  reserveGraceDays: number;
 }
 
 export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   idleCashHuf: 100_000,
   eventHorizonDays: 14,
   tbszCheck: true,
+  reserveGraceDays: 30,
 };
 
 const IDLE_KEY = "pf-alert-idle-cash";
 const TBSZ_CHECK_KEY = "pf-alert-tbsz-check";
+const RESERVE_GRACE_KEY = "pf-alert-reserve-grace-days";
 
 /** Per-device alert config (idle-cash threshold + which checks are enabled). */
 export function loadAlertConfig(): AlertConfig {
   let idleCashHuf = DEFAULT_ALERT_CONFIG.idleCashHuf;
   let tbszCheck = DEFAULT_ALERT_CONFIG.tbszCheck;
+  let reserveGraceDays = DEFAULT_ALERT_CONFIG.reserveGraceDays;
   try {
     const v = Number(localStorage.getItem(IDLE_KEY));
     if (Number.isFinite(v) && v > 0) idleCashHuf = v;
     // Default ON: only disabled when explicitly stored as '0'.
     tbszCheck = localStorage.getItem(TBSZ_CHECK_KEY) !== "0";
+    const g = localStorage.getItem(RESERVE_GRACE_KEY);
+    if (g !== null && Number.isFinite(Number(g)) && Number(g) >= 0)
+      reserveGraceDays = Math.round(Number(g));
   } catch {
     /* ignore */
   }
-  return { ...DEFAULT_ALERT_CONFIG, idleCashHuf, tbszCheck };
+  return { ...DEFAULT_ALERT_CONFIG, idleCashHuf, tbszCheck, reserveGraceDays };
+}
+
+export function saveReserveGraceDays(days: number) {
+  try {
+    localStorage.setItem(RESERVE_GRACE_KEY, String(days));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function saveIdleCashThreshold(huf: number) {
@@ -136,8 +156,16 @@ export function computeAlerts(
   now: Date = new Date(),
   /** Used to hide coupon events whose payment has already been imported. */
   transactions: Transaction[] = [],
-  /** Cash set aside for savings goals, per account — not idle. */
+  /**
+   * Cash set aside for savings goals due soon (see
+   * AlertConfig.reserveGraceDays), per account — not idle.
+   */
   reserved?: Map<string, number>,
+  /**
+   * ALL cash set aside for goals still ahead, per account: the part beyond
+   * `reserved` (goals further away) is idle, and the alert says so.
+   */
+  reservedAll?: Map<string, number>,
 ): Alert[] {
   const out: Alert[] = [];
 
@@ -155,13 +183,21 @@ export function computeAlerts(
 
   // 1) Idle cash above the threshold, per account.
   for (const acc of summary.accounts) {
-    const idle = acc.cashValueHuf - (reserved?.get(acc.account.id) ?? 0);
+    const near = reserved?.get(acc.account.id) ?? 0;
+    const idle = acc.cashValueHuf - near;
     if (idle > config.idleCashHuf) {
+      // Set aside for goals further away than the grace days: idle too.
+      const far = Math.min(idle, Math.max(0, (reservedAll?.get(acc.account.id) ?? near) - near));
+      const notes = [
+        near > 0 && "a hamarosan esedékes célokra félretett részen felül",
+        far >= 1 &&
+          `ebből ${formatMoney(far)} célra félretett, de a céldátum ${config.reserveGraceDays} napnál messzebb van — addig lejáró papírban (pl. DKJ) is várhatna`,
+      ].filter(Boolean);
       out.push({
         id: `idle-cash:${acc.account.id}`,
         severity: "medium",
         title: `Parlagon álló készpénz – ${acc.account.name}`,
-        detail: `${formatMoney(idle)} fekszik a számlán${reserved?.get(acc.account.id) ? " (a célokra félretett részen felül)" : ""}. Érdemes lehet befektetni.`,
+        detail: `${formatMoney(idle)} fekszik a számlán${notes.length ? ` (${notes.join("; ")})` : ""}. Érdemes lehet befektetni.`,
         to: `/accounts/${acc.account.id}`,
         actionLabel: "Számla megnyitása",
       });
