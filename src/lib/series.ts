@@ -5,6 +5,7 @@
 
 import type { Account, Instrument, Transaction } from "./model";
 import type { LiveQuote } from "./prices";
+import { toLocalDay } from "./bonds";
 import {
   buildFxHistory,
   computePortfolio,
@@ -29,6 +30,19 @@ export interface ValueHistory {
   prices: Record<string, [string, number][]>;
   fx: Record<string, [string, number][]>;
 }
+
+/**
+ * The LOCAL calendar day of a transaction instant. Imports store a day-granular
+ * date as local midnight (e.g. "2026-09-30" → "2026-09-29T22:00:00Z" in
+ * Budapest), so slicing the UTC string would file it under the previous day.
+ */
+const txDay = (iso: string): string => {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? toLocalDay(ms) : iso.slice(0, 10);
+};
+
+/** The instant at the end of LOCAL day `day` (YYYY-MM-DD). */
+const dayEndOf = (day: string): Date => new Date(`${day}T23:59:59.999`);
 
 /** Last value in an ascending [date, value][] series on/before `day`. */
 export function asOf(
@@ -79,50 +93,51 @@ function makeDayMarker(
       priceTimeline.set(t.instrumentKey, arr);
     }
   }
-  const tradePriceAsOf = (key: string, dayEnd: string): number | undefined => {
+  const tradePriceAsOf = (key: string, endMs: number): number | undefined => {
     const arr = priceTimeline.get(key);
     if (!arr) return undefined;
     let p: number | undefined;
     for (const x of arr) {
-      if (x.date <= dayEnd) p = x.price;
+      if (Date.parse(x.date) <= endMs) p = x.price;
       else break;
     }
     return p;
   };
 
   return (day: string, overrides?: DayOverrides) => {
-    const dayEnd = `${day}T23:59:59.999Z`;
-    const txsUpTo = sorted.filter((t) => t.date <= dayEnd);
+    const dayEnd = dayEndOf(day);
+    const endMs = dayEnd.getTime();
+    const txsUpTo = sorted.filter((t) => Date.parse(t.date) <= endMs);
     const pricesAtD: PriceMap = new Map();
     for (const inst of instruments.values()) {
       const p =
         overrides?.prices?.[inst.key] ??
         asOf(history?.prices[inst.key], day) ??
-        tradePriceAsOf(inst.key, dayEnd);
+        tradePriceAsOf(inst.key, endMs);
       if (p != null) pricesAtD.set(inst.key, p);
     }
     const fxAtD = {
       ...fx,
       EUR:
         asOf(history?.fx["EUR"], day) ??
-        histFxRate(fxHistory, "EUR", dayEnd, fx),
+        histFxRate(fxHistory, "EUR", dayEnd.toISOString(), fx),
       ...(overrides?.fx ?? {}),
     };
     // Value the holdings at the SAME instant used as the transaction cutoff
-    // (end of `day`), not local noon. Bond accrued interest resets on the coupon
-    // boundary; a coupon tx is stored at the value date's local midnight (=
-    // 22:00Z east of UTC), so it lands in cash as of `dayEnd`. Valuing accrual at
-    // local noon of the same UTC day-string would be BEFORE that boundary, so the
-    // bond would still carry a full period of accrued interest while the coupon
-    // is already in cash → the coupon double-counts for one sample (a phantom
-    // spike on the coupon day). Aligning both to `dayEnd` keeps them consistent.
+    // (end of the local `day`). Bond accrued interest resets on the coupon
+    // boundary; a coupon tx is stored at the value date's local midnight, so it
+    // lands in cash as of `dayEnd`. Valuing accrual at an earlier instant would
+    // be BEFORE that boundary, so the bond would still carry a full period of
+    // accrued interest while the coupon is already in cash → the coupon
+    // double-counts for one sample (a phantom spike on the coupon day).
+    // Aligning both to `dayEnd` keeps them consistent.
     const summary = computePortfolio(
       accounts,
       txsUpTo,
       instruments,
       pricesAtD,
       fxAtD,
-      new Date(dayEnd),
+      dayEnd,
     );
     return { summary, fx: fxAtD };
   };
@@ -212,11 +227,14 @@ export function buildValueSeries(
 
   // Bridge money in transit between the user's own accounts. A withdrawal from
   // one account is often funded into another a few days later (e.g. treasury →
-  // bank → Lightyear), with no shared reference and possibly split across
-  // deposits. FIFO-match external outflows to later external inflows within a
-  // short window; for the in-transit interval the amount is added back so the
-  // chart doesn't show a phantom dip while the money is between accounts.
-  const TRANSIT_DAYS = 10;
+  // bank → Lightyear), with no shared reference. Match an external outflow to
+  // the first later external inflow of about the SAME amount within a short
+  // window; for the in-transit interval the amount is added back so the chart
+  // doesn't show a phantom dip while the money is between accounts. Unrelated
+  // flows (a 90k withdrawal, then a 200k deposit a week later) are NOT paired —
+  // that would hide the withdrawal and shrink the deposit's step.
+  const TRANSIT_DAYS = 4;
+  const AMOUNT_TOLERANCE = 0.02;
   const flows = sorted
     .filter(
       (t) =>
@@ -231,42 +249,43 @@ export function buildValueSeries(
         fx,
       );
       return {
-        day: t.date.slice(0, 10),
+        day: txDay(t.date),
         amt: t.type === "deposit" ? huf : -huf,
       };
     });
-  const pending: { day: string; rem: number }[] = [];
+  const pending: { day: string; amt: number }[] = [];
   const bridges: { from: string; to: string; amt: number }[] = [];
   for (const ev of flows) {
+    // Too old to be a transfer — treat as real spending.
+    while (
+      pending.length &&
+      (Date.parse(ev.day) - Date.parse(pending[0].day)) / 86_400_000 >
+        TRANSIT_DAYS
+    )
+      pending.shift();
     if (ev.amt < 0) {
-      pending.push({ day: ev.day, rem: -ev.amt });
+      pending.push({ day: ev.day, amt: -ev.amt });
       continue;
     }
-    let dep = ev.amt;
-    while (dep > 1 && pending.length) {
-      const o = pending[0];
-      const gap = (Date.parse(ev.day) - Date.parse(o.day)) / 86_400_000;
-      if (gap > TRANSIT_DAYS) {
-        pending.shift(); // too old to be a transfer — treat as real spending
-        continue;
-      }
-      const m = Math.min(dep, o.rem);
-      if (o.day < ev.day) bridges.push({ from: o.day, to: ev.day, amt: m });
-      o.rem -= m;
-      dep -= m;
-      if (o.rem < 1) pending.shift();
-    }
+    const i = pending.findIndex(
+      (o) => Math.abs(ev.amt - o.amt) <= AMOUNT_TOLERANCE * o.amt,
+    );
+    if (i < 0) continue;
+    const [o] = pending.splice(i, 1);
+    if (o.day < ev.day)
+      bridges.push({ from: o.day, to: ev.day, amt: Math.min(o.amt, ev.amt) });
   }
   const inTransitOn = (day: string) =>
     bridges.reduce((s, b) => (b.from <= day && day < b.to ? s + b.amt : s), 0);
 
-  const todayIso = now.toISOString().slice(0, 10);
-  const tradeDays = [...new Set(sorted.map((t) => t.date.slice(0, 10)))];
+  const todayIso = toLocalDay(now.getTime());
+  const tradeDays = [...new Set(sorted.map((t) => txDay(t.date)))].sort();
   // With history, sample at a fixed cadence from the first trade so hovering is
   // smooth: daily for up to ~a year, thinning for longer spans (≤ ~370 points).
   // Trade days are always included so events land exactly on the line.
   const dayset = new Set(tradeDays);
   if (hasHistory) {
+    // Calendar arithmetic on UTC midnights of the day strings (no DST drift).
     const startMs = Date.parse(tradeDays[0]);
     const endMs = Date.parse(todayIso);
     const spanDays = (endMs - startMs) / 86_400_000;
@@ -401,7 +420,7 @@ export function dayChangeBreakdown(
     EUR: asOf(history?.fx["EUR"], prevDay) ?? fx["EUR"],
     ...(overrides.fx ?? {}),
   };
-  const prevEnd = new Date(`${prevDay}T23:59:59.999Z`);
+  const prevEnd = dayEndOf(prevDay);
   const mark = (p: PriceMap, f: Record<string, number>, at: Date) =>
     computePortfolio(accounts, transactions, instMap, p, f, at);
   const a = mark(prevPrices, prevFx, prevEnd);
