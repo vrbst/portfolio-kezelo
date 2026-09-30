@@ -15,6 +15,8 @@ import { instrumentTypeLabel } from "../lib/labels";
 import InstrumentLogo from "./InstrumentLogo";
 
 const BOND_TYPES = new Set(["gov_bond", "tbill"]);
+/** Cash balances below this (HUF) get no row in the list — e.g. a 1 Ft leftover. */
+const CASH_ROW_MIN_HUF = 1000;
 
 /**
  * Consolidated holdings: every instrument aggregated across all accounts, so the
@@ -62,9 +64,10 @@ export default function HoldingsPanel({
   }, [savingsGoals]);
 
   // Cash balances aren't instruments, so consolidatedHoldings skips them; list
-  // each account's cash (e.g. the Államkincstár pénzszámla) as its own row.
+  // each account's cash (e.g. the Államkincstár pénzszámla) as its own row,
+  // skipping leftover crumbs below CASH_ROW_MIN_HUF.
   const cashRows = summary.accounts
-    .filter((a) => a.cashValueHuf > 0.5)
+    .filter((a) => a.cashValueHuf >= CASH_ROW_MIN_HUF)
     .map((a) => ({
       account: a.account,
       valueHuf: a.cashValueHuf,
