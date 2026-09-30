@@ -58,7 +58,7 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   idleCashHuf: 100_000,
   eventHorizonDays: 14,
   tbszCheck: true,
-  reserveGraceDays: 30,
+  reserveGraceDays: 45,
 };
 
 const IDLE_KEY = "pf-alert-idle-cash";

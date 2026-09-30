@@ -61,7 +61,7 @@ export function loadEnv(): NotifyEnv {
     reserveGraceDays:
       e.NOTIFY_RESERVE_GRACE_DAYS && Number(e.NOTIFY_RESERVE_GRACE_DAYS) >= 0
         ? Number(e.NOTIFY_RESERVE_GRACE_DAYS)
-        : 30,
+        : 45,
     bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
     quiet: [toMinutes(qs), toMinutes(qe)],
