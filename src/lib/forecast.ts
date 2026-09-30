@@ -588,7 +588,12 @@ function simulatePath(
   let shortfall = -1;
   for (let i = 0; i <= p.months; i++) {
     if (i > 0) {
-      growth *= step(i);
+      // A negative pot is money that isn't there (a shortfall): it neither
+      // earns nor costs the return — else the deficit "compounded" and the
+      // optimistic line fell the lowest. The step is drawn anyway so a Monte
+      // Carlo path keeps its random sequence.
+      const m = step(i);
+      if (growth > 0) growth *= m;
       side *= 1 + sideMonthly;
       growth += p.saving[i];
     }
@@ -891,18 +896,21 @@ export function requiredMonthlySaving(
   target: number,
 ): number | null {
   if (valueAt(0) >= target) return 0;
-  let hi = 100_000;
-  while (valueAt(hi) < target) {
-    hi *= 2;
-    if (hi > 100_000_000) return null;
+  // Search whole thousands: the answer is the smallest k·1000 that reaches
+  // the target (rounding a near-miss up could overshoot by a thousand).
+  const MAX = 100_000; // thousands = 100M Ft/month, tried too
+  let hi = 100; // thousands
+  while (valueAt(hi * 1000) < target) {
+    if (hi >= MAX) return null;
+    hi = Math.min(hi * 2, MAX);
   }
-  let lo = 0;
-  for (let k = 0; k < 40 && hi - lo > 100; k++) {
-    const mid = (lo + hi) / 2;
-    if (valueAt(mid) >= target) hi = mid;
+  let lo = 0; // valueAt(lo·1000) < target ≤ valueAt(hi·1000)
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (valueAt(mid * 1000) >= target) hi = mid;
     else lo = mid;
   }
-  return Math.ceil(hi / 1000) * 1000;
+  return hi * 1000;
 }
 
 // ---------------------------------------------------------------------------
