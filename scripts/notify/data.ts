@@ -174,18 +174,50 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
   installLocalStorage();
   applyRemotePrefs(snapshot.prefs);
 
-  const { accounts, transactions } = dropDeleted(snapshot);
-  const instruments = snapshot.instruments;
-  const instMap = new Map(instruments.map((i) => [i.key, i]));
-
   const tickerTypes = new Set(["etf", "stock", "fund"]);
-  const targets = instruments
+  const targets = snapshot.instruments
     .filter((i) => tickerTypes.has(i.type))
     .map((i) => ({ key: i.key, isin: i.isin ?? i.key, currency: i.currency }));
   const [fxQuotes, priceQuotes] = await Promise.all([
     withTimeout(fetchLiveFx(), 20_000, {} as Record<string, LiveQuote>),
     withTimeout(fetchLivePrices(targets), 30_000, {} as Record<string, LiveQuote>),
   ]);
+
+  return buildContext({
+    snapshot,
+    priceFile,
+    history,
+    fxQuotes,
+    priceQuotes,
+    at: new Date(),
+    idleCashHuf: env.idleCashHuf,
+    reserveGraceDays: env.reserveGraceDays,
+  });
+}
+
+export interface ContextInput {
+  snapshot: PortfolioSnapshot;
+  priceFile: PriceFile | null;
+  history: HistoryFile | null;
+  /** Live FX quotes (e.g. EUR) and live instrument quotes, by key. */
+  fxQuotes: Record<string, LiveQuote>;
+  priceQuotes: Record<string, LiveQuote>;
+  at: Date;
+  idleCashHuf: number;
+  reserveGraceDays: number;
+}
+
+/**
+ * The whole picture from already loaded inputs — no network. The planning
+ * prefs must already be in localStorage (applyRemotePrefs). Kept separate so
+ * the tests can run the full pipeline on an invented portfolio.
+ */
+export function buildContext(input: ContextInput): Context {
+  const { snapshot, priceFile, history, fxQuotes, priceQuotes, at } = input;
+  const env = input;
+  const { accounts, transactions } = dropDeleted(snapshot);
+  const instruments = snapshot.instruments;
+  const instMap = new Map(instruments.map((i) => [i.key, i]));
   const liveQuotes = { ...fxQuotes, ...priceQuotes };
 
   const prices: PriceMap = new Map();
@@ -195,8 +227,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
   const fx: Record<string, number> = { ...(priceFile?.fx ?? {}) };
   for (const [k, q] of Object.entries(fxQuotes)) fx[k] = q.price;
 
-  const at = new Date();
-  const summary = computePortfolio(accounts, transactions, instMap, prices, fx);
+  const summary = computePortfolio(accounts, transactions, instMap, prices, fx, at);
   const series = buildValueSeries(
     accounts,
     transactions,
