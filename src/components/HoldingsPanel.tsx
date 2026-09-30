@@ -352,7 +352,16 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
       <div className="mb-2 text-xs font-medium text-[var(--color-muted)]">
         Vásárlásaim ({lots.length} db)
       </div>
-      <table className="w-full min-w-[560px] text-xs">
+      <table className="w-full min-w-[560px] table-fixed text-xs">
+        <colgroup>
+          <col className="w-[14%]" />
+          <col className={foreign ? "w-[15%]" : "w-[18%]"} />
+          <col className={foreign ? "w-[12%]" : "w-[14%]"} />
+          {foreign && <col className="w-[9%]" />}
+          <col className={foreign ? "w-[15%]" : "w-[16%]"} />
+          <col className={foreign ? "w-[15%]" : "w-[18%]"} />
+          <col className="w-[20%]" />
+        </colgroup>
         <thead className="text-left text-[var(--color-muted)]">
           <tr>
             <th className="py-1.5 pr-3 font-medium">Dátum</th>
@@ -384,9 +393,9 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
                 <td className="amt py-1.5 pr-3 text-right">
                   {formatNumber(lot.quantity, 4)}
                   {partial && (
-                    <span className="ml-1 text-[10px] text-[var(--color-muted)]">
-                      (eredetileg {formatNumber(lot.originalQuantity, 4)})
-                    </span>
+                    <div className="text-[10px] text-[var(--color-muted)]">
+                      eredetileg {formatNumber(lot.originalQuantity, 4)}
+                    </div>
                   )}
                 </td>
                 <td className="amt py-1.5 pr-3 text-right">
@@ -477,7 +486,15 @@ function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
         )}
         {nextCoupon && <span>Köv. kamat: {formatDate(nextCoupon)}</span>}
       </div>
-      <table className="w-full min-w-[560px] text-xs">
+      <table className="w-full min-w-[560px] table-fixed text-xs">
+        <colgroup>
+          <col className="w-[14%]" />
+          <col className="w-[18%]" />
+          <col className="w-[12%]" />
+          <col className="w-[16%]" />
+          <col className="w-[18%]" />
+          <col className="w-[22%]" />
+        </colgroup>
         <thead className="text-left text-[var(--color-muted)]">
           <tr>
             <th className="py-1.5 pr-3 font-medium">Dátum</th>
@@ -504,9 +521,9 @@ function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
                 <td className="amt py-1.5 pr-3 text-right">
                   {formatMoney(lot.faceValue)}
                   {partial && (
-                    <span className="ml-1 text-[10px] text-[var(--color-muted)]">
-                      (eredetileg {formatMoney(lot.originalFaceValue)})
-                    </span>
+                    <div className="text-[10px] font-normal text-[var(--color-muted)]">
+                      eredetileg {formatMoney(lot.originalFaceValue)}
+                    </div>
                   )}
                 </td>
                 <td className="amt py-1.5 pr-3 text-right text-[var(--color-muted)]">
