@@ -842,7 +842,11 @@ function holdCashFrom(
   let last = "";
   for (const k of goal.instrumentKeys) {
     const inst = instruments.get(k);
-    if (inst?.notBuyable) continue; // marked "nem vehető" — no buy window
+    // A series marked "nem vehető" by hand (like the goal's unbuyableKeys)
+    // keeps its maturity-based window: the flag carries no date, so treating
+    // it as "never buyable" would open the window at the goal's creation and
+    // hand the goal every coupon since then — the month's set-aside to-do
+    // vanished and the goal showed more money than it has.
     const mat = maturityDay(inst);
     if (!mat) return undefined;
     if (mat > target) continue; // never buyable for the goal
