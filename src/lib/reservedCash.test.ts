@@ -66,6 +66,29 @@ describe("cash set aside is not free cash", () => {
     expect(idle()).toHaveLength(1);
     expect(idle(reservedCashByAccount([goal()], DAY))).toHaveLength(0);
   });
+
+  it("set-aside cash is idle unless the goal is due within the grace days", () => {
+    const cfg = { ...DEFAULT_ALERT_CONFIG, idleCashHuf: 100_000, reserveGraceDays: 30 };
+    const idle = (g: SavingsGoal, days = cfg.reserveGraceDays) =>
+      computeAlerts(
+        summary,
+        { ...cfg, reserveGraceDays: days },
+        new Date(`${DAY}T12:00:00`),
+        TXS,
+        reservedCashByAccount([g], DAY, [], {}, days),
+        reservedCashByAccount([g], DAY),
+      ).filter((a) => a.id.startsWith("idle-cash"));
+    // Due 2026-11-01: 34 days away → the 550 000 set aside counts as idle.
+    const far = idle(goal());
+    expect(far).toHaveLength(1);
+    expect(far[0].detail).toMatch(/^600\s000\sFt fekszik/);
+    expect(far[0].detail).toMatch(/ebből 550\s000\sFt célra félretett/);
+    // Within 30 days (target day included), or a longer grace → not idle.
+    expect(idle(goal({ targetDate: "2026-10-28" }))).toHaveLength(0);
+    expect(idle(goal(), 40)).toHaveLength(0);
+    expect(reservedCashByAccount([goal()], DAY, [], {}, 34).get("k")).toBe(550_000);
+    expect(reservedCashByAccount([goal()], DAY, [], {}, 33).size).toBe(0);
+  });
 });
 
 describe("possible double counting: a buy paid from a reserve", () => {

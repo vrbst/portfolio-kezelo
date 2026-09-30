@@ -707,17 +707,27 @@ function assignedValue(
  * the glide path doesn't suggest investing it and it raises no idle-cash
  * alert. Past a goal's date its reserves no longer hold the cash. With the
  * ledger (`txs`), the credited coupons a goal picked (couponIds) are held
- * on their account too.
+ * on their account too. With `withinDays`, only the goals due within that
+ * many days of `day` count — the idle-cash alert uses it: money parked for a
+ * far-off goal is still idle (it could sit in a DKJ until then).
  */
 export function reservedCashByAccount(
   goals: SavingsGoal[],
   day: string,
   txs: Transaction[] = [],
   fx: Record<string, number> = {},
+  withinDays?: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
   const add = (acc: string, huf: number) => out.set(acc, (out.get(acc) ?? 0) + huf);
-  const ahead = goals.filter((g) => g.targetDate.slice(0, 10) >= day);
+  const last =
+    withinDays === undefined
+      ? undefined
+      : toLocalDay(Date.parse(`${day}T12:00:00`) + Math.max(0, withinDays) * DAY_MS);
+  const ahead = goals.filter((g) => {
+    const target = g.targetDate.slice(0, 10);
+    return target >= day && (last === undefined || target <= last);
+  });
   for (const g of ahead)
     for (const r of reservesOn(g, day)) if (r.accountId) add(r.accountId, r.amountHuf);
   if (ahead.some((g) => g.couponIds?.length))
