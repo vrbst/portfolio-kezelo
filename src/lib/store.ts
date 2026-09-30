@@ -49,6 +49,7 @@ import {
   pruneAlertState,
   unionIds,
   unionSnapshots,
+  unionAccounts,
 } from "./syncMerge";
 
 // Hooks live in storeHooks.ts; re-exported so `from "./store"` keeps working.
@@ -346,9 +347,9 @@ async function mergeSnapshot(
   for (const i of snap.instruments ?? []) instByKey.set(i.key, i);
   const instruments = [...instByKey.values()];
 
-  // Accounts: remote wins so TBSZ labels / edits propagate across devices.
-  const accById = new Map(s.accounts.map((a) => [a.id, a]));
-  for (const a of snap.accounts ?? []) accById.set(a.id, a);
+  // Accounts: remote wins so TBSZ labels / edits propagate across devices
+  // (the latest re-import of either copy is kept — see unionAccounts).
+  const mergedAccounts = unionAccounts(s.accounts, snap.accounts);
 
   // Account deletions from either device drop the account with its txs.
   const deletedAccounts = mergeTombstones(
@@ -360,7 +361,7 @@ async function mergeSnapshot(
     transactions,
     removedIds: removedAccountIds,
   } = dropDeletedAccounts(
-    [...accById.values()],
+    mergedAccounts,
     [...txById.values()],
     deletedAccounts,
   );

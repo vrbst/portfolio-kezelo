@@ -22,6 +22,22 @@ export function unionById<T>(
   return [...m.values()];
 }
 
+/**
+ * Accounts by id, `over` winning per account — but the LATEST re-import
+ * (restoredAt) of either copy is kept. A device still holding an old copy of
+ * a deleted-then-re-imported account must not undo the re-import: without
+ * its restoredAt the deletion tombstone would drop the account everywhere.
+ */
+export function unionAccounts(base: Account[] | undefined, over: Account[] | undefined): Account[] {
+  const restored = new Map<string, string>();
+  for (const a of [...(base ?? []), ...(over ?? [])])
+    if (a.restoredAt && a.restoredAt > (restored.get(a.id) ?? "")) restored.set(a.id, a.restoredAt);
+  return unionById(base, over, (a) => a.id).map((a) => {
+    const at = restored.get(a.id);
+    return at && at !== a.restoredAt ? { ...a, restoredAt: at } : a;
+  });
+}
+
 /** Union two tombstone maps, keeping the latest deletion time per id. */
 export function mergeTombstones(
   a: Record<string, string> | undefined,
@@ -131,7 +147,7 @@ export function unionSnapshots(
   );
   // Drop tombstoned accounts with their transactions, so a delete is never re-added.
   const { accounts, transactions } = dropDeletedAccounts(
-    unionById(remote.accounts, local.accounts, (a) => a.id),
+    unionAccounts(remote.accounts, local.accounts),
     unionById(remote.transactions, local.transactions, (t) => t.id),
     deletedAccounts,
   );
