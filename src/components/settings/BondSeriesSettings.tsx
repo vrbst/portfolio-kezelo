@@ -144,7 +144,7 @@ export default function BondSeriesSettings() {
                     <input
                       type="date"
                       className={inputCls}
-                      value={(b.maturity ?? inst.maturity)?.slice(0, 10) ?? ""}
+                      value={dayOf(b.maturity ?? inst.maturity) ?? ""}
                       onChange={(e) =>
                         setBond(inst, { maturity: e.target.value || undefined })
                       }
