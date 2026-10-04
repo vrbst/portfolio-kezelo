@@ -138,11 +138,18 @@ async function loadSnapshot(env: NotifyEnv): Promise<PortfolioSnapshot> {
 const optional = <T>(p: Promise<T>) => p.catch(() => null);
 
 /** Live quotes are best-effort: a Yahoo hiccup must not break a report. */
-async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T) {
-  return Promise.race([
-    p.catch(() => fallback),
-    new Promise<T>((r) => setTimeout(() => r(fallback), ms)),
-  ]);
+export async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p.catch(() => fallback),
+      new Promise<T>((r) => (timer = setTimeout(() => r(fallback), ms))),
+    ]);
+  } finally {
+    // A timer left pending keeps the (per-request) handler process alive for
+    // its full length: every command would take 30 s.
+    clearTimeout(timer);
+  }
 }
 
 /** Accounts deleted on any device (tombstone newer than a re-import). */

@@ -6,7 +6,7 @@
 //  - EUR/HUF is refreshed live from frankfurter.app (CORS-friendly, no key).
 
 import { PREFS_EVENT, touchPref } from "./prefs";
-import { utcDay } from "./day";
+import { toLocalDay, utcDay } from "./day";
 
 export interface PriceEntry {
   price: number;
@@ -141,6 +141,23 @@ export interface LiveQuote {
   name?: string;
   /** Symbol the intraday curve was borrowed from (see INTRADAY_PROXY). */
   intradayFrom?: string;
+  /**
+   * When the listing itself last traded (epoch ms) — never the borrowed
+   * intraday curve's time. On a weekend it is Friday's close, so `price` vs
+   * `prevClose` is Friday's move, not today's.
+   */
+  marketTime?: number;
+}
+
+/**
+ * Did the quote trade on `now`'s local calendar day? Without a known trade
+ * time (e.g. the frankfurter fallback) it counts as today's. Lets a notifier
+ * tell today's move from the last session's move replayed on a weekend, a
+ * holiday or before the open.
+ */
+export function quotedToday(q: LiveQuote | undefined, now: Date): boolean {
+  if (!q) return false;
+  return q.marketTime == null || toLocalDay(q.marketTime) === toLocalDay(now);
 }
 
 /** Is the quote's market in its regular session at `now`? Without a known
@@ -183,6 +200,8 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
         result?: {
           meta?: {
             regularMarketPrice?: number;
+            /** Last trade of the listing, epoch seconds. */
+            regularMarketTime?: number;
             currency?: string;
             previousClose?: number;
             chartPreviousClose?: number;
@@ -240,6 +259,10 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
           : undefined,
       exchange: meta?.fullExchangeName,
       name: meta?.longName ?? meta?.shortName,
+      marketTime:
+        typeof meta?.regularMarketTime === "number" && meta.regularMarketTime > 0
+          ? meta.regularMarketTime * 1000
+          : undefined,
     };
   } catch {
     return null;

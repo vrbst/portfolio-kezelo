@@ -38,9 +38,12 @@ import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
-import { esc } from "./telegram";
 
 // ---- formatting -----------------------------------------------------------
+
+/** Escape user/data text for Telegram's HTML. */
+export const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const nf = new Intl.NumberFormat("hu-HU", { maximumFractionDigits: 0 });
 export const ft = (n: number) => `${nf.format(Math.round(n))} Ft`;
@@ -624,20 +627,3 @@ export function monthlyText(ctx: Context): string {
   if (!goals.startsWith("Még nincs")) lines.push("", goals);
   return lines.join("\n");
 }
-
-export const HELP = [
-  "🤖 <b>Portfolio Tracker</b>",
-  "",
-  "/allas – aktuális vagyon, napi változás",
-  "/arfolyam – EUR/HUF és a tartott részvények, ETF-ek aktuális árfolyama",
-  "/teendok – aktív figyelmeztetések",
-  "/esemenyek – következő 30 nap (kupon, lejárat, TBSZ)",
-  "/cel – célok állása",
-  "/elorejelzes – 1–20 éves előrejelzés",
-  "/heti – heti összefoglaló most",
-  "/havi – előző havi zárás most",
-  "/eladas – mennyi pénzed lenne, ha most eladnál mindent (díj, TBSZ-adó levonva)",
-  "/maradek 50000 – hová menjen a hónapban megmaradt pénz",
-  "",
-  "Magamtól szólok: új teendőnél, nagy napi mozgásnál, vasárnap este heti, a hónap elején havi jelentéssel, a hónap utolsó munkanapján a maradékért.",
-].join("\n");

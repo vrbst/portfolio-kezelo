@@ -1,5 +1,7 @@
-// Config + Node shims for the Telegram notifier. Secrets and state live in
-// .notify/ (gitignored) at the repo root — never in the repo itself.
+// Config + Node shims for the Telegram notifier (run by the local tg-hub, see
+// tg-hub.app.json). Secrets and state live in .notify/ (gitignored) at the
+// repo root — never in the repo itself. The bot token, the owner's chat id
+// and the quiet hours are the hub's business, not ours.
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -11,9 +13,6 @@ export const NOTIFY_DIR = resolve(ROOT, ".notify");
 const ENV_FILE = resolve(NOTIFY_DIR, ".env");
 
 export interface NotifyEnv {
-  botToken: string;
-  /** Empty until paired (the first private message to the bot sets it). */
-  chatId: string;
   /** owner/repo of the private sync repo and the snapshot's path in it. */
   syncRepo: string;
   syncPath: string;
@@ -27,8 +26,6 @@ export interface NotifyEnv {
   bigMovePct: number;
   /** Daily move (%) of a single position that triggers a message. */
   positionMovePct: number;
-  /** Quiet hours "HH:MM-HH:MM": non-urgent messages wait until they end. */
-  quiet: [number, number];
 }
 
 function parseEnvFile(): Record<string, string> {
@@ -41,19 +38,9 @@ function parseEnvFile(): Record<string, string> {
   return out;
 }
 
-const toMinutes = (hhmm: string) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + (m || 0);
-};
-
 export function loadEnv(): NotifyEnv {
   const e = { ...parseEnvFile(), ...process.env } as Record<string, string>;
-  if (!e.TELEGRAM_BOT_TOKEN)
-    throw new Error(`Hiányzik a TELEGRAM_BOT_TOKEN (${ENV_FILE})`);
-  const [qs, qe] = (e.NOTIFY_QUIET || "22:00-07:30").split("-");
   return {
-    botToken: e.TELEGRAM_BOT_TOKEN,
-    chatId: e.TELEGRAM_CHAT_ID || "",
     syncRepo: e.SYNC_REPO || "vrbst/portfolio-data",
     syncPath: e.SYNC_PATH || "data.json",
     pricesRepo: e.PRICES_REPO || "vrbst/portfolio-kezelo",
@@ -64,7 +51,6 @@ export function loadEnv(): NotifyEnv {
         : 45,
     bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
-    quiet: [toMinutes(qs), toMinutes(qe)],
   };
 }
 

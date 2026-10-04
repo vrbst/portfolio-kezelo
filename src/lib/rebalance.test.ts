@@ -6,7 +6,7 @@ import {
   type GlideConfig,
   type InstrumentRule,
 } from "./glidePath";
-import { splitForQuietHours, type Alert } from "./alerts";
+import { bypassesQuietHours, type Alert } from "./alerts";
 import {
   allocationState,
   applyShock,
@@ -727,18 +727,16 @@ describe("quiet hours", () => {
   const normal: Alert = { id: "x", severity: "medium", title: "Első jelzés" };
 
   it("a deep re-alert goes out during quiet hours when allowed", () => {
-    const a = deepAlert(cfg(true));
-    expect(splitForQuietHours([a, normal], true)).toEqual({ now: [a], held: [normal] });
+    expect(bypassesQuietHours(deepAlert(cfg(true)))).toBe(true);
+    expect(bypassesQuietHours(normal)).toBe(false);
   });
 
   it("…and waits for the morning by default", () => {
-    const a = deepAlert(cfg(false));
-    expect(splitForQuietHours([a], true)).toEqual({ now: [], held: [a] });
+    expect(bypassesQuietHours(deepAlert(cfg(false)))).toBe(false);
   });
 
-  it("outside quiet hours everything goes", () => {
-    const a = deepAlert(cfg(false));
-    expect(splitForQuietHours([a, normal], false).now).toHaveLength(2);
+  it("a high-severity alert always goes out", () => {
+    expect(bypassesQuietHours({ ...normal, severity: "high" })).toBe(true);
   });
 });
 

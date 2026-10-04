@@ -1,0 +1,69 @@
+// The notifier's own business state (.notify/state.json): what has already
+// been sent, so a tick only reports what's new. Polling, quiet-hour queues and
+// heartbeats are tg-hub's (its own state), not ours.
+
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import type { GlideSignals } from "../../src/lib/rebalance";
+
+export interface State {
+  /** Alert id → when it was first sent. Pruned when the alert resolves. */
+  sentAlerts: Record<string, string>;
+  lastWeekly?: string; // YYYY-MM-DD of the Sunday it was sent
+  lastMonthly?: string; // YYYY-MM
+  /**
+   * Today's already-reported move levels (level = |move| / threshold, floored):
+   * a new message goes out only when a level is crossed, so a 2% day pings
+   * once, and again if it deepens to 4%.
+   */
+  moves?: { day: string; total: number; pos: Record<string, number> };
+  /** Stale-data warnings: key → last sent ISO (re-sent at most weekly). */
+  warned: Record<string, string>;
+  /**
+   * Glide-path re-alert state (last alerted distance per out-of-band
+   * bucket). The app keeps its own copy; both run updateGlideSignals.
+   */
+  glideSignals?: GlideSignals;
+  /**
+   * Month-end leftover: the month (YYYY-MM) already asked about, and the
+   * amounts answered with /maradek per month (the app's recorded plan is the
+   * other "already done" signal — it comes with the sync).
+   */
+  leftover?: { asked?: string; answered?: Record<string, number> };
+  /**
+   * ISO of the first tick in the current run of transient load failures
+   * (network, timeout); cleared by a successful load. Until it's older than
+   * the grace period the tick stays silent (tg-app.ts).
+   */
+  loadFailingSince?: string;
+}
+
+/** Fields of the old self-polling bot, now kept by tg-hub: dropped on load. */
+const LEGACY = ["offset", "strangers", "queue", "lastBeat", "lastErrorAt"];
+
+export function loadState(file: string): State {
+  const base: State = { sentAlerts: {}, warned: {} };
+  try {
+    if (!existsSync(file)) return base;
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    for (const k of LEGACY) delete raw[k];
+    return { ...base, ...raw };
+  } catch {
+    return base;
+  }
+}
+
+/**
+ * Read–modify–write. The tick (a job) and /maradek (a command) run in
+ * separate processes and may overlap: each re-reads the file right before
+ * writing and changes only its own fields. The write is atomic, so a process
+ * killed on timeout never leaves a half-written file.
+ */
+export function updateState(file: string, change: (current: State) => State): State {
+  const next = change(loadState(file));
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(next, null, 2));
+  renameSync(tmp, file);
+  return next;
+}

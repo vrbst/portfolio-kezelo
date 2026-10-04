@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title": "Portfolio Tracker",
+  "handler": {
+    "command": ["node", "node_modules/tsx/dist/cli.mjs", "scripts/notify/tg-handler.ts"],
+    "timeout": "60s"
+  },
+  "commands": [
+    { "name": "allas", "description": "Aktuális vagyon, napi változás" },
+    { "name": "arfolyam", "description": "EUR/HUF és a tartott papírok árfolyama" },
+    { "name": "teendok", "description": "Aktív figyelmeztetések" },
+    { "name": "esemenyek", "description": "Következő 30 nap eseményei" },
+    { "name": "cel", "description": "Célok állása" },
+    { "name": "elorejelzes", "description": "1–20 éves előrejelzés" },
+    { "name": "heti", "description": "Heti összefoglaló most" },
+    { "name": "havi", "description": "Előző havi zárás most" },
+    { "name": "eladas", "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
+    { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" }
+  ],
+  "quietHours": { "from": "22:00", "to": "07:30" },
+  "jobs": [
+    {
+      "id": "tick",
+      "description": "Riasztások, nagy mozgások, elavult adat, heti/havi jelentés, hónap végi maradék",
+      "every": "5m",
+      "timeout": "3m",
+      "expectSuccessWithin": "6h"
+    }
+  ],
+  "health": { "repeatEvery": "6h" }
+}

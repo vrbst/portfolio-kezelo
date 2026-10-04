@@ -26,18 +26,13 @@ export interface Alert {
 }
 
 /**
- * Which alerts go out now and which wait for the morning: outside quiet hours
- * everything goes; inside them only high-severity alerts and the ones marked
- * `bypassQuiet` (e.g. deepening glide-path re-alerts, if the user allows).
+ * May this alert go out during the bot's quiet hours (an urgent message)?
+ * Only high-severity alerts and the ones marked `bypassQuiet` (e.g. deepening
+ * glide-path re-alerts, if the user allows). Whether it is quiet right now is
+ * up to the delivery (tg-hub): the rest waits for the morning there.
  */
-export function splitForQuietHours(
-  alerts: Alert[],
-  quiet: boolean,
-): { now: Alert[]; held: Alert[] } {
-  if (!quiet) return { now: alerts, held: [] };
-  const urgent = (a: Alert) => a.severity === "high" || !!a.bypassQuiet;
-  return { now: alerts.filter(urgent), held: alerts.filter((a) => !urgent(a)) };
-}
+export const bypassesQuietHours = (a: Alert): boolean =>
+  a.severity === "high" || !!a.bypassQuiet;
 
 export interface AlertConfig {
   /** Cash above this (HUF) on any account raises an "idle cash" alert. */

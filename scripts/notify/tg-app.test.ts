@@ -1,0 +1,287 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import type { Alert } from "../../src/lib/alerts";
+import type { Context } from "./data";
+import { withTimeout } from "./data";
+import { ROOT } from "./env";
+import { contextAt } from "./testContext";
+import { alertMessages, runHandler, type Deps, type HubResponse } from "./tg-app";
+
+// The tg-hub handler at the protocol level: a request JSON in, a response
+// JSON out, on the invented portfolio (src/test/fixture.ts), no network.
+
+let dir: string;
+let stateFile: string;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "tg-app-"));
+  stateFile = join(dir, "state.json");
+});
+afterEach(() => {
+  vi.useRealTimers();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const env = { bigMovePct: 2, positionMovePct: 5 };
+const depsFor = (ctx: () => Context): Deps => ({ load: async () => ctx(), stateFile, env });
+const failing = (message: string): Deps => ({
+  load: async () => {
+    throw new Error(message);
+  },
+  stateFile,
+  env,
+});
+
+const base = { v: 1, id: "r1", app: "portfolio", now: "" };
+const commandReq = (command: string, args = "") =>
+  JSON.stringify({ ...base, type: "command", command, args, argv: args.split(" ").filter(Boolean), chat: { id: 1 }, message: { id: 1, date: "" } });
+const textReq = (text: string, context: string | null) =>
+  JSON.stringify({ ...base, type: "text", text, context, chat: { id: 1 }, message: { id: 2, date: "" } });
+const jobReq = (job = "tick") =>
+  JSON.stringify({ ...base, type: "job", job, scheduledFor: null, catchUp: false, manual: false, lastSuccessAt: null });
+
+const call = async (input: string, deps: Deps): Promise<HubResponse> => {
+  const out = await runHandler(input, deps);
+  return JSON.parse(out) as HubResponse;
+};
+const readState = () => JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, unknown>;
+
+// A Wednesday morning in October (no weekly / month-end event).
+const WED: [number, number, number, number] = [2026, 10, 14, 10];
+
+describe("commands", () => {
+  it("/allas → one HTML message", async () => {
+    const r = await call(commandReq("allas"), depsFor(() => contextAt(WED)));
+    expect(r.ok).toBeUndefined();
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].html).toContain("Ft");
+  });
+
+  it("an unknown command is a handled error", async () => {
+    const r = await call(commandReq("nincsilyen"), depsFor(() => contextAt(WED)));
+    expect(r).toMatchObject({ ok: false, error: "Ismeretlen parancs: /nincsilyen" });
+  });
+
+  it("/maradek 50000 → the split, and the amount is remembered for the month", async () => {
+    const r = await call(commandReq("maradek", "50000"), depsFor(() => contextAt(WED)));
+    expect(r.ok).toBeUndefined();
+    expect(r.expectText).toBeUndefined();
+    expect(r.messages![0].html).toContain("🐷");
+    expect(readState().leftover).toEqual({ answered: { "2026-10": 50_000 } });
+  });
+
+  it("/maradek without an amount asks, and takes the next message as the amount", async () => {
+    const deps = depsFor(() => contextAt(WED));
+    const ask = await call(commandReq("maradek"), deps);
+    expect(ask.expectText).toEqual({ context: "maradek", ttl: "10m" });
+    expect(ask.messages![0].html).toContain("elég csak az összeget");
+    expect(existsSync(stateFile)).toBe(false);
+
+    const answer = await call(textReq("50e", "maradek"), deps);
+    expect(answer.expectText).toBeUndefined();
+    expect(answer.messages![0].html).toBe(
+      (await call(commandReq("maradek", "50000"), deps)).messages![0].html,
+    );
+    expect(readState().leftover).toEqual({ answered: { "2026-10": 50_000 } });
+  });
+
+  it("/maradek with a bad amount says why and waits for a better one", async () => {
+    const r = await call(commandReq("maradek", "sok"), depsFor(() => contextAt(WED)));
+    expect(r.messages![0].html).toContain("❌");
+    expect(r.expectText?.context).toBe("maradek");
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  it("a load failure is a handled error, with the token hint on 401/403", async () => {
+    expect(await call(commandReq("allas"), failing("401 Unauthorized – https://api.github.com/…"))).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("GITHUB_TOKEN"),
+    });
+  });
+});
+
+describe("tick", () => {
+  it("returns the new alerts once, and saves what it sent", async () => {
+    const deps = depsFor(() => contextAt(WED));
+    const first = await call(jobReq(), deps);
+    expect(first.ok).toBeUndefined();
+    const alerts = first.messages!.filter((m) => m.html.includes("új teendő") || m.html.includes("Új teendő"));
+    expect(alerts).toHaveLength(1);
+    const sent = readState().sentAlerts as Record<string, string>;
+    expect(Object.keys(sent).length).toBeGreaterThan(0);
+
+    const second = await call(jobReq(), deps);
+    expect(second.messages).toEqual([]);
+  });
+
+  it("without a high-severity alert the alert message waits out the quiet hours", async () => {
+    expect(contextAt(WED).alerts.some((a) => a.severity === "high")).toBe(false);
+    const r = await call(jobReq(), depsFor(() => contextAt(WED)));
+    expect(r.messages!.find((x) => /új teendő/i.test(x.html))!.priority).toBe("normal");
+  });
+
+  it("the Sunday evening report goes out once, as a normal message", async () => {
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-11", lastMonthly: "2026-10" }));
+    const deps = depsFor(() => contextAt([2026, 10, 18, 18, 30]));
+    const r = await call(jobReq(), deps);
+    const weekly = r.messages!.filter((m) => m.html.includes("Heti"));
+    expect(weekly).toHaveLength(1);
+    expect(weekly[0].priority).toBe("normal");
+    expect(readState().lastWeekly).toBe("2026-10-18");
+    expect((await call(jobReq(), deps)).messages!.some((m) => m.html.includes("Heti"))).toBe(false);
+  });
+
+  it("loads the old bot's state; the hub's fields are dropped, the rest kept", async () => {
+    writeFileSync(
+      stateFile,
+      JSON.stringify({
+        offset: 123,
+        strangers: { "42": "2026-10-01T10:00:00.000Z" },
+        queue: ["<b>régi</b>"],
+        lastBeat: "2026-10-13T10:00:00.000Z",
+        lastErrorAt: "2026-10-12T10:00:00.000Z",
+        sentAlerts: {},
+        warned: {},
+        lastWeekly: "2026-10-11",
+        lastMonthly: "2026-10",
+        leftover: { asked: "2026-09", answered: { "2026-09": 20_000 } },
+      }),
+    );
+    const r = await call(jobReq(), depsFor(() => contextAt(WED)));
+    expect(r.ok).toBeUndefined();
+    const st = readState();
+    for (const k of ["offset", "strangers", "queue", "lastBeat", "lastErrorAt"]) expect(st).not.toHaveProperty(k);
+    expect(st).toMatchObject({
+      lastWeekly: "2026-10-11",
+      lastMonthly: "2026-10",
+      leftover: { asked: "2026-09", answered: { "2026-09": 20_000 } },
+    });
+    // The queued message is the hub's business now: not re-sent from here.
+    expect(r.messages!.some((m) => m.html.includes("régi"))).toBe(false);
+  });
+
+  it("keeps a /maradek answer saved while the tick was loading", async () => {
+    const deps: Deps = {
+      load: async () => {
+        const ctx = contextAt(WED);
+        // A command process answers meanwhile.
+        await call(commandReq("maradek", "30000"), depsFor(() => ctx));
+        return ctx;
+      },
+      stateFile,
+      env,
+    };
+    await call(jobReq(), deps);
+    expect(readState().leftover).toMatchObject({ answered: { "2026-10": 30_000 } });
+  });
+
+  it("a token error (401/403) → ok:false at once, with the hint", async () => {
+    expect(await call(jobReq(), failing("403 Forbidden – https://api.github.com/repos/x"))).toEqual({
+      v: 1,
+      ok: false,
+      error:
+        "🔑 Nem érem el a szinkron-repót (a GitHub-token lejárt vagy hibás). Frissítsd a .notify/.env-ben a GITHUB_TOKEN-t.",
+    });
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  it("a transient load failure is silent for 30 min, then ok:false with the reason", async () => {
+    // 2026-10-03 23:46 and 00:01: single GitHub timeouts, each fixed by the
+    // next tick — they must not reach the phone as ❌ + ✅.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 3, 23, 46));
+    const timeout = failing("The operation was aborted due to timeout");
+    expect(await call(jobReq(), timeout)).toEqual({ v: 1, messages: [] });
+    vi.setSystemTime(new Date(2026, 9, 4, 0, 11));
+    expect(await call(jobReq(), timeout)).toEqual({ v: 1, messages: [] });
+
+    vi.setSystemTime(new Date(2026, 9, 4, 0, 16));
+    expect(await call(jobReq(), timeout)).toEqual({
+      v: 1,
+      ok: false,
+      error: "Nem sikerült frissíteni az adatokat: The operation was aborted due to timeout (30 perce)",
+    });
+  });
+
+  it("a successful load restarts the grace period", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const timeout = failing("fetch failed");
+    vi.setSystemTime(new Date(2026, 9, 3, 23, 0));
+    await call(jobReq(), timeout);
+    expect(readState().loadFailingSince).toBeDefined();
+
+    vi.setSystemTime(new Date(2026, 9, 3, 23, 25));
+    await call(jobReq(), depsFor(() => contextAt(WED)));
+    expect(readState()).not.toHaveProperty("loadFailingSince");
+
+    vi.setSystemTime(new Date(2026, 9, 3, 23, 40));
+    expect(await call(jobReq(), timeout)).toEqual({ v: 1, messages: [] });
+  });
+
+  it("an unknown job is an error", async () => {
+    expect(await call(jobReq("napi"), depsFor(() => contextAt(WED)))).toMatchObject({ ok: false });
+  });
+});
+
+describe("alert priorities", () => {
+  const a = (id: string, severity: Alert["severity"], bypassQuiet?: boolean): Alert => ({
+    id,
+    severity,
+    title: id,
+    bypassQuiet,
+  });
+
+  it("normal alerts together: urgent if any is high", () => {
+    expect(alertMessages([a("x", "medium"), a("y", "info")]).map((m) => m.priority)).toEqual(["normal"]);
+    expect(alertMessages([a("x", "medium"), a("y", "high")]).map((m) => m.priority)).toEqual(["urgent"]);
+  });
+
+  it("deep glide re-alerts apart: urgent where the user lets them through the quiet hours", () => {
+    const deepOk = a("glide:R:below:2026-10:n2", "medium", true);
+    const deepWait = a("glide:K:above:2026-10:n3", "medium", false);
+    const ms = alertMessages([a("x", "medium"), deepOk, deepWait]);
+    expect(ms.map((m) => m.priority)).toEqual(["normal", "urgent", "normal"]);
+    expect(ms[1].html).toContain("glide:R");
+    expect(ms[2].html).toContain("glide:K");
+    expect(ms[1].html).toContain("Tovább mélyült");
+  });
+});
+
+describe("process", () => {
+  it("withTimeout leaves no timer behind (it would keep the handler alive)", async () => {
+    vi.useFakeTimers();
+    await withTimeout(Promise.resolve(1), 30_000, 0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("the handler writes only the JSON response on stdout, logs on stderr, and exits", () => {
+    const t0 = Date.now();
+    const p = spawnSync(
+      process.execPath,
+      [resolve(ROOT, "node_modules/tsx/dist/cli.mjs"), "scripts/notify/tg-handler.ts"],
+      {
+        cwd: ROOT,
+        input: JSON.stringify({ ...base, type: "job", job: "nincsilyen" }),
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
+    expect(p.status).toBe(0);
+    expect(JSON.parse(p.stdout)).toEqual({ v: 1, ok: false, error: "Ismeretlen job: nincsilyen" });
+    expect(p.stdout.trim().split("\n")).toHaveLength(1);
+    expect(p.stderr).toContain("job nincsilyen");
+    expect(Date.now() - t0).toBeLessThan(20_000);
+  }, 40_000);
+
+  it("console.log goes to stderr once logToStderr is loaded", () => {
+    const p = spawnSync(
+      process.execPath,
+      [resolve(ROOT, "node_modules/tsx/dist/cli.mjs"), "-e", "import('./scripts/notify/logToStderr.ts').then(() => console.log('napló'))"],
+      { cwd: ROOT, encoding: "utf8", timeout: 30_000 },
+    );
+    expect(p.stdout).toBe("");
+    expect(p.stderr).toContain("napló");
+  }, 40_000);
+});
