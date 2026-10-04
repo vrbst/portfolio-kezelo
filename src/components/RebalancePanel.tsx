@@ -11,7 +11,7 @@ import {
 } from "../lib/store";
 import IncomeQueue, { CouponWarning } from "./IncomeQueue";
 import MonthlyPlanPanel from "./MonthlyPlanPanel";
-import { latestConfig, type GlideConfig } from "../lib/glidePath";
+import { isInflowMode, latestConfig, type GlideConfig } from "../lib/glidePath";
 import type { AccountContext } from "../lib/accountRules";
 import {
   allocationState,
@@ -346,7 +346,9 @@ export default function RebalancePanel() {
           )}
           <p className="mb-2 text-xs text-[var(--color-muted)]">
             Célpont: {flow.label}
-            {flow.ahead && " (előretekintés — a sáv és az állapot továbbra is a mai pályacélhoz mér)"}
+            {isInflowMode(cfg)
+              ? " (a pálya a befizetésekből számolt — minden pénz a végső arány felé megy; a sáv a pályához mér)"
+              : flow.ahead && " (előretekintés — a sáv és az állapot továbbra is a mai pályacélhoz mér)"}
           </p>
           <SuggestionList plan={flowPlan} targetNote={flowNote} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
           <SaveAsReminder plan={flowPlan} title={`Célpálya – ${formatMoney(amount)} elosztása (${today})`} />

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cashKey,
+  countCustomSettings,
   configAt,
   defaultGlobals,
   latestConfig,
@@ -294,5 +295,54 @@ describe("validateConfig – band limit base", () => {
     );
     expect(r.errors).toEqual([]);
     expect(r.warnings.filter((w) => w.bucketId).map((w) => w.bucketId)).toEqual(["R", "K"]);
+  });
+});
+
+describe("validateConfig – inflows mode", () => {
+  const inflows = { pathMode: "inflows" as const, monthlyAmount: { kind: "remainder" as const } };
+
+  it("needs no path dates or start weights", () => {
+    const b = (id: string, w: number) =>
+      bucket(id, w, { startDate: "", endDate: "", start: { mode: "snapshot", date: "" } });
+    const r = validateConfig(config([b("R", 0.6), b("K", 0.4)], inflows));
+    expect(r.errors).toEqual([]);
+  });
+
+  it("needs an instrument that accepts contributions", () => {
+    const cfg = config([bucket("R", 0.6), bucket("K", 0.4)], inflows);
+    for (const r of Object.values(cfg.instruments)) r.acceptsContributions = false;
+    expect(validateConfig(cfg).errors.map((e) => e.message).join()).toMatch(/fogadnia kell befizetést/);
+  });
+
+  it("warns when the inflows never arrive", () => {
+    const cfg = config([bucket("R", 0.6), bucket("K", 0.4)], {
+      ...inflows,
+      inflowPath: [{ day: "2026-01-01", weights: { R: 0.4, K: 0.6 } }],
+      inflowReached: false,
+    });
+    expect(validateConfig(cfg).warnings.map((w) => w.message).join()).toMatch(/sem éri el/);
+  });
+
+  it("calendar mode still requires the dates", () => {
+    const r = validateConfig(config([bucket("R", 1, { endDate: "" })]));
+    expect(r.errors.map((e) => e.message).join()).toMatch(/záró dátumát/);
+  });
+});
+
+describe("countCustomSettings", () => {
+  it("is 0 for a fresh config and counts what differs", () => {
+    const cfg = config([bucket("R", 0.6), bucket("K", 0.4)]);
+    expect(countCustomSettings(cfg, "2026-01-01")).toBe(0);
+    cfg.minTradeHuf = 5_000;
+    cfg.buckets[0].aboveMode = "redirect";
+    expect(countCustomSettings(cfg, "2026-01-01")).toBe(2);
+  });
+
+  it("ignores calendar-only settings in inflows mode", () => {
+    const cfg = config([bucket("R", 0.6, { upperBase: "final", interpolation: "step-year" })], {
+      flowTarget: { kind: "nextCheck" },
+    });
+    expect(countCustomSettings(cfg, "2026-01-01")).toBe(3);
+    expect(countCustomSettings({ ...cfg, pathMode: "inflows" }, "2026-01-01")).toBe(0);
   });
 });

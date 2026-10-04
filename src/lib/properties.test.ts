@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { addDaysIso, toLocalDay, txDay } from "./day";
-import { waterFill } from "./rebalance";
+import { allocationState, waterFill } from "./rebalance";
+import { defaultGlobals, type GlideConfig } from "./glidePath";
 import { splitAmongGoals } from "./incomeClaims";
 import { unionSnapshots } from "./syncMerge";
 import type { PortfolioSnapshot } from "./sync";
@@ -148,6 +149,66 @@ describe("sync merge (unionSnapshots)", () => {
           const shouldKeep = liveAccounts.has(t.accountId) || !tomb[t.accountId];
           expect(out.transactions.some((x) => x.id === t.id)).toBe(shouldKeep);
         }
+      }),
+    );
+  });
+});
+
+describe("glide path – inflows mode", () => {
+  // Two buckets, R moving from `s` to `f` along a monotone frozen path.
+  const scenario = fc.record({
+    s: fc.double({ min: 0, max: 1, noNaN: true }),
+    f: fc.double({ min: 0, max: 1, noNaN: true }),
+    steps: fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 12 }),
+    reached: fc.boolean(),
+    pp: fc.double({ min: 0.005, max: 0.2, noNaN: true }),
+    dayOffset: fc.integer({ min: -60, max: 800 }),
+    r: fc.integer({ min: 0, max: 10_000_000 }),
+    k: fc.integer({ min: 1, max: 10_000_000 }),
+  });
+
+  it("the target stays between start and final; the band holds it and reaches final ± band on the far side", () => {
+    fc.assert(
+      fc.property(scenario, ({ s, f, steps, reached, pp, dayOffset, r, k }) => {
+        // Cumulative fractions → a monotone path from s towards f.
+        const fr = [...steps].sort((a, b) => a - b);
+        const days = fr.map((_, i) => addDaysIso("2026-01-01", 30 * (i + 1)));
+        const path = [
+          { day: "2026-01-01", weights: { R: s, K: 1 - s } },
+          ...fr.map((x, i) => ({ day: days[i], weights: { R: s + (f - s) * x, K: 1 - s - (f - s) * x } })),
+        ];
+        const bucket = (id: string, w: number) => ({
+          id,
+          name: id,
+          finalWeight: w,
+          start: { mode: "manual" as const, weight: w },
+          startDate: "2026-01-01",
+          endDate: "2027-01-01",
+          interpolation: "linear" as const,
+          band: { kind: "abs" as const, pp },
+        });
+        const cfg: GlideConfig = {
+          id: "v",
+          validFrom: "2026-01-01",
+          savedAt: "2026-01-01T00:00:00Z",
+          buckets: [bucket("R", f), bucket("K", 1 - f)],
+          instruments: { A: { bucketId: "R", sellable: true, acceptsContributions: true }, B: { bucketId: "K", sellable: true, acceptsContributions: true } },
+          ...defaultGlobals(),
+          pathMode: "inflows",
+          inflowPath: path,
+          inflowReached: reached,
+        };
+        const day = addDaysIso("2026-01-01", dayOffset);
+        const st = allocationState(cfg, [{ key: "A", name: "A", valueHuf: r }, { key: "B", name: "B", valueHuf: k }], day);
+        const R = st.buckets[0];
+        const lo = Math.min(s, f) - 1e-9;
+        const hi = Math.max(s, f) + 1e-9;
+        expect(R.target).toBeGreaterThanOrEqual(lo);
+        expect(R.target).toBeLessThanOrEqual(hi);
+        expect(R.low).toBeLessThanOrEqual(R.target + 1e-9);
+        expect(R.high).toBeGreaterThanOrEqual(R.target - 1e-9);
+        if (f > s) expect(R.high).toBeGreaterThanOrEqual(Math.min(1, f + pp) - 1e-9);
+        if (f < s) expect(R.low).toBeLessThanOrEqual(Math.max(0, f - pp) + 1e-9);
       }),
     );
   });

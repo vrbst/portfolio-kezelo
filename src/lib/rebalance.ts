@@ -20,6 +20,7 @@ import {
   cashKey,
   DEFAULT_QTY_DECIMALS,
   isCashKey,
+  isInflowMode,
   type Bucket,
   type CheckFrequency,
   type Cost,
@@ -125,9 +126,53 @@ export function pathTarget(b: Bucket, day: string): number {
  * than 100% — normalising keeps the targets a proper allocation.
  */
 export function pathTargets(cfg: GlideConfig, day: string): Map<string, number> {
-  const raw = cfg.buckets.map((b) => [b.id, pathTarget(b, day)] as const);
+  const raw = cfg.buckets.map(
+    (b) =>
+      [b.id, isInflowMode(cfg) ? inflowTarget(cfg, b, day) : pathTarget(b, day)] as const,
+  );
   const sum = raw.reduce((s, [, t]) => s + t, 0);
   return new Map(raw.map(([id, t]) => [id, sum > 0 ? t / sum : 0]));
+}
+
+/**
+ * "inflows" mode: the bucket's target on `day` from the frozen inflow path —
+ * linear between its points, the first point's weight before it, and after
+ * the last the final weight (when the path arrives) or the last point's.
+ * With no frozen path yet (a draft never saved) the final weight.
+ */
+export function inflowTarget(cfg: GlideConfig, b: Bucket, day: string): number {
+  const pts = cfg.inflowPath ?? [];
+  if (pts.length === 0) return b.finalWeight;
+  const w = (i: number) => pts[i].weights[b.id] ?? b.finalWeight;
+  if (day <= pts[0].day) return w(0);
+  const last = pts.length - 1;
+  if (day >= pts[last].day) return cfg.inflowReached ? b.finalWeight : w(last);
+  let i = 0;
+  while (pts[i + 1].day < day) i++;
+  const s = dayMs(pts[i].day);
+  const e = dayMs(pts[i + 1].day);
+  return w(i) + (w(i + 1) - w(i)) * ((dayMs(day) - s) / (e - s));
+}
+
+/** The weight the inflow path starts from (the actual weight on the save day). */
+function inflowStart(cfg: GlideConfig, b: Bucket): number {
+  return cfg.inflowPath?.[0]?.weights[b.id] ?? b.finalWeight;
+}
+
+/**
+ * The bucket as the band sees it. In "inflows" mode the band limit on the
+ * side the bucket is heading to is measured from the final weight (a rising
+ * bucket running ahead of the inflows is never flagged before final + band),
+ * the other from the path — the "final" base set by direction, automatically.
+ */
+export function bandBucket(cfg: GlideConfig, b: Bucket): Bucket {
+  if (!isInflowMode(cfg)) return b;
+  const dir = Math.sign(b.finalWeight - inflowStart(cfg, b));
+  return {
+    ...b,
+    upperBase: dir > 0 ? "final" : "path",
+    lowerBase: dir < 0 ? "final" : "path",
+  };
 }
 
 /** `day` + `n` calendar days (YYYY-MM-DD). */
@@ -162,6 +207,18 @@ export interface FlowTargets {
 
 /** The cash-flow routing's targets on `day` under the configured FlowTarget. */
 export function flowTargets(cfg: GlideConfig, day: string): FlowTargets {
+  // "inflows" mode: money goes towards the final weights — exactly what the
+  // frozen path assumed. Aiming at the path would split it pro rata while on
+  // the path, and the allocation would only turn at the path's own pace.
+  if (isInflowMode(cfg)) {
+    const sum = cfg.buckets.reduce((s, b) => s + b.finalWeight, 0);
+    return {
+      day,
+      ahead: true,
+      label: "a végső cél",
+      weights: new Map(cfg.buckets.map((b) => [b.id, sum > 0 ? b.finalWeight / sum : 0])),
+    };
+  }
   const target = flowTargetDay(cfg, day);
   const ahead = target > day;
   const final = cfg.buckets.length > 0 && cfg.buckets.every((b) => target >= b.endDate);
@@ -442,7 +499,7 @@ export function allocationState(
   const buckets = cfg.buckets.map((bucket) => {
     const valueHuf = valueOf.get(bucket.id) ?? 0;
     const weight = totalHuf > 0 ? valueHuf / totalHuf : 0;
-    const limits = bandLimits(bucket, day, targets.get(bucket.id) ?? 0);
+    const limits = bandLimits(bandBucket(cfg, bucket), day, targets.get(bucket.id) ?? 0);
     return {
       bucket,
       valueHuf,
@@ -1111,6 +1168,25 @@ export function bandRule(
  * (look-ahead, see flowTargets) clamped into today's band.
  */
 export function bandAims(cfg: GlideConfig, state: AllocationState): FlowTargets {
+  // "inflows" mode: nothing between today's path and the final weight is ever
+  // traded — the aim is the current weight pulled onto that stretch. A fall
+  // behind the path is restored to the path (the rest of the turn is left to
+  // the inflows), a run past the final weight back to the final weight.
+  if (isInflowMode(cfg)) {
+    const sum = cfg.buckets.reduce((s, b) => s + b.finalWeight, 0);
+    return {
+      day: state.day,
+      ahead: false,
+      label: "a mai pályacél",
+      weights: new Map(
+        state.buckets.map((b) => {
+          const f = sum > 0 ? b.bucket.finalWeight / sum : 0;
+          const onStretch = Math.min(Math.max(b.target, f), Math.max(Math.min(b.target, f), b.weight));
+          return [b.bucket.id, Math.min(b.high, Math.max(b.low, onStretch))];
+        }),
+      ),
+    };
+  }
   const flow = flowTargets(cfg, state.day);
   const weights = new Map(
     state.buckets.map((b) => {

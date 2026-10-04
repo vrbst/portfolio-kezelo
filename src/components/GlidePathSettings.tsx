@@ -9,10 +9,13 @@ import {
   usePositionsAt,
   useMonthlyBudget,
   useToday,
+  useBrokerFees,
+  useReservedCash,
 } from "../lib/store";
 import { glideAmountSource } from "../lib/budget";
 import {
-  defaultGlobals,
+  isInflowMode,
+  newConfigGlobals,
   isActive,
   latestConfig,
   saveGlideVersion,
@@ -20,8 +23,10 @@ import {
 } from "../lib/glidePath";
 import {
   bandBaseNote,
+  bandBucket,
   bandLimits,
   checkDays,
+  glideStateFrom,
   pathTargets,
   positionsFromSummary,
   type BandStatus,
@@ -31,7 +36,13 @@ import {
 import { formatMoney } from "../lib/format";
 import { BOND_TYPES, futureBondCashflows } from "../lib/bonds";
 import { loadForecastSettings } from "../lib/forecast";
-import { projectGlide, REACH_TOLERANCE, type GlideProjection } from "../lib/glideProjection";
+import {
+  freezeInflowPath,
+  projectGlide,
+  REACH_TOLERANCE,
+  type GlideProjection,
+  type ProjectionInput,
+} from "../lib/glideProjection";
 import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
 import { BUCKET_COLORS, previewRows, type Row } from "./glideChartData";
@@ -123,11 +134,9 @@ export default function GlidePathSettings() {
   // "reális" return.
   const transactions = usePortfolio((s) => s.transactions);
   const dcaGoals = usePortfolio((s) => s.goals);
-  const projection = useMemo(() => {
-    if (!state || !cfg || !isActive(cfg)) return undefined;
-    const base = {
-      cfg,
-      state,
+  // Everything the projection needs besides the config and its state.
+  const projInputs = useMemo(
+    () => ({
       instruments: new Map(instruments.map((i) => [i.key, i])),
       cashflows: futureBondCashflows(summary, new Date(), transactions),
       savings,
@@ -135,14 +144,32 @@ export default function GlidePathSettings() {
       budgetHuf: breakdown.budgetHuf,
       today,
       until: `${+today.slice(0, 4) + PROJECTION_YEARS}${today.slice(4)}`,
-    };
+    }),
+    [instruments, summary, transactions, savings, dcaGoals, breakdown.budgetHuf, today],
+  );
+  const projection = useMemo(() => {
+    if (!state || !cfg || !isActive(cfg)) return undefined;
+    const base: Omit<ProjectionInput, "annualReturn"> = { ...projInputs, cfg, state };
     const real = loadForecastSettings().annualReturn.real;
     return {
       zero: projectGlide({ ...base, annualReturn: 0 }),
       real: projectGlide({ ...base, annualReturn: real }),
       realPct: real,
     };
-  }, [state, cfg, instruments, summary, transactions, savings, dcaGoals, breakdown.budgetHuf, today]);
+  }, [state, cfg, projInputs]);
+
+  // "inflows" mode: the path the draft's inflows draw from today's weights
+  // (the editor previews it; the saved version keeps it frozen).
+  const fees = useBrokerFees();
+  const reserved = useReservedCash();
+  const freeze = useCallback(
+    (draft: GlideConfig): Pick<GlideConfig, "inflowPath" | "inflowReached"> => {
+      const st = glideStateFrom([draft], summary, fx, today, fees, reserved);
+      if (!st || st.totalHuf <= 0) return { inflowPath: undefined, inflowReached: undefined };
+      return freezeInflowPath({ ...projInputs, cfg: draft, state: st });
+    },
+    [summary, fx, today, fees, reserved, projInputs],
+  );
 
   const startEdit = useCallback(
     (from?: GlideConfig) => {
@@ -156,7 +183,7 @@ export default function GlidePathSettings() {
               savedAt: "",
               buckets: [],
               instruments: {},
-              ...defaultGlobals(),
+              ...newConfigGlobals(),
             },
       );
       setShowVersions(false);
@@ -187,7 +214,14 @@ export default function GlidePathSettings() {
   // The path ahead (latest version): monthly until the last end date — or
   // until the inflows-only projection arrives, when that is later.
   const bucket = cfg?.buckets.find((b) => b.id === selected);
-  const pathEnd = cfg ? cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today) : today;
+  const inflows = !!cfg && isInflowMode(cfg);
+  const pathEnd = !cfg
+    ? today
+    : inflows
+      ? (cfg.inflowPath?.[cfg.inflowPath.length - 1]?.day ?? today)
+      : cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today);
+  // The inflow path's arrival month (frozen on save), for the status lines.
+  const inflowEnd = inflows && cfg.inflowReached ? pathEnd : undefined;
   const chartEnd = [pathEnd, projection?.zero.reachedOn ?? ""].reduce((m, d) => (d > m ? d : m));
   const projAt = (p: GlideProjection | undefined) =>
     new Map((p?.points ?? []).map((x) => [x.day, x.weights]));
@@ -196,7 +230,7 @@ export default function GlidePathSettings() {
   const future: Row[] =
     cfg && bucket
       ? previewRows(checkDays("monthly", today, chartEnd), (day) =>
-          bandLimits(bucket, day, pathTargets(cfg, day).get(bucket.id) ?? 0),
+          bandLimits(bandBucket(cfg, bucket), day, pathTargets(cfg, day).get(bucket.id) ?? 0),
         ).map((r) => ({
           ...r,
           projZero: zeroAt.get(r.day)?.[bucket.id],
@@ -240,6 +274,10 @@ export default function GlidePathSettings() {
           bondKeys={bondKeys}
           positionsAt={positionsAt}
           today={today}
+          freeze={freeze}
+          outOfBandNow={(state?.buckets ?? [])
+            .filter((b) => b.status === "below" || b.status === "above")
+            .map((b) => b.bucket.name)}
           onSave={save}
           onCancel={() => setEditing(null)}
         />
@@ -277,7 +315,9 @@ export default function GlidePathSettings() {
                 <BandBar b={b} color={colorOf(b.bucket.id)} />
                 <div className="mt-0.5 text-xs text-[var(--color-muted)]">
                   <Amt>{formatMoney(b.valueHuf)}</Amt> · végső cél {pct(b.bucket.finalWeight)}{" "}
-                  ({b.bucket.endDate})
+                  {inflows
+                    ? `(befizetésekből: ${inflowEnd ? monthOf(inflowEnd) : `${PROJECTION_YEARS} éven belül nem`})`
+                    : `(${b.bucket.endDate})`}
                 </div>
               </div>
             ))}
@@ -348,7 +388,10 @@ export default function GlidePathSettings() {
                   <span className="font-medium text-[var(--color-text)]">
                     {projection.real.reachedOn ? monthOf(projection.real.reachedOn) : `${PROJECTION_YEARS} éven belül nem`}
                   </span>{" "}
-                  (a pálya vége: {monthOf(pathEnd)}). Számol a szabad kuponokkal és
+                  {inflows
+                    ? "(a pálya a mentéskor számolt, csak befizetésből vonal — a sáv ehhez mér; frissíteni új mentéssel lehet)."
+                    : `(a pálya vége: ${monthOf(pathEnd)}).`}{" "}
+                  Számol a szabad kuponokkal és
                   lejáratokkal, a célpálya havi összegével (a célok lejártával
                   újraszámolva) és a csoportba tartozó DCA vételekkel; a célhoz
                   rendelt kupon és lejárat kimarad. A pénz a végső célsúlyok felé

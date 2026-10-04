@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Check, Plus, Trash2, X, ChevronDown, ChevronRight } from "lucide-react";
 import {
   validateConfig,
+  countCustomSettings,
+  isInflowMode,
   isCashKey,
   cashCurrency,
   DEFAULT_QTY_DECIMALS,
@@ -18,6 +20,7 @@ import {
 import { glideMonthlyHuf } from "../lib/budget";
 import { useMonthlyBudget } from "../lib/store";
 import {
+  bandBucket,
   bandLimits,
   bandWidth,
   checkDays,
@@ -34,7 +37,7 @@ import { GlideBucketChart } from "./GlidePathChart";
 import { BUCKET_COLORS, previewRows } from "./glideChartData";
 
 const INPUT =
-  "rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm tabular-nums disabled:opacity-40";
+  "max-w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm tabular-nums disabled:opacity-40";
 const LABEL = "text-xs text-[var(--color-muted)]";
 
 /**
@@ -233,6 +236,8 @@ export default function GlidePathEditor({
   bondKeys,
   positionsAt,
   today,
+  freeze,
+  outOfBandNow = [],
   onSave,
   onCancel,
 }: {
@@ -245,11 +250,18 @@ export default function GlidePathEditor({
   bondKeys: Set<string>;
   positionsAt: PositionsAt;
   today: string;
+  /** "inflows" mode: the path the draft's expected inflows draw from today. */
+  freeze?: (cfg: GlideConfig) => Pick<GlideConfig, "inflowPath" | "inflowReached">;
+  /** Names of the buckets out of their band right now (saved version). */
+  outOfBandNow?: string[];
   onSave: (cfg: GlideConfig) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<GlideConfig>(initial);
   const [openCost, setOpenCost] = useState<Record<string, boolean>>({});
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const inflows = isInflowMode(draft);
+  const customCount = useMemo(() => countCustomSettings(draft, today), [draft, today]);
   const [previewId, setPreviewId] = useState<string | undefined>(
     initial.buckets[0]?.id,
   );
@@ -323,27 +335,39 @@ export default function GlidePathEditor({
   }, [held, draft.instruments, names]);
 
   // Preview with snapshot starts resolved (history lookups are cached upstream).
-  const previewCfg = useMemo(
-    () => resolveSnapshotStarts(draft, positionsAt),
-    [draft, positionsAt],
-  );
+  // In "inflows" mode the path is computed from the draft right here — the
+  // same one the save freezes into the version.
+  const previewCfg = useMemo(() => {
+    const resolved = resolveSnapshotStarts(draft, positionsAt);
+    return isInflowMode(resolved) && freeze ? { ...resolved, ...freeze(resolved) } : resolved;
+  }, [draft, positionsAt, freeze]);
+  const inflowEnd = previewCfg.inflowPath?.[previewCfg.inflowPath.length - 1]?.day;
   const preview = useMemo(() => {
     const b = previewCfg.buckets.find((x) => x.id === previewId);
-    if (!b || !previewCfg.buckets.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.startDate) && /^\d{4}-\d{2}-\d{2}$/.test(x.endDate)))
-      return null;
-    const from = previewCfg.buckets.reduce((m, x) => (x.startDate < m ? x.startDate : m), b.startDate);
-    const to = previewCfg.buckets.reduce((m, x) => (x.endDate > m ? x.endDate : m), b.endDate);
+    if (!b) return null;
+    let from: string;
+    let to: string;
+    if (isInflowMode(previewCfg)) {
+      from = today;
+      to = inflowEnd && inflowEnd > addMonths(today, 12) ? inflowEnd : addMonths(today, 12);
+    } else {
+      if (!previewCfg.buckets.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.startDate) && /^\d{4}-\d{2}-\d{2}$/.test(x.endDate)))
+        return null;
+      from = previewCfg.buckets.reduce((m, x) => (x.startDate < m ? x.startDate : m), b.startDate);
+      to = previewCfg.buckets.reduce((m, x) => (x.endDate > m ? x.endDate : m), b.endDate);
+    }
     const days = [from, ...checkDays("monthly", from, addMonths(to, 3)).filter((d) => d > from)];
+    const banded = bandBucket(previewCfg, b);
     return previewRows(days, (day) => {
       const t = pathTargets(previewCfg, day).get(b.id) ?? 0;
       const w = bandWidth(b, t);
       return {
-        ...bandLimits(b, day, t),
+        ...bandLimits(banded, day, t),
         computed: [Math.max(0, t - w.computed), Math.min(1, t + w.computed)],
         minApplied: w.minApplied,
       };
     });
-  }, [previewCfg, previewId]);
+  }, [previewCfg, previewId, today, inflowEnd]);
 
   // Month ranges of the preview where the minimum band sets the width.
   const minRanges = useMemo(() => {
@@ -370,6 +394,52 @@ export default function GlidePathEditor({
 
   return (
     <div className="space-y-5">
+      {/* ---- Path mode ---- */}
+      <section>
+        <h3 className="mb-2 text-sm font-semibold">Pálya</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className={INPUT}
+            value={draft.pathMode ?? "calendar"}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, pathMode: e.target.value === "inflows" ? "inflows" : "calendar" }))
+            }
+          >
+            <option value="inflows">A befizetésekből számolva (javasolt)</option>
+            <option value="calendar">Naptár szerint (kézi kezdő és záró dátum)</option>
+          </select>
+          <button
+            className="flex items-center gap-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            Haladó beállítások{customCount > 0 && ` (${customCount} egyedi)`}
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          {inflows
+            ? <>
+                A pálya a mai arányból indul, és úgy halad, ahogy a várható befizetések,
+                kuponok és lejáratok (hozam nélkül) a végső arány felé viszik — a bejövő pénz
+                mind a végső arány felé megy. Riasztás csak akkor jön, ha egy csoport a pálya
+                mögé esik a sávnál jobban (pl. árfolyamesés), vagy túlfut a végső célon a
+                sávnál jobban.{" "}
+                {inflowEnd &&
+                  (previewCfg.inflowReached
+                    ? `A végső arány várhatóan ${inflowEnd.slice(0, 7)}-ra áll be.`
+                    : "A várható befizetésekből a vetítés végéig sem áll be a végső arány.")}
+              </>
+            : "A pálya a csoportonként megadott kezdő súlytól a végső célig halad a megadott dátumok között; a sáv ehhez a naptári pályához mér."}
+        </p>
+        {inflows && outOfBandNow.length > 0 && (
+          <p className="mt-1 text-xs text-[var(--color-warning)]">
+            Most sávon kívül: {outOfBandNow.join(", ")}. A mentés a mai arányból számolja
+            újra a pályát, így ez az eltérés eltűnik — ha rebalanszolni akarsz, előbb
+            tedd meg (Teendők), és csak utána ments.
+          </p>
+        )}
+      </section>
+
       {/* ---- Buckets ---- */}
       <section>
         <h3 className="mb-2 text-sm font-semibold">Eszközcsoportok</h3>
@@ -408,6 +478,7 @@ export default function GlidePathEditor({
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {!inflows && (<>
                   <label className="space-y-1">
                     <div className={LABEL}>Kezdő súly</div>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -476,7 +547,9 @@ export default function GlidePathEditor({
                       />
                     </div>
                   </label>
+                  </>)}
 
+                  {showAdvanced && !inflows && (
                   <label className="space-y-1">
                     <div className={LABEL}>Átmenet</div>
                     <select
@@ -491,10 +564,17 @@ export default function GlidePathEditor({
                       <option value="step-year">Lépcsős – évente</option>
                     </select>
                   </label>
+                  )}
 
                   <label className="space-y-1">
-                    <div className={LABEL}>Sáv</div>
+                    <div
+                      className={LABEL}
+                      title={inflows ? "Alsó határ: a pályacél − sáv (esés esetén riaszt). Felső határ: a végső cél + sáv." : "A pályacél ± sáv; ezen kívül riaszt."}
+                    >
+                      Sáv{b.band.kind === "rel" && !showAdvanced && " (relatív, a célsúly ±%-a)"}
+                    </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {showAdvanced && (
                       <select
                         className={INPUT}
                         value={b.band.kind}
@@ -510,6 +590,7 @@ export default function GlidePathEditor({
                         <option value="abs">Abszolút (± százalékpont)</option>
                         <option value="rel">Relatív (a célsúly ±%-a)</option>
                       </select>
+                      )}
                       <span className={LABEL}>±</span>
                       <PctInput
                         value={b.band.kind === "abs" ? b.band.pp : b.band.pct}
@@ -524,7 +605,7 @@ export default function GlidePathEditor({
                         className="w-16"
                       />
                       <span className={LABEL}>{b.band.kind === "abs" ? "%pont" : "%"}</span>
-                      {b.band.kind === "rel" && (
+                      {showAdvanced && b.band.kind === "rel" && (
                         <select
                           className={INPUT}
                           value={b.band.base ?? "path"}
@@ -541,6 +622,7 @@ export default function GlidePathEditor({
                         </select>
                       )}
                     </div>
+                    {showAdvanced && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={LABEL} title="A sáv soha nem keskenyebb ennél — kis pályacélnál a relatív sáv különben túl szűk lenne.">
                         de legalább ±
@@ -553,8 +635,10 @@ export default function GlidePathEditor({
                       />
                       <span className={LABEL}>%pont</span>
                     </div>
+                    )}
                   </label>
 
+                  {showAdvanced && (<>
                   <label className="space-y-1">
                     <div className={LABEL} title="Ha a sávon kívüli eltérés az utolsó jelzés óta legalább ennyivel nő, újra jelez (az időszakon belül is). Üresen a globális érték él.">
                       Újrajelzési lépcső (csoportra)
@@ -570,15 +654,21 @@ export default function GlidePathEditor({
                     </div>
                   </label>
 
-                  <BandBaseFields bucket={b} globalMode={draft.restoreTo} onChange={(patch) => setBucket(b.id, patch)} />
+                  {/* In "inflows" mode the limit bases follow the direction by themselves. */}
+                  {!inflows && (
+                    <BandBaseFields bucket={b} globalMode={draft.restoreTo} onChange={(patch) => setBucket(b.id, patch)} />
+                  )}
 
                   <OutOfBandFields
                     bucket={b}
                     globalMode={draft.restoreTo}
+                    suggest={!inflows}
                     onChange={(patch) => setBucket(b.id, patch)}
                   />
+                  </>)}
                 </div>
 
+                {showAdvanced && (
                 <button
                   className="mt-2 flex items-center gap-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
                   onClick={() => setOpenCost((o) => ({ ...o, [b.id]: !o[b.id] }))}
@@ -586,7 +676,8 @@ export default function GlidePathEditor({
                   {openCost[b.id] ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   Csoportszintű költség {b.cost ? "(beállítva)" : "(alapértelmezett)"}
                 </button>
-                {openCost[b.id] && (
+                )}
+                {showAdvanced && openCost[b.id] && (
                   <div className="mt-2">
                     <CostFields value={b.cost} onChange={(cost) => setBucket(b.id, { cost })} />
                   </div>
@@ -650,7 +741,7 @@ export default function GlidePathEditor({
           készpénz a bejövő pénz forrása.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-sm">
+          <table className={`w-full text-sm ${showAdvanced ? "min-w-[680px]" : "min-w-[480px]"}`}>
             <thead>
               <tr className="text-left text-xs text-[var(--color-muted)]">
                 <th className="py-1 pr-2 font-medium">Tétel</th>
@@ -658,8 +749,8 @@ export default function GlidePathEditor({
                 <th className="py-1 pr-2 font-medium">Csoport</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Eladható újrasúlyozáshoz">Eladható</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Fogad befizetést (kupon, osztalék, megtakarítás)">Befizetés</th>
-                <th className="py-1 pr-2 font-medium" title="A bróker tört darabot is kezel: a javaslat nem kerekít egészre, csak a megadott tizedesjegyig (lefelé)">Tört darab</th>
-                <th className="py-1 font-medium">Költség</th>
+                {showAdvanced && <th className="py-1 pr-2 font-medium" title="A bróker tört darabot is kezel: a javaslat nem kerekít egészre, csak a megadott tizedesjegyig (lefelé)">Tört darab</th>}
+                {showAdvanced && <th className="py-1 font-medium">Költség</th>}
               </tr>
             </thead>
             <tbody>
@@ -713,6 +804,7 @@ export default function GlidePathEditor({
                         }
                       />
                     </td>
+                    {showAdvanced && (<>
                     <td className="py-1.5 pr-2">
                       {(() => {
                         const na = !rule || isCashKey(r.key) || bondKeys.has(r.key);
@@ -770,6 +862,7 @@ export default function GlidePathEditor({
                         </>
                       )}
                     </td>
+                    </>)}
                   </tr>
                 );
               })}
@@ -781,7 +874,12 @@ export default function GlidePathEditor({
       {/* ---- Globals ---- */}
       <section>
         <h3 className="mb-2 text-sm font-semibold">Általános beállítások</h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <MonthlyAmountField
+          value={draft.monthlyAmount}
+          onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
+        />
+        {showAdvanced && (<>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <div className={LABEL}>Ellenőrzés gyakorisága</div>
             <select
@@ -884,6 +982,7 @@ export default function GlidePathEditor({
             />
           </label>
         </div>
+        {!inflows && (
         <label className="mt-3 block space-y-1">
           <div
             className={LABEL}
@@ -931,10 +1030,7 @@ export default function GlidePathEditor({
             <span className={LABEL}>ma: {flowTargets(draft, today).label}</span>
           </div>
         </label>
-        <MonthlyAmountField
-          value={draft.monthlyAmount}
-          onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
-        />
+        )}
         <div className="mt-3">
           <div className={`${LABEL} mb-1`}>
             Alapértelmezett költség (ha a csoport vagy az instrumentum nem ad meg
@@ -945,6 +1041,7 @@ export default function GlidePathEditor({
             onChange={(c) => setDraft((d) => ({ ...d, defaultCost: c ?? {} }))}
           />
         </div>
+        </>)}
       </section>
 
       {/* ---- Validation & actions ---- */}
@@ -1058,15 +1155,20 @@ function BandBaseFields({
 function OutOfBandFields({
   bucket: b,
   globalMode,
+  suggest = true,
   onChange,
 }: {
   bucket: Bucket;
   globalMode: GlideConfig["restoreTo"];
+  /** Offer the direction-based suggestion (calendar paths only). */
+  suggest?: boolean;
   onChange: (patch: Partial<Bucket>) => void;
 }) {
   const dir = Math.sign(b.finalWeight - startWeight(b));
   const suggested: Partial<Bucket> | null =
-    dir > 0
+    !suggest
+      ? null
+      : dir > 0
       ? { aboveMode: "redirect", aboveForcePp: 0.03, belowMode: "path", belowForcePp: undefined }
       : dir < 0
         ? { belowMode: "redirect", belowForcePp: 0.03, aboveMode: "path", aboveForcePp: undefined }

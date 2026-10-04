@@ -214,6 +214,35 @@ export interface GlideConfig {
    * there is; "extra" = paid on top of it. Missing = "included".
    */
   buyCostMode?: BuyCostMode;
+  /**
+   * Where the path comes from: the buckets' own dates ("calendar", the
+   * original behaviour) or the expected inflows ("inflows": the path the
+   * coming contributions and coupons alone would draw, frozen on save in
+   * `inflowPath`). Missing = "calendar".
+   */
+  pathMode?: PathMode;
+  /**
+   * "inflows" mode: monthly expected weights from the inflows at 0% return,
+   * computed on save (freezeInflowPath). The first point is the actual weight
+   * on the save day.
+   */
+  inflowPath?: InflowPoint[];
+  /** The inflow path arrives at the final weights within its horizon. */
+  inflowReached?: boolean;
+}
+
+export type PathMode = "calendar" | "inflows";
+
+export interface InflowPoint {
+  /** YYYY-MM-DD. */
+  day: string;
+  /** Bucket id → expected weight (0..1). */
+  weights: Record<string, number>;
+}
+
+/** The path comes from the frozen inflow projection. */
+export function isInflowMode(cfg: GlideConfig): boolean {
+  return cfg.pathMode === "inflows";
 }
 
 export type BuyCostMode = "included" | "extra";
@@ -354,6 +383,7 @@ export function validateConfig(
   if (cfg.buckets.length === 0) return { errors, warnings };
 
   const pct = (n: number) => `${(n * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
+  const inflows = isInflowMode(cfg);
 
   const finalSum = cfg.buckets.reduce((s, b) => s + b.finalWeight, 0);
   if (Math.abs(finalSum - 1) > WEIGHT_SUM_TOLERANCE)
@@ -364,7 +394,10 @@ export function validateConfig(
   // Manual start weights must also add up when every bucket is manual. With
   // snapshot starts mixed in (resolved from real data) a mismatch is only a
   // warning: the path is normalised to 100%, which shifts the starting points.
-  if (cfg.buckets.every((b) => b.start.mode === "manual")) {
+  // In inflows mode the start is the actual weight on the save day.
+  if (inflows) {
+    /* nothing to check */
+  } else if (cfg.buckets.every((b) => b.start.mode === "manual")) {
     const startSum = cfg.buckets.reduce(
       (s, b) => s + (b.start.mode === "manual" ? b.start.weight : 0),
       0,
@@ -398,15 +431,17 @@ export function validateConfig(
 
     if (!(b.finalWeight >= 0 && b.finalWeight <= 1))
       errors.push({ ...at, message: `${label}: a célsúly 0–100% között legyen.` });
-    if (b.start.mode === "manual" && !(b.start.weight >= 0 && b.start.weight <= 1))
-      errors.push({ ...at, message: `${label}: a kezdő súly 0–100% között legyen.` });
-    if (b.start.mode === "snapshot" && !DAY_RE.test(b.start.date))
-      errors.push({ ...at, message: `${label}: hiányzik a pillanatkép dátuma.` });
+    if (!inflows) {
+      if (b.start.mode === "manual" && !(b.start.weight >= 0 && b.start.weight <= 1))
+        errors.push({ ...at, message: `${label}: a kezdő súly 0–100% között legyen.` });
+      if (b.start.mode === "snapshot" && !DAY_RE.test(b.start.date))
+        errors.push({ ...at, message: `${label}: hiányzik a pillanatkép dátuma.` });
 
-    if (!DAY_RE.test(b.startDate) || !DAY_RE.test(b.endDate))
-      errors.push({ ...at, message: `${label}: add meg a pálya kezdő és záró dátumát.` });
-    else if (b.startDate >= b.endDate)
-      errors.push({ ...at, message: `${label}: a záró dátum a kezdő után legyen.` });
+      if (!DAY_RE.test(b.startDate) || !DAY_RE.test(b.endDate))
+        errors.push({ ...at, message: `${label}: add meg a pálya kezdő és záró dátumát.` });
+      else if (b.startDate >= b.endDate)
+        errors.push({ ...at, message: `${label}: a záró dátum a kezdő után legyen.` });
+    }
 
     if (b.band.kind === "abs" && !(b.band.pp > 0 && b.band.pp < 1))
       errors.push({ ...at, message: `${label}: a sáv mérete 0 és 100 százalékpont közé essen.` });
@@ -512,6 +547,20 @@ export function validateConfig(
   if (!DAY_RE.test(cfg.validFrom))
     errors.push({ message: "Add meg, mikortól érvényes a beállítás." });
 
+  if (inflows) {
+    if (!Object.values(cfg.instruments).some((r) => r.acceptsContributions))
+      errors.push({
+        message:
+          "A befizetésekből számolt pályához legalább egy instrumentumnak fogadnia kell befizetést.",
+      });
+    // Only known once the path has been frozen (on save).
+    if (cfg.inflowPath?.length && cfg.inflowReached === false)
+      warnings.push({
+        message:
+          "A várható befizetésekből a vetítés végéig sem éri el a végső arányt — a pálya az utolsó vetített ponton áll meg.",
+      });
+  }
+
   const unassigned = heldKeys.filter((k) => !cfg.instruments[k]);
   if (unassigned.length)
     warnings.push({
@@ -538,6 +587,11 @@ export function defaultGlobals(): Omit<
     realertStepPp: 0.02,
     deepAlertsInQuietHours: false,
   };
+}
+
+/** A brand-new configuration (no saved version yet) starts in inflows mode. */
+export function newConfigGlobals(): ReturnType<typeof defaultGlobals> & { pathMode: PathMode } {
+  return { ...defaultGlobals(), pathMode: "inflows" };
 }
 
 /**
@@ -641,3 +695,42 @@ export function migrateIfNeeded(
   saveGlideVersion(seeded);
   return loadGlideVersions();
 }
+/**
+ * How many advanced settings differ from their defaults — shown on the
+ * collapsed "Haladó" toggle, so nothing set there goes unnoticed. Settings
+ * the path mode makes irrelevant are not counted.
+ */
+export function countCustomSettings(cfg: GlideConfig, today: string): number {
+  const d = defaultGlobals();
+  const calendar = !isInflowMode(cfg);
+  let n = 0;
+  const count = (x: boolean) => {
+    if (x) n++;
+  };
+  for (const b of cfg.buckets) {
+    count(calendar && b.interpolation !== "linear");
+    count(b.band.kind === "rel");
+    count(!!b.band.minPp);
+    count(b.realertStepPp != null);
+    count(calendar && (b.upperBase === "final" || b.lowerBase === "final"));
+    count(b.aboveMode != null || b.belowMode != null);
+    count(!!b.cost);
+  }
+  for (const r of Object.values(cfg.instruments)) {
+    count(!!r.cost);
+    count(!!r.fractional);
+  }
+  count(cfg.checkFrequency !== d.checkFrequency);
+  count(cfg.minTradeHuf !== d.minTradeHuf);
+  count(cfg.restoreTo !== d.restoreTo);
+  count(cfg.maxCostRatio !== d.maxCostRatio);
+  count(cfg.bondsAtFace !== d.bondsAtFace);
+  count(!!(cfg.defaultCost.buy || cfg.defaultCost.sell));
+  count(cfg.realertStepPp !== d.realertStepPp);
+  count(cfg.deepAlertsInQuietHours !== d.deepAlertsInQuietHours);
+  count(cfg.buyCostMode === "extra");
+  count(calendar && !!cfg.flowTarget && cfg.flowTarget.kind !== "today");
+  count(cfg.validFrom !== today);
+  return n;
+}
+

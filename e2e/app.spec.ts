@@ -237,3 +237,36 @@ test("the app shows the same total the bot computes", async ({ page }) => {
     .poll(async () => (await page.locator("main").innerText()).replace(/[\s\u00a0\u202f.]/g, ""))
     .toContain(`${digits}Ft`);
 });
+
+test.describe("glide-path editor", () => {
+  async function openEditor(page: Page, privacy = false) {
+    const errors = await openSeeded(page, { privacy });
+    await show(page, "/goals");
+    await page.getByTitle("Szerkesztés", { exact: true }).click();
+    await expect(page.getByText("Pálya", { exact: true })).toBeVisible();
+    return errors;
+  }
+
+  test("basic view first; the advanced settings are behind a toggle", async ({ page }) => {
+    const errors = await openEditor(page);
+    const mode = page.locator("select").filter({ has: page.locator('option[value="inflows"]') });
+    await mode.selectOption("inflows");
+    await expect(page.getByText("Újrajelzési lépcső (csoportra)").first()).toBeHidden();
+    await expect(page.getByText("Pálya (kezdő → záró dátum)").first()).toBeHidden();
+    await page.getByRole("button", { name: /Haladó beállítások/ }).click();
+    await expect(page.getByText("Újrajelzési lépcső (csoportra)").first()).toBeVisible();
+    // Calendar-only settings stay hidden in inflows mode.
+    await expect(page.getByText("Sávhatár alapja").first()).toBeHidden();
+    await mode.selectOption("calendar");
+    await expect(page.getByText("Pálya (kezdő → záró dátum)").first()).toBeVisible();
+    expect(errors, "console / page errors").toEqual([]);
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+  });
+
+  test("privacy mode: nothing personal is readable in the editor", async ({ page }) => {
+    await openEditor(page, true);
+    await page.getByRole("button", { name: /Haladó beállítások/ }).click();
+    const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name));
+    expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
+  });
+});

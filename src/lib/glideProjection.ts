@@ -205,3 +205,26 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
   }
   return { points, reachedOn };
 }
+
+/**
+ * The "inflows" path frozen into a version on save: the projection at 0%
+ * return — the slowest, "only the money moves it" path, so a sideways market
+ * never trips the band — preceded by today's actual weights as its first
+ * point. Stored on the version (inflowPath), so the band, the alerts and the
+ * bot all measure against the same fixed line until the next save.
+ */
+export function freezeInflowPath(
+  input: Omit<ProjectionInput, "annualReturn">,
+): Pick<GlideConfig, "inflowPath" | "inflowReached"> {
+  const { state, today } = input;
+  const now: Record<string, number> = {};
+  for (const b of state.buckets) now[b.bucket.id] = b.weight;
+  const p = projectGlide({ ...input, annualReturn: 0 });
+  // Past the arrival the path is simply the final weight: stop there, so the
+  // last point is the arrival month.
+  const points = p.reachedOn ? p.points.filter((x) => x.day <= p.reachedOn!) : p.points;
+  return {
+    inflowPath: [{ day: today, weights: now }, ...points],
+    inflowReached: p.reachedOn != null,
+  };
+}

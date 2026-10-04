@@ -25,6 +25,7 @@ import {
   currentWeights,
   flowTargetDay,
   flowTargets,
+  inflowTarget,
   planCashflow,
   pathTarget,
   pathTargets,
@@ -1301,5 +1302,100 @@ describe("band limit base: path target or final weight", () => {
     expect(h[0].buckets.R.status).toBe("above");
     expect(h[1].buckets.R.high).toBeCloseTo(0.65);
     expect(h[1].buckets.R.status).toBe("within");
+  });
+});
+
+describe("inflows mode (path from the expected inflows)", () => {
+  // Turning 40/60 into 60/40: the frozen path rises 1 pp a month for R.
+  const path = [
+    { day: "2026-01-01", weights: { R: 0.4, K: 0.6 } },
+    { day: "2026-02-01", weights: { R: 0.41, K: 0.59 } },
+    { day: "2026-03-01", weights: { R: 0.42, K: 0.58 } },
+  ];
+  const buckets = [bucket("R", 0.6), bucket("K", 0.4)];
+  const rules = { "ETF-R": rule("R"), KOTV: rule("K") };
+  const cfgOf = (patch: Partial<GlideConfig> = {}) =>
+    config(buckets, rules, {
+      pathMode: "inflows",
+      inflowPath: path,
+      inflowReached: true,
+      ...patch,
+    });
+  const ON = "2026-02-01";
+
+  it("interpolates the frozen points; first point before, final after an arriving path", () => {
+    const cfg = cfgOf();
+    expect(inflowTarget(cfg, buckets[0], "2025-12-01")).toBe(0.4);
+    expect(inflowTarget(cfg, buckets[0], ON)).toBeCloseTo(0.41);
+    expect(inflowTarget(cfg, buckets[0], "2026-01-16")).toBeCloseTo(0.4 + 0.01 * (15 / 31));
+    expect(inflowTarget(cfg, buckets[0], "2027-01-01")).toBe(0.6);
+  });
+
+  it("a path that never arrives stays on its last point", () => {
+    const cfg = cfgOf({ inflowReached: false });
+    expect(inflowTarget(cfg, buckets[0], "2027-01-01")).toBeCloseTo(0.42);
+    expect(pathTargets(cfg, "2027-01-01").get("R")).toBeCloseTo(0.42);
+  });
+
+  it("ignores the buckets' own dates", () => {
+    const cfg = cfgOf();
+    // Calendar mode would be halfway (50%) by 2027-01-01 with these dates.
+    expect(pathTargets(cfg, ON).get("R")).toBeCloseTo(0.41);
+  });
+
+  it("band: the side towards the final weight is measured from it", () => {
+    const cfg = cfgOf();
+    const st = allocationState(cfg, [etf("ETF-R", 410_000), bond("KOTV", 590_000)], ON);
+    const [r, k] = st.buckets;
+    expect([r.low, r.high]).toEqual([expect.closeTo(0.36), expect.closeTo(0.65)]);
+    expect([k.low, k.high]).toEqual([expect.closeTo(0.35), expect.closeTo(0.64)]);
+  });
+
+  it("a rally ahead of the inflows is not flagged (calendar mode would be)", () => {
+    const positions = [etf("ETF-R", 700_000), bond("KOTV", 590_000)]; // R ≈ 54%
+    expect(allocationState(cfgOf(), positions, ON).buckets[0].status).toBe("within");
+  });
+
+  it("incoming money goes to the final weight even when on the path", () => {
+    const cfg = cfgOf();
+    const st = allocationState(cfg, [etf("ETF-R", 410_000), bond("KOTV", 590_000)], ON);
+    const plan = planCashflow(cfg, st, 100_000);
+    expect(plan.flow.label).toBe("a végső cél");
+    expect(plan.suggestions.map((s) => [s.instrumentKey, s.amountHuf])).toEqual([["ETF-R", 100_000]]);
+  });
+
+  it("a fall is flagged and restored to today's path, not to the final weight", () => {
+    const cfg = cfgOf();
+    const st = allocationState(cfg, [etf("ETF-R", 300_000), bond("KOTV", 590_000)], ON); // R ≈ 33.7%
+    expect(st.buckets[0].status).toBe("below");
+    const plan = bandRule(cfg, st);
+    expect(plan.suggestions.map((s) => [s.instrumentKey, s.side])).toEqual([
+      ["KOTV", "sell"],
+      ["ETF-R", "buy"],
+    ]);
+    expect(plan.weightsAfter.R).toBeCloseTo(0.41, 2);
+  });
+
+  it("a run past final + band is sold back to the final weight, not to the path", () => {
+    const cfg = cfgOf();
+    const st = allocationState(cfg, [etf("ETF-R", 700_000), bond("KOTV", 300_000)], ON); // R 70%
+    expect(st.buckets[0].status).toBe("above");
+    const plan = bandRule(cfg, st);
+    expect(plan.weightsAfter.R).toBeCloseTo(0.6, 2);
+  });
+
+  it("a fall only restores R to the path; bonds ahead of their path are not sold further", () => {
+    const cfg = cfgOf();
+    // R 33.7% (below 36%), K 66.3% — K is "behind" its falling path (59%).
+    const plan = bandRule(cfg, allocationState(cfg, [etf("ETF-R", 300_000), bond("KOTV", 590_000)], ON));
+    expect(plan.weightsAfter.K).toBeCloseTo(0.59, 2);
+  });
+
+  it("an old version without pathMode stays on the calendar", () => {
+    const cal = [bucket("R", 0.6, { start: { mode: "manual", weight: 0.4 } }), bucket("K", 0.4, { start: { mode: "manual", weight: 0.6 } })];
+    const cfg = config(cal, rules, { inflowPath: path });
+    // 2027-01-01 is halfway along the buckets' 2026–2028 dates.
+    expect(pathTargets(cfg, "2027-01-01").get("R")).toBeCloseTo(0.5);
+    expect(pathTargets({ ...cfg, pathMode: "inflows", inflowReached: false }, "2027-01-01").get("R")).toBeCloseTo(0.42);
   });
 });

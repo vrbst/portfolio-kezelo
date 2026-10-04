@@ -5,7 +5,7 @@ import type { Goal } from "./goals";
 import type { SavingsGoal, SavingsProgress } from "./savings";
 import type { Cashflow } from "./bonds";
 import { allocationState, type Position } from "./rebalance";
-import { projectGlide, savingsHufOn, type ProjectionInput } from "./glideProjection";
+import { freezeInflowPath, projectGlide, savingsHufOn, type ProjectionInput } from "./glideProjection";
 
 // Invented sample data — generic buckets and round numbers, not a real portfolio.
 
@@ -205,5 +205,27 @@ describe("savingsHufOn", () => {
     expect(savingsHufOn([g], "2026-12-01")).toBe(100_000);
     expect(savingsHufOn([g], "2027-04-01")).toBe(0);
     expect(savingsHufOn([progress({}, { reached: true })], "2026-12-01")).toBe(0);
+  });
+});
+
+describe("freezeInflowPath", () => {
+  it("starts from today's actual weights and rises at 0% return", () => {
+    const { annualReturn: _, ...base } = input({ budgetHuf: 100_000, annualReturn: 0.1 });
+    const f = freezeInflowPath(base);
+    const path = f.inflowPath!;
+    expect(path[0]).toEqual({ day: TODAY, weights: { R: 0.4, K: 0.6 } });
+    // Only the money moves it: same as the 0% projection, whatever the return.
+    const zero = projectGlide({ ...base, annualReturn: 0 });
+    expect(zero.reachedOn).toBeDefined();
+    expect(path.slice(1)).toEqual(zero.points.filter((p) => p.day <= zero.reachedOn!));
+    expect(path[path.length - 1].day).toBe(zero.reachedOn);
+    for (let i = 1; i < path.length; i++)
+      expect(path[i].weights.R).toBeGreaterThanOrEqual(path[i - 1].weights.R - 1e-12);
+    expect(f.inflowReached).toBe(true);
+  });
+
+  it("no inflows: never arrives", () => {
+    const { annualReturn: _, ...base } = input();
+    expect(freezeInflowPath(base).inflowReached).toBe(false);
   });
 });
