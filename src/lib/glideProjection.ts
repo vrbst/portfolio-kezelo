@@ -70,6 +70,12 @@ export interface ProjectedInflow {
   /** The part routed to the buckets (after any goal took its share). */
   amountHuf: number;
   instrumentKey?: string;
+  /** Coupon: the whole coupon (goals' share + routed). */
+  totalHuf?: number;
+  /** Coupon: what the goals take, by goal name. */
+  goals?: { name: string; huf: number }[];
+  /** Monthly: what the other goals (DCA, medium-term) take from the budget. */
+  otherHuf?: number;
 }
 
 /** Monthly saving the medium-term goals still take on `day` (a month start). */
@@ -152,7 +158,17 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
   const dcaHuf = dcaMonthlyHuf(input.dcaGoals);
 
   const goals = savings.map((p) => p.goal);
-  const room = new Map(savings.map((p) => [p.goal.id, p.couponRoomHuf]));
+  // couponRoomHuf is the shortfall with the goal's EXPECTED coupons already
+  // counted (it is meant for coupons that have arrived). Here those coupons
+  // are still ahead, so the goal claims them on top of its shortfall —
+  // otherwise only the shortfall would stay with it and the rest of a coupon
+  // it counts on would be routed to the path.
+  const room = new Map(
+    savings.map((p) => [
+      p.goal.id,
+      p.couponRoomHuf + (p.goal.includeCoupons ? Math.max(0, p.couponsHuf - p.pickedCouponsHuf) : 0),
+    ]),
+  );
   const matured = new Set<string>();
   const handle = (c: Cashflow) => {
     const key = c.instrumentKey;
@@ -169,7 +185,18 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
       if (!owned) route(c.amountHuf, { day: c.date, kind: "maturity", instrumentKey: key });
       return;
     }
-    if (couponOwner(goals, key, c.date)) return;
+    const owner = couponOwner(goals, key, c.date);
+    if (owner) {
+      inflows.push({
+        day: c.date,
+        kind: "coupon",
+        amountHuf: 0,
+        instrumentKey: key,
+        totalHuf: c.amountHuf,
+        goals: [{ name: owner.name, huf: c.amountHuf }],
+      });
+      return;
+    }
     const claimants = savings
       .filter((p) => claimsCoupon({ ...p, couponRoomHuf: room.get(p.goal.id) ?? 0 }, c.date))
       .map((p) => ({ goalId: p.goal.id, capHuf: room.get(p.goal.id) ?? 0 }));
@@ -179,7 +206,16 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
       room.set(id, (room.get(id) ?? 0) - x);
       taken += x;
     }
-    route(c.amountHuf - taken, { day: c.date, kind: "coupon", instrumentKey: key });
+    const names = new Map(savings.map((p) => [p.goal.id, p.goal.name]));
+    inflows.push({
+      day: c.date,
+      kind: "coupon",
+      amountHuf: Math.max(0, c.amountHuf - taken),
+      instrumentKey: key,
+      totalHuf: c.amountHuf,
+      goals: [...shares].filter(([, x]) => x > 0).map(([id, huf]) => ({ name: names.get(id) ?? id, huf })),
+    });
+    route(c.amountHuf - taken);
   };
 
   const monthly = Math.pow(1 + input.annualReturn, 1 / 12);
@@ -208,10 +244,11 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
     }
     // This month's saving (paid on the previous month's last working day).
     for (const d of dca) add(d.bucketId, d.huf, d.part);
-    route(glideMonthlyHuf(cfg.monthlyAmount, input.budgetHuf, dcaHuf + savingsHufOn(savings, day)), {
-      day,
-      kind: "monthly",
-    });
+    const otherHuf = dcaHuf + savingsHufOn(savings, day);
+    const monthlyHuf = glideMonthlyHuf(cfg.monthlyAmount, input.budgetHuf, otherHuf);
+    // Recorded even at 0, so the months with nothing left show too.
+    inflows.push({ day, kind: "monthly", amountHuf: monthlyHuf, otherHuf });
+    route(monthlyHuf);
 
     const t = total();
     const weights: Record<string, number> = {};

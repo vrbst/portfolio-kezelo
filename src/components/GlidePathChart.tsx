@@ -8,6 +8,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  ReferenceDot,
+  ReferenceLine,
 } from "recharts";
 import type { WeightPoint } from "../lib/rebalance";
 import { dayTs, type Row } from "./glideChartData";
@@ -39,10 +41,19 @@ export function GlideBucketChart({
   rows,
   color,
   height = "h-56",
+  markers = [],
+  goal,
+  mirror,
 }: {
   rows: Row[];
   color: string;
   height?: string;
+  /** Highlighted points: "now" (today's weight) and "goal" (arrival). */
+  markers?: ChartMarker[];
+  /** The final weight, drawn as a highlighted horizontal line. */
+  goal?: number;
+  /** Two buckets: the other one's share (100% − this) on a right axis. */
+  mirror?: { name: string; color: string };
 }) {
   // Zoomed to what is shown (to the nearest 5%), so a narrow band is legible.
   const step = 0.05;
@@ -51,8 +62,14 @@ export function GlideBucketChart({
       (v): v is number => v != null && Number.isFinite(v),
     ),
   );
+  if (goal != null) values.push(goal);
   const max = Math.min(1, Math.ceil((Math.max(0.1, ...values) + 0.02) / step) * step);
   const min = Math.max(0, Math.floor((Math.min(max - 0.1, ...values) - 0.02) / step) * step);
+  // Round ticks: every 5 pp on a narrow range, every 10 pp otherwise.
+  const tickStep = max - min <= 0.3 ? 0.05 : 0.1;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(min / tickStep - 1e-9) * tickStep; t <= max + 1e-9; t += tickStep)
+    ticks.push(Math.round(t * 100) / 100);
   return (
     <div className={`${height} w-full`}>
       <ResponsiveContainer width="100%" height="100%">
@@ -69,11 +86,24 @@ export function GlideBucketChart({
           />
           <YAxis
             domain={[min, max]}
+            ticks={ticks}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
             tick={{ fill: CHART.axis, fontSize: 12 }}
             stroke={CHART.grid}
             width={40}
           />
+          {mirror && (
+            <YAxis
+              yAxisId="mirror"
+              orientation="right"
+              domain={[min, max]}
+              ticks={ticks}
+              tickFormatter={(v) => `${Math.round((1 - v) * 100)}%`}
+              tick={{ fill: mirror.color, fontSize: 12 }}
+              stroke={CHART.grid}
+              width={40}
+            />
+          )}
           <Tooltip
             content={({ active, payload }) => {
               const row = payload?.[0]?.payload as Row | undefined;
@@ -82,7 +112,10 @@ export function GlideBucketChart({
                 <div style={tooltipStyle} className="px-3 py-2 text-xs">
                   <div className="mb-1 font-medium">{row.day}</div>
                   {row.weight != null && (
-                    <div style={{ color }}>Tényleges: {pct(row.weight)}</div>
+                    <div style={{ color }}>
+                      Tényleges: {pct(row.weight)}
+                      {mirror && <span style={{ color: mirror.color }}> · {mirror.name} {pct(1 - row.weight)}</span>}
+                    </div>
                   )}
                   {row.target != null && <div>Pályacél: {pct(row.target)}</div>}
                   {row.projZero != null && row.weight == null && (
@@ -168,10 +201,98 @@ export function GlideBucketChart({
             connectNulls
             isAnimationActive={false}
           />
+          {mirror && (
+            // Recharts only draws an axis that has a series: an invisible one.
+            <Line
+              yAxisId="mirror"
+              dataKey="weight"
+              stroke="none"
+              dot={false}
+              activeDot={false}
+              legendType="none"
+              isAnimationActive={false}
+            />
+          )}
+          {goal != null && (
+            <ReferenceLine
+              y={goal}
+              stroke={CHART.highlight}
+              strokeWidth={1.5}
+              strokeOpacity={0.85}
+              label={{
+                value: `cél ${pct(goal)}${mirror ? ` / ${pct(1 - goal)}` : ""}`,
+                position: "insideTopLeft",
+                fill: CHART.highlight,
+                fontSize: 11,
+              }}
+            />
+          )}
+          {markers.map((m) => (
+            <ReferenceDot
+              key={m.kind}
+              x={m.ts}
+              y={m.value}
+              r={m.kind === "now" ? 5 : 6}
+              fill={m.kind === "now" ? color : CHART.text}
+              stroke={m.kind === "now" ? CHART.text : color}
+              strokeWidth={2}
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
+}
+
+export interface ChartMarker {
+  kind: "now" | "goal";
+  ts: number;
+  value: number;
+}
+
+/** A line sample (solid or dashed) and its label. */
+function LegendItem({
+  color,
+  label,
+  dash,
+  opacity = 1,
+}: {
+  color: string;
+  label: string;
+  dash?: string;
+  opacity?: number;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <svg width="18" height="6" aria-hidden>
+        <line
+          x1="1"
+          y1="3"
+          x2="17"
+          y2="3"
+          stroke={color}
+          strokeOpacity={opacity}
+          strokeWidth={2}
+          strokeDasharray={dash}
+          strokeLinecap="round"
+        />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The history from the first day every bucket held something: before that
+ * the allocation was still being built (one holding at 100%, the others at
+ * 0%), which only squashes the chart. Unchanged when no day qualifies.
+ */
+function builtHistory(history: WeightPoint[]): WeightPoint[] {
+  const i = history.findIndex((p) => {
+    const ws = Object.values(p.buckets).map((b) => b.weight);
+    return ws.length > 0 && ws.every((w) => w > 0.005);
+  });
+  return i > 0 ? history.slice(i) : history;
 }
 
 /**
@@ -184,6 +305,10 @@ export default function GlidePathChart({
   color,
   future = [],
   pathFrom,
+  goalDay,
+  goal,
+  mirror,
+  name,
 }: {
   history: WeightPoint[];
   bucketId: string;
@@ -195,11 +320,19 @@ export default function GlidePathChart({
    * would only confuse.
    */
   pathFrom?: string;
+  /** Expected arrival at the final weight (YYYY-MM-DD), marked on the path. */
+  goalDay?: string;
+  /** The bucket's final weight (highlighted horizontal line). */
+  goal?: number;
+  /** Two buckets: the pair's share on a right axis (see GlideBucketChart). */
+  mirror?: { name: string; color: string };
+  /** The bucket's name, for the legend when mirrored. */
+  name?: string;
 }) {
   const [all, setAll] = useState(false);
   const rows = useMemo(
     () =>
-      history.flatMap((p): Row[] => {
+      builtHistory(history).flatMap((p): Row[] => {
         const b = p.buckets[bucketId];
         return b
           ? [
@@ -229,6 +362,12 @@ export default function GlidePathChart({
   const from = last.ts - 365 * 864e5;
   const shown = all ? rows : rows.filter((r) => r.ts >= from);
   const cut = shown.length < rows.length;
+  // "Now" on today's actual weight; "goal" on the path where it arrives.
+  const goalRow = goalDay ? ahead.find((r) => r.day >= goalDay && r.target != null) : undefined;
+  const markers: ChartMarker[] = [
+    ...(last.weight != null ? [{ kind: "now" as const, ts: last.ts, value: last.weight }] : []),
+    ...(goalRow?.target != null ? [{ kind: "goal" as const, ts: goalRow.ts, value: goalRow.target }] : []),
+  ];
   // The expected-weight lines start from today's actual weight.
   const joined = ahead.some((r) => r.projZero != null || r.projReal != null)
     ? [
@@ -242,15 +381,58 @@ export default function GlidePathChart({
     : shown;
   return (
     <div>
-      <GlideBucketChart rows={[...joined, ...ahead]} color={color} />
-      {(cut || all) && (
-        <button
-          className="mt-1 text-xs text-[var(--color-muted)] underline hover:text-[var(--color-text)]"
-          onClick={() => setAll((v) => !v)}
-        >
-          {all ? "Csak az utolsó 12 hónap" : "Teljes előzmény"}
-        </button>
-      )}
+      <GlideBucketChart
+        rows={[...joined, ...ahead]}
+        color={color}
+        markers={markers}
+        goal={goal}
+        mirror={mirror}
+      />
+      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
+        <LegendItem color={color} label={mirror && name ? `${name} (bal tengely)` : "tényleges arány"} />
+        {mirror && (
+          <span className="flex items-center gap-1.5" style={{ color: mirror.color }}>
+            {mirror.name}: jobb tengely (100% − {name})
+          </span>
+        )}
+        {goal != null && <LegendItem color={CHART.highlight} label="végső cél" />}
+        <LegendItem color={CHART.text} dash="5 4" label="pálya (ehhez mér a riasztás)" />
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-4 rounded-sm" style={{ background: color, opacity: 0.25 }} />
+          sáv
+        </span>
+        {markers.map((m) => (
+          <span key={m.kind} className="flex items-center gap-1.5">
+            <svg width="12" height="12" aria-hidden>
+              <circle
+                cx="6"
+                cy="6"
+                r="4"
+                fill={m.kind === "now" ? color : CHART.text}
+                stroke={m.kind === "now" ? CHART.text : color}
+                strokeWidth={2}
+              />
+            </svg>
+            {m.kind === "now"
+              ? `most (${utcDay(m.ts)})`
+              : `várhatóan eléri a célt (${monthLabel(utcDay(m.ts))})`}
+          </span>
+        ))}
+        {ahead.some((r) => r.projZero != null) && (
+          <LegendItem color={color} dash="1 3" label="várható, csak befizetésből" />
+        )}
+        {ahead.some((r) => r.projReal != null) && (
+          <LegendItem color={color} dash="1 3" opacity={0.55} label="várható, hozammal (tájékoztató)" />
+        )}
+        {(cut || all) && (
+          <button
+            className="ml-auto underline hover:text-[var(--color-text)]"
+            onClick={() => setAll((v) => !v)}
+          >
+            {all ? "Csak az utolsó 12 hónap" : "Teljes előzmény"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

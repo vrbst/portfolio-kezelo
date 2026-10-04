@@ -231,19 +231,42 @@ describe("freezeInflowPath", () => {
 });
 
 describe("projectGlide – routed inflows", () => {
-  it("lists the free coupons and the monthly amount it routes", () => {
+  it("lists the monthly amount (with what the other goals take) and the free coupons", () => {
     const p = projectGlide(input({ cashflows: [coupon("2026-11-15", 50_000)], budgetHuf: 100_000, until: "2026-12-31" }));
     expect(p.inflows).toEqual([
-      { day: "2026-10-01", kind: "monthly", amountHuf: 100_000 },
-      { day: "2026-11-01", kind: "monthly", amountHuf: 100_000 },
-      { day: "2026-11-15", kind: "coupon", amountHuf: 50_000, instrumentKey: "BOND" },
-      { day: "2026-12-01", kind: "monthly", amountHuf: 100_000 },
+      { day: "2026-10-01", kind: "monthly", amountHuf: 100_000, otherHuf: 0 },
+      { day: "2026-11-01", kind: "monthly", amountHuf: 100_000, otherHuf: 0 },
+      { day: "2026-11-15", kind: "coupon", amountHuf: 50_000, instrumentKey: "BOND", totalHuf: 50_000, goals: [] },
+      { day: "2026-12-01", kind: "monthly", amountHuf: 100_000, otherHuf: 0 },
     ]);
   });
 
-  it("leaves out a coupon a goal picked", () => {
+  it("a coupon a goal picked: listed, all of it to the goal", () => {
     const picked = progress({ couponIds: ["BOND@2026-11-15"], targetDate: "2027-03-31" });
     const p = projectGlide(input({ cashflows: [coupon("2026-11-15", 50_000)], savings: [picked] }));
-    expect(p.inflows.filter((x) => x.kind === "coupon")).toEqual([]);
+    expect(p.inflows.filter((x) => x.kind === "coupon")).toEqual([
+      { day: "2026-11-15", kind: "coupon", amountHuf: 0, instrumentKey: "BOND", totalHuf: 50_000, goals: [{ name: "Cél", huf: 50_000 }] },
+    ]);
+  });
+
+  it("a coupon an includeCoupons goal counts on goes to it in full — its gap is on top of it", () => {
+    // The goal expects the 700k coupon (couponsHuf) and still lacks 270k beyond it.
+    const g = progress({ includeCoupons: true }, { couponsHuf: 700_000, gapHuf: 270_000, couponRoomHuf: 270_000 });
+    const p = projectGlide(input({ cashflows: [coupon("2026-10-23", 700_000)], savings: [g] }));
+    expect(p.inflows.find((x) => x.kind === "coupon")).toMatchObject({
+      amountHuf: 0,
+      totalHuf: 700_000,
+      goals: [{ name: "Cél", huf: 700_000 }],
+    });
+  });
+
+  it("the monthly amount grows once a medium-term goal's date has passed", () => {
+    const g = progress({ targetDate: "2026-10-31" }, { plannedMonthlyHuf: 60_000 });
+    const p = projectGlide(input({ savings: [g], budgetHuf: 100_000, until: "2026-12-31" }));
+    expect(p.inflows.filter((x) => x.kind === "monthly").map((x) => [x.day, x.amountHuf, x.otherHuf])).toEqual([
+      ["2026-10-01", 40_000, 60_000],
+      ["2026-11-01", 100_000, 0],
+      ["2026-12-01", 100_000, 0],
+    ]);
   });
 });

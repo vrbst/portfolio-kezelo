@@ -94,43 +94,101 @@ function BandBar({ b, color }: { b: BucketState; color: string }) {
 }
 
 /**
- * What moves the path: the monthly amount, the free coupons of the next 12
- * months and the redemptions until the final weights are reached — all
- * routed to the glide path, as the projection assumes.
+ * What moves the path, as the projection counts it: the monthly amount
+ * month by month (what the other goals take, recomputed as they end), every
+ * coupon of the next 12 months with the goals' share and the rest routed to
+ * the path, and the redemptions until the final weights are reached.
  */
 function InflowSummary({
   inflows,
   today,
   until,
   names,
+  nowHuf,
 }: {
   inflows: ProjectedInflow[];
   today: string;
   until?: string;
   names: Map<string, string>;
+  /** This month's amount (today's budget split). */
+  nowHuf: number;
 }) {
+  const [open, setOpen] = useState(false);
   const yearAhead = addDaysIso(today, 365);
   const coupons = inflows.filter((x) => x.kind === "coupon" && x.day <= yearAhead);
-  const couponHuf = coupons.reduce((s, x) => s + x.amountHuf, 0);
-  const monthly = inflows.find((x) => x.kind === "monthly")?.amountHuf ?? 0;
+  const couponTotal = coupons.reduce((s, x) => s + (x.totalHuf ?? x.amountHuf), 0);
+  const couponPath = coupons.reduce((s, x) => s + x.amountHuf, 0);
+  const couponGoals = couponTotal - couponPath;
+  // The months the monthly amount changes (it is recomputed every month).
+  const steps = inflows
+    .filter((x) => x.kind === "monthly")
+    .filter((x, i, all) => i === 0 || Math.abs(x.amountHuf - all[i - 1].amountHuf) >= 1)
+    .slice(0, 4);
   const maturities = inflows.filter((x) => x.kind === "maturity" && (!until || x.day <= until));
+  const nameOf = (key?: string) => names.get(key ?? "") ?? key ?? "";
   return (
     <div className="mt-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted)]">
       <div className="mb-1 font-medium text-[var(--color-text)]">Mi viszi a pályát</div>
-      <ul className="space-y-0.5">
+      <ul className="space-y-1">
         <li>
-          Havi összeg: <Amt>{formatMoney(monthly)}</Amt> / hó
-          {monthly <= 0 && (
+          Havi összeg — ebben a hónapban <Amt>{formatMoney(nowHuf)}</Amt>
+          {steps.map((x) => (
+            <span key={x.day}>
+              ; {monthOf(x.day)}-tól <Amt>{formatMoney(x.amountHuf)}</Amt>/hó
+              {(x.otherHuf ?? 0) > 0 && (
+                <>
+                  {" "}(a többi cél <Amt>{formatMoney(x.otherHuf ?? 0)}</Amt>-ot visz el)
+                </>
+              )}
+            </span>
+          ))}
+          . A vetítés hónapról hónapra számol: a lejárt célok részét már a pályára teszi.
+          {steps.every((x) => x.amountHuf <= 0) && (
             <span className="text-[var(--color-warning)]">
-              {" "}— most semmi: a havi keretet a többi cél elviszi. Fix összeget a
-              szerkesztőben, a „Célpálya havi összege” mezőnél (a pálya módja alatt) adhatsz.
+              {" "}A célokon felül nem marad semmi — fix összeget a szerkesztőben, a
+              „Célpálya havi összege” mezőnél adhatsz.
             </span>
           )}
         </li>
         <li>
-          Kuponok a következő 12 hónapban: {coupons.length} db, <Amt>{formatMoney(couponHuf)}</Amt>{" "}
-          — mindegyik beérkezésekor jelzés jön (Teendők → „Beérkezett”, és a bot), és a
-          pénz a célpálya felé oszlik (előbb a kupont igénylő célok kapnak).
+          Kuponok a következő 12 hónapban: {coupons.length} db, összesen{" "}
+          <Amt>{formatMoney(couponTotal)}</Amt>
+          {couponGoals >= 1 && (
+            <>
+              , ebből célokhoz <Amt>{formatMoney(couponGoals)}</Amt>
+            </>
+          )}
+          , a pályára <Amt>{formatMoney(couponPath)}</Amt>. Beérkezéskor jelzés jön
+          (Teendők → „Beérkezett”, és a bot).{" "}
+          {coupons.length > 0 && (
+            <button className="underline hover:text-[var(--color-text)]" onClick={() => setOpen((v) => !v)}>
+              {open ? "Részletek elrejtése" : "Részletek"}
+            </button>
+          )}
+          {open && (
+            <table className="mt-1 w-full tabular-nums">
+              <tbody>
+                {coupons.map((x) => (
+                  <tr key={`${x.day}-${x.instrumentKey}`} className="border-t border-[var(--color-border)] align-top">
+                    <td className="py-0.5 pr-2 whitespace-nowrap">{x.day}</td>
+                    <td className="py-0.5 pr-2">{nameOf(x.instrumentKey)}</td>
+                    <td className="py-0.5 pr-2 text-right whitespace-nowrap">
+                      <Amt>{formatMoney(x.totalHuf ?? x.amountHuf)}</Amt>
+                    </td>
+                    <td className="py-0.5">
+                      {(x.goals ?? []).map((g) => (
+                        <span key={g.name}>
+                          <PrivateText text={g.name} />: <Amt>{formatMoney(g.huf)}</Amt>
+                          {" · "}
+                        </span>
+                      ))}
+                      pályára <Amt>{formatMoney(x.amountHuf)}</Amt>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </li>
         {maturities.length > 0 && (
           <li>
@@ -138,7 +196,7 @@ function InflowSummary({
             {maturities.map((x, i) => (
               <span key={`${x.day}-${x.instrumentKey}`}>
                 {i > 0 && ", "}
-                {names.get(x.instrumentKey ?? "") ?? x.instrumentKey} ({x.day}, <Amt>{formatMoney(x.amountHuf)}</Amt>)
+                {nameOf(x.instrumentKey)} ({x.day}, <Amt>{formatMoney(x.amountHuf)}</Amt>)
               </span>
             ))}{" "}
             — ez is a célpálya felé megy.
@@ -262,7 +320,14 @@ export default function GlidePathSettings() {
 
   const colorOf = (id: string) =>
     BUCKET_COLORS[Math.max(0, (cfg?.buckets ?? []).findIndex((b) => b.id === id)) % BUCKET_COLORS.length];
-  const selected = chartId && cfg?.buckets.some((b) => b.id === chartId) ? chartId : cfg?.buckets[0]?.id;
+  // Two buckets mirror each other (they always add up to 100%): one chart,
+  // the first bucket on the left axis and its pair on the right.
+  const pair = cfg?.buckets.length === 2 ? cfg.buckets : undefined;
+  const selected = pair
+    ? pair[0].id
+    : chartId && cfg?.buckets.some((b) => b.id === chartId)
+      ? chartId
+      : cfg?.buckets[0]?.id;
   const unassigned = (state?.unassigned ?? []).filter((p) => Math.abs(p.valueHuf) > 0.5);
   const unassignedHuf = unassigned.reduce((s, p) => s + p.valueHuf, 0);
   const nextCheck = cfg
@@ -413,6 +478,7 @@ export default function GlidePathSettings() {
               today={today}
               until={projection.zero.reachedOn}
               names={names}
+              nowHuf={breakdown.glideHuf}
             />
           )}
 
@@ -420,9 +486,9 @@ export default function GlidePathSettings() {
             <div className="mt-4 border-t border-[var(--color-border)] pt-3">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium text-[var(--color-muted)]">
-                  Súly a pályához képest
+                  {pair ? `${pair[0].name} / ${pair[1].name} aránya a pályához képest` : "Súly a pályához képest"}
                 </span>
-                {cfg.buckets.map((b) => (
+                {!pair && cfg.buckets.map((b) => (
                   <button
                     key={b.id}
                     className={`rounded-full border px-2.5 py-0.5 text-xs ${
@@ -442,6 +508,10 @@ export default function GlidePathSettings() {
                 color={colorOf(selected)}
                 future={future}
                 pathFrom={inflows ? cfg.inflowPath?.[0]?.day : undefined}
+                goalDay={inflows ? inflowEnd : bucket?.endDate}
+                goal={bucket ? bucket.finalWeight / (cfg.buckets.reduce((s, b) => s + b.finalWeight, 0) || 1) : undefined}
+                mirror={pair ? { name: pair[1].name, color: colorOf(pair[1].id) } : undefined}
+                name={bucket?.name}
               />
               {projection && (
                 <p className="mt-2 text-xs text-[var(--color-muted)]">
