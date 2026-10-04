@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { lastSessionLabel, lastTradeTime, quotedToday } from "./prices";
+import { describe, expect, it, vi } from "vitest";
+import {
+  fetchLiveFx,
+  fxMarketOpen,
+  lastSessionLabel,
+  lastTradeTime,
+  quotedToday,
+} from "./prices";
 
 // Local times throughout, so the assertions hold in every test time zone.
 
@@ -55,5 +61,66 @@ describe("lastTradeTime", () => {
   it("falls back to whichever is known", () => {
     expect(lastTradeTime(undefined, friLastBar)).toBe(friLastBar + 5 * 60 * 1000);
     expect(lastTradeTime(sunNow, undefined)).toBe(sunNow);
+  });
+});
+
+describe("fxMarketOpen", () => {
+  it("is open from Sunday 17:00 to Friday 17:00 New York time", () => {
+    expect(fxMarketOpen(Date.UTC(2026, 9, 4, 20, 59))).toBe(false); // Sun 16:59 NY
+    expect(fxMarketOpen(Date.UTC(2026, 9, 4, 21, 1))).toBe(true); // Sun 17:01 NY
+    expect(fxMarketOpen(Date.UTC(2026, 9, 7, 12))).toBe(true); // Wed
+    expect(fxMarketOpen(Date.UTC(2026, 9, 2, 20, 59))).toBe(true); // Fri 16:59 NY
+    expect(fxMarketOpen(Date.UTC(2026, 9, 2, 21, 1))).toBe(false); // Fri 17:01 NY
+    expect(fxMarketOpen(Date.UTC(2026, 9, 3, 12))).toBe(false); // Sat
+  });
+});
+
+describe("fetchLiveFx after the Sunday-evening reopen", () => {
+  // EURHUF=X as Yahoo served it on Monday 2026-10-05 00:34 Budapest: the
+  // price is a fresh tick, the latest 5-minute bars are still Friday's.
+  const friBars = [21, 21.0833, 21.1667, 21.25, 21.3333, 21.4167].map((h) =>
+    Math.round(Date.UTC(2026, 9, 2, 0, 0) / 1000 + h * 3600),
+  );
+  const yahoo = (regularMarketTime: number) => ({
+    chart: {
+      result: [
+        {
+          meta: {
+            instrumentType: "CURRENCY",
+            regularMarketPrice: 368.25,
+            regularMarketTime,
+            previousClose: 368.36,
+            gmtoffset: 3600,
+          },
+          timestamp: friBars,
+          indicators: { quote: [{ close: [368.2, 368.15, 368.1, 368.12, 368.13, 368.12] }] },
+        },
+      ],
+    },
+  });
+  const load = async (now: Date) => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => yahoo(Math.floor(now.getTime() / 1000)) }));
+    try {
+      return (await fetchLiveFx()).EUR;
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  it("Monday's live rate is today's move, measured from Friday's last bar", async () => {
+    const now = new Date(2026, 9, 5, 0, 34);
+    const eur = await load(now);
+    expect(quotedToday(eur, now)).toBe(true);
+    expect(lastSessionLabel(eur, now)).toBeUndefined();
+    expect(eur.prevClose).toBe(368.12);
+    expect(eur.intraday).toBeUndefined();
+    expect(eur.prevDay).toHaveLength(6);
+  });
+
+  it("on Saturday the market is closed: still Friday's move", async () => {
+    const now = new Date(2026, 9, 3, 12, 0);
+    const eur = await load(now);
+    expect(quotedToday(eur, now)).toBe(false);
+    expect(eur.prevClose).toBe(368.36);
   });
 });

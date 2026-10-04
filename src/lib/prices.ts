@@ -211,6 +211,47 @@ export function lastTradeTime(
   return marketTime == null ? barEnd : Math.min(marketTime, barEnd);
 }
 
+const NY_TIME = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+  hour: "numeric",
+  hourCycle: "h23",
+});
+
+/** Is the FX market open at `t`? It trades from Sunday 17:00 to Friday
+ * 17:00 New York time (Budapest: Sunday 23:00 to Friday 23:00). */
+export function fxMarketOpen(t: number): boolean {
+  const parts = NY_TIME.formatToParts(new Date(t));
+  const weekday = parts.find((p) => p.type === "weekday")?.value;
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  if (weekday === "Sat") return false;
+  if (weekday === "Sun") return hour >= 17;
+  if (weekday === "Fri") return hour < 17;
+  return true;
+}
+
+/** Bars of a trading week are continuous; a longer gap is the weekend. */
+const FX_GAP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Is a currency pair's market time a real tick from a session that has no
+ * bars yet? After the Sunday-evening reopen Yahoo's price already moves while
+ * the latest 5-minute bars are still Friday's — capping the time by the last
+ * bar (lastTradeTime) would label Monday's live rate as Friday's move. On the
+ * weekend itself the market is closed, and the cap still applies.
+ */
+export function isFreshFxTick(
+  marketTime: number | undefined,
+  lastBarStart: number | undefined,
+): boolean {
+  return (
+    marketTime != null &&
+    lastBarStart != null &&
+    marketTime - (lastBarStart + BAR_MS) > FX_GAP_MS &&
+    fxMarketOpen(marketTime)
+  );
+}
+
 interface YahooQuote extends LiveQuote {
   currency?: string;
 }
@@ -239,6 +280,8 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
             previousClose?: number;
             chartPreviousClose?: number;
             fullExchangeName?: string;
+            /** "CURRENCY" for a currency pair (e.g. EURHUF=X). */
+            instrumentType?: string;
             /** Exchange UTC offset, seconds — to split bars by local day. */
             gmtoffset?: number;
             longName?: string;
@@ -273,15 +316,31 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
       days[days.length - 1].c.push(c);
       days[days.length - 1].t.push((stamps[i] ?? 0) * 1000);
     });
-    const today = days.at(-1);
-    const before = days.length >= 2 ? days[days.length - 2] : undefined;
+    const rawTime =
+      typeof meta?.regularMarketTime === "number" && meta.regularMarketTime > 0
+        ? meta.regularMarketTime * 1000
+        : undefined;
+    const lastBar = days.at(-1)?.t.at(-1);
+    // A currency pair just reopened (Sunday evening, Monday before the first
+    // bar): the live price is the new session's, all the bars are the
+    // previous one's, and its last bar is the close today's move starts from.
+    const reopened =
+      meta?.instrumentType === "CURRENCY" && isFreshFxTick(rawTime, lastBar);
+    const today = reopened ? undefined : days.at(-1);
+    const before = reopened
+      ? days.at(-1)
+      : days.length >= 2
+        ? days[days.length - 2]
+        : undefined;
     const intraday = today?.c ?? [];
     const prevDay = before?.c ?? [];
     const reg = meta?.currentTradingPeriod?.regular;
+    const prevClose = reopened ? before?.c.at(-1) : prev;
     return {
       price: p,
       currency: meta?.currency,
-      prevClose: typeof prev === "number" && prev > 0 ? prev : undefined,
+      prevClose:
+        typeof prevClose === "number" && prevClose > 0 ? prevClose : undefined,
       intraday: intraday.length >= 2 ? intraday : undefined,
       prevDay: prevDay.length >= 2 ? prevDay : undefined,
       intradayT: intraday.length >= 2 ? today!.t : undefined,
@@ -292,12 +351,7 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
           : undefined,
       exchange: meta?.fullExchangeName,
       name: meta?.longName ?? meta?.shortName,
-      marketTime: lastTradeTime(
-        typeof meta?.regularMarketTime === "number" && meta.regularMarketTime > 0
-          ? meta.regularMarketTime * 1000
-          : undefined,
-        days.at(-1)?.t.at(-1),
-      ),
+      marketTime: reopened ? rawTime : lastTradeTime(rawTime, lastBar),
     };
   } catch {
     return null;
