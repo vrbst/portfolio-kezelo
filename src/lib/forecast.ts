@@ -1,6 +1,6 @@
 import type { Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
-import { isInternalTransfer, toHuf, couponAmountHuf } from "./portfolio";
+import { isInternalTransfer, toHuf, couponAmountHuf, couponAt } from "./portfolio";
 import { touchPref } from "./prefs";
 import { effectiveMonth, effectiveMonthKey } from "./goals";
 import { couponId, splitAmongGoals } from "./incomeClaims";
@@ -331,15 +331,15 @@ function bondLegs(summary: PortfolioSummary, nowMs: number): BondLeg[] {
           bond.couponIntervalMonths && bond.couponIntervalMonths > 0
             ? bond.couponIntervalMonths
             : 12;
-        let cur = first;
-        for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+        for (let k = 0; k < 600; k++) {
+          const cur = couponAt(first, interval, k);
+          if (!Number.isFinite(cur)) break;
           if (Number.isFinite(matMs) && cur > matMs) break;
           if (cur > nowMs) {
             const day = toLocalDay(cur);
             const huf = couponAmountHuf(bond, face, day);
             if (huf && huf > 0) coupons.push({ ms: cur, huf, id: couponId(inst.key, day) });
           }
-          cur = addMonths(cur, interval);
         }
       }
 

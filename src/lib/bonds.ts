@@ -34,10 +34,27 @@ function parseDayMs(s: string | undefined): number {
     : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
+/**
+ * `ms` + `months` calendar months, the day clamped to the target month's end
+ * (Jan 31 + 1 → Feb 28). A bare setMonth overflows instead (Mar 31 + 3 → Jul 1).
+ */
 function addMonths(ms: number, months: number): number {
   const d = new Date(ms);
+  const day = d.getDate();
+  d.setDate(1);
   d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
   return d.getTime();
+}
+
+/**
+ * The k-th coupon date of a schedule (k = 0 is `first`). Always stepped from
+ * `first`, never from the previous coupon: chaining would carry one clamped
+ * month-end forward for good (Mar 31 → Jun 30 → Sep 30 → Dec 30, not Dec 31).
+ */
+export function couponAt(first: number, interval: number, k: number): number {
+  return addMonths(first, k * interval);
 }
 
 // Local-midnight ms -> "YYYY-MM-DD"; lives in day.ts, re-exported for old imports.
@@ -114,17 +131,20 @@ function fixedBondAccrued(
   if (Number.isFinite(matMs) && nowMs > matMs) nowMs = matMs;
 
   let anchorMs: number;
+  // End of the regular period that starts at anchorMs.
+  let periodEndMs = NaN;
   // A regular period runs coupon → coupon; the stub before the first coupon runs
   // from issuance and is prorated on days/365 instead.
   let regularPeriod = true;
   if (Number.isFinite(first) && nowMs >= first) {
-    let cur = first;
-    for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
-      const next = addMonths(cur, interval);
+    let k = 0;
+    while (k < 600) {
+      const next = couponAt(first, interval, k + 1);
       if (!Number.isFinite(next) || next > nowMs) break;
-      cur = next;
+      k++;
     }
-    anchorMs = cur;
+    anchorMs = couponAt(first, interval, k);
+    periodEndMs = couponAt(first, interval, k + 1);
   } else if (Number.isFinite(issue)) {
     anchorMs = issue; // first coupon not due yet — accrue from issuance
     regularPeriod = false;
@@ -138,7 +158,7 @@ function fixedBondAccrued(
   const days = (nowMs - anchorMs) / 86_400_000;
   if (days <= 0) return 0;
   if (regularPeriod) {
-    const periodDays = (addMonths(anchorMs, interval) - anchorMs) / 86_400_000;
+    const periodDays = (periodEndMs - anchorMs) / 86_400_000;
     if (periodDays > 0) {
       const periodCoupon = (rate * interval) / 12;
       return periodCoupon * Math.min(days / periodDays, 1);
@@ -202,8 +222,9 @@ export function nextCouponDate(
       : 12;
   const nowDay = new Date(now);
   nowDay.setHours(0, 0, 0, 0);
+  let k = 0;
   let cur = first;
-  while (cur <= nowDay.getTime()) cur = addMonths(cur, interval);
+  while (cur <= nowDay.getTime()) cur = couponAt(first, interval, ++k);
   const mat = parseDayMs(bond?.maturity);
   if (Number.isFinite(mat) && cur > mat) return undefined; // redeemed by then
   return toLocalDay(cur);
@@ -291,8 +312,9 @@ export function futureBondCashflows(
           bond.couponIntervalMonths && bond.couponIntervalMonths > 0
             ? bond.couponIntervalMonths
             : 12;
-        let cur = first;
-        for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+        for (let k = 0; k < 600; k++) {
+          const cur = couponAt(first, interval, k);
+          if (!Number.isFinite(cur)) break;
           if (Number.isFinite(matMs) && cur > matMs) break;
           if (cur > nowMs) {
             const paidDays = credited.get(inst.key);
@@ -311,7 +333,6 @@ export function futureBondCashflows(
                 instrumentKey: inst.key,
               });
           }
-          cur = addMonths(cur, interval);
         }
       }
 
@@ -470,12 +491,12 @@ export function bondImportReminders(
             ? bond.couponIntervalMonths
             : 12;
         let latest = NaN;
-        let cur = first;
-        for (let i = 0; i < 600 && Number.isFinite(cur); i++) {
+        for (let k = 0; k < 600; k++) {
+          const cur = couponAt(first, interval, k);
+          if (!Number.isFinite(cur)) break;
           if (Number.isFinite(matMs) && cur > matMs) break;
           if (cur - earlyDays * dayMs <= todayMs) latest = cur;
           else break;
-          cur = addMonths(cur, interval);
         }
         if (Number.isFinite(latest) && latest >= lookbackMs) {
           const interests = interestByInst.get(inst.key) ?? [];
