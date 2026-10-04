@@ -308,8 +308,11 @@ export default function GlidePathSettings() {
   );
 
   function save(next: GlideConfig) {
+    // The user's own save — never the automatic flag of the version it was
+    // edited from (that would make it droppable, see dropSeeded).
+    const { seeded: _seeded, ...own } = next;
     saveGlideVersion({
-      ...next,
+      ...own,
       id: crypto.randomUUID(),
       savedAt: new Date().toISOString(),
     });

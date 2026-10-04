@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   cashKey,
+  dropSeeded,
+  isSeededVersion,
   countCustomSettings,
   configAt,
   defaultGlobals,
@@ -344,5 +346,43 @@ describe("countCustomSettings", () => {
     });
     expect(countCustomSettings(cfg, "2026-01-01")).toBe(3);
     expect(countCustomSettings({ ...cfg, pathMode: "inflows" }, "2026-01-01")).toBe(0);
+  });
+});
+
+describe("automatic (seeded) versions never override the user's", () => {
+  // The shape an older build's migration produced (no `seeded` flag).
+  const legacySeed = (day: string, savedAt: string): GlideConfig =>
+    config(
+      [
+        bucket("x", 0.6, { name: "Részvény / ETF", startDate: day, endDate: `${+day.slice(0, 4) + 1}${day.slice(4)}` }),
+        bucket("y", 0.4, { name: "Állampapír", startDate: day, endDate: `${+day.slice(0, 4) + 1}${day.slice(4)}` }),
+      ],
+      { id: `seed-${day}`, validFrom: day, savedAt },
+    );
+  const own = config(
+    [bucket("R", 0.6, { name: "Részvény", start: { mode: "snapshot", date: "2026-09-26" } }), bucket("K", 0.4, { name: "Állampapír" })],
+    { id: "own", validFrom: "2026-09-29", savedAt: "2026-09-29T19:58:56Z", monthlyAmount: { kind: "remainder" } },
+  );
+
+  it("recognises an old build's seed by its shape, and the flag", () => {
+    expect(isSeededVersion(legacySeed("2026-10-02", "2026-10-02T09:30:25Z"))).toBe(true);
+    expect(isSeededVersion({ ...own, seeded: true })).toBe(true);
+    expect(isSeededVersion(own)).toBe(false);
+    // One field the user changed is enough to make it theirs.
+    const edited = legacySeed("2026-10-02", "2026-10-02T09:30:25Z");
+    edited.buckets[0].band = { kind: "abs", pp: 0.04 };
+    expect(isSeededVersion(edited)).toBe(false);
+  });
+
+  it("a newer seed from another device does not become the latest version", () => {
+    const merged = mergeGlideVersions([own], [legacySeed("2026-10-02", "2026-10-02T09:30:25Z")]);
+    expect(merged.map((v) => v.id)).toEqual(["own"]);
+    expect(latestConfig(merged)?.id).toBe("own");
+    expect(configAt(merged, "2026-10-03")?.id).toBe("own");
+  });
+
+  it("a seed is kept while it is the only configuration", () => {
+    const only = [legacySeed("2026-09-26", "2026-09-26T15:47:53Z")];
+    expect(dropSeeded(only)).toEqual(only);
   });
 });

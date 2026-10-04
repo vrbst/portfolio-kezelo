@@ -229,6 +229,12 @@ export interface GlideConfig {
   inflowPath?: InflowPoint[];
   /** The inflow path arrives at the final weights within its horizon. */
   inflowReached?: boolean;
+  /**
+   * Created automatically from the old target allocation (migrateIfNeeded),
+   * not saved by the user. Dropped as soon as a user-saved version exists —
+   * see dropSeeded.
+   */
+  seeded?: true;
 }
 
 export type PathMode = "calendar" | "inflows";
@@ -269,7 +275,7 @@ export function loadGlideVersions(): GlideConfig[] {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as GlideConfig[]).map(normalizeConfig) : [];
+    return Array.isArray(parsed) ? dropSeeded((parsed as GlideConfig[]).map(normalizeConfig)) : [];
   } catch {
     return [];
   }
@@ -289,7 +295,53 @@ export function mergeGlideVersions(
       continue;
     if (!byId.has(v.id)) byId.set(v.id, v);
   }
-  return [...byId.values()].sort(compareVersions);
+  return dropSeeded([...byId.values()].sort(compareVersions));
+}
+
+/**
+ * A version the app made by itself from the old target allocation: flagged
+ * `seeded`, or — made by an older build, before the flag — recognised by its
+ * exact shape (asset-class names, a flat one-year path from the version day,
+ * ±5 pp absolute bands, no monthly amount, every instrument sellable and
+ * accepting money). The user's own saves never look like this.
+ */
+export function isSeededVersion(v: GlideConfig): boolean {
+  if (v.seeded) return true;
+  if (v.monthlyAmount || v.pathMode || v.buckets.length === 0) return false;
+  const labels = new Set(Object.values(assetClassLabel));
+  const yearOn = addYears(v.validFrom, 1);
+  return (
+    v.buckets.every(
+      (b) =>
+        labels.has(b.name) &&
+        b.start.mode === "manual" &&
+        b.start.weight === b.finalWeight &&
+        b.startDate === v.validFrom &&
+        b.endDate === yearOn &&
+        b.interpolation === "linear" &&
+        b.band.kind === "abs" &&
+        b.band.pp === 0.05 &&
+        !b.band.minPp &&
+        !b.cost &&
+        !b.aboveMode &&
+        !b.belowMode &&
+        !b.upperBase &&
+        !b.lowerBase,
+    ) &&
+    Object.values(v.instruments).every((r) => r.sellable && r.acceptsContributions && !r.cost)
+  );
+}
+
+/**
+ * Drop the automatic versions once the user has saved one of their own. A
+ * device that seeded one before it got the synced path (e.g. an old build
+ * started from the PWA cache) would otherwise upload a NEWER version that
+ * overrides the real configuration on every device.
+ */
+export function dropSeeded(versions: GlideConfig[]): GlideConfig[] {
+  return versions.some((v) => !isSeededVersion(v))
+    ? versions.filter((v) => !isSeededVersion(v))
+    : versions;
 }
 
 function compareVersions(x: GlideConfig, y: GlideConfig): number {
@@ -671,6 +723,7 @@ export function migrateFromAllocation(
     buckets,
     instruments: rules,
     ...defaultGlobals(),
+    seeded: true,
   };
 }
 
