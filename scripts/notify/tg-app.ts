@@ -18,7 +18,7 @@ import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { quotedToday } from "../../src/lib/prices";
-import { toLocalDay } from "../../src/lib/day";
+import { addDaysIso, toLocalDay } from "../../src/lib/day";
 import {
   alertLine,
   alertsText,
@@ -276,6 +276,19 @@ async function tick(deps: Deps): Promise<HubResponse> {
   return { v: 1, messages };
 }
 
+/** From this hour on Friday the week's report is due (Xetra closes 17:30). */
+export const WEEKLY_REPORT_HOUR = 18;
+
+/**
+ * The Friday (YYYY-MM-DD) whose weekly report is due at `now`: that Friday
+ * from WEEKLY_REPORT_HOUR through the weekend; Monday–Friday before it none.
+ */
+export function weeklyReportFriday(now: Date): string | null {
+  const back = { 5: 0, 6: 1, 0: 2 }[now.getDay()];
+  if (back === undefined || (back === 0 && now.getHours() < WEEKLY_REPORT_HOUR)) return null;
+  return addDaysIso(toLocalDay(now), -back);
+}
+
 /** What's new since the last tick; advances `st` (pure apart from that). */
 export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMessage[] {
   const now = ctx.at;
@@ -368,9 +381,11 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     } else if (days <= limit) delete st.warned[key];
   }
 
-  // 4) Weekly (Sunday from 18:00) and monthly (the 1st from 08:00) reports.
-  if (now.getDay() === 0 && now.getHours() >= 18 && st.lastWeekly !== today) {
-    st.lastWeekly = today;
+  // 4) Weekly (Friday from 18:00, after the Xetra close; caught up on the
+  //    weekend if the hub was down) and monthly (the 1st from 08:00) reports.
+  const friday = weeklyReportFriday(now);
+  if (friday && (st.lastWeekly ?? "") < friday) {
+    st.lastWeekly = friday;
     out.push(msg(weeklyText(ctx)));
   }
   const ym = today.slice(0, 7);

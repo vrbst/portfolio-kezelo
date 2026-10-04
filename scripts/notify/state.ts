@@ -9,7 +9,7 @@ import type { GlideSignals } from "../../src/lib/rebalance";
 export interface State {
   /** Alert id → when it was first sent. Pruned when the alert resolves. */
   sentAlerts: Record<string, string>;
-  lastWeekly?: string; // YYYY-MM-DD of the Sunday it was sent
+  lastWeekly?: string; // YYYY-MM-DD of the Friday whose report was sent
   lastMonthly?: string; // YYYY-MM
   /**
    * Today's already-reported move levels (level = |move| / threshold, floored):

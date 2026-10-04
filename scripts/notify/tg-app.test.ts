@@ -122,15 +122,33 @@ describe("tick", () => {
     expect(r.messages!.find((x) => /új teendő/i.test(x.html))!.priority).toBe("normal");
   });
 
-  it("the Sunday evening report goes out once, as a normal message", async () => {
-    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-11", lastMonthly: "2026-10" }));
-    const deps = depsFor(() => contextAt([2026, 10, 18, 18, 30]));
-    const r = await call(jobReq(), deps);
-    const weekly = r.messages!.filter((m) => m.html.includes("Heti"));
+  const weeklyAt = async (at: [number, number, number, number, number?]) =>
+    (await call(jobReq(), depsFor(() => contextAt(at)))).messages!.filter((m) => m.html.includes("Heti"));
+
+  it("the weekly report goes out on Friday after the close, once, as a normal message", async () => {
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-09", lastMonthly: "2026-10" }));
+    expect(await weeklyAt([2026, 10, 16, 17, 55])).toHaveLength(0);
+    const weekly = await weeklyAt([2026, 10, 16, 18, 0]);
     expect(weekly).toHaveLength(1);
     expect(weekly[0].priority).toBe("normal");
-    expect(readState().lastWeekly).toBe("2026-10-18");
-    expect((await call(jobReq(), deps)).messages!.some((m) => m.html.includes("Heti"))).toBe(false);
+    expect(readState().lastWeekly).toBe("2026-10-16");
+    expect(await weeklyAt([2026, 10, 16, 18, 5])).toHaveLength(0);
+    expect(await weeklyAt([2026, 10, 18, 18, 30])).toHaveLength(0);
+  });
+
+  it("a Friday missed (hub down) is caught up on the weekend, not on Monday", async () => {
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-09", lastMonthly: "2026-10" }));
+    expect(await weeklyAt([2026, 10, 18, 9, 0])).toHaveLength(1);
+    expect(readState().lastWeekly).toBe("2026-10-16");
+
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-09", lastMonthly: "2026-10" }));
+    expect(await weeklyAt([2026, 10, 19, 9, 0])).toHaveLength(0);
+  });
+
+  it("a Sunday sent under the old schedule doesn't re-send for the Friday before it", async () => {
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-04", lastMonthly: "2026-10" }));
+    expect(await weeklyAt([2026, 10, 4, 18, 30])).toHaveLength(0);
+    expect(await weeklyAt([2026, 10, 9, 18, 0])).toHaveLength(1);
   });
 
   it("loads the old bot's state; the hub's fields are dropped, the rest kept", async () => {
