@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quotedToday } from "./prices";
+import { lastSessionLabel, quotedToday } from "./prices";
 
 // Local times throughout, so the assertions hold in every test time zone.
 
@@ -21,5 +21,19 @@ describe("quotedToday", () => {
   it("no known trade time counts as today; no quote does not", () => {
     expect(quotedToday({ price: 400 }, new Date(2026, 9, 3))).toBe(true);
     expect(quotedToday(undefined, new Date(2026, 9, 3))).toBe(false);
+  });
+});
+
+describe("lastSessionLabel", () => {
+  const fri = new Date(2026, 9, 2, 17, 35).getTime(); // Fri, local
+  it("names the last session's day when the quote did not trade today", () => {
+    expect(lastSessionLabel({ price: 1, prevClose: 1, marketTime: fri }, new Date(2026, 9, 4, 12))).toBe("péntek");
+  });
+  it("is undefined for today's move or an unknown trade time", () => {
+    expect(lastSessionLabel({ price: 1, marketTime: fri }, new Date(2026, 9, 2, 20))).toBeUndefined();
+    expect(lastSessionLabel({ price: 1 }, new Date(2026, 9, 4, 12))).toBeUndefined();
+  });
+  it("an older quote shows its date", () => {
+    expect(lastSessionLabel({ price: 1, marketTime: fri }, new Date(2026, 9, 20, 12))).toBe("2026-10-02");
   });
 });

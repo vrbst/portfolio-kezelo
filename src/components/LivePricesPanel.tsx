@@ -4,7 +4,7 @@ import { usePortfolio, usePortfolioSummary } from "../lib/store";
 import { Card } from "./ui";
 import { formatMoney, formatDateTime, formatPercent } from "../lib/format";
 import type { Instrument } from "../lib/model";
-import { isCurveLive, isTrading, type LiveQuote } from "../lib/prices";
+import { isCurveLive, isTrading, lastSessionLabel, type LiveQuote } from "../lib/prices";
 import InstrumentLogo from "./InstrumentLogo";
 import PriceChartDialog from "./PriceChartDialog";
 
@@ -230,6 +230,9 @@ function PriceTile({
   // Right after the open, before the new session's first bar arrives, the
   // curve is still the last trading day's: that is not live either.
   const now = useNow();
+  // Not traded today (weekend, holiday, before the open): the change is the
+  // last session's — labelled with its day and muted, never "today's".
+  const session = lastSessionLabel(quote, new Date(now));
   const trading = isTrading(quote, now);
   const curveLive = isCurveLive(quote, now);
   const clickable = !!onOpen && !!quote?.intraday;
@@ -284,15 +287,22 @@ function PriceTile({
         )}
       </div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-      {change != null && (
+{change != null && (
         <span
           className={`mt-1 inline-flex rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
-            up
-              ? "bg-[var(--color-positive)]/12 text-[var(--color-positive)]"
-              : "bg-[var(--color-negative)]/12 text-[var(--color-negative)]"
+            session
+              ? "bg-[var(--color-surface-2)] text-[var(--color-muted)]"
+              : up
+                ? "bg-[var(--color-positive)]/12 text-[var(--color-positive)]"
+                : "bg-[var(--color-negative)]/12 text-[var(--color-negative)]"
           }`}
-          title="Változás az előző záráshoz képest"
+          title={
+            session
+              ? `Az utolsó kereskedési nap (${session}) változása — ma nem volt kereskedés`
+              : "Változás az előző záráshoz képest"
+          }
         >
+          {session && `${session}: `}
           {formatPercent(change)}
         </span>
       )}

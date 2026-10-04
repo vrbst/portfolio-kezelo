@@ -2,6 +2,7 @@
 // files so fast refresh keeps working).
 
 import { PAPER, RETRO, skinned, TERM } from "../lib/skin";
+import type { WeightPoint } from "../lib/rebalance";
 
 /** Distinct, dark-theme-friendly colours for the buckets (cycled). */
 export const BUCKET_COLORS = skinned({
@@ -84,4 +85,19 @@ export function previewRows(
       minApplied: l.minApplied,
     };
   });
+}
+
+/**
+ * The history from the first day the charted bucket was neither empty nor
+ * the whole portfolio: before that the allocation was still being built (one
+ * holding at 100%, the other at 0%), which only squashes the chart. Only the
+ * charted bucket counts — an old version's other bucket that stayed empty
+ * for months (e.g. a small one funded later) must not hide the past.
+ */
+export function builtHistory(history: WeightPoint[], bucketId: string): WeightPoint[] {
+  const i = history.findIndex((p) => {
+    const w = p.buckets[bucketId]?.weight;
+    return w != null && w > 0.005 && w < 0.995;
+  });
+  return i > 0 ? history.slice(i) : history;
 }

@@ -160,6 +160,20 @@ export function quotedToday(q: LiveQuote | undefined, now: Date): boolean {
   return q.marketTime == null || toLocalDay(q.marketTime) === toLocalDay(now);
 }
 
+const WEEKDAYS = ["vasárnap", "hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat"];
+
+/**
+ * When the quote did not trade today: the day its move (price vs previous
+ * close) belongs to — "péntek", or a date when it is older than a week — so
+ * it is never shown as today's change. Undefined when it is today's move.
+ */
+export function lastSessionLabel(q: LiveQuote | undefined, now: Date): string | undefined {
+  if (!q || q.marketTime == null || quotedToday(q, now)) return undefined;
+  const t = new Date(q.marketTime);
+  const days = (now.getTime() - q.marketTime) / 86_400_000;
+  return days < 7 ? WEEKDAYS[t.getDay()] : toLocalDay(q.marketTime);
+}
+
 /** Is the quote's market in its regular session at `now`? Without a known
  * session (e.g. the frankfurter fallback) it counts as trading. */
 export function isTrading(q: LiveQuote | undefined, now: number): boolean {

@@ -517,6 +517,30 @@ export function dayChangeBreakdown(
  * differ by a few tenths of a percent — noise the size of a whole day's move.
  * Without live quotes it falls back to the last two series samples.
  */
+/**
+ * Yesterday's marks for today's move, from the live quotes: the previous
+ * close — but only for a quote that traded TODAY. On a weekend, a holiday or
+ * before the open the live price is the last session's close and its
+ * previous close is the session before: that is the last session's move, not
+ * today's, so such a quote counts as unchanged (its own price). Null when no
+ * live quote applies (the series' last two samples are used instead).
+ */
+export function liveDayOverrides(
+  liveQuotes: Record<string, LiveQuote>,
+  isHeld: (key: string) => boolean,
+  today: string,
+): DayOverrides | null {
+  const tradedToday = (q: LiveQuote) =>
+    q.marketTime == null || toLocalDay(q.marketTime) === today;
+  const prices: Record<string, number> = {};
+  for (const [key, q] of Object.entries(liveQuotes))
+    if (isHeld(key) && q.prevClose != null) prices[key] = tradedToday(q) ? q.prevClose : q.price;
+  const eur = liveQuotes["EUR"];
+  const eurPrev = eur?.prevClose != null ? (tradedToday(eur) ? eur.prevClose : eur.price) : undefined;
+  if (eurPrev == null && Object.keys(prices).length === 0) return null;
+  return { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined };
+}
+
 export function computeDayChange(
   series: ValuePoint[],
   accounts: Account[],
@@ -531,17 +555,9 @@ export function computeDayChange(
   const last = series[series.length - 1];
 
   const instMap = new Map(instruments.map((i) => [i.key, i]));
-  const prevCloses: Record<string, number> = {};
-  for (const [key, q] of Object.entries(liveQuotes)) {
-    if (instMap.has(key) && q.prevClose != null) prevCloses[key] = q.prevClose;
-  }
-  const eurPrev = liveQuotes["EUR"]?.prevClose;
-  if (eurPrev != null || Object.keys(prevCloses).length > 0) {
+  const overrides = liveDayOverrides(liveQuotes, (k) => instMap.has(k), last.date);
+  if (overrides) {
     const prevDay = addDaysIso(last.date, -1);
-    const overrides: DayOverrides = {
-      prices: prevCloses,
-      fx: eurPrev != null ? { EUR: eurPrev } : undefined,
-    };
     const prev = valueOnDay(
       accounts,
       transactions,

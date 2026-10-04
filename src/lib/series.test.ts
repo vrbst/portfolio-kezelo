@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
-import { buildValueSeries, dayChangeBreakdown } from "./series";
+import { buildValueSeries, dayChangeBreakdown, liveDayOverrides } from "./series";
 
 // Invented sample data: a Lightyear account with 10 units of a EUR ETF and
 // 50 EUR of cash. Yesterday: price 100, EUR/HUF 390; today: 110, 400.
@@ -110,5 +110,35 @@ describe("buildValueSeries — flows", () => {
     );
     expect(late.get("2026-09-27")).toBe(800_000);
     expect(late.get("2026-09-30")).toBe(1_000_000);
+  });
+});
+
+describe("liveDayOverrides — today's move only from quotes that traded today", () => {
+  const friClose = new Date(2026, 9, 2, 17, 35).getTime(); // Fri 2026-10-02, local
+  const monNoon = new Date(2026, 9, 5, 12, 0).getTime();
+  const quotes = {
+    ETF: { price: 110, prevClose: 100, marketTime: friClose },
+    EUR: { price: 390, prevClose: 385, marketTime: friClose },
+  };
+
+  it("on Sunday the last session's move is not today's: prices count as unchanged", () => {
+    expect(liveDayOverrides(quotes, (k) => k === "ETF", "2026-10-04")).toEqual({
+      prices: { ETF: 110 },
+      fx: { EUR: 390 },
+    });
+  });
+
+  it("a quote that traded today uses its previous close", () => {
+    const live = { ...quotes, ETF: { ...quotes.ETF, marketTime: monNoon } };
+    expect(liveDayOverrides(live, (k) => k === "ETF", "2026-10-05")?.prices).toEqual({ ETF: 100 });
+  });
+
+  it("without a trade time (fallback source) it counts as today's", () => {
+    const q = { ETF: { price: 110, prevClose: 100 } };
+    expect(liveDayOverrides(q, () => true, "2026-10-04")?.prices).toEqual({ ETF: 100 });
+  });
+
+  it("null when no held quote has a previous close", () => {
+    expect(liveDayOverrides({ X: { price: 1 } }, () => false, "2026-10-04")).toBeNull();
   });
 });

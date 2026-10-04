@@ -11,7 +11,7 @@ import {
   CartesianGrid,
   ReferenceLine,
 } from "recharts";
-import type { LiveQuote } from "../lib/prices";
+import { lastSessionLabel, type LiveQuote } from "../lib/prices";
 import { formatPercent } from "../lib/format";
 import { CHART } from "../lib/skin";
 
@@ -88,6 +88,8 @@ export default function PriceChartDialog({
   const change =
     quote.prevClose != null ? quote.price / quote.prevClose - 1 : undefined;
   const up = (change ?? 0) >= 0;
+  // Not traded today: the last session's move, labelled with its day.
+  const session = lastSessionLabel(quote, new Date());
 
   const { rows, split, ticks } = useMemo(() => {
     const rows: Row[] = [];
@@ -153,17 +155,25 @@ export default function PriceChartDialog({
               <span className="text-2xl font-semibold tabular-nums">
                 {value}
               </span>
-              {change != null && (
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
-                    up
-                      ? "bg-[var(--color-positive)]/12 text-[var(--color-positive)]"
-                      : "bg-[var(--color-negative)]/12 text-[var(--color-negative)]"
-                  }`}
-                >
-                  {formatPercent(change)}
-                </span>
-              )}
+{change != null && (
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
+            session
+              ? "bg-[var(--color-surface-2)] text-[var(--color-muted)]"
+              : up
+                ? "bg-[var(--color-positive)]/12 text-[var(--color-positive)]"
+                : "bg-[var(--color-negative)]/12 text-[var(--color-negative)]"
+          }`}
+          title={
+            session
+              ? `Az utolsó kereskedési nap (${session}) változása — ma nem volt kereskedés`
+              : "Változás az előző záráshoz képest"
+          }
+        >
+          {session && `${session}: `}
+          {formatPercent(change)}
+        </span>
+      )}
             </div>
             {sub && (
               <div className="mt-0.5 text-xs text-[var(--color-muted)]">

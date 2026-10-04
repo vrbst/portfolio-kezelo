@@ -12,7 +12,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { WeightPoint } from "../lib/rebalance";
-import { dayTs, type Row } from "./glideChartData";
+import { builtHistory, dayTs, type Row } from "./glideChartData";
 import { CHART } from "../lib/skin";
 import { utcDay } from "../lib/day";
 
@@ -282,18 +282,6 @@ function LegendItem({
   );
 }
 
-/**
- * The history from the first day every bucket held something: before that
- * the allocation was still being built (one holding at 100%, the others at
- * 0%), which only squashes the chart. Unchanged when no day qualifies.
- */
-function builtHistory(history: WeightPoint[]): WeightPoint[] {
-  const i = history.findIndex((p) => {
-    const ws = Object.values(p.buckets).map((b) => b.weight);
-    return ws.length > 0 && ws.every((w) => w > 0.005);
-  });
-  return i > 0 ? history.slice(i) : history;
-}
 
 /**
  * History chart for one bucket, from the ledger-derived weight series, with
@@ -332,7 +320,7 @@ export default function GlidePathChart({
   const [all, setAll] = useState(false);
   const rows = useMemo(
     () =>
-      builtHistory(history).flatMap((p): Row[] => {
+      builtHistory(history, bucketId).flatMap((p): Row[] => {
         const b = p.buckets[bucketId];
         return b
           ? [
