@@ -150,8 +150,15 @@ async function main() {
   // whose live fetch fails or returns empty this run, so one flaky Yahoo response
   // (e.g. the illiquid WBIT .SG listing, or a BTC-EUR proxy miss) never drops a
   // symbol from the file and makes its price chart vanish.
-  const prevPrices = readJson(OUT)?.prices ?? {}
-  const prevHist = readJson(HIST_OUT)?.prices ?? {}
+  const prevFile = readJson(OUT)
+  const prevHistFile = readJson(HIST_OUT)
+  const prevPrices = prevFile?.prices ?? {}
+  const prevHist = prevHistFile?.prices ?? {}
+  // How many values came fresh from the network this run. updatedAt moves only
+  // when something did: carried-forward data must not look new, or the bot's
+  // "price file is N days old" warning could never fire.
+  let freshPrices = 0
+  let freshHist = 0
 
   const prices = {}
   const histPrices = {}
@@ -165,6 +172,7 @@ async function main() {
         label,
         name: q.name,
       }
+      freshPrices++
       const warn = currency && q.currency !== currency ? '  ⚠ deviza eltér!' : ''
       console.log(
         `✓ ${label} (${isin}) = ${q.price} ${q.currency} [${q.symbol}]${warn}`,
@@ -180,6 +188,7 @@ async function main() {
               d,
               Math.round(p * ratio * 1e4) / 1e4,
             ])
+            freshHist++
             console.log(
               `  ↳ ${proxy.length} nap ${proxySymbol}-ből skálázva (arány ${ratio.toExponential(3)})`,
             )
@@ -191,6 +200,7 @@ async function main() {
           const hist = await fetchHistory(histSym)
           if (hist.length) {
             histPrices[isin] = hist
+            freshHist++
             console.log(`  ↳ ${hist.length} napi záróár [${histSym}]`)
           } else {
             console.warn(`  ↳ nincs history [${histSym}]`)
@@ -219,25 +229,43 @@ async function main() {
     }
   }
 
-  let eurHuf
+  // EUR/HUF is carried forward like the prices: an empty fx would value every
+  // EUR position at 1 HUF/EUR until the app's live rate arrives, and blank the
+  // chart's EUR history until the next run.
+  let fx = {}
   try {
-    eurHuf = await fetchFx()
+    const eurHuf = await fetchFx()
+    if (!eurHuf) throw new Error('üres válasz')
+    fx = { EUR: eurHuf }
+    freshPrices++
     console.log(`✓ EUR/HUF = ${eurHuf}`)
   } catch (err) {
     console.warn(`! FX: ${err.message}`)
+    if (prevFile?.fx?.EUR) {
+      fx = prevFile.fx
+      console.log('  ↳ EUR/HUF megtartva a korábbi fájlból')
+    }
   }
 
-  let fxHist = []
+  let fxHist = {}
   try {
-    fxHist = await fetchFxHistory()
-    console.log(`✓ EUR/HUF history: ${fxHist.length} nap`)
+    const series = await fetchFxHistory()
+    if (!series.length) throw new Error('üres válasz')
+    fxHist = { EUR: series }
+    freshHist++
+    console.log(`✓ EUR/HUF history: ${series.length} nap`)
   } catch (err) {
     console.warn(`! FX history: ${err.message}`)
+    if (prevHistFile?.fx?.EUR?.length) {
+      fxHist = prevHistFile.fx
+      console.log('  ↳ EUR/HUF history megtartva a korábbi fájlból')
+    }
   }
 
+  const now = new Date().toISOString()
   const out = {
-    updatedAt: new Date().toISOString(),
-    fx: eurHuf ? { EUR: eurHuf } : {},
+    updatedAt: freshPrices ? now : (prevFile?.updatedAt ?? now),
+    fx,
     prices,
   }
   mkdirSync(dirname(OUT), { recursive: true })
@@ -245,12 +273,19 @@ async function main() {
   console.log(`→ írva: ${OUT}`)
 
   const histOut = {
-    updatedAt: new Date().toISOString(),
+    updatedAt: freshHist ? now : (prevHistFile?.updatedAt ?? now),
     prices: histPrices,
-    fx: fxHist.length ? { EUR: fxHist } : {},
+    fx: fxHist,
   }
   writeFileSync(HIST_OUT, JSON.stringify(histOut) + '\n')
   console.log(`→ írva: ${HIST_OUT}`)
+
+  // Nothing fresh at all → fail the run, so the Action shows red (and the
+  // deploy that follows it is skipped) instead of a silent green no-op.
+  if (!freshPrices) {
+    console.error('✗ Egyetlen friss árfolyam sem jött — a fájl a korábbi adatokkal maradt.')
+    process.exitCode = 1
+  }
 }
 
 main()
