@@ -73,7 +73,7 @@ export interface AiModelInfo {
 
 /**
  * Models the user can pick from in Settings (stored per-device). Deep/quality
- * default: Opus 5 with adaptive thinking. Prices are first-party API $/1M.
+ * default: Opus 5.5 with adaptive thinking. Prices are first-party API $/1M.
  */
 export const AI_MODELS: readonly AiModelInfo[] = [
   {
@@ -128,11 +128,19 @@ export const AI_MODELS: readonly AiModelInfo[] = [
   },
 ] as const;
 
-/** Default model: Opus 5 (deep/quality). */
-export const AI_MODEL = "claude-opus-5";
+/** Default model: Opus 5.5 (deep/quality; stronger and cheaper than Opus 5). */
+export const AI_MODEL = "claude-opus-5-5";
 
+/**
+ * An unknown id (e.g. a model removed from the list) falls back to the
+ * default's info — not the first entry, the priciest model, which would
+ * inflate the spend estimate.
+ */
 export function modelInfo(id: string): AiModelInfo {
-  return AI_MODELS.find((m) => m.id === id) ?? AI_MODELS[0];
+  return (
+    AI_MODELS.find((m) => m.id === id) ??
+    AI_MODELS.find((m) => m.id === AI_MODEL)!
+  );
 }
 
 export function modelLabel(id: string): string {
