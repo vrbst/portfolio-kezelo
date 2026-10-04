@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { parseFiles, type ParsedImport } from "../lib/parsers";
+import { matchExisting } from "../lib/parsers/match";
+import type { Transaction } from "../lib/model";
 import { usePortfolio } from "../lib/store";
 import { PageHeader, Card, Badge } from "../components/ui";
 import { formatDate } from "../lib/format";
@@ -25,23 +27,26 @@ export default function Import() {
   );
   const [parseError, setParseError] = useState<string | null>(null);
 
-  // Mirror the dedup rule of importParsed: a parsed transaction is "existing"
-  // when its id is already in the store, otherwise it will be imported.
-  const existingIds = useMemo(
-    () => new Set(transactions.map((t) => t.id)),
-    [transactions],
-  );
-  const isExisting = (id: string) => existingIds.has(id);
-  const newCount = preview
-    ? preview.transactions.filter((t) => !isExisting(t.id)).length
-    : 0;
-  const existingCount = preview ? preview.transactions.length - newCount : 0;
+  // The same rule importParsed applies (matchExisting): a parsed row is
+  // "existing" when the store holds the same transaction — a same-id but
+  // different one is a hash collision and still gets imported.
+  const existingRows = useMemo(() => {
+    if (!preview) return new Set<Transaction>();
+    const { isNew } = matchExisting(
+      preview.transactions,
+      new Map(transactions.map((t) => [t.id, t])),
+    );
+    return new Set(preview.transactions.filter((_, i) => !isNew[i]));
+  }, [preview, transactions]);
+  const isExisting = (t: Transaction) => existingRows.has(t);
+  const existingCount = existingRows.size;
+  const newCount = preview ? preview.transactions.length - existingCount : 0;
 
   // New transactions first, so the rows that will actually be imported are the
   // ones visible in the (truncated) preview table.
   const previewRows = preview
     ? [...preview.transactions].sort(
-        (a, b) => Number(isExisting(a.id)) - Number(isExisting(b.id)),
+        (a, b) => Number(isExisting(a)) - Number(isExisting(b)),
       )
     : [];
 
@@ -186,7 +191,7 @@ export default function Import() {
               const txs = preview.transactions.filter(
                 (t) => t.accountId === a.id,
               );
-              const accNew = txs.filter((t) => !isExisting(t.id)).length;
+              const accNew = txs.filter((t) => !isExisting(t)).length;
               const accExisting = txs.length - accNew;
               return (
                 <Card key={a.id} className="flex items-center gap-3 p-4">
@@ -239,7 +244,7 @@ export default function Import() {
                 </thead>
                 <tbody>
                   {previewRows.slice(0, 12).map((t) => {
-                    const existing = isExisting(t.id);
+                    const existing = isExisting(t);
                     return (
                       <tr
                         key={t.id}

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { db, getMeta, setMeta } from "./db";
 import type { Account, Instrument, Transaction } from "./model";
 import type { ParsedImport } from "./parsers";
+import { matchExisting } from "./parsers/match";
 import {
   computePortfolio,
   type PortfolioSummary,
@@ -565,10 +566,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   importParsed: async (parsed) => {
     const state = get();
-    const existingTxIds = new Set(state.transactions.map((t) => t.id));
-
-    const newTxs = parsed.transactions.filter((t) => !existingTxIds.has(t.id));
-    const skipped = parsed.transactions.length - newTxs.length;
+    // A same-id but different stored transaction is a hash collision, not a
+    // duplicate — matchExisting keeps such a row under a suffixed id.
+    const { newTxs, skipped } = matchExisting(
+      parsed.transactions,
+      new Map(state.transactions.map((t) => [t.id, t])),
+    );
 
     // Merge accounts (keep user edits like TBSZ year already set).
     const accountById = new Map(state.accounts.map((a) => [a.id, a]));

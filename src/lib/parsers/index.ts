@@ -2,6 +2,7 @@ import type { Transaction } from "../model";
 import { parseLightyear } from "./lightyear";
 import { parseTreasury } from "./treasury";
 import { emptyParsed, type ParsedImport } from "./types";
+import { sameTx } from "./match";
 
 export type { ParsedImport } from "./types";
 
@@ -75,20 +76,6 @@ function dedupe<T>(items: T[], key: (t: T) => string): T[] {
   const map = new Map<string, T>();
   for (const item of items) map.set(key(item), item);
   return [...map.values()];
-}
-
-/** Two rows with the same id but identical content = the same statement row. */
-function sameTx(a: Transaction, b: Transaction): boolean {
-  return (
-    a.accountId === b.accountId &&
-    a.date === b.date &&
-    a.type === b.type &&
-    a.instrumentKey === b.instrumentKey &&
-    a.currency === b.currency &&
-    a.grossAmount === b.grossAmount &&
-    a.netAmount === b.netAmount &&
-    a.quantity === b.quantity
-  );
 }
 
 /**
