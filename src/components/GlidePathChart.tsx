@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ComposedChart,
   Area,
@@ -44,13 +44,15 @@ export function GlideBucketChart({
   color: string;
   height?: string;
 }) {
-  const max = Math.min(
-    1,
-    Math.max(
-      0.1,
-      ...rows.map((r) => Math.max(r.band[1], r.weight ?? 0, r.projZero ?? 0, r.projReal ?? 0)),
-    ) + 0.05,
+  // Zoomed to what is shown (to the nearest 5%), so a narrow band is legible.
+  const step = 0.05;
+  const values = rows.flatMap((r) =>
+    [r.band?.[0], r.band?.[1], r.target, r.weight, r.projZero, r.projReal].filter(
+      (v): v is number => v != null && Number.isFinite(v),
+    ),
   );
+  const max = Math.min(1, Math.ceil((Math.max(0.1, ...values) + 0.02) / step) * step);
+  const min = Math.max(0, Math.floor((Math.min(max - 0.1, ...values) - 0.02) / step) * step);
   return (
     <div className={`${height} w-full`}>
       <ResponsiveContainer width="100%" height="100%">
@@ -66,7 +68,7 @@ export function GlideBucketChart({
             minTickGap={40}
           />
           <YAxis
-            domain={[0, max]}
+            domain={[min, max]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
             tick={{ fill: CHART.axis, fontSize: 12 }}
             stroke={CHART.grid}
@@ -82,17 +84,19 @@ export function GlideBucketChart({
                   {row.weight != null && (
                     <div style={{ color }}>Tényleges: {pct(row.weight)}</div>
                   )}
-                  <div>Pályacél: {pct(row.target)}</div>
+                  {row.target != null && <div>Pályacél: {pct(row.target)}</div>}
                   {row.projZero != null && row.weight == null && (
                     <div style={{ color }}>Várható (csak befizetés): {pct(row.projZero)}</div>
                   )}
                   {row.projReal != null && row.weight == null && (
                     <div style={{ color }}>Várható (hozammal): {pct(row.projReal)}</div>
                   )}
-                  <div className="text-[var(--color-chart-axis)]">
-                    Sáv: {pct(row.band[0])} – {pct(row.band[1])}
-                    {row.minApplied && " (minimális sáv)"}
-                  </div>
+                  {row.band && (
+                    <div className="text-[var(--color-chart-axis)]">
+                      Sáv: {pct(row.band[0])} – {pct(row.band[1])}
+                      {row.minApplied && " (minimális sáv)"}
+                    </div>
+                  )}
                   {row.computed && row.minApplied && (
                     <div className="text-[var(--color-chart-axis)]">
                       Számított sáv: {pct(row.computed[0])} – {pct(row.computed[1])}
@@ -179,12 +183,20 @@ export default function GlidePathChart({
   bucketId,
   color,
   future = [],
+  pathFrom,
 }: {
   history: WeightPoint[];
   bucketId: string;
   color: string;
   future?: Row[];
+  /**
+   * Draw the path and band only from this day on (YYYY-MM-DD): an inflow
+   * path starts on its save day, and the old versions' paths before it
+   * would only confuse.
+   */
+  pathFrom?: string;
 }) {
+  const [all, setAll] = useState(false);
   const rows = useMemo(
     () =>
       history.flatMap((p): Row[] => {
@@ -195,13 +207,14 @@ export default function GlidePathChart({
                 ts: dayTs(p.day),
                 day: p.day,
                 weight: b.weight,
-                target: b.target,
-                band: [b.low, b.high],
+                ...(!pathFrom || p.day >= pathFrom
+                  ? { target: b.target, band: [b.low, b.high] as [number, number] }
+                  : {}),
               },
             ]
           : [];
       }),
-    [history, bucketId],
+    [history, bucketId, pathFrom],
   );
   if (rows.length < 2)
     return (
@@ -211,15 +224,34 @@ export default function GlidePathChart({
     );
   const last = rows[rows.length - 1];
   const ahead = future.filter((r) => r.day > last.day);
+  // By default the last 12 months: early history (e.g. a single holding at
+  // 100%) and old path versions would squash the part that matters.
+  const from = last.ts - 365 * 864e5;
+  const shown = all ? rows : rows.filter((r) => r.ts >= from);
+  const cut = shown.length < rows.length;
   // The expected-weight lines start from today's actual weight.
   const joined = ahead.some((r) => r.projZero != null || r.projReal != null)
-    ? [...rows.slice(0, -1), { ...last, projZero: last.weight, projReal: last.weight }]
-    : rows;
+    ? [
+        ...shown.slice(0, -1),
+        {
+          ...last,
+          projZero: ahead.some((r) => r.projZero != null) ? last.weight : undefined,
+          projReal: last.weight,
+        },
+      ]
+    : shown;
   return (
-    <GlideBucketChart
-      rows={[...joined, ...ahead]}
-      color={color}
-    />
+    <div>
+      <GlideBucketChart rows={[...joined, ...ahead]} color={color} />
+      {(cut || all) && (
+        <button
+          className="mt-1 text-xs text-[var(--color-muted)] underline hover:text-[var(--color-text)]"
+          onClick={() => setAll((v) => !v)}
+        >
+          {all ? "Csak az utolsó 12 hónap" : "Teljes előzmény"}
+        </button>
+      )}
+    </div>
   );
 }
 

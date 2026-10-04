@@ -58,6 +58,18 @@ export interface GlideProjection {
   points: ProjectionPoint[];
   /** First month every bucket is at its final weight (± REACH_TOLERANCE). */
   reachedOn?: string;
+  /** The money the projection routes into the buckets, as it comes in. */
+  inflows: ProjectedInflow[];
+}
+
+/** One routed inflow: a free coupon, a redemption or the monthly amount. */
+export interface ProjectedInflow {
+  /** YYYY-MM-DD (the coupon / redemption date, or the month start). */
+  day: string;
+  kind: "coupon" | "maturity" | "monthly";
+  /** The part routed to the buckets (after any goal took its share). */
+  amountHuf: number;
+  instrumentKey?: string;
 }
 
 /** Monthly saving the medium-term goals still take on `day` (a month start). */
@@ -105,10 +117,12 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
   const valueOf = (id: string) => (growth.get(id) ?? 0) + (flat.get(id) ?? 0);
   const total = () => ids.reduce((s, id) => s + valueOf(id), 0);
 
-  const route = (huf: number) => {
+  const inflows: ProjectedInflow[] = [];
+  const route = (huf: number, at?: Omit<ProjectedInflow, "amountHuf">) => {
     if (!(huf > 0)) return;
     const eligible = ids.filter((id) => accepting.has(id));
     if (eligible.length === 0) return;
+    if (at) inflows.push({ ...at, amountHuf: huf });
     const alloc = waterFill(
       eligible.map((id) => ({ id, valueHuf: valueOf(id), target: final.get(id) ?? 0 })),
       huf,
@@ -152,7 +166,7 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
       const owned = savings.some(
         (p) => !!key && p.goal.instrumentKeys.includes(key) && c.date <= p.goal.targetDate.slice(0, 10),
       );
-      if (!owned) route(c.amountHuf);
+      if (!owned) route(c.amountHuf, { day: c.date, kind: "maturity", instrumentKey: key });
       return;
     }
     if (couponOwner(goals, key, c.date)) return;
@@ -165,7 +179,7 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
       room.set(id, (room.get(id) ?? 0) - x);
       taken += x;
     }
-    route(c.amountHuf - taken);
+    route(c.amountHuf - taken, { day: c.date, kind: "coupon", instrumentKey: key });
   };
 
   const monthly = Math.pow(1 + input.annualReturn, 1 / 12);
@@ -194,7 +208,10 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
     }
     // This month's saving (paid on the previous month's last working day).
     for (const d of dca) add(d.bucketId, d.huf, d.part);
-    route(glideMonthlyHuf(cfg.monthlyAmount, input.budgetHuf, dcaHuf + savingsHufOn(savings, day)));
+    route(glideMonthlyHuf(cfg.monthlyAmount, input.budgetHuf, dcaHuf + savingsHufOn(savings, day)), {
+      day,
+      kind: "monthly",
+    });
 
     const t = total();
     const weights: Record<string, number> = {};
@@ -203,7 +220,7 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
     if (!reachedOn && t > 0 && arrived(weights)) reachedOn = day;
     prev = day;
   }
-  return { points, reachedOn };
+  return { points, reachedOn, inflows };
 }
 
 /**

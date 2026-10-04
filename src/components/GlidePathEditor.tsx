@@ -431,6 +431,10 @@ export default function GlidePathEditor({
               </>
             : "A pálya a csoportonként megadott kezdő súlytól a végső célig halad a megadott dátumok között; a sáv ehhez a naptári pályához mér."}
         </p>
+        <MonthlyAmountField
+          value={draft.monthlyAmount}
+          onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
+        />
         {inflows && outOfBandNow.length > 0 && (
           <p className="mt-1 text-xs text-[var(--color-warning)]">
             Most sávon kívül: {outOfBandNow.join(", ")}. A mentés a mai arányból számolja
@@ -873,13 +877,9 @@ export default function GlidePathEditor({
 
       {/* ---- Globals ---- */}
       <section>
-        <h3 className="mb-2 text-sm font-semibold">Általános beállítások</h3>
-        <MonthlyAmountField
-          value={draft.monthlyAmount}
-          onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
-        />
         {showAdvanced && (<>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <h3 className="mb-2 text-sm font-semibold">Általános beállítások</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="space-y-1">
             <div className={LABEL}>Ellenőrzés gyakorisága</div>
             <select

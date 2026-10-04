@@ -47,8 +47,9 @@ export interface Row {
   ts: number;
   day: string;
   weight?: number;
-  target: number;
-  band: [number, number];
+  /** Path target and band; missing before the path started (history). */
+  target?: number;
+  band?: [number, number];
   /** Band before the minimum width (preview only). */
   computed?: [number, number];
   /** The minimum band sets the width on this day (preview only). */

@@ -229,3 +229,21 @@ describe("freezeInflowPath", () => {
     expect(freezeInflowPath(base).inflowReached).toBe(false);
   });
 });
+
+describe("projectGlide – routed inflows", () => {
+  it("lists the free coupons and the monthly amount it routes", () => {
+    const p = projectGlide(input({ cashflows: [coupon("2026-11-15", 50_000)], budgetHuf: 100_000, until: "2026-12-31" }));
+    expect(p.inflows).toEqual([
+      { day: "2026-10-01", kind: "monthly", amountHuf: 100_000 },
+      { day: "2026-11-01", kind: "monthly", amountHuf: 100_000 },
+      { day: "2026-11-15", kind: "coupon", amountHuf: 50_000, instrumentKey: "BOND" },
+      { day: "2026-12-01", kind: "monthly", amountHuf: 100_000 },
+    ]);
+  });
+
+  it("leaves out a coupon a goal picked", () => {
+    const picked = progress({ couponIds: ["BOND@2026-11-15"], targetDate: "2027-03-31" });
+    const p = projectGlide(input({ cashflows: [coupon("2026-11-15", 50_000)], savings: [picked] }));
+    expect(p.inflows.filter((x) => x.kind === "coupon")).toEqual([]);
+  });
+});

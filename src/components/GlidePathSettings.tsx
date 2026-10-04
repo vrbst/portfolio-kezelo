@@ -34,6 +34,7 @@ import {
   type Position,
 } from "../lib/rebalance";
 import { formatMoney } from "../lib/format";
+import { addDaysIso } from "../lib/day";
 import { BOND_TYPES, futureBondCashflows } from "../lib/bonds";
 import { loadForecastSettings } from "../lib/forecast";
 import {
@@ -41,6 +42,7 @@ import {
   projectGlide,
   REACH_TOLERANCE,
   type GlideProjection,
+  type ProjectedInflow,
   type ProjectionInput,
 } from "../lib/glideProjection";
 import { Amt, Badge, Card } from "./ui";
@@ -87,6 +89,62 @@ function BandBar({ b, color }: { b: BucketState; color: string }) {
         style={{ left: w(b.target) }}
         title={`Pályacél: ${pct(b.target)}`}
       />
+    </div>
+  );
+}
+
+/**
+ * What moves the path: the monthly amount, the free coupons of the next 12
+ * months and the redemptions until the final weights are reached — all
+ * routed to the glide path, as the projection assumes.
+ */
+function InflowSummary({
+  inflows,
+  today,
+  until,
+  names,
+}: {
+  inflows: ProjectedInflow[];
+  today: string;
+  until?: string;
+  names: Map<string, string>;
+}) {
+  const yearAhead = addDaysIso(today, 365);
+  const coupons = inflows.filter((x) => x.kind === "coupon" && x.day <= yearAhead);
+  const couponHuf = coupons.reduce((s, x) => s + x.amountHuf, 0);
+  const monthly = inflows.find((x) => x.kind === "monthly")?.amountHuf ?? 0;
+  const maturities = inflows.filter((x) => x.kind === "maturity" && (!until || x.day <= until));
+  return (
+    <div className="mt-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted)]">
+      <div className="mb-1 font-medium text-[var(--color-text)]">Mi viszi a pályát</div>
+      <ul className="space-y-0.5">
+        <li>
+          Havi összeg: <Amt>{formatMoney(monthly)}</Amt> / hó
+          {monthly <= 0 && (
+            <span className="text-[var(--color-warning)]">
+              {" "}— most semmi: a havi keretet a többi cél elviszi. Fix összeget a
+              szerkesztőben, a „Célpálya havi összege” mezőnél (a pálya módja alatt) adhatsz.
+            </span>
+          )}
+        </li>
+        <li>
+          Kuponok a következő 12 hónapban: {coupons.length} db, <Amt>{formatMoney(couponHuf)}</Amt>{" "}
+          — mindegyik beérkezésekor jelzés jön (Teendők → „Beérkezett”, és a bot), és a
+          pénz a célpálya felé oszlik (előbb a kupont igénylő célok kapnak).
+        </li>
+        {maturities.length > 0 && (
+          <li>
+            Lejárat:{" "}
+            {maturities.map((x, i) => (
+              <span key={`${x.day}-${x.instrumentKey}`}>
+                {i > 0 && ", "}
+                {names.get(x.instrumentKey ?? "") ?? x.instrumentKey} ({x.day}, <Amt>{formatMoney(x.amountHuf)}</Amt>)
+              </span>
+            ))}{" "}
+            — ez is a célpálya felé megy.
+          </li>
+        )}
+      </ul>
     </div>
   );
 }
@@ -233,7 +291,8 @@ export default function GlidePathSettings() {
           bandLimits(bandBucket(cfg, bucket), day, pathTargets(cfg, day).get(bucket.id) ?? 0),
         ).map((r) => ({
           ...r,
-          projZero: zeroAt.get(r.day)?.[bucket.id],
+          // In "inflows" mode the path IS the inflows-only line — drawn once.
+          projZero: inflows ? undefined : zeroAt.get(r.day)?.[bucket.id],
           projReal: realAt.get(r.day)?.[bucket.id],
         }))
       : [];
@@ -348,6 +407,14 @@ export default function GlidePathSettings() {
               <PrivateText text={amountSource} amounts />
             </p>
           )}
+          {projection && (
+            <InflowSummary
+              inflows={projection.zero.inflows}
+              today={today}
+              until={projection.zero.reachedOn}
+              names={names}
+            />
+          )}
 
           {cfg && selected && (
             <div className="mt-4 border-t border-[var(--color-border)] pt-3">
@@ -374,6 +441,7 @@ export default function GlidePathSettings() {
                 bucketId={selected}
                 color={colorOf(selected)}
                 future={future}
+                pathFrom={inflows ? cfg.inflowPath?.[0]?.day : undefined}
               />
               {projection && (
                 <p className="mt-2 text-xs text-[var(--color-muted)]">
