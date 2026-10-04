@@ -192,6 +192,25 @@ export function isCurveLive(q: LiveQuote | undefined, now: number): boolean {
   return !q?.session || last == null || last >= q.session.start;
 }
 
+/** Width of a Yahoo intraday bar (the chart is fetched at 5-minute bars). */
+const BAR_MS = 5 * 60 * 1000;
+
+/**
+ * When the listing really last traded (epoch ms). Yahoo's regularMarketTime
+ * is not always the last trade: for a currency pair it is the current time
+ * even on a weekend, when the last bar is Friday's — which made Friday's
+ * EUR/HUF move read as today's. The listing's own bars are the evidence:
+ * the trade time is never later than the end of the last bar.
+ */
+export function lastTradeTime(
+  marketTime: number | undefined,
+  lastBarStart: number | undefined,
+): number | undefined {
+  if (lastBarStart == null) return marketTime;
+  const barEnd = lastBarStart + BAR_MS;
+  return marketTime == null ? barEnd : Math.min(marketTime, barEnd);
+}
+
 interface YahooQuote extends LiveQuote {
   currency?: string;
 }
@@ -273,10 +292,12 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
           : undefined,
       exchange: meta?.fullExchangeName,
       name: meta?.longName ?? meta?.shortName,
-      marketTime:
+      marketTime: lastTradeTime(
         typeof meta?.regularMarketTime === "number" && meta.regularMarketTime > 0
           ? meta.regularMarketTime * 1000
           : undefined,
+        days.at(-1)?.t.at(-1),
+      ),
     };
   } catch {
     return null;

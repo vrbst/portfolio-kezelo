@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lastSessionLabel, quotedToday } from "./prices";
+import { lastSessionLabel, lastTradeTime, quotedToday } from "./prices";
 
 // Local times throughout, so the assertions hold in every test time zone.
 
@@ -35,5 +35,25 @@ describe("lastSessionLabel", () => {
   });
   it("an older quote shows its date", () => {
     expect(lastSessionLabel({ price: 1, marketTime: fri }, new Date(2026, 9, 20, 12))).toBe("2026-10-02");
+  });
+});
+
+describe("lastTradeTime", () => {
+  const friLastBar = Date.UTC(2026, 9, 2, 22, 55); // Fri 22:55 UTC
+  const sunNow = Date.UTC(2026, 9, 4, 21, 59, 50); // what Yahoo reports for EURHUF=X on Sunday
+
+  it("a currency pair's 'now' market time on a weekend is capped by its last bar (Friday)", () => {
+    const t = lastTradeTime(sunNow, friLastBar);
+    expect(t).toBe(friLastBar + 5 * 60 * 1000);
+    expect(quotedToday({ price: 368.13, prevClose: 368.36, marketTime: t }, new Date(2026, 9, 4, 23, 59))).toBe(false);
+  });
+
+  it("keeps the market time when it is within the last bar", () => {
+    expect(lastTradeTime(friLastBar + 60_000, friLastBar)).toBe(friLastBar + 60_000);
+  });
+
+  it("falls back to whichever is known", () => {
+    expect(lastTradeTime(undefined, friLastBar)).toBe(friLastBar + 5 * 60 * 1000);
+    expect(lastTradeTime(sunNow, undefined)).toBe(sunNow);
   });
 });
