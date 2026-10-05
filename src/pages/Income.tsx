@@ -117,7 +117,7 @@ export default function Income() {
   );
 
   // Per-month TWR / market result (+ benchmark) → the Havi teljesítmény bars.
-  const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>("pct");
+  const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>("huf");
   const months = useMemo(
     () =>
       monthlyPerformance(
@@ -279,8 +279,8 @@ export default function Income() {
             <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
               {(
                 [
-                  { key: "pct", label: "%" },
                   { key: "huf", label: "Ft" },
+                  { key: "pct", label: "%" },
                 ] as const
               ).map((m) => (
                 <button
