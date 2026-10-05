@@ -342,6 +342,26 @@ body::before {
   }
 }
 
+/* Sidebar active-page marker (Sidebar.tsx): a transform transition, which the
+ * browser runs off the main thread — a heavy page rendering meanwhile can't
+ * stall it. The slight overshoot stands in for the old spring. */
+.nav-marker {
+  will-change: transform;
+  transition:
+    transform 340ms cubic-bezier(0.3, 1.25, 0.5, 1),
+    width 200ms ease,
+    height 200ms ease,
+    opacity 150ms ease;
+}
+.nav-marker.no-glide {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-marker {
+    transition: none;
+  }
+}
+
 /* Respect reduced-motion: kill the ambient/decorative animations. Count-up
  * numbers are gated in JS separately. */
 @media (prefers-reduced-motion: reduce) {

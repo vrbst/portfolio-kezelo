@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { NavLink } from "react-router-dom";
-import { motion } from "motion/react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   usePortfolio,
   useActiveAlerts,
@@ -75,6 +74,62 @@ export default function Sidebar() {
   const day = useDayChange();
   const hasValue = summary.totalValueHuf > 0;
   const dayUp = (day?.abs ?? 0) >= 0;
+  const navRef = useRef<HTMLElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  /** Put the marker on `link` (null: hide it); `instant` skips the glide. */
+  const moveMarker = useCallback((link: HTMLElement | null, instant = false) => {
+    const m = markerRef.current;
+    if (!m) return;
+    if (!link) {
+      m.style.opacity = "0";
+      return;
+    }
+    if (instant || m.style.opacity !== "1") m.classList.add("no-glide");
+    m.style.transform = `translate(${link.offsetLeft}px, ${link.offsetTop}px)`;
+    m.style.width = `${link.offsetWidth}px`;
+    m.style.height = `${link.offsetHeight}px`;
+    m.style.opacity = "1";
+    if (m.classList.contains("no-glide")) {
+      void m.offsetWidth; // apply the jump before the transition comes back
+      m.classList.remove("no-glide");
+    }
+  }, []);
+
+  // Follow the route (back / forward, links elsewhere) and size changes
+  // (collapsing the sidebar, new badges): the active link carries "active".
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const place = (instant: boolean) =>
+      moveMarker(nav.querySelector<HTMLElement>("a.active"), instant);
+    place(false);
+    // Only a real size change jumps the marker: the observer also fires right
+    // after observe(), which would cut a glide that has just started.
+    let size = `${nav.offsetWidth}x${nav.offsetHeight}`;
+    const ro = new ResizeObserver(() => {
+      const now = `${nav.offsetWidth}x${nav.offsetHeight}`;
+      if (now === size) return;
+      size = now;
+      place(true);
+    });
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [pathname, collapsed, moveMarker]);
+
+  /**
+   * A plain click: start the glide first and change the page a frame later,
+   * so the browser runs the transition before the new page's render takes
+   * the main thread (a heavy page used to stall the marker for ~140 ms).
+   */
+  function go(e: React.MouseEvent<HTMLAnchorElement>, to: string) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    moveMarker(e.currentTarget);
+    requestAnimationFrame(() => requestAnimationFrame(() => navigate(to)));
+  }
 
   function toggle() {
     setCollapsed((c) => {
@@ -160,7 +215,15 @@ export default function Sidebar() {
           </div>
         ))}
 
-      <nav className="flex flex-col gap-1">
+      <nav ref={navRef} className="relative flex flex-col gap-1">
+        {/* The active-page marker: one element moved with a CSS transform
+            transition, which the browser runs off the main thread — so it
+            glides on even while a heavy page (charts, projections) renders. */}
+        <div
+          ref={markerRef}
+          aria-hidden
+          className="nav-marker pointer-events-none absolute left-0 top-0 rounded-xl border border-[var(--color-brand)]/40 bg-[var(--color-brand)]/15 opacity-0"
+        />
         {linkGroups.map((group, gi) => (
           <div key={gi} className="flex flex-col gap-1">
             {gi > 0 && (
@@ -177,6 +240,7 @@ export default function Sidebar() {
                 end={link.end}
                 title={collapsed ? link.label : undefined}
                 className="group relative"
+                onClick={(e) => go(e, link.to)}
               >
                 {({ isActive }) => (
                   <div
@@ -188,17 +252,6 @@ export default function Sidebar() {
                         : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
                     }`}
                   >
-                    {isActive && (
-                      <motion.div
-                        layoutId="nav-active"
-                        className="absolute inset-0 -z-10 rounded-xl border border-[var(--color-brand)]/40 bg-[var(--color-brand)]/15"
-                        transition={{
-                          type: "spring",
-                          stiffness: 380,
-                          damping: 32,
-                        }}
-                      />
-                    )}
                     <link.icon className="h-[18px] w-[18px] shrink-0" />
                     {!collapsed && <span className="flex-1">{link.label}</span>}
                     {link.to === "/alerts" &&

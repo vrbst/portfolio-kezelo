@@ -412,3 +412,29 @@ test.describe("explanations behind an \"i\"", () => {
     }
   });
 });
+
+test("the sidebar marker sits on the active page (clicks, back button)", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "the sidebar is desktop-only");
+  await openSeeded(page);
+  await show(page, "/");
+  const marker = page.locator(".nav-marker");
+  const onLink = async (label: string) => {
+    const link = page.locator("aside").getByRole("link", { name: label });
+    await expect(link).toHaveClass(/active/);
+    await expect
+      .poll(async () => {
+        const [m, l] = [await marker.boundingBox(), await link.boundingBox()];
+        return m && l ? Math.abs(m.y - l.y) + Math.abs(m.height - l.height) : 99;
+      })
+      .toBeLessThan(1.5);
+  };
+  await onLink("Áttekintés");
+  await page.locator("aside").getByRole("link", { name: "Előrejelzés" }).click();
+  await expect(page).toHaveURL(/#\/forecast$/);
+  await onLink("Előrejelzés");
+  await page.locator("aside").getByRole("link", { name: "Beállítások" }).click();
+  await onLink("Beállítások");
+  await page.goBack();
+  await onLink("Előrejelzés");
+  expect(await page.locator(".nav-marker").count()).toBe(1);
+});
