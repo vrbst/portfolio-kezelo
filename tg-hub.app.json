@@ -14,6 +14,10 @@
     { "name": "elorejelzes", "description": "1–20 éves előrejelzés" },
     { "name": "heti", "description": "Heti összefoglaló most" },
     { "name": "havi", "description": "Előző havi zárás most" },
+    { "name": "terv", "description": "E havi terv: mit vegyél, melyik számlán" },
+    { "name": "palya", "description": "Célpálya: súlyok, sávok, javasolt lépések" },
+    { "name": "hozam", "description": "XIRR, TWR, időszakos és számlánkénti eredmény" },
+    { "name": "tbsz", "description": "TBSZ-szakaszok, határidők, adó most és később" },
     { "name": "eladas", "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
     { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" }
   ],

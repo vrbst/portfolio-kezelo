@@ -54,6 +54,11 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   tartott részvényt és ETF-et: aktuális ár saját devizában és napi változás.
   Ahol nincs élő ár, az
   árfolyamfájl záróára jelenik meg, jelölve.
+- **Tervek és mutatók a botban** – `/terv`: az e havi Havi terv (mit vegyél,
+  melyik számlán); `/palya`: célpálya-súlyok a sávokkal, végcél, sávon kívül
+  a javasolt lépések; `/hozam`: XIRR, TWR, VWCE-összevetés, időszakos és
+  számlánkénti eredmény; `/tbsz`: TBSZ-szakaszok, határidők, nettó érték most
+  és a következő mérföldkövek után.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz

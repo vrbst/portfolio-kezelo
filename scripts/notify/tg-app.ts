@@ -26,6 +26,7 @@ import {
   eventsText,
   forecastText,
   ft,
+  glideText,
   goalsText,
   leftoverAnswer,
   leftoverPromptText,
@@ -33,10 +34,13 @@ import {
   mft,
   monthlyText,
   pct,
+  planText,
   quotesText,
+  returnsText,
   sft,
   shortName,
   statusText,
+  tbszText,
   weeklyText,
 } from "./reports";
 import { loadLeftoverSettings } from "../../src/lib/planPrefs";
@@ -167,6 +171,10 @@ const COMMANDS: Record<string, (c: Context) => string> = {
   heti: weeklyText,
   havi: monthlyText,
   eladas: liquidationText,
+  terv: planText,
+  palya: glideText,
+  hozam: returnsText,
+  tbsz: tbszText,
 };
 
 /** Load the context with the alerts as of our state; a failure → its text. */

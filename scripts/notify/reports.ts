@@ -17,7 +17,16 @@ import {
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
-import { bandBaseNote, positionsFromSummary } from "../../src/lib/rebalance";
+import {
+  bandBaseNote,
+  bandRule,
+  freeCashHuf,
+  positionsFromSummary,
+  suggestionText,
+} from "../../src/lib/rebalance";
+import { benchmarkIndex, BENCHMARK, computeReturns } from "../../src/lib/returns";
+import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
+import { txDay } from "../../src/lib/day";
 import {
   buildMonthlyPlan,
   computePlanNeeds,
@@ -385,6 +394,192 @@ export function forecastText(ctx: Context): string {
   return lines.join("\n");
 }
 
+/** "2,2 év" / "14 hónap" / "35 nap": a span on a phone line. */
+function spanLabel(days: number): string {
+  if (days < 60) return `${Math.max(0, days)} nap`;
+  if (days < 730) return `${Math.round(days / 30.4)} hónap`;
+  return `${(days / 365).toFixed(1).replace(".", ",")} év`;
+}
+
+/** /terv: this month's Havi terv (the same split the Teendők panel shows). */
+export function planText(ctx: Context): string {
+  const lines = monthlyPlanLines(ctx).slice(1);
+  if (!lines.length) return "💶 Ebben a hónapban nincs mit tervezni (nincs cél és célpálya).";
+  lines.push("", "<i>Az appban: Teendők → Havi terv.</i>");
+  return lines.join("\n");
+}
+
+/** Glide path buckets: actual / path target (band; HUF off the path). */
+function glideBucketLines(ctx: Context): string[] {
+  const g = ctx.glide!;
+  const icon = { within: "✅", below: "⬇️", above: "⬆️", empty: "▫️" };
+  const p = (v: number) => `${Math.round(v * 100)}%`;
+  return g.buckets.map(
+    (b) =>
+      `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}${bandBaseNote(b) ? `, ${esc(bandBaseNote(b))}` : ""}; ${sft(b.valueHuf - b.target * g.totalHuf)})`,
+  );
+}
+
+/**
+ * /palya: the glide path today — bucket weights vs. path and band, each
+ * bucket's final weight, and the band rule's steps for a bucket out of band
+ * (the same plan the Teendők panel suggests, free cash used first).
+ */
+export function glideText(ctx: Context): string {
+  const g = ctx.glide;
+  const cfg = ctx.glideConfig;
+  if (!g?.buckets.length || !cfg) return "🧭 Még nincs beállított célpálya.";
+  const p = (v: number) => `${Math.round(v * 100)}%`;
+  const free = freeCashHuf(g);
+  const lines = [
+    `🧭 <b>Célpálya – ${dayLabel(g.day)}</b>`,
+    `Kezelt érték: ${ft(g.totalHuf)}${free >= 1 ? ` · szabad készpénz: ${ft(free)}` : ""}`,
+    "",
+    "<b>Tény / pálya (sáv; eltérés a pályától)</b>",
+    ...glideBucketLines(ctx),
+    "",
+    "<b>Végcél</b>",
+    ...g.buckets.map(
+      (b) => `• ${esc(b.bucket.name)}: ${p(b.bucket.finalWeight)} (${dayLabel(b.bucket.endDate)})`,
+    ),
+    "",
+  ];
+  if (!g.buckets.some((b) => b.status === "below" || b.status === "above")) {
+    lines.push("✅ Minden csoport a sávon belül – nincs teendő, az új pénz a havi terv szerint megy.");
+    return lines.join("\n");
+  }
+  const plan = bandRule(cfg, g, free, ctx.accountCtx);
+  const ok = plan.suggestions.filter((s) => s.status === "ok");
+  lines.push("⚠️ <b>Sávon kívül – javasolt lépések</b>");
+  if (ok.length) lines.push(...ok.map((s) => `→ ${esc(suggestionText(s))}`));
+  else lines.push("Nincs most megtehető lépés (minimum alatti vagy túl drága kötések).");
+  lines.push(...plan.notes.map((n) => `<i>${esc(n)}</i>`));
+  return lines.join("\n");
+}
+
+/**
+ * /hozam: the Hozam page's numbers — XIRR and TWR (cumulative first under a
+ * year, where annualizing would inflate them), the benchmark over the same
+ * days, then market results by period and per account.
+ */
+export function returnsText(ctx: Context): string {
+  const s = ctx.summary;
+  const r = computeReturns(
+    s.accounts.map((a) => a.account),
+    ctx.transactions,
+    ctx.instMap,
+    ctx.prices,
+    ctx.fx,
+    ctx.history,
+    ctx.at,
+  );
+  const short = r.days < 365;
+  const both = (annual?: number, cum?: number) =>
+    short
+      ? `${pct(cum)}${annual != null ? ` (évesítve ${pct(annual)})` : ""}`
+      : `${pct(annual)}/év (összesen ${pct(cum)})`;
+  const lines = [
+    `📈 <b>Hozam</b> – ${spanLabel(r.days)} óta`,
+    `Pénzsúlyozott (XIRR): <b>${both(r.xirrPct, r.xirrCumulativePct)}</b>`,
+    `Idősúlyozott (TWR): <b>${both(r.twrPct, r.twrCumulativePct)}</b>`,
+  ];
+  const bench = benchmarkIndex(ctx.history, r.twrIndex.map((x) => x.date));
+  const lastBench = bench && [...bench].reverse().find((v) => Number.isFinite(v));
+  if (lastBench != null)
+    lines.push(`${esc(BENCHMARK.label)} ugyanezalatt: ${pct(lastBench)} (Ft-ban)`);
+  lines.push(
+    `Összes eredmény: ${sft(s.totalPlHuf)} (${pct(r.simplePct)} a befektetett tőkére)`,
+  );
+
+  const last = ctx.series[ctx.series.length - 1];
+  const yearAgo = new Date(ctx.at);
+  yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+  const monthAgo = new Date(ctx.at);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  const periods: [string, ValuePoint | undefined][] = [
+    ["Elmúlt 1 hónap", pointAt(ctx.series, localDay(monthAgo))],
+    ["Idén", pointAt(ctx.series, `${ctx.at.getFullYear() - 1}-12-31`) ?? ctx.series[0]],
+    ["Elmúlt 12 hónap", pointAt(ctx.series, localDay(yearAgo))],
+  ];
+  const periodLines = periods
+    .filter(([, a]) => a && last && a !== last)
+    .map(([label, a]) => {
+      const d = marketDelta(a!, last);
+      return `${arrow(d)} ${label}: ${sft(d)} (${pct(a!.value ? d / a!.value : undefined)})`;
+    });
+  if (periodLines.length) lines.push("", "<b>Piaci eredmény</b>", ...periodLines);
+
+  const accs = s.accounts.filter((a) => Math.abs(a.totalValueHuf) >= 1);
+  if (accs.length > 1) {
+    lines.push("", "<b>Számlánként</b> (érték − befizetett tőke)");
+    for (const a of accs) {
+      const gain = a.totalValueHuf - a.capitalBasisHuf;
+      lines.push(
+        `• ${shortName(a.account.name)}: ${sft(gain)}${a.capitalBasisHuf > 0 ? ` (${pct(gain / a.capitalBasisHuf)})` : ""}`,
+      );
+    }
+  }
+  lines.push(
+    "",
+    "<i>XIRR: a saját pénzed hozama a befizetések időzítésével; TWR: a befektetések teljesítménye, időzítés nélkül.</i>",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * /tbsz: every TBSZ account (oldest first) — its phase and tax rate, the next
+ * milestone, and what selling would net now vs. after each later milestone
+ * (the account page's TbszTimeline + TbszExitValue).
+ */
+export function tbszText(ctx: Context): string {
+  const accs = ctx.summary.accounts
+    .filter((a) => a.account.kind === "tbsz" && a.account.tbszYear)
+    .map((a) => ({ a, st: tbszStatus(a.account.tbszYear!, ctx.at) }))
+    // An empty account still matters while it takes deposits.
+    .filter(({ a, st }) => Math.abs(a.totalValueHuf) >= 1 || st.phase === "collecting")
+    .sort((x, y) => x.st.year - y.st.year);
+  if (!accs.length) return "🗓 Nincs TBSZ-számla.";
+  const p = (v: number) => `${Math.round(v * 100)}%`;
+  const lines = ["🗓 <b>TBSZ-számlák</b>"];
+  for (const { a, st } of accs) {
+    const gain = a.totalValueHuf - a.capitalBasisHuf;
+    const day = (iso: string) => dayLabel(txDay(iso));
+    const rateText =
+      st.taxRate === 0
+        ? "adómentes"
+        : `${p(st.taxRate)} adó a hozamra${st.hasSzocho ? ` (${p(st.szjaRate)} szja + ${p(st.szochoRate)} szocho)` : ""}`;
+    lines.push(
+      "",
+      `<b>${shortName(a.account.name)}</b> – gyűjtőév ${st.year}`,
+      `${esc(st.phaseLabel)} · ${rateText}`,
+    );
+    if (st.next && st.daysToNext != null)
+      lines.push(`Következő: ${esc(st.next.label)} – ${day(st.next.date)} (${spanLabel(st.daysToNext)} múlva)`);
+    lines.push(`Érték: ${mft(a.totalValueHuf)} · hozam: ${sft(gain)}`);
+    if (gain <= 0) {
+      lines.push("Nincs adóköteles hozam – most adó nélkül vehető ki.");
+      continue;
+    }
+    for (const sc of tbszExitScenarios(st, a.totalValueHuf, gain)) {
+      if (sc.state === "past") continue;
+      const tax = sc.taxHuf >= 1 ? ` (adó −${mft(sc.taxHuf)})` : " (adómentes)";
+      if (sc.state === "current") {
+        lines.push(`Ha most eladnád: <b>${mft(sc.netHuf)}</b>${tax}`);
+        continue;
+      }
+      const m = st.milestones.find((x) => x.key === sc.key);
+      lines.push(
+        `${m ? `${day(m.date)} után` : esc(sc.label)}: ${mft(sc.netHuf)}${tax}, +${mft(sc.savedVsNowHuf)} a mostanihoz képest`,
+      );
+    }
+  }
+  lines.push(
+    "",
+    "<i>A mai hozamra vetítve; a kötvények lejárat előtti visszaváltási díja nincs benne (az /eladas számolja).</i>",
+  );
+  return lines.join("\n");
+}
+
 // ---- scheduled reports ----------------------------------------------------
 
 export function weeklyText(ctx: Context): string {
@@ -592,16 +787,8 @@ export function monthlyText(ctx: Context): string {
     }
   }
 
-  // Glide path: bucket weights vs. today's path target and band.
-  if (ctx.glide?.buckets.length) {
-    const icon = { within: "✅", below: "⬇️", above: "⬆️", empty: "▫️" };
-    const p = (v: number) => `${Math.round(v * 100)}%`;
-    lines.push("", "<b>Célpálya (tény / pálya, sáv)</b>");
-    for (const b of ctx.glide.buckets)
-      lines.push(
-        `${icon[b.status]} ${esc(b.bucket.name)}: ${p(b.weight)} / ${p(b.target)} (${p(b.low)}–${p(b.high)}${bandBaseNote(b) ? `, ${esc(bandBaseNote(b))}` : ""}; ${sft(b.valueHuf - b.target * ctx.glide.totalHuf)})`,
-      );
-  }
+  if (ctx.glide?.buckets.length)
+    lines.push("", "<b>Célpálya (tény / pálya, sáv)</b>", ...glideBucketLines(ctx));
   lines.push(...monthlyPlanLines(ctx));
 
   // Forecast vs. reality: what earlier snapshots expected for this month.

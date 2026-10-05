@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Alert } from "../../src/lib/alerts";
+import type { PortfolioSnapshot } from "../../src/lib/sync";
 import type { Context } from "./data";
 import { withTimeout } from "./data";
 import { ROOT } from "./env";
@@ -57,6 +58,52 @@ describe("commands", () => {
     expect(r.ok).toBeUndefined();
     expect(r.messages).toHaveLength(1);
     expect(r.messages![0].html).toContain("Ft");
+  });
+
+  it.each([
+    ["terv", "Havi terv – 2026. október"],
+    ["palya", "Célpálya – 2026. okt. 14."],
+    ["hozam", "Pénzsúlyozott (XIRR)"],
+    ["tbsz", "Lightyear TBSZ 2025"],
+  ])("/%s → one HTML message", async (command, head) => {
+    const r = await call(commandReq(command), depsFor(() => contextAt(WED)));
+    expect(r.ok).toBeUndefined();
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].html).toContain(head);
+  });
+
+  it("/palya lists the band rule's steps for a bucket out of its band", async () => {
+    // A 2 pp band: equity (54% vs 58%) falls below, bonds (41% vs 37%) above.
+    const narrow = (s: PortfolioSnapshot) => {
+      for (const b of s.prefs!.glidePath!.value[0].buckets)
+        if (b.id !== "crypto") b.band = { kind: "abs", pp: 0.02 };
+    };
+    const r = await call(commandReq("palya"), depsFor(() => contextAt(WED, narrow)));
+    const html = r.messages![0].html;
+    expect(html).toContain("⬇️ Részvény");
+    expect(html).toContain("⬆️ Kötvény");
+    expect(html).toContain("Sávon kívül – javasolt lépések");
+    expect(html).toMatch(/→ Vétel: VWCE/);
+    expect(html).not.toContain("Minden csoport a sávon belül");
+  });
+
+  it("/tbsz: milestone dates are the local 31 December in every time zone", async () => {
+    // The milestones are stored as ISO instants of local 23:59:59 — in New
+    // York that is already 1 January in UTC.
+    const html = (await call(commandReq("tbsz"), depsFor(() => contextAt(WED)))).messages![0].html;
+    expect(html).toContain("Következő: 3 éves lekötés – 2028. dec. 31.");
+    expect(html).toContain("2030. dec. 31. után");
+    expect(html).not.toContain("jan. 1.");
+  });
+
+  it("/terv and /palya without a glide path or goals say so", async () => {
+    const bare = (s: PortfolioSnapshot) => {
+      s.prefs = {};
+      s.goals = [];
+    };
+    const deps = depsFor(() => contextAt(WED, bare));
+    expect((await call(commandReq("palya"), deps)).messages![0].html).toContain("Még nincs beállított célpálya");
+    expect((await call(commandReq("terv"), deps)).messages![0].html).toContain("nincs mit tervezni");
   });
 
   it("an unknown command is a handled error", async () => {

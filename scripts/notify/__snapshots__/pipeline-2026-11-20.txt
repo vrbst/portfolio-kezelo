@@ -119,6 +119,74 @@ Hozam: 3,0% / 6,0% / 9,0% (pessz. / reális / opt.)
 +10 év: <b>44 141 711 Ft</b>
    sáv 37 116 990 Ft – 52 656 047 Ft
 
+==== /terv ====
+💶 <b>Havi terv – 2026. november</b> (200 000 Ft)
+→ Babakocsi: tartsd készpénzben a céldátumig 100 000 Ft (Diszkont Kincstárjegy D261118: már lejárt (2026-11-18))
+→ Nyaralás: tartsd készpénzben a céldátumig 15 278 Ft → Államkincstár (12345678) (Diszkont Kincstárjegy D270310: nem vehetőnek jelölve)
+→ Autó: Diszkont Kincstárjegy D270512 vétel 84 722 Ft (86 196 db, díj 0 Ft) → Államkincstár (12345678) — alul maradt: −81 944 Ft
+→ VWCE (DCA): nem jut rá pénz — alul maradt: −100 000 Ft
+→ Célpálya: a célok után nem marad rá pénz
+→ Befizetések (a fentiek számlánként): Államkincstár (12345678) (félretétel): 115 278 Ft = Babakocsi + Nyaralás; Államkincstár (12345678): 84 722 Ft = Autó
+⚠️ Nem elég a pénz minden célra — összesen 181 944 Ft hiányzik.
+
+<i>Az appban: Teendők → Havi terv.</i>
+
+==== /palya ====
+🧭 <b>Célpálya – 2026. nov. 20.</b>
+Kezelt érték: 10 659 844 Ft · szabad készpénz: 16 628 Ft
+
+<b>Tény / pálya (sáv; eltérés a pályától)</b>
+✅ Részvény: 54% / 58% (53%–63%; −390 137 Ft)
+✅ Kripto: 6% / 5% (4%–7%; +93 322 Ft)
+✅ Kötvény: 40% / 37% (32%–42%; +296 815 Ft)
+
+<b>Végcél</b>
+• Részvény: 50% (2030. jan. 1.)
+• Kripto: 5% (2030. jan. 1.)
+• Kötvény: 45% (2030. jan. 1.)
+
+✅ Minden csoport a sávon belül – nincs teendő, az új pénz a havi terv szerint megy.
+
+==== /hozam ====
+📈 <b>Hozam</b> – 23 hónap óta
+Pénzsúlyozott (XIRR): <b>+12,5%/év (összesen +24,7%)</b>
+Idősúlyozott (TWR): <b>+12,5%/év (összesen +24,8%)</b>
+VWCE (FTSE All-World) ugyanezalatt: +38,1% (Ft-ban)
+Összes eredmény: +1 476 232 Ft (+15,2% a befektetett tőkére)
+
+<b>Piaci eredmény</b>
+📈 Elmúlt 1 hónap: +134 164 Ft (+1,2%)
+📈 Idén: +994 717 Ft (+15,8%)
+📈 Elmúlt 12 hónap: +1 063 872 Ft (+17,5%)
+
+<b>Számlánként</b> (érték − befizetett tőke)
+• Lightyear TBSZ 2025: +491 799 Ft (+27,3%)
+• Lightyear TBSZ 2026: +521 243 Ft (+14,5%)
+• Államkincstár: +463 189 Ft (+10,8%)
+
+<i>XIRR: a saját pénzed hozama a befizetések időzítésével; TWR: a befektetések teljesítménye, időzítés nélkül.</i>
+
+==== /tbsz ====
+🗓 <b>TBSZ-számlák</b>
+
+<b>Lightyear TBSZ 2025</b> – gyűjtőév 2025
+Lekötés (3 év előtt) · 28% adó a hozamra (15% szja + 13% szocho)
+Következő: 3 éves lekötés – 2028. dec. 31. (2,1 év múlva)
+Érték: 2,29 M Ft · hozam: +491 799 Ft
+Ha most eladnád: <b>2,15 M Ft</b> (adó −137 704 Ft)
+2028. dec. 31. után: 2,20 M Ft (adó −88 524 Ft), +49 180 Ft a mostanihoz képest
+2030. dec. 31. után: 2,29 M Ft (adómentes), +137 704 Ft a mostanihoz képest
+
+<b>Lightyear TBSZ 2026</b> – gyűjtőév 2026
+Gyűjtési időszak · 28% adó a hozamra (15% szja + 13% szocho)
+Következő: Gyűjtőév vége – 2026. dec. 31. (42 nap múlva)
+Érték: 4,12 M Ft · hozam: +521 243 Ft
+Ha most eladnád: <b>3,98 M Ft</b> (adó −145 948 Ft)
+2029. dec. 31. után: 4,03 M Ft (adó −93 824 Ft), +52 124 Ft a mostanihoz képest
+2031. dec. 31. után: 4,12 M Ft (adómentes), +145 948 Ft a mostanihoz képest
+
+<i>A mai hozamra vetítve; a kötvények lejárat előtti visszaváltási díja nincs benne (az /eladas számolja).</i>
+
 ==== heti ====
 📊 <b>Heti összefoglaló – 2026. nov. 20.</b>
 
