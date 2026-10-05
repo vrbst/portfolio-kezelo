@@ -74,6 +74,7 @@ import {
   type GlideSignals,
 } from "../../src/lib/rebalance";
 import { toLocalDay } from "../../src/lib/portfolio";
+import { liveGlideVersions } from "../../src/lib/flowPath";
 import { githubToken, installLocalStorage, type NotifyEnv } from "./env";
 
 export interface Context {
@@ -262,8 +263,18 @@ export function buildContext(input: ContextInput): Context {
   const glideVersions = loadGlideVersions();
   // Cash set aside for savings goals is not free cash (glide path, idle cash).
   const reserved = reservedCashByAccount(savingsGoals, toLocalDay(at.getTime()));
+  // Measured against the path the money that actually came in moved (flowPath).
   const glide = glideStateFrom(
-    glideVersions,
+    liveGlideVersions(glideVersions, {
+      accounts,
+      transactions,
+      instruments: instMap,
+      fx,
+      history,
+      summary,
+      today: toLocalDay(at.getTime()),
+      reserved,
+    }),
     summary,
     fx,
     toLocalDay(at.getTime()),

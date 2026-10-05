@@ -4,6 +4,7 @@ import { addDaysIso, toLocalDay, txDay } from "./day";
 import { allocationState, waterFill } from "./rebalance";
 import { defaultGlobals, type GlideConfig } from "./glidePath";
 import { splitAmongGoals } from "./incomeClaims";
+import { flowAdjustedConfig, type FlowSample } from "./flowPath";
 import { unionSnapshots } from "./syncMerge";
 import type { PortfolioSnapshot } from "./sync";
 import type { Account, Transaction } from "./model";
@@ -209,6 +210,89 @@ describe("glide path – inflows mode", () => {
         expect(R.high).toBeGreaterThanOrEqual(R.target - 1e-9);
         if (f > s) expect(R.high).toBeGreaterThanOrEqual(Math.min(1, f + pp) - 1e-9);
         if (f < s) expect(R.low).toBeLessThanOrEqual(Math.max(0, f - pp) + 1e-9);
+      }),
+    );
+  });
+});
+
+describe("glide path – flow-adjusted path", () => {
+  // R 40% → 60% plan; ETF units at a price plus bonds at face, sampled daily.
+  const cfg: GlideConfig = {
+    id: "v",
+    validFrom: "2026-01-01",
+    savedAt: "2026-01-01T00:00:00Z",
+    buckets: (["R", "K"] as const).map((id) => ({
+      id,
+      name: id,
+      finalWeight: id === "R" ? 0.6 : 0.4,
+      start: { mode: "manual" as const, weight: 0.5 },
+      startDate: "2026-01-01",
+      endDate: "2027-01-01",
+      interpolation: "linear" as const,
+      band: { kind: "abs" as const, pp: 0.05 },
+    })),
+    instruments: {
+      A: { bucketId: "R", sellable: true, acceptsContributions: true },
+      B: { bucketId: "K", sellable: true, acceptsContributions: true },
+    },
+    ...defaultGlobals(),
+    pathMode: "inflows",
+    inflowPath: [
+      { day: "2026-01-01", weights: { R: 0.4, K: 0.6 } },
+      { day: "2027-01-01", weights: { R: 0.6, K: 0.4 } },
+    ],
+    inflowReached: true,
+  };
+  const sample = (i: number, units: number, price: number, bond: number): FlowSample => ({
+    day: addDaysIso("2026-01-01", i),
+    positions: [
+      { key: "A", name: "A", valueHuf: units * price, quantity: units, unitPriceHuf: price },
+      { key: "B", name: "B", valueHuf: bond, quantity: bond, unitPriceHuf: 1 },
+    ],
+  });
+  const R = (c: GlideConfig, s: FlowSample) =>
+    allocationState(c, s.positions, s.day).buckets.find((b) => b.bucket.id === "R")!;
+  const units = fc.integer({ min: 1, max: 2_000 });
+  const price = fc.integer({ min: 1_000, max: 20_000 });
+  const bond = fc.integer({ min: 100_000, max: 20_000_000 });
+
+  it("prices only: the path stays where it was on the save day", () => {
+    fc.assert(
+      fc.property(units, bond, fc.array(price, { minLength: 2, maxLength: 8 }), (u, k, ps) => {
+        const samples = ps.map((p, i) => sample(i, u, p, k));
+        const last = samples[samples.length - 1];
+        const start = R(cfg, samples[0]).weight;
+        const live = flowAdjustedConfig(
+          { ...cfg, inflowPath: [{ day: samples[0].day, weights: { R: start, K: 1 - start } }, ...cfg.inflowPath!.slice(1)] },
+          samples,
+        );
+        expect(R(live, last).target).toBeCloseTo(start, 9);
+      }),
+    );
+  });
+
+  it("money only (flat prices): the path is the actual weight, up to the final", () => {
+    fc.assert(
+      fc.property(price, fc.array(fc.tuple(units, bond), { minLength: 2, maxLength: 8 }), (p, steps) => {
+        const samples = steps.map(([u, k], i) => sample(i, u, p, k));
+        const last = samples[samples.length - 1];
+        const r = R(flowAdjustedConfig(cfg, samples), last);
+        expect(r.target).toBeCloseTo(Math.min(0.6, r.weight), 9);
+      }),
+    );
+  });
+
+  it("a deposit before a fall does not hide it: the gap is the fall's own effect", () => {
+    fc.assert(
+      fc.property(units, units, bond, fc.double({ min: 0.05, max: 0.6, noNaN: true }), (u, extra, k, fall) => {
+        const p = 10_000;
+        const after = Math.round(p * (1 - fall));
+        const samples = [sample(0, u, p, k), sample(1, u + extra, p, k), sample(2, u + extra, after, k)];
+        const before = R(cfg, samples[1]).weight;
+        // Not when the deposit already overshoots the final (then the cap rules).
+        fc.pre(before < 0.6);
+        const r = R(flowAdjustedConfig(cfg, samples), samples[2]);
+        expect(r.weight - r.target).toBeCloseTo(r.weight - before, 9);
       }),
     );
   });

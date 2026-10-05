@@ -30,6 +30,8 @@ import {
   useActiveAlerts,
   useSavingsGoals,
   useMonthlyBudget,
+  useGlideVersions,
+  useGlideState,
 } from "../lib/store";
 import {
   computeReturns,
@@ -43,8 +45,6 @@ import { tbszStatus } from "../lib/tbsz";
 import { computeSavingsProgress, savingsGoalExpenses } from "../lib/savings";
 import { effectiveMonthKey } from "../lib/goals";
 import { forecastMilestones, projectFromSettings } from "../lib/forecast";
-import { loadGlideVersions } from "../lib/glidePath";
-import { glideStateFrom } from "../lib/rebalance";
 import { Card } from "./ui";
 import {
   loadAiKey,
@@ -123,6 +123,7 @@ export default function AiPanel() {
   const goals = useGoalProgress();
   const alerts = useActiveAlerts();
   const savingsGoals = useSavingsGoals();
+  const glide = useGlideState(useGlideVersions());
 
   const apiKey = loadAiKey();
   const model = loadAiModel();
@@ -218,12 +219,7 @@ export default function AiPanel() {
           })),
         shortfall: result.shortfall.real ?? result.shortfall.pess,
       },
-      glide: glideStateFrom(
-        loadGlideVersions(),
-        summary,
-        fx,
-        toLocalDay(now.getTime()),
-      ),
+      glide,
       budget: {
         monthlyHuf: assumptions.monthlySavingHuf,
         thisMonthNetHuf: thisMonthNet,
@@ -253,6 +249,7 @@ export default function AiPanel() {
     savingsGoals,
     goalExpenses,
     cashflows,
+    glide,
   ]);
 
   const toolEnv: ToolEnv = {

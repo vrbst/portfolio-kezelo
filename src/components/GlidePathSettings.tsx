@@ -6,6 +6,7 @@ import {
   useGlideVersions,
   useGlideState,
   useGlideHistory,
+  useLiveGlideVersions,
   usePositionsAt,
   useMonthlyBudget,
   useToday,
@@ -220,7 +221,12 @@ export default function GlidePathSettings() {
   const instruments = usePortfolio((s) => s.instruments);
   const fx = usePortfolio((s) => s.fx);
 
+  // The path as measured (moved by the money that came in) — for the chart;
+  // `cfg` is the stored plan, the one the editor edits.
+  const liveVersions = useLiveGlideVersions(versions);
+
   const cfg = latestConfig(versions);
+  const liveCfg = useMemo(() => latestConfig(liveVersions), [liveVersions]);
   const active = isActive(cfg);
   const today = useToday();
   const { breakdown, savings } = useMonthlyBudget();
@@ -354,12 +360,12 @@ export default function GlidePathSettings() {
   const zeroAt = projAt(projection?.zero);
   const realAt = projAt(projection?.real);
   const future: Row[] =
-    cfg && bucket
+    liveCfg && bucket
       ? previewRows(checkDays("monthly", today, chartEnd), (day) =>
-          bandLimits(bandBucket(cfg, bucket), day, pathTargets(cfg, day).get(bucket.id) ?? 0),
+          bandLimits(bandBucket(liveCfg, bucket), day, pathTargets(liveCfg, day).get(bucket.id) ?? 0),
         ).map((r) => ({
           ...r,
-          // In "inflows" mode the path IS the inflows-only line — drawn once.
+          // In "inflows" mode the path ahead IS the inflows-only plan — drawn once.
           projZero: inflows ? undefined : zeroAt.get(r.day)?.[bucket.id],
           projReal: realAt.get(r.day)?.[bucket.id],
         }))

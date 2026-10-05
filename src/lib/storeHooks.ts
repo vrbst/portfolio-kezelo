@@ -73,6 +73,7 @@ import {
   type WeightPoint,
 } from "./rebalance";
 import { summariesOnDays, summaryOnDay, toLocalDay } from "./portfolio";
+import { liveGlideVersions } from "./flowPath";
 import type { Position, PositionsAt } from "./rebalance";
 import { usePortfolio } from "./store";
 import {
@@ -419,6 +420,61 @@ export function useGlideVersions(): GlideConfig[] {
   return versions;
 }
 
+const cachedLiveVersions = sharedMemo(
+  (
+    versions: GlideConfig[],
+    accounts: Account[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    fx: Record<string, number>,
+    history: HistoryFile | null | undefined,
+    summary: PortfolioSummary,
+    today: string,
+    brokerFees: BrokerFees,
+    reserved: Map<string, number>,
+  ) =>
+    liveGlideVersions(versions, {
+      accounts,
+      transactions,
+      instruments: new Map(instruments.map((i) => [i.key, i])),
+      fx,
+      history,
+      summary,
+      today,
+      brokerFees,
+      reserved,
+    }),
+);
+
+/**
+ * The versions with the newest one's inflow path moved by the money that
+ * actually came in (see flowPath.ts) — measure against these, edit the
+ * stored ones.
+ */
+export function useLiveGlideVersions(versions: GlideConfig[]): GlideConfig[] {
+  const accounts = usePortfolio((s) => s.accounts);
+  const transactions = usePortfolio((s) => s.transactions);
+  const instruments = usePortfolio((s) => s.instruments);
+  const fx = usePortfolio((s) => s.fx);
+  const history = usePortfolio((s) => s.historyFile);
+  const summary = usePortfolioSummary();
+  const today = useToday();
+  const fees = useBrokerFees();
+  const reserved = useReservedCash();
+  return cachedLiveVersions(
+    versions,
+    accounts,
+    transactions,
+    instruments,
+    fx,
+    history,
+    summary,
+    today,
+    fees,
+    reserved,
+  );
+}
+
 const cachedGlideState = sharedMemo(glideStateFrom);
 
 /** Today's bucket weights, targets, bands and statuses (null = no glide path). */
@@ -428,7 +484,8 @@ export function useGlideState(versions: GlideConfig[]): AllocationState | null {
   const day = useToday();
   const fees = useBrokerFees();
   const reserved = useReservedCash();
-  return cachedGlideState(versions, summary, fx, day, fees, reserved);
+  const live = useLiveGlideVersions(versions);
+  return cachedGlideState(live, summary, fx, day, fees, reserved);
 }
 
 const cachedReserved = sharedMemo(reservedCashByAccount);
@@ -488,8 +545,9 @@ export function useGlideHistory(versions: GlideConfig[]): WeightPoint[] {
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
   const summary = usePortfolioSummary();
+  const live = useLiveGlideVersions(versions);
   return cachedWeightHistory(
-    versions,
+    live,
     accounts,
     transactions,
     instruments,
