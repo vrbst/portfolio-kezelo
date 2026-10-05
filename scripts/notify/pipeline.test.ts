@@ -4,6 +4,8 @@ import { portfolioLiquidation } from "../../src/lib/liquidation";
 import { tbszStatus } from "../../src/lib/tbsz";
 import type { Context } from "./data";
 import { contextAt } from "./testContext";
+import { portfolioExposure } from "./news/prompt";
+import { fixtureDigest } from "../../src/test/newsFixture";
 import {
   alertsText,
   eventsText,
@@ -14,6 +16,7 @@ import {
   leftoverPromptText,
   liquidationText,
   monthlyText,
+  newsText,
   planText,
   quotesText,
   returnsText,
@@ -136,5 +139,25 @@ describe("full pipeline on the invented portfolio", () => {
     await expect(fullReport(contextAt([2026, 11, 20, 0]))).toMatchFileSnapshot(
       "__snapshots__/pipeline-2026-11-20.txt",
     );
+  });
+});
+
+describe("news digest texts on the invented portfolio", () => {
+  // What the AI is told about the portfolio (weights only) and the Telegram
+  // texts of an invented digest, with the day's moves from the live quotes.
+  it("morning and evening (2026-10-14)", async () => {
+    const section = (title: string, body: string) => `==== ${title} ====\n${body}\n`;
+    const evening = contextAt([2026, 10, 14, 18, 15]);
+    const exposure = portfolioExposure(evening);
+    const text = [
+      section("portfólió az AI-nak", exposure.join("\n")),
+      section("reggeli előzetes", newsText(fixtureDigest("2026-10-14", "morning"), contextAt([2026, 10, 14, 7, 45]), "https://example.com/app/")),
+      section("napzárta", newsText(fixtureDigest("2026-10-14", "evening"), evening, "https://example.com/app/")),
+      section(
+        "napzárta, sikertelen feltöltés",
+        newsText(fixtureDigest("2026-10-14", "evening"), evening, "https://example.com/app/", "Feltöltés sikertelen: HTTP 403"),
+      ),
+    ].join("\n");
+    await expect(text).toMatchFileSnapshot("__snapshots__/news-2026-10-14.txt");
   });
 });

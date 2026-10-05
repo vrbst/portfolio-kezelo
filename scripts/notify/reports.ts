@@ -26,7 +26,15 @@ import {
 } from "../../src/lib/rebalance";
 import { benchmarkIndex, BENCHMARK, computeReturns } from "../../src/lib/returns";
 import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
-import { txDay } from "../../src/lib/day";
+import { addDaysIso, toLocalDay, txDay } from "../../src/lib/day";
+import {
+  NEWS_EDITION_LABEL,
+  rankedItems,
+  type NewsDigest,
+  type NewsEdition,
+  type NewsImpact,
+} from "../../src/lib/newsSchema";
+import { quotedToday } from "../../src/lib/prices";
 import {
   buildMonthlyPlan,
   computePlanNeeds,
@@ -812,5 +820,97 @@ export function monthlyText(ctx: Context): string {
 
   const goals = goalsText(ctx);
   if (!goals.startsWith("Még nincs")) lines.push("", goals);
+  return lines.join("\n");
+}
+
+// ---- news digest -------------------------------------------------------------
+
+const IMPACT_ICON: Record<NewsImpact, string> = {
+  up: "📈",
+  down: "📉",
+  mixed: "↕️",
+  neutral: "➖",
+};
+
+/** How many items the Telegram digest lists (the app shows all). */
+export const NEWS_TG_MAX = 5;
+const NEWS_TG_MIN = 3;
+
+/**
+ * Today's market moves from the live quotes (not from the AI): EUR/HUF and
+ * every held stock / ETF / fund, "EUR/HUF 392,40 (+0,21%) · VWCE +0,60%".
+ * Only what traded today: before the open the last session's move is old news.
+ */
+export function newsMarketLine(ctx: Context): string {
+  const parts: string[] = [];
+  const eur = ctx.fx.EUR;
+  if (eur) {
+    const q = ctx.liveQuotes.EUR;
+    const ch = q?.prevClose && q.price && quotedToday(q, ctx.at) ? ` (${pct(q.price / q.prevClose - 1, 2)})` : "";
+    parts.push(`EUR/HUF ${eur.toLocaleString("hu-HU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${ch}`);
+  }
+  const held = consolidatedHoldings(ctx.summary)
+    .filter((h) => h.quantity > 1e-9 && ["etf", "stock", "fund"].includes(h.instrument?.type ?? ""))
+    .sort((a, b) => b.marketValueHuf - a.marketValueHuf);
+  for (const h of held) {
+    const q = ctx.liveQuotes[h.instrumentKey];
+    if (!q?.prevClose || !q.price || !quotedToday(q, ctx.at)) continue;
+    const name = h.instrument?.ticker ? esc(h.instrument.ticker) : shortName(h.instrument?.name ?? h.instrumentKey);
+    parts.push(`${name} ${pct(q.price / q.prevClose - 1, 2)}`);
+  }
+  return parts.join(" · ");
+}
+
+const EDITION_ICON: Record<NewsEdition, string> = { morning: "☀️", evening: "📰" };
+
+/**
+ * A digest on the phone: the headline, today's moves, the 3–5 most important
+ * items (one line each), the coming events (the morning one: today's too), a
+ * link to the app.
+ */
+export function newsText(
+  digest: NewsDigest,
+  ctx: Context,
+  appUrl: string,
+  uploadError?: string,
+): string {
+  const lines = [
+    `${EDITION_ICON[digest.edition]} <b>${NEWS_EDITION_LABEL[digest.edition]} – ${dayLabel(digest.day)}</b>`,
+    `<i>${esc(digest.headline)}</i>`,
+  ];
+  const market = newsMarketLine(ctx);
+  if (market) lines.push(market);
+  lines.push("");
+
+  const ranked = rankedItems(digest.items);
+  const important = ranked.filter((i) => i.importance >= 2);
+  const shown = (important.length >= NEWS_TG_MIN ? important : ranked).slice(0, NEWS_TG_MAX);
+  for (const it of shown) {
+    const affects = it.affects.length ? ` <i>(${esc(it.affects.slice(0, 3).join(", "))})</i>` : "";
+    lines.push(`${IMPACT_ICON[it.impact]} <b>${esc(it.title)}</b>${affects}`);
+  }
+
+  const today = toLocalDay(ctx.at);
+  const tomorrow = addDaysIso(today, 1);
+  const morning = digest.edition === "morning";
+  const next = digest.upcoming
+    .filter((u) => (morning ? u.date >= today : u.date > today))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, morning ? 3 : 2);
+  if (next.length) {
+    lines.push("");
+    for (const u of next) {
+      const when = u.date === today ? "Ma" : u.date === tomorrow ? "Holnap" : dayLabel(u.date).slice(6);
+      lines.push(`🗓 ${when}: ${esc(u.event)}`);
+    }
+  }
+
+  const more = digest.items.length - shown.length;
+  lines.push(
+    "",
+    `<a href="${esc(appUrl)}#/hirek">Részletek az appban</a>${more > 0 ? ` (+${more} hír)` : ""}`,
+  );
+  if (uploadError)
+    lines.push("", `⚠️ A felhőbe nem sikerült feltölteni, ezért az appban még nem látszik: ${esc(uploadError.slice(0, 200))}`);
   return lines.join("\n");
 }

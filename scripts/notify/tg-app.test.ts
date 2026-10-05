@@ -10,6 +10,8 @@ import { withTimeout } from "./data";
 import { ROOT } from "./env";
 import { contextAt } from "./testContext";
 import { alertMessages, runHandler, type Deps, type HubResponse } from "./tg-app";
+import { fakeEngine, memoryStore } from "./news/testFakes";
+import { fixtureNewsBody } from "../../src/test/newsFixture";
 
 // The tg-hub handler at the protocol level: a request JSON in, a response
 // JSON out, on the invented portfolio (src/test/fixture.ts), no network.
@@ -287,6 +289,102 @@ describe("tick", () => {
 
   it("an unknown job is an error", async () => {
     expect(await call(jobReq("napi"), depsFor(() => contextAt(WED)))).toMatchObject({ ok: false });
+  });
+});
+
+describe("news digest", () => {
+  const newsDeps = (at: [number, number, number, number, number?], engine = fakeEngine([fixtureNewsBody()]), store = memoryStore()) => ({
+    deps: {
+      ...depsFor(() => contextAt(at)),
+      news: () => ({ engine, store, cacheDir: join(dir, "news"), appUrl: "https://example.com/app/" }),
+    } satisfies Deps,
+    engine,
+    store,
+  });
+  const EVENING: [number, number, number, number, number] = [2026, 10, 14, 18, 15];
+  const MORNING: [number, number, number, number, number] = [2026, 10, 14, 7, 45];
+
+  it("the evening job: one normal message, uploaded, once a day", async () => {
+    const { deps, engine, store } = newsDeps(EVENING);
+    const r = await call(jobReq("news-evening"), deps);
+    expect(r.ok).toBeUndefined();
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].priority).toBe("normal");
+    expect(r.messages![0].html).toContain("📰 <b>Napzárta – 2026. okt. 14.</b>");
+    expect(r.messages![0].html).toContain('href="https://example.com/app/#/hirek"');
+    expect(store.writes).toContain("news/2026-10-14-evening.json");
+    expect(readState().news).toEqual({ evening: "2026-10-14" });
+
+    expect(await call(jobReq("news-evening"), deps)).toEqual({ v: 1, messages: [] });
+    expect(engine.prompts).toHaveLength(1);
+  });
+
+  it("the morning and the evening edition are separate runs", async () => {
+    const m = newsDeps(MORNING);
+    const r = await call(jobReq("news-morning"), m.deps);
+    expect(r.messages![0].html).toContain("☀️ <b>Reggeli előzetes – 2026. okt. 14.</b>");
+    expect(m.engine.prompts[0]).toContain("Reggeli előzetest írsz");
+    const e = newsDeps(EVENING, undefined, m.store);
+    expect((await call(jobReq("news-evening"), e.deps)).messages).toHaveLength(1);
+    expect(readState().news).toEqual({ morning: "2026-10-14", evening: "2026-10-14" });
+  });
+
+  it("a manual run from the hub sends it again from the local copy", async () => {
+    const { deps, engine } = newsDeps(EVENING);
+    await call(jobReq("news-evening"), deps);
+    const manual = JSON.stringify({ ...JSON.parse(jobReq("news-evening")), manual: true });
+    expect((await call(manual, deps)).messages).toHaveLength(1);
+    expect(engine.prompts).toHaveLength(1);
+  });
+
+  it("an AI failure is a job error (the hub reports it)", async () => {
+    const { deps } = newsDeps(EVENING, fakeEngine([]));
+    expect(await call(jobReq("news-evening"), deps)).toMatchObject({ ok: false, error: "no more answers" });
+    expect(existsSync(stateFile) ? readState().news : undefined).toBeUndefined();
+  });
+
+  it("a failed upload still sends the digest, with a warning", async () => {
+    const store = memoryStore();
+    store.write = async () => {
+      throw new Error("Feltöltés sikertelen: HTTP 403");
+    };
+    const { deps } = newsDeps(EVENING, undefined, store);
+    const r = await call(jobReq("news-evening"), deps);
+    expect(r.messages![0].html).toContain("⚠️ A felhőbe nem sikerült feltölteni");
+  });
+
+  it("the tick keeps the news state the job wrote meanwhile", async () => {
+    const deps: Deps = {
+      ...depsFor(() => contextAt(WED)),
+      load: async () => {
+        const ctx = contextAt(WED);
+        // The news job finishes while this tick is computing (after it read
+        // the state): the first thing the tick computes reads ctx.glide.
+        const glide = ctx.glide;
+        let wrote = false;
+        Object.defineProperty(ctx, "glide", {
+          get() {
+            if (!wrote) {
+              wrote = true;
+              writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, news: { evening: "2026-10-13" } }));
+            }
+            return glide;
+          },
+        });
+        return ctx;
+      },
+    };
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {} }));
+    await call(jobReq(), deps);
+    expect(readState().news).toEqual({ evening: "2026-10-13" });
+  });
+
+  it("/hirek: the latest digest, or a note when there is none yet", async () => {
+    const empty = newsDeps(EVENING);
+    expect((await call(commandReq("hirek"), empty.deps)).messages![0].html).toContain("Még nincs hírösszefoglaló");
+    await call(jobReq("news-evening"), empty.deps);
+    const r = await call(commandReq("hirek"), empty.deps);
+    expect(r.messages![0].html).toContain("Napzárta – 2026. okt. 14.");
   });
 });
 

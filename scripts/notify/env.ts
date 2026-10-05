@@ -26,6 +26,12 @@ export interface NotifyEnv {
   bigMovePct: number;
   /** Daily move (%) of a single position that triggers a message. */
   positionMovePct: number;
+  /** Daily news digest (news/): the model Claude Code runs it with. */
+  newsModel: string;
+  /** Path / name of the Claude Code CLI. */
+  newsClaudeBin: string;
+  /** The app's address, linked from the Telegram digest. */
+  appUrl: string;
 }
 
 function parseEnvFile(): Record<string, string> {
@@ -51,6 +57,9 @@ export function loadEnv(): NotifyEnv {
         : 45,
     bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
+    newsModel: e.NEWS_MODEL || "opus",
+    newsClaudeBin: e.NEWS_CLAUDE_BIN || "claude",
+    appUrl: e.APP_URL || "https://vrbst.github.io/portfolio-kezelo/",
   };
 }
 
@@ -69,6 +78,16 @@ export function githubToken(): string {
       "Nincs GitHub-token: add meg a GITHUB_TOKEN-t a .notify/.env-ben, vagy jelentkezz be: gh auth login",
     );
   }
+}
+
+/**
+ * Token that may WRITE the sync repo, for the news digest (news/*.json):
+ * NEWS_GITHUB_TOKEN (a fine-grained token with Contents read/write on that
+ * one repo), else the read token above — which then fails on the upload.
+ */
+export function newsGithubToken(): string {
+  const e = parseEnvFile();
+  return process.env.NEWS_GITHUB_TOKEN || e.NEWS_GITHUB_TOKEN || githubToken();
 }
 
 /**

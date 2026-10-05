@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GlideSignals } from "../../src/lib/rebalance";
+import type { NewsEdition } from "../../src/lib/newsSchema";
 
 export interface State {
   /** Alert id → when it was first sent. Pruned when the alert resolves. */
@@ -36,6 +37,8 @@ export interface State {
    * the grace period the tick stays silent (tg-app.ts).
    */
   loadFailingSince?: string;
+  /** News digest: per edition, the last local day (YYYY-MM-DD) it was made for. */
+  news?: Partial<Record<NewsEdition, string>>;
 }
 
 /** Fields of the old self-polling bot, now kept by tg-hub: dropped on load. */

@@ -1,0 +1,60 @@
+==== portfólió az AI-nak ====
+- VWCE (ETF, EUR, ticker: VWCE, ISIN: IE00BK5BQT80): 51%
+- Fix Magyar Állampapír 2030/I (magyar állampapír, HUF, ISIN: HU0000TESZT1, kamat: 6.50%, lejárat: 2030-03-15): 24%
+- Diszkont Kincstárjegy D261118 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT2, lejárat: 2026-11-18): 9%
+- WBIT (ETF, EUR, ticker: WBIT, ISIN: GB00BJYDH287): 5%
+- Diszkont Kincstárjegy D270512 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT3, lejárat: 2027-05-12): 4%
+- Diszkont Kincstárjegy D270310 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT4, lejárat: 2027-03-10): 3%
+- Készpénz: 3%
+- Számlák: TBSZ (magyar tartós befektetési számla), Magyar Államkincstár értékpapírszámla
+
+==== reggeli előzetes ====
+☀️ <b>Reggeli előzetes – 2026. okt. 14.</b>
+<i>Teszt-nap: gyengült a forint, a világindex emelkedett, az MNB kivárást jelzett.</i>
+EUR/HUF 394,42 (+0,20%) · VWCE +0,60% · WBIT −1,51%
+
+📈 <b>Gyengült a forint &lt;az euróval&gt; szemben</b> <i>(EUR/HUF, VWCE, WBIT)</i>
+➖ <b>Az MNB kivárást jelzett</b> <i>(DKJ)</i>
+📈 <b>Emelkedtek a nagy amerikai indexek</b> <i>(VWCE)</i>
+📉 <b>Esett a bitcoin</b> <i>(WBIT)</i>
+➖ <b>Új lakossági állampapír-sorozat</b> <i>(FixMÁP)</i>
+
+🗓 Ma: Teszt aukció
+🗓 Holnap: Teszt inflációs adat
+🗓 okt. 16.: Teszt GDP-adat
+
+<a href="https://example.com/app/#/hirek">Részletek az appban</a> (+2 hír)
+
+==== napzárta ====
+📰 <b>Napzárta – 2026. okt. 14.</b>
+<i>Teszt-nap: gyengült a forint, a világindex emelkedett, az MNB kivárást jelzett.</i>
+EUR/HUF 394,42 (+0,20%) · VWCE +0,60% · WBIT −1,51%
+
+📈 <b>Gyengült a forint &lt;az euróval&gt; szemben</b> <i>(EUR/HUF, VWCE, WBIT)</i>
+➖ <b>Az MNB kivárást jelzett</b> <i>(DKJ)</i>
+📈 <b>Emelkedtek a nagy amerikai indexek</b> <i>(VWCE)</i>
+📉 <b>Esett a bitcoin</b> <i>(WBIT)</i>
+➖ <b>Új lakossági állampapír-sorozat</b> <i>(FixMÁP)</i>
+
+🗓 Holnap: Teszt inflációs adat
+🗓 okt. 16.: Teszt GDP-adat
+
+<a href="https://example.com/app/#/hirek">Részletek az appban</a> (+2 hír)
+
+==== napzárta, sikertelen feltöltés ====
+📰 <b>Napzárta – 2026. okt. 14.</b>
+<i>Teszt-nap: gyengült a forint, a világindex emelkedett, az MNB kivárást jelzett.</i>
+EUR/HUF 394,42 (+0,20%) · VWCE +0,60% · WBIT −1,51%
+
+📈 <b>Gyengült a forint &lt;az euróval&gt; szemben</b> <i>(EUR/HUF, VWCE, WBIT)</i>
+➖ <b>Az MNB kivárást jelzett</b> <i>(DKJ)</i>
+📈 <b>Emelkedtek a nagy amerikai indexek</b> <i>(VWCE)</i>
+📉 <b>Esett a bitcoin</b> <i>(WBIT)</i>
+➖ <b>Új lakossági állampapír-sorozat</b> <i>(FixMÁP)</i>
+
+🗓 Holnap: Teszt inflációs adat
+🗓 okt. 16.: Teszt GDP-adat
+
+<a href="https://example.com/app/#/hirek">Részletek az appban</a> (+2 hír)
+
+⚠️ A felhőbe nem sikerült feltölteni, ezért az appban még nem látszik: Feltöltés sikertelen: HTTP 403

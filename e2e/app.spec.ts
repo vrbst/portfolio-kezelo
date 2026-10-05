@@ -23,6 +23,7 @@ const PAGES = [
   ["/forecast", "Előrejelzés"],
   ["/goals", "Célok"],
   ["/alerts", "Teendők"],
+  ["/hirek", "Hírek"],
   ["/import", "Import"],
   ["/settings", "Beállítások"],
 ] as const;
@@ -37,7 +38,7 @@ const PREF_KEYS: Record<string, string> = {
   income: "pf-income",
 };
 
-async function openSeeded(page: Page, opts: { privacy?: boolean } = {}) {
+async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean } = {}) {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
@@ -64,7 +65,7 @@ async function openSeeded(page: Page, opts: { privacy?: boolean } = {}) {
   await page.waitForLoadState("networkidle");
   const snap = fixtureSnapshot();
   await page.evaluate(
-    async ({ snap, prefKeys, privacy }) => {
+    async ({ snap, prefKeys, privacy, sync }) => {
       const db: IDBDatabase = await new Promise((res, rej) => {
         const r = indexedDB.open("portfolio");
         r.onsuccess = () => res(r.result);
@@ -88,8 +89,10 @@ async function openSeeded(page: Page, opts: { privacy?: boolean } = {}) {
         localStorage.setItem(`${key}-updated`, p.updatedAt);
       }
       localStorage.setItem("pf-privacy", privacy ? "1" : "0");
+      if (sync)
+        localStorage.setItem("portfolio.syncConfig", JSON.stringify({ token: "t", owner: "teszt", repo: "adat", path: "data.json" }));
     },
-    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy },
+    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy, sync: !!opts.sync },
   );
   await page.reload();
   await page.waitForLoadState("networkidle");
@@ -268,5 +271,59 @@ test.describe("glide-path editor", () => {
     await page.getByRole("button", { name: /Haladó beállítások/ }).click();
     const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name));
     expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
+  });
+});
+
+test.describe("market news (Hírek)", () => {
+  /**
+   * The sync repo with an invented digest; the snapshot file is not there.
+   * After openSeeded: the route registered last wins over its network cut.
+   */
+  async function withNews(page: Page) {
+    const { fixtureDigest } = await import("../src/test/newsFixture");
+    const { withIndexEntry } = await import("../src/lib/newsSchema");
+    const evening = fixtureDigest("2026-10-13", "evening");
+    const morning = fixtureDigest("2026-10-14", "morning");
+    const index = withIndexEntry(withIndexEntry(null, evening), morning);
+    const file = (v: unknown) => ({
+      json: { sha: "s", content: Buffer.from(JSON.stringify(v), "utf8").toString("base64") },
+    });
+    await page.route(/api\.github\.com\/repos\/teszt\/adat\/contents\//, (r) => {
+      const path = new URL(r.request().url()).pathname.split("/contents/")[1];
+      if (path === "news/index.json") return r.fulfill(file(index));
+      if (path === "news/2026-10-14-morning.json") return r.fulfill(file(morning));
+      if (path === "news/2026-10-13-evening.json") return r.fulfill(file(evening));
+      return r.fulfill({ status: 404, body: "" });
+    });
+  }
+
+  test("the page lists the latest digest; the dashboard card links to it", async ({ page }) => {
+    const errors = await openSeeded(page, { sync: true });
+    await withNews(page);
+    await show(page, "/hirek");
+    const main = page.locator("main");
+    await expect(main).toContainText("Reggeli előzetes");
+    await expect(main).toContainText("Gyengült a forint <az euróval> szemben");
+    await expect(main).toContainText("Következő napok");
+    await page.selectOption("#news-pick", { index: 1 });
+    await expect(main).toContainText("Napzárta");
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+
+    await show(page, "/");
+    await expect(main).toContainText("Piaci hírek");
+    await main.getByRole("link", { name: /Összes hír/ }).click();
+    await expect(page).toHaveURL(/#\/hirek$/);
+    expect(errors, "console / page errors").toEqual([]);
+  });
+
+  test("privacy mode: the news stay readable, nothing personal leaks", async ({ page }) => {
+    await openSeeded(page, { privacy: true, sync: true });
+    await withNews(page);
+    const goalNames = savingsGoals().map((g) => g.name);
+    for (const path of ["/hirek", "/"]) {
+      await show(page, path);
+      await expect(page.locator("main")).toContainText("forint");
+      expect(await readableSecrets(page, goalNames), path).toEqual([]);
+    }
   });
 });

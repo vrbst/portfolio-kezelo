@@ -7,11 +7,16 @@
 //   • job "tick" → recompute the portfolio with live quotes (like the app) and
 //     return what's new: new alerts, big daily moves (portfolio and single
 //     positions), stale data, weekly / monthly reports, and on the month's
-//     last working day the leftover question (/maradek answers it).
+//     last working day the leftover question (/maradek answers it),
+//   • jobs "news-morning" / "news-evening" → the AI's market-news digest
+//     (news/), /hirek sends the latest again.
 // What has been sent already lives in .notify/state.json (state.ts).
 
 import { resolve } from "node:path";
-import { NOTIFY_DIR, loadEnv, type NotifyEnv } from "./env";
+import { NOTIFY_DIR, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
+import { claudeCodeEngine } from "./news/engine";
+import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
+import type { NewsEdition } from "../../src/lib/newsSchema";
 import { loadContext, withGlideAlerts, type Context } from "./data";
 import { loadState, updateState, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
@@ -33,6 +38,7 @@ import {
   liquidationText,
   mft,
   monthlyText,
+  newsText,
   pct,
   planText,
   quotesText,
@@ -53,7 +59,7 @@ export type HubRequest = { v: number; id: string; app: string; now: string } & (
   | { type: "command"; command: string; args: string }
   | { type: "text"; text: string; context: string | null }
   | { type: "callback"; data: string }
-  | { type: "job"; job: string }
+  | { type: "job"; job: string; manual?: boolean }
 );
 
 export interface HubMessage {
@@ -73,6 +79,8 @@ export interface Deps {
   load: () => Promise<Context>;
   stateFile: string;
   env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct">;
+  /** The daily news digest's AI and storage (built only when needed). */
+  news?: () => NewsDeps;
 }
 
 export function defaultDeps(): Deps {
@@ -81,6 +89,12 @@ export function defaultDeps(): Deps {
     load: () => loadContext(env),
     stateFile: resolve(NOTIFY_DIR, "state.json"),
     env,
+    news: () => ({
+      engine: claudeCodeEngine({ bin: env.newsClaudeBin, model: env.newsModel }),
+      store: repoStore(env.syncRepo, newsGithubToken),
+      cacheDir: resolve(NOTIFY_DIR, "news"),
+      appUrl: env.appUrl,
+    }),
   };
 }
 
@@ -143,6 +157,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
   switch (req.type) {
     case "command":
       console.error(`/${req.command} ${req.args}`.trim());
+      if (req.command === "hirek") return latestNews(deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -153,6 +168,8 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
     case "job":
       console.error(`job ${req.job}`);
       if (req.job === "tick") return tick(deps);
+      if (req.job === "news-morning") return news(deps, "morning", req.manual === true);
+      if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
       return fail(`Ismeretlen job: ${req.job}`);
     default:
       return { v: 1, messages: [] };
@@ -224,6 +241,53 @@ async function leftover(arg: string, deps: Deps): Promise<HubResponse> {
   };
 }
 
+// ---- the news digest ------------------------------------------------------
+
+/**
+ * Jobs "news-morning" (weekdays before the Xetra opens) and "news-evening"
+ * (after it closes), tg-hub.app.json: the AI's digest of the market news →
+ * the sync repo and one message. Each once a day; a manual run from the hub
+ * sends it again (from the local copy if it was made already — news/job.ts).
+ */
+async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<HubResponse> {
+  if (!deps.news) return fail("A hírösszefoglaló nincs beállítva.");
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const today = toLocalDay(ctx.at);
+  if (!manual && loadState(deps.stateFile).news?.[edition] === today) {
+    console.error(`news: ${today} ${edition} done already`);
+    return { v: 1, messages: [] };
+  }
+  const nd = deps.news();
+  const run = await makeDigest(ctx, nd, edition);
+  updateState(deps.stateFile, (cur) => ({
+    ...cur,
+    news: { ...cur.news, [edition]: run.digest.day },
+  }));
+  return { v: 1, messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError))] };
+}
+
+/** /hirek: the newest digest from the sync repo again, with today's moves. */
+async function latestNews(deps: Deps): Promise<HubResponse> {
+  if (!deps.news) return fail("A hírösszefoglaló nincs beállítva.");
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const nd = deps.news();
+  let digest;
+  try {
+    digest = await latestDigest(nd.store);
+  } catch (e) {
+    console.error("news: read failed:", (e as Error).message);
+    return fail(loadErrorText(e));
+  }
+  if (!digest)
+    return {
+      v: 1,
+      messages: [msg("📰 Még nincs hírösszefoglaló. Hétköznap kettő készül: 7:45 körül (a Xetra nyitása előtt) és 18:15 körül (a zárása után).")],
+    };
+  return { v: 1, messages: [msg(newsText(digest, ctx, nd.appUrl))] };
+}
+
 // ---- the 5-minute tick ----------------------------------------------------
 
 /**
@@ -276,10 +340,12 @@ async function tick(deps: Deps): Promise<HubResponse> {
   delete st.loadFailingSince;
   const messages = tickMessages(ctx, st, deps.env);
   // Save before answering: a kill after this only loses messages, never
-  // sends them twice. /maradek may have written meanwhile: keep its answer.
+  // sends them twice. /maradek and the news job may have written meanwhile:
+  // keep their fields.
   updateState(deps.stateFile, (cur) => ({
     ...st,
     leftover: { ...st.leftover, answered: cur.leftover?.answered },
+    news: cur.news,
   }));
   return { v: 1, messages };
 }

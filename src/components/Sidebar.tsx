@@ -21,6 +21,7 @@ import {
   Target,
   Bell,
   Sparkles,
+  Newspaper,
   ChevronsLeft,
   ChevronsRight,
   ArrowUpRight,
@@ -43,6 +44,7 @@ const linkGroups = [
   ],
   [
     { to: "/alerts", label: "Figyelmeztetések", icon: Bell, end: false },
+    { to: "/hirek", label: "Hírek", icon: Newspaper, end: false },
     { to: "/ai", label: "AI elemzés", icon: Sparkles, end: false },
   ],
   [

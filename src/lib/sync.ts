@@ -164,12 +164,16 @@ function validateSnapshot(x: unknown): PortfolioSnapshot {
   return s as PortfolioSnapshot;
 }
 
-/** Read the snapshot file. Returns null if it doesn't exist yet. */
-export async function getRemoteSnapshot(
+/**
+ * Read any file of the sync repo (the snapshot, the news digests). Returns
+ * null if it doesn't exist yet.
+ */
+export async function getRepoFile(
   config: SyncConfig,
-): Promise<{ snapshot: PortfolioSnapshot; sha: string } | null> {
+  path: string,
+): Promise<{ text: string; sha: string } | null> {
   const ref = config.branch ? `?ref=${config.branch}` : "";
-  const contentsPath = `/repos/${config.owner}/${config.repo}/contents/${config.path}${ref}`;
+  const contentsPath = `/repos/${config.owner}/${config.repo}/contents/${path}${ref}`;
   const res = await ghFetch(config, contentsPath);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Letöltés sikertelen: HTTP ${res.status}`);
@@ -185,25 +189,29 @@ export async function getRemoteSnapshot(
     if (!raw.ok) throw new Error(`Letöltés sikertelen: HTTP ${raw.status}`);
     text = await raw.text();
   }
-  const snapshot = validateSnapshot(JSON.parse(text));
-  return { snapshot, sha: data.sha };
+  return { text, sha: data.sha };
 }
 
-/** Write the snapshot file (create or update). */
-export async function putRemoteSnapshot(
+/**
+ * Write any file of the sync repo (create, or update when `sha` is the
+ * current version's). Returns the new sha.
+ */
+export async function putRepoFile(
   config: SyncConfig,
-  snapshot: PortfolioSnapshot,
+  path: string,
+  text: string,
+  message: string,
   sha?: string,
 ): Promise<string> {
   const body = {
-    message: `portfólió mentés ${snapshot.exportedAt}`,
-    content: toBase64(JSON.stringify(snapshot, null, 2)),
+    message,
+    content: toBase64(text),
     sha,
     branch: config.branch,
   };
   const res = await ghFetch(
     config,
-    `/repos/${config.owner}/${config.repo}/contents/${config.path}`,
+    `/repos/${config.owner}/${config.repo}/contents/${path}`,
     { method: "PUT", body: JSON.stringify(body) },
   );
   if (!res.ok) {
@@ -212,4 +220,29 @@ export async function putRemoteSnapshot(
   }
   const data = (await res.json()) as { content: { sha: string } };
   return data.content.sha;
+}
+
+/** Read the snapshot file. Returns null if it doesn't exist yet. */
+export async function getRemoteSnapshot(
+  config: SyncConfig,
+): Promise<{ snapshot: PortfolioSnapshot; sha: string } | null> {
+  const file = await getRepoFile(config, config.path);
+  if (!file) return null;
+  const snapshot = validateSnapshot(JSON.parse(file.text));
+  return { snapshot, sha: file.sha };
+}
+
+/** Write the snapshot file (create or update). */
+export async function putRemoteSnapshot(
+  config: SyncConfig,
+  snapshot: PortfolioSnapshot,
+  sha?: string,
+): Promise<string> {
+  return putRepoFile(
+    config,
+    config.path,
+    JSON.stringify(snapshot, null, 2),
+    `portfólió mentés ${snapshot.exportedAt}`,
+    sha,
+  );
 }

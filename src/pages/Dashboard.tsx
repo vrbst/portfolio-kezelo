@@ -33,6 +33,7 @@ import ValueChart, { type ChartMode } from "../components/ValueChart";
 import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
+import NewsCard from "../components/NewsCard";
 import DayChangeBreakdown from "../components/DayChangeBreakdown";
 import UnlockDialog from "../components/UnlockDialog";
 import { hasLock } from "../lib/privacyLock";
@@ -589,7 +590,7 @@ export default function Dashboard() {
           <HoldingsPanel maxBodyHeight="26rem" fill />
         </div>
 
-        {/* Jobb oldalsáv: élő árfolyamok → allokáció → események. Its height is
+        {/* Jobb oldalsáv: élő árfolyamok → hírek → allokáció → események. Its height is
             sized with the left column (colH, measured above); overflow-hidden
             keeps the flex-1 events card inside that cap, its list scrolling — so
             the card ends flush with the Eszközeim card's bottom. */}
@@ -599,6 +600,7 @@ export default function Dashboard() {
           style={colH ? { height: colH } : undefined}
         >
           <LivePricesPanel />
+          <NewsCard />
           {/* Allocation donut */}
           <Card className="p-5">
             <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>

@@ -19,7 +19,8 @@
     { "name": "hozam", "description": "XIRR, TWR, időszakos és számlánkénti eredmény" },
     { "name": "tbsz", "description": "TBSZ-szakaszok, határidők, adó most és később" },
     { "name": "eladas", "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
-    { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" }
+    { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" },
+    { "name": "hirek", "description": "Legutóbbi piaci hírösszefoglaló" }
   ],
   "quietHours": { "from": "22:00", "to": "07:30" },
   "jobs": [
@@ -29,6 +30,26 @@
       "every": "5m",
       "timeout": "3m",
       "expectSuccessWithin": "6h"
+    },
+    {
+      "id": "news-morning",
+      "description": "Reggeli piaci előzetes (AI, a Xetra nyitása előtt)",
+      "at": "07:45",
+      "days": ["mon", "tue", "wed", "thu", "fri"],
+      "catchUp": "run",
+      "catchUpWindow": "3h",
+      "timeout": "15m",
+      "expectSuccessWithin": "4d"
+    },
+    {
+      "id": "news-evening",
+      "description": "Piaci napzárta (AI, a Xetra zárása után)",
+      "at": "18:15",
+      "days": ["mon", "tue", "wed", "thu", "fri"],
+      "catchUp": "run",
+      "catchUpWindow": "4h",
+      "timeout": "15m",
+      "expectSuccessWithin": "4d"
     }
   ],
   "health": { "repeatEvery": "6h" }

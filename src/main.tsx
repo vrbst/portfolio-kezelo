@@ -39,6 +39,7 @@ import Forecast from "./pages/Forecast";
 import Goals from "./pages/Goals";
 import Alerts from "./pages/Alerts";
 import Ai from "./pages/Ai";
+import News from "./pages/News";
 import Settings from "./pages/Settings";
 
 const router = createHashRouter([
@@ -54,6 +55,7 @@ const router = createHashRouter([
       { path: "forecast", element: <Forecast /> },
       { path: "goals", element: <Goals /> },
       { path: "alerts", element: <Alerts /> },
+      { path: "hirek", element: <News /> },
       { path: "ai", element: <Ai /> },
       { path: "import", element: <Import /> },
       { path: "settings", element: <Settings /> },
