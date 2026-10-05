@@ -1,3 +1,4 @@
+import InfoTip from "../components/InfoTip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -688,7 +689,16 @@ export default function Forecast() {
     <div>
       <PageHeader
         title="Előrejelzés"
-        subtitle="A meglévő vagyonodból, a kötvényeid ismert hozamából és a felismert havi megtakarításból vetített jövőkép. Becslés, nem ígéret."
+        info={
+          <>
+            A meglévő vagyonodból, a kötvényeid ismert hozamából és a felismert
+            havi megtakarításból vetített jövőkép. Becslés, nem ígéret: a
+            jövőbeli hozam feltételezés, a tényleges eredmény ettől eltérhet. A
+            kötvények a jelenlegi értéküktől a lejáratkori névértékig
+            kamatozódnak. A tervezési beállítások a felhő-szinkronnal együtt
+            szinkronizálódnak az eszközeid között.
+          </>
+        }
       />
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -700,21 +710,21 @@ export default function Forecast() {
             <div className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-[var(--color-brand)]" />
               <h2 className="text-lg font-semibold">Havi megtakarítás</h2>
+              <InfoTip>
+                {overriding ? (
+                  "Kézzel megadott havi összeg. A ↺ gombbal visszaállhatsz a befizetéseidből felismert értékre."
+                ) : (
+                  <>
+                    Az utolsó{" "}
+                    {detected.monthsUsed > 0 ? `${detected.monthsUsed} ` : ""}
+                    lezárt hónap átlagos nettó befizetése. A hónap utolsó
+                    munkanapján befizetett összeg már a következő hónaphoz
+                    számít; a befizetés nélküli hónapok 0-val számítanak, az
+                    egyszeri nagy tételeket kihagytuk.
+                  </>
+                )}
+              </InfoTip>
             </div>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              {overriding ? (
-                "Kézzel megadott havi összeg."
-              ) : (
-                <>
-                  Az utolsó{" "}
-                  {detected.monthsUsed > 0 ? `${detected.monthsUsed} ` : ""}
-                  lezárt hónap átlagos nettó befizetése. A hónap utolsó
-                  munkanapján befizetett összeg már a következő hónaphoz
-                  számít; a befizetés nélküli hónapok 0-val számítanak, az
-                  egyszeri nagy tételeket kihagytuk.
-                </>
-              )}
-            </p>
 
             <div className="mt-3">
               <div className="flex items-center gap-2">
@@ -751,8 +761,12 @@ export default function Forecast() {
                 )}
               </div>
               <div className="mt-2 flex items-center gap-2">
-                <span className="text-sm text-[var(--color-muted)]">
+                <span className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
                   Évente emelem
+                  <InfoTip>
+                    Ha a fizetéseddel együtt a félretett összeg is nő (pl. az
+                    inflációval), az előrejelzés 12 havonta ennyivel emeli.
+                  </InfoTip>
                 </span>
                 <PctInput
                   value={settings.savingGrowth}
@@ -762,10 +776,6 @@ export default function Forecast() {
                   }
                 />
               </div>
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                Ha a fizetéseddel együtt a félretett összeg is nő (pl. az
-                inflációval), az előrejelzés 12 havonta ennyivel emeli.
-              </p>
             </div>
 
             {detected.oneOffs.length > 0 && (
@@ -787,11 +797,13 @@ export default function Forecast() {
 
           {/* Betervezett kiadások — kitölti a bal oszlop maradékát */}
           <Card className="flex min-h-0 flex-1 flex-col p-5">
-            <h2 className="text-lg font-semibold">Betervezett kiadások</h2>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              Ismert jövőbeli kiadások (pl. egy tervezett vásárlás). A megadott
-              dátumkor levonjuk a vagyonból.
-            </p>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              Betervezett kiadások
+              <InfoTip>
+                Ismert jövőbeli kiadások (pl. egy tervezett vásárlás). A megadott
+                dátumkor levonjuk a vagyonból.
+              </InfoTip>
+            </h2>
 
             <div className="mt-3 space-y-2">
               <div className="flex flex-wrap gap-2">
@@ -874,12 +886,12 @@ export default function Forecast() {
                 }
               />
               <h2 className="text-lg font-semibold">Rendszeres kivét</h2>
+              <InfoTip>
+                Egy adott hónaptól havonta kiveszel (pl. nyugdíj mellé). Ettől
+                kezdve a havi megtakarítás megszűnik, a kivét pedig évente az
+                inflációval ({pct(settings.inflationPct)}) nő.
+              </InfoTip>
             </label>
-            <p className="mt-1 text-sm text-[var(--color-muted)]">
-              Egy adott hónaptól havonta kiveszel (pl. nyugdíj mellé). Ettől
-              kezdve a havi megtakarítás megszűnik, a kivét pedig évente az
-              inflációval ({pct(settings.inflationPct)}) nő.
-            </p>
             {settings.withdrawal.enabled && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <input
@@ -921,11 +933,13 @@ export default function Forecast() {
 
         {/* Feltételezések */}
         <Card className="p-5">
-          <h2 className="text-lg font-semibold">Feltételezések</h2>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Éves várható hozam a növekedési eszközökre (ETF/részvény). A
-            kötvények a saját ismert hozamukkal számolnak.
-          </p>
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            Feltételezések
+            <InfoTip>
+              Éves várható hozam a növekedési eszközökre (ETF/részvény). A
+              kötvények a saját ismert hozamukkal számolnak.
+            </InfoTip>
+          </h2>
 
           <div className="mt-3 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
             {(
@@ -989,8 +1003,13 @@ export default function Forecast() {
             ))}
             {isMc && (
               <div className="flex items-center gap-2">
-                <span className="w-28 text-sm text-[var(--color-muted)]">
+                <span className="flex w-28 items-center gap-1.5 text-sm text-[var(--color-muted)]">
                   Szórás (σ)
+                  <InfoTip>
+                    500 szimulált útvonal; a sáv a 10–90. percentilis, a kiemelt
+                    vonal a medián. Globális részvény-ETF-re a ~15–18% szórás
+                    tipikus.
+                  </InfoTip>
                 </span>
                 <input
                   type="number"
@@ -1018,12 +1037,6 @@ export default function Forecast() {
               </div>
             )}
           </div>
-          {isMc && (
-            <p className="mt-2 text-xs text-[var(--color-muted)]">
-              500 szimulált útvonal; a sáv a 10–90. percentilis, a kiemelt vonal
-              a medián. Globális részvény-ETF-re a ~15–18% szórás tipikus.
-            </p>
-          )}
 
           <div className="mt-4 border-t border-[var(--color-border)] pt-3">
             <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -1037,8 +1050,12 @@ export default function Forecast() {
               Mai forintban (infláció-korrigált)
             </label>
             <div className="mt-2 flex items-center gap-2">
-              <span className="w-28 text-sm text-[var(--color-muted)]">
+              <span className="flex w-28 items-center gap-1.5 text-sm text-[var(--color-muted)]">
                 Infláció
+                <InfoTip>
+                  A mai forintos nézet és a rendszeres kivét emelése is ezzel
+                  számol.
+                </InfoTip>
               </span>
               <PctInput
                 value={settings.inflationPct}
@@ -1048,10 +1065,6 @@ export default function Forecast() {
                 }
               />
             </div>
-            <p className="mt-1 text-xs text-[var(--color-muted)]">
-              A mai forintos nézet és a rendszeres kivét emelése is ezzel
-              számol.
-            </p>
           </div>
 
           <div className="mt-4">
@@ -1121,14 +1134,14 @@ export default function Forecast() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold">Vagyon-előrejelzés</h2>
+              <InfoTip>
+                {isMc
+                  ? "Medián pálya (kiemelt), 10–90. percentilis sáv, és a befektetett tőke (szaggatott)."
+                  : "Reális pálya (kiemelt), pesszimista–optimista sáv, és a befektetett tőke (szaggatott)."}
+              </InfoTip>
               {isMc && <Badge tone="brand">Monte Carlo</Badge>}
               {settings.realMode && <Badge tone="neutral">mai forintban</Badge>}
             </div>
-            <p className="text-sm text-[var(--color-muted)]">
-              {isMc
-                ? "Medián pálya (kiemelt), 10–90. percentilis sáv, és a befektetett tőke (szaggatott)."
-                : "Reális pálya (kiemelt), pesszimista–optimista sáv, és a befektetett tőke (szaggatott)."}
-            </p>
           </div>
           {last && (
             <div className="text-right">
@@ -1263,12 +1276,12 @@ export default function Forecast() {
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-[var(--color-brand)]" />
             <h2 className="text-lg font-semibold">Célösszeg</h2>
+            <InfoTip>
+              Mikor éred el, mennyi kell hozzá havonta
+              {isMc ? ", és mekkora eséllyel jön össze" : ""}?
+              {settings.realMode ? " (mai forintban)" : ""}
+            </InfoTip>
           </div>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Mikor éred el, mennyi kell hozzá havonta
-            {isMc ? ", és mekkora eséllyel jön össze" : ""}?
-            {settings.realMode ? " (mai forintban)" : ""}
-          </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <AmountInput
               placeholder="Célösszeg (Ft)"
@@ -1392,12 +1405,12 @@ export default function Forecast() {
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="h-5 w-5 text-[var(--color-brand)]" />
             <h2 className="text-lg font-semibold">Mi számít a legtöbbet?</h2>
+            <InfoTip>
+              Mennyivel változna a vagyonod {Math.round(settings.months / 12)} év
+              múlva (reális pálya{settings.realMode ? ", mai Ft" : ""}), ha egy
+              dolgot módosítasz.
+            </InfoTip>
           </div>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Mennyivel változna a vagyonod {Math.round(settings.months / 12)} év
-            múlva (reális pálya{settings.realMode ? ", mai Ft" : ""}), ha egy
-            dolgot módosítasz.
-          </p>
           <ul className="mt-3 space-y-2.5 text-sm">
             {sensitivity.map((r) => (
               <li key={r.label}>
@@ -1523,21 +1536,25 @@ export default function Forecast() {
         <div className="flex items-center gap-2">
           <History className="h-5 w-5 text-[var(--color-brand)]" />
           <h2 className="text-lg font-semibold">Előrejelzés vs. valóság</h2>
+          <InfoTip>
+            Havonta automatikusan elmentjük az előrejelzést, és itt látod,
+            mennyire jött be: mire számított a korábbi hónapokban mentett
+            előrejelzés mára (névleges Ft), és mennyi lett valójában. Az
+            eltérés a piacból és abból is adódik, ha többet vagy kevesebbet
+            tettél félre, mint amivel az előrejelzés számolt.
+          </InfoTip>
         </div>
         {comparisons.length === 0 ? (
           <p className="mt-2 text-sm text-[var(--color-muted)]">
-            Havonta automatikusan elmentjük az előrejelzést. Jövő hónaptól itt
-            látod, mennyire jött be: mit vártunk mára, és mennyi lett valójában.
+            Jövő hónaptól itt látod, mennyire jött be az előrejelzés.
           </p>
         ) : (
           <>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
-              Mire számított a korábbi hónapokban mentett előrejelzés mára
-              (névleges Ft), és mennyi a vagyonod most:{" "}
+              A vagyonod most:{" "}
               <span className="amt font-medium text-[var(--color-text)]">
                 {privacy ? "•••" : `${huf(summary.totalValueHuf)} Ft`}
               </span>
-              .
             </p>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[480px] text-sm">
@@ -1601,10 +1618,6 @@ export default function Forecast() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-2 text-xs text-[var(--color-muted)]">
-              Az eltérés a piacból és abból is adódik, ha többet vagy kevesebbet
-              tettél félre, mint amivel az előrejelzés számolt.
-            </p>
           </>
         )}
       </Card>
@@ -1614,6 +1627,12 @@ export default function Forecast() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-[var(--color-brand)]" />
           <h2 className="text-lg font-semibold">AI értékelés</h2>
+          <InfoTip>
+            A fenti előrejelzés számai alapján: mit tesz hozzá a havi
+            megtakarítás, mekkora a bizonytalanság, hogyan hatnak a kiadások.
+            Csak az összesített előrejelzés-számokat küldjük el, tranzakciókat
+            soha.
+          </InfoTip>
         </div>
         {!apiKey ? (
           <p className="mt-2 text-sm text-[var(--color-muted)]">
@@ -1624,15 +1643,10 @@ export default function Forecast() {
             >
               Beállításokban
             </Link>
-            . Csak az összesített előrejelzés-számokat küldjük el, tranzakciókat
-            soha.
+            .
           </p>
         ) : (
           <>
-            <p className="mt-2 text-sm text-[var(--color-muted)]">
-              A fenti előrejelzés számai alapján — mit tesz hozzá a havi
-              megtakarítás, mekkora a bizonytalanság, hogyan hatnak a kiadások.
-            </p>
             <button
               className="btn-primary mt-3"
               onClick={runNarrative}
@@ -1663,14 +1677,6 @@ export default function Forecast() {
         )}
       </Card>
 
-      <p className="mt-4 text-xs text-[var(--color-muted)]">
-        <Badge tone="neutral">becslés</Badge> A jövőbeli hozam feltételezés — a
-        tényleges eredmény ettől eltérhet. A kötvények a jelenlegi értéküktől a
-        lejáratkori névértékig kamatozódnak, a felismert havi megtakarítás pedig
-        a múltbeli befizetéseidből adódik. A tervezési beállítások és a
-        cél-allokáció a felhő-szinkronnal együtt szinkronizálódnak az eszközeid
-        között.
-      </p>
     </div>
   );
 }

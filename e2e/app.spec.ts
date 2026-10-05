@@ -366,3 +366,49 @@ test.describe("market news (Hírek)", () => {
     }
   });
 });
+
+test.describe("explanations behind an \"i\"", () => {
+  test("open on hover / tap, stay on screen, close with Esc", async ({ page }, info) => {
+    await openSeeded(page);
+    await show(page, "/forecast");
+    const tip = page.getByRole("button", { name: "Magyarázat" }).first();
+    const pop = page.getByRole("tooltip");
+    await expect(pop).toHaveCount(0);
+    if (info.project.name === "desktop") await tip.hover();
+    else await tip.tap();
+    await expect(pop).toBeVisible();
+    await expect(pop).toContainText("lezárt hónap átlagos nettó befizetése");
+    const box = (await pop.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vw);
+    await page.keyboard.press("Escape");
+    await expect(pop).toHaveCount(0);
+  });
+
+  test("privacy mode blurs amounts inside an open popover too", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/accounts/mak");
+    const tips = page.getByRole("button", { name: "Magyarázat" });
+    await expect(tips.first()).toBeVisible();
+    // Every tip on the page, one by one: nothing personal is readable in it.
+    for (let i = 0; i < (await tips.count()); i++) {
+      await tips.nth(i).click();
+      const pop = page.getByRole("tooltip");
+      await expect(pop).toBeVisible();
+      const leaks = await pop.evaluate((el) => {
+        const money = /\d[\d\s\u00a0\u202f.,]*\s?(Ft|€|EUR|M Ft)(?![a-zá-ű])/;
+        const out: string[] = [];
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = w.nextNode(); n; n = w.nextNode()) {
+          if (!money.test(n.textContent ?? "")) continue;
+          const blur = /blur\(([\d.]+)px\)/.exec(getComputedStyle(n.parentElement!).filter);
+          if (!blur || Number(blur[1]) < 2) out.push(n.textContent!.trim());
+        }
+        return out;
+      });
+      expect(leaks).toEqual([]);
+      await page.keyboard.press("Escape");
+    }
+  });
+});

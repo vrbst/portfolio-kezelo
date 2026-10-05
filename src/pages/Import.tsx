@@ -81,7 +81,7 @@ export default function Import() {
     <div>
       <PageHeader
         title="Importálás"
-        subtitle="Húzd ide a Lightyear (.csv) és Magyar Államkincstár (.xls) kivonataidat."
+        info="Lightyear (.csv) és Magyar Államkincstár (.xls) kivonatokat tölthetsz be; többet is egyszerre."
       />
 
       <motion.div

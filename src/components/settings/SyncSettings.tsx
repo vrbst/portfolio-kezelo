@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useState } from "react";
 import {
   Cloud,
@@ -66,18 +67,18 @@ export default function SyncSettings() {
 
   return (
     <Card className="p-6">
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Cloud className="h-5 w-5 text-[var(--color-brand)]" />
           <h2 className="text-lg font-semibold">Szinkron (több eszköz)</h2>
+          <InfoTip>
+            Egy <strong>privát</strong> GitHub repóba menti az adataidat
+            (fine-grained token, Contents: read &amp; write). A token csak ezen az
+            eszközön tárolódik, sosem kerül fel sehova.
+          </InfoTip>
         </div>
         {connected && <Badge tone="positive">kapcsolódva</Badge>}
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Egy <strong>privát</strong> GitHub repóba menti az adataidat
-        (fine-grained token, Contents: read &amp; write). A token csak ezen az
-        eszközön tárolódik, sosem kerül fel sehova.
-      </p>
 
       <div className="grid gap-2 sm:grid-cols-2">
         <input

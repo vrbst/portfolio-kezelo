@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useState } from "react";
 import { Target, Trash2, Plus, CheckCircle2, X } from "lucide-react";
 import { usePortfolio, useGoalProgress } from "../lib/store";
@@ -66,16 +67,16 @@ export default function GoalsSettings() {
 
   return (
     <Card className="p-6">
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Target className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Megtakarítási célok</h2>
+        <InfoTip>
+          Rendszeres (DCA) cél egy konkrét eszközre vagy egy egész kategóriára
+          (pl. „DKJ – összes", így nem kell minden új sorozatot külön
+          kijelölni). Az app figyelmeztet, ha az adott időszakban még nincs
+          meg. A hónap utolsó munkanapi vétele már a következő időszakba számít.
+        </InfoTip>
       </div>
-      <p className="mb-4 max-w-3xl text-sm text-[var(--color-muted)]">
-        Rendszeres (DCA) cél egy konkrét eszközre vagy egy egész kategóriára
-        (pl. „DKJ – összes", így nem kell minden új sorozatot külön kijelölni).
-        Az app figyelmeztet, ha az adott időszakban még nincs meg. A hónap
-        utolsó munkanapi vétele már a következő időszakba számít.
-      </p>
 
       {progress.length > 0 && (
         <div className="mb-5 grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3">

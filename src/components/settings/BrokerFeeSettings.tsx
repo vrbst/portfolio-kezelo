@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { Percent } from "lucide-react";
 import { usePortfolio, useBrokerFees } from "../../lib/store";
 import { providerLabel } from "../../lib/incomeFlow";
@@ -47,19 +48,19 @@ export default function BrokerFeeSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Percent className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Bróker díjak</h2>
+        <InfoTip>
+          Vételi és eladási díj brókerenként. Akkor számít, ha a célpálya
+          csoportszabálya (vagy az állampapír saját visszaváltási díja) nem ad
+          díjat — pl. a célpályán kívüli DCA-vételeknél. Sorrend: csoportszabály →
+          bróker → a célpálya általános díja → 0. Üres = nincs megadva. A
+          devizaváltás akkor számít, ha a pénz devizája eltér a vett papírétól
+          (pl. forint-befizetésből EUR-os ETF) — ha a vételi díjad eddig ezt is
+          tartalmazta, csökkentsd. Az utalási díj a számláról kiutalt pénzre jár.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Vételi és eladási díj brókerenként. Akkor számít, ha a célpálya
-        csoportszabálya (vagy az állampapír saját visszaváltási díja) nem ad
-        díjat — pl. a célpályán kívüli DCA-vételeknél. Sorrend: csoportszabály →
-        bróker → a célpálya általános díja → 0. Üres = nincs megadva. A
-        devizaváltás akkor számít, ha a pénz devizája eltér a vett papírétól
-        (pl. forint-befizetésből EUR-os ETF) — ha a vételi díjad eddig ezt is
-        tartalmazta, csökkentsd. Az utalási díj a számláról kiutalt pénzre jár.
-      </p>
       <div className="space-y-3">
         {providers.map((p) => (
           <div key={p} className="flex flex-wrap items-center gap-3 text-sm">

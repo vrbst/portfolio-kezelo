@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useEffect, useState } from "react";
 import { Fingerprint, Lock } from "lucide-react";
 import { Card } from "../ui";
@@ -85,16 +86,16 @@ export default function PrivacyLockSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Lock className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Elrejtés zárolása</h2>
+        <InfoTip>
+          Az összegek elrejtése mindig egy koppintás, a visszaállításhoz viszont
+          jelszó vagy ujjlenyomat / arcfelismerés kell. Csak ezen az eszközön
+          érvényes, nem szinkronizálódik. Ez a kíváncsi szemek ellen véd, nem
+          titkosítja az adatokat.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Az összegek elrejtése mindig egy koppintás, a visszaállításhoz viszont
-        jelszó vagy ujjlenyomat / arcfelismerés kell. Csak ezen az eszközön
-        érvényes, nem szinkronizálódik. Ez a kíváncsi szemek ellen véd, nem
-        titkosítja az adatokat.
-      </p>
 
       {locked && !editing && (
         <div className="space-y-3">

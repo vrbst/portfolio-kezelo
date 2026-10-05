@@ -1,3 +1,4 @@
+import InfoTip from "../components/InfoTip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
@@ -316,7 +317,6 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title="Áttekintés"
-        subtitle="A teljes portfóliód egy helyen."
         action={
           <div className="flex items-center gap-3 text-sm">
             {priceUpdatedAt && (
@@ -458,16 +458,16 @@ export default function Dashboard() {
             <Card className="p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">
+                  <h2 className="flex items-center gap-2 text-lg font-semibold">
                     {chartMode === "profit"
                       ? "Hozam az időben"
                       : "Érték az időben"}
+                    <InfoTip>
+                      {chartMode === "profit"
+                        ? "Napi hozam (érték − befektetett tőke)."
+                        : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)."}
+                    </InfoTip>
                   </h2>
-                  <p className="text-sm text-[var(--color-muted)]">
-                    {chartMode === "profit"
-                      ? "Napi hozam (érték − befektetett tőke)"
-                      : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)"}
-                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">

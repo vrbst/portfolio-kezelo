@@ -1,3 +1,4 @@
+import InfoTip from "../components/InfoTip";
 import {
   useEffect,
   useMemo,
@@ -459,7 +460,7 @@ export default function Calendar() {
     <div>
       <PageHeader
         title="Naptár"
-        subtitle="Befektetési mozgások, várható kifizetések és határidők az egész évre (a saját pénz be-/kiutalása nélkül)."
+        info="Befektetési mozgások, várható kifizetések és határidők az egész évre (a saját pénz be-/kiutalása nélkül)."
       />
 
       <Card className="p-5 sm:p-6">
@@ -584,6 +585,11 @@ export default function Calendar() {
 
             {/* Legend */}
             <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-muted)]">
+              <InfoTip label="Hogyan olvasd">
+                A kör mérete az összeggel arányos (halványabb = várható) · a
+                hónap nevére kattintva kinagyítod · a fejléc sávja a be/ki
+                arány, a zöld szám a hónap várható bevétele.
+              </InfoTip>
               <LegendDot color={CAT_COLOR.in} label="Pénz be" />
               <LegendDot color={CAT_COLOR.out} label="Pénz ki" />
               <LegendDot color={CAT_COLOR.maturity} label="Átrendezés (be ≈ ki)" />
@@ -605,11 +611,6 @@ export default function Calendar() {
                 </label>
               )}
             </div>
-            <p className="mt-1.5 text-xs text-[var(--color-muted)]">
-              A kör mérete az összeggel arányos (halványabb = várható) · a hónap
-              nevére kattintva kinagyítod · a fejléc sávja a be/ki arány, a zöld
-              szám a hónap várható bevétele.
-            </p>
           </div>
 
           <div className="hidden lg:block">

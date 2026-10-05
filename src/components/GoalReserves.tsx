@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useState } from "react";
 import { AlertTriangle, Plus, Trash2, Wallet } from "lucide-react";
 import { usePortfolio, useToday } from "../lib/store";
@@ -75,6 +76,15 @@ export default function GoalReserves({
     <div className="mt-2 rounded-lg border border-[var(--color-border)] p-2 text-xs">
       <div className="mb-1 flex items-center gap-1.5 font-medium">
         <Wallet className="h-3.5 w-3.5 text-[var(--color-brand)]" /> Félretett készpénz
+        <InfoTip>
+          A félretett összeg a céldátumig a célba számít, és a számláján nem
+          számít szabad készpénznek (nem javasol belőle befektetést). Parlagon
+          álló készpénzként csak akkor nem jelez, ha a céldátum a beállított
+          türelmi időn (alapból 45 nap) belül van. Ha belőle veszed meg a cél
+          papírját, csökkentsd.
+          {p.autoCashHuf >= 1 &&
+            " Az „automatikusan” rész a lejárt papír kifizetése, a tartási időszakban jóváírt kamat és a célhoz rendelt, már jóváírt kupon: ezeket ne rögzítsd félretételként."}
+        </InfoTip>
       </div>
       <div className="mb-1 text-[var(--color-muted)]">
         Most a célra: papírok <Amt>{formatMoney(papers)}</Amt>
@@ -85,13 +95,6 @@ export default function GoalReserves({
         )}{" "}
         · félretéve <Amt>{formatMoney(p.reservedHuf)}</Amt>
       </div>
-      {p.autoCashHuf >= 1 && (
-        <p className="mb-1 text-[var(--color-muted)]">
-          Az „automatikusan” rész a lejárt papír kifizetése, a tartási
-          időszakban jóváírt kamat és a célhoz rendelt, már jóváírt kupon —
-          ezeket ne rögzítsd félretételként.
-        </p>
-      )}
 
       {conflicts.map((c) => (
         <div
@@ -179,13 +182,6 @@ export default function GoalReserves({
           <Plus className="h-3.5 w-3.5" /> Félretettem
         </button>
       </div>
-      <p className="mt-1 text-[var(--color-muted)]">
-        A félretett összeg a céldátumig a célba számít, és a számláján nem számít
-        szabad készpénznek (nem javasol belőle befektetést). Parlagon álló
-        készpénzként csak akkor nem jelez, ha a céldátum a beállított türelmi
-        időn (alapból 45 nap) belül van. Ha belőle veszed meg a cél papírját,
-        csökkentsd.
-      </p>
     </div>
   );
 }

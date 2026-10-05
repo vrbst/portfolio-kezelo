@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useMemo, useState } from "react";
 import { Plus, Trash2, Wallet } from "lucide-react";
 import {
@@ -96,17 +97,17 @@ export default function PurchaseAccountSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Wallet className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Vételi számlák</h2>
+        <InfoTip>
+          Melyik számlára menjenek egy instrumentum új vételei — dátumtól, így pl.
+          2027-01-01-től másik számla is megadható (akár egy még meg sem nyitott,
+          amely az első import után automatikusan hozzá kötődik). Beállítás nélkül
+          az a számla, amelyen a legnagyobb része van. A havi terv és a sávszabály
+          ezt használja; ha a számla nem fogad befizetést, nem javasol oda vételt.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Melyik számlára menjenek egy instrumentum új vételei — dátumtól, így pl.
-        2027-01-01-től másik számla is megadható (akár egy még meg sem nyitott,
-        amely az első import után automatikusan hozzá kötődik). Beállítás nélkül
-        az a számla, amelyen a legnagyobb része van. A havi terv és a sávszabály
-        ezt használja; ha a számla nem fogad befizetést, nem javasol oda vételt.
-      </p>
       <div className="space-y-4">
         {keys.map((key) => {
           const rows = cur[key] ?? [];

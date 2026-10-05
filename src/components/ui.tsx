@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import {
   useEffect,
   useId,
@@ -255,10 +256,14 @@ export function Amt({
 export function PageHeader({
   title,
   subtitle,
+  info,
   action,
 }: {
   title: string;
+  /** A short visible line under the title (data, e.g. an account number). */
   subtitle?: string;
+  /** What the page is for: behind an "i" next to the title. */
+  info?: ReactNode;
   action?: ReactNode;
 }) {
   const terminal = useSkin((s) => s.skin) === "terminal";
@@ -275,9 +280,12 @@ export function PageHeader({
             $
           </div>
         )}
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          {title}
-          {terminal && <span className="term-cursor" aria-hidden />}
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <span>
+            {title}
+            {terminal && <span className="term-cursor" aria-hidden />}
+          </span>
+          {info && <InfoTip label={`Mire való: ${title}`} size={16}>{info}</InfoTip>}
         </h1>
         {subtitle && (
           <p className="mt-1 text-sm text-[var(--color-muted)]">{subtitle}</p>

@@ -119,7 +119,6 @@ export default function Alerts() {
     <div>
       <PageHeader
         title="Figyelmeztetések"
-        subtitle="Teendők és emlékeztetők a portfóliódhoz"
       />
 
       {/* While syncing no alerts are computed: every stored record would

@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useState } from "react";
 import { Lock } from "lucide-react";
 import type { Account } from "../lib/model";
@@ -42,15 +43,15 @@ export default function AccountLimitsCard({ account }: { account: Account }) {
 
   return (
     <Card className="mt-6 p-5">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <Lock className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Számlakorlátok</h2>
+        <InfoTip>
+          A havi terv és a sávszabály ezeket betartja: nem javasol pénzkivitelt
+          a számláról a megadott napig, és nem javasol befizetést a megadott
+          naptól. Üresen nincs korlát.
+        </InfoTip>
       </div>
-      <p className="mb-3 text-xs text-[var(--color-muted)]">
-        A havi terv és a sávszabály ezeket betartja: nem javasol pénzkivitelt a
-        számláról a megadott napig, és nem javasol befizetést a megadott naptól.
-        Üresen nincs korlát.
-      </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="space-y-1">
           <div className={LABEL}>A pénz nem hagyhatja el a számlát eddig (ezt a napot is beleértve)</div>

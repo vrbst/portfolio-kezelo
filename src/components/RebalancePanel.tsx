@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useMemo, useState } from "react";
 import { ListChecks, BellPlus, FlaskConical } from "lucide-react";
 import {
@@ -302,25 +303,28 @@ export default function RebalancePanel() {
       <div className="mb-3 flex items-center gap-2">
         <ListChecks className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Teendők</h2>
+        <InfoTip>
+          Javaslatok a célpálya alapján, az app semmit nem hajt végre. A
+          rögzített terv teendőként jelenik meg; a valódi tranzakció a szokásos
+          importtal kerül be.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Javaslatok a célpálya alapján — az app semmit nem hajt végre. A rögzített
-        terv teendőként jelenik meg; a valódi tranzakció a szokásos importtal
-        kerül be.
-      </p>
 
       <MonthlyPlanPanel />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section>
-          <h3 className="text-sm font-semibold">1. Bejövő pénz elosztása</h3>
-          <p className="mb-2 text-xs text-[var(--color-muted)]">
-            Elsődleges eszköz: a pénz a pályához képest leginkább alulsúlyozott
-            csoportokba megy, eladás nélkül. Itt az extra pénzt (osztalék, rendkívüli
-            befizetés) oszthatod el — a havi megtakarítást a Havi terv, a hónap végi
-            maradékot az alatta lévő „Maradt pénz a hónapból?” mező (ott előbb a
-            célok kapnak), a kuponokat a „Beérkezett” lista.
-          </p>
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            1. Bejövő pénz elosztása
+            <InfoTip>
+              Elsődleges eszköz: a pénz a pályához képest leginkább alulsúlyozott
+              csoportokba megy, eladás nélkül. Itt az extra pénzt (osztalék,
+              rendkívüli befizetés) oszthatod el. A havi megtakarítást a Havi
+              terv, a hónap végi maradékot az alatta lévő „Maradt pénz a
+              hónapból?” mező (ott előbb a célok kapnak), a kuponokat a
+              „Beérkezett” lista osztja el.
+            </InfoTip>
+          </h3>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
             <AmountInput
               value={String(amount)}
@@ -344,11 +348,15 @@ export default function RebalancePanel() {
               }}
             />
           )}
-          <p className="mb-2 text-xs text-[var(--color-muted)]">
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
             Célpont: {flow.label}
-            {isInflowMode(cfg)
-              ? " (a pálya a befizetésekből számolt — minden pénz a végső arány felé megy; a sáv a pályához mér)"
-              : flow.ahead && " (előretekintés — a sáv és az állapot továbbra is a mai pályacélhoz mér)"}
+            {(isInflowMode(cfg) || flow.ahead) && (
+              <InfoTip>
+                {isInflowMode(cfg)
+                  ? "A pálya a befizetésekből számolt: minden pénz a végső arány felé megy; a sáv a pályához mér."
+                  : "Előretekintés: a sáv és az állapot továbbra is a mai pályacélhoz mér."}
+              </InfoTip>
+            )}
           </p>
           <SuggestionList plan={flowPlan} targetNote={flowNote} empty="Adj meg egy összeget (havi megtakarítás, kupon, osztalék, befizetés)." />
           <SaveAsReminder plan={flowPlan} title={`Célpálya – ${formatMoney(amount)} elosztása (${today})`} />
@@ -356,12 +364,15 @@ export default function RebalancePanel() {
         </section>
 
         <section>
-          <h3 className="text-sm font-semibold">2. Sávon kívüli csoportok</h3>
-          <p className="mb-2 text-xs text-[var(--color-muted)]">
-            Másodlagos eszköz, csak ha egy csoport kilépett a sávjából. A kezelés
-            (a pályacélig, a sávhatárig vagy kereskedés nélkül) csoportonként
-            állítható; a cél lépésenként egy: {flow.label}, a mai sávba szorítva.
-          </p>
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+            2. Sávon kívüli csoportok
+            <InfoTip>
+              Másodlagos eszköz, csak ha egy csoport kilépett a sávjából. A
+              kezelés (a pályacélig, a sávhatárig vagy kereskedés nélkül)
+              csoportonként állítható; a cél lépésenként egy: {flow.label}, a mai
+              sávba szorítva.
+            </InfoTip>
+          </h3>
           {outOfBand.length > 0 && freeCash >= cfg.minTradeHuf && (
             <label className="mb-2 flex items-center gap-2 text-xs">
               <input type="checkbox" checked={useCash} onChange={(e) => setUseCash(e.target.checked)} />
@@ -375,13 +386,13 @@ export default function RebalancePanel() {
       </div>
 
       <section className="mt-6 border-t border-[var(--color-border)] pt-4">
-        <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <FlaskConical className="h-4 w-4" /> 3. Szimuláció: mi lenne, ha…
+          <InfoTip>
+            Add meg, hány százalékot esne (negatív) vagy emelkedne egy csoport.
+            A készpénz és a csoporton kívüli tételek nem változnak.
+          </InfoTip>
         </h3>
-        <p className="mb-3 text-xs text-[var(--color-muted)]">
-          Add meg, hány százalékot esne (negatív) vagy emelkedne egy csoport. A
-          készpénz és a csoporton kívüli tételek nem változnak.
-        </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-sm">
             <thead>

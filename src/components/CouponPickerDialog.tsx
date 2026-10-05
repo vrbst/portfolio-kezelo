@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
@@ -89,20 +90,23 @@ export default function CouponPickerDialog({
         className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-1 flex items-start justify-between gap-2">
-          <h2 className="text-lg font-semibold">
-            Kuponok a célra – <span className="priv">{goal.name}</span>
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <span>
+              Kuponok a célra – <span className="priv">{goal.name}</span>
+            </span>
+            <InfoTip>
+              A céldátumig ({formatDate(target)}) várható kuponok, amelyek még
+              nincsenek másik célhoz rendelve. A kijelölt kupon a várható
+              teljesülésbe számít, a jóváírás után pedig a cél félretett pénze
+              lesz, nem kell elosztani. A más célhoz tartozó kuponok szürkén, a
+              cél nevével látszanak.
+            </InfoTip>
           </h2>
           <button ref={closeRef} className="btn-ghost" onClick={onClose} aria-label="Bezárás">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="mb-3 text-xs text-[var(--color-muted)]">
-          A céldátumig ({formatDate(target)}) várható kuponok, amelyek még nincsenek
-          másik célhoz rendelve. A kijelölt kupon a várható teljesülésbe számít, a
-          jóváírás után pedig a cél félretett pénze lesz — nem kell elosztani.
-          A más célhoz tartozó kuponok szürkén, a cél nevével látszanak.
-        </p>
         {goal.includeCoupons && (
           <p className="mb-3 rounded-lg border border-[var(--color-border)] p-2 text-xs text-[var(--color-muted)]">
             Ennél a célnál be van kapcsolva, hogy a céldátumig érkező összes

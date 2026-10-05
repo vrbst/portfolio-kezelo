@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Layers, ChevronRight, Target, Wallet } from "lucide-react";
 import { usePortfolio, usePortfolioSummary } from "../lib/store";
@@ -443,16 +444,14 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
           })}
         </tbody>
       </table>
-      {hadSells && (
-        <p className="mt-2 text-xs text-[var(--color-muted)]">
-          Az időközben eladott mennyiséget levontuk (a legrégebbi vételből
-          kezdve), így csak a ténylegesen meglévő tételek látszanak — egy
-          TBSZ-be költöztetés (eladás + azonnali visszavásárlás) így kiesik.
-        </p>
-      )}
-      <p className="mt-1 text-xs text-[var(--color-muted)]">
-        A bekerülés a vételkori árfolyamon rögzül; a hozam az azóta eltelt ár-
-        és árfolyamváltozást tartalmazza.
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+        Hogyan számolunk?
+        <InfoTip>
+          A bekerülés a vételkori árfolyamon rögzül; a hozam az azóta eltelt ár-
+          és árfolyamváltozást tartalmazza.
+          {hadSells &&
+            " Az időközben eladott mennyiséget levontuk (a legrégebbi vételből kezdve), így csak a ténylegesen meglévő tételek látszanak: egy TBSZ-be költöztetés (eladás + azonnali visszavásárlás) így kiesik."}
+        </InfoTip>
       </p>
     </div>
   );
@@ -568,17 +567,16 @@ function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
           az első kamatfizetést a Beállítások → Állampapír sorozatok alatt.
         </p>
       )}
-      {hadRedemptions && (
-        <p className="mt-2 text-xs text-[var(--color-muted)]">
-          Az időközben lejárt/visszaváltott névértéket levontuk (a legrégebbi
-          vételből kezdve), így csak a jelenlegi készlet látszik.
-        </p>
-      )}
-      <p className="mt-1 text-xs text-[var(--color-muted)]">
-        A „mai érték" diszkont kincstárjegynél a névérték felé araszoló
-        felhalmozott érték, fix állampapírnál a névérték + felhalmozott kamat —
-        ezzel számol a portfólió összértéke is. A „most" sor a lejárat előtti
-        visszaváltási díjjal csökkentett, ténylegesen kifizetendő összeg.
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+        Hogyan számolunk?
+        <InfoTip>
+          A „mai érték" diszkont kincstárjegynél a névérték felé araszoló
+          felhalmozott érték, fix állampapírnál a névérték + felhalmozott kamat;
+          ezzel számol a portfólió összértéke is. A „most" sor a lejárat előtti
+          visszaváltási díjjal csökkentett, ténylegesen kifizetendő összeg.
+          {hadRedemptions &&
+            " Az időközben lejárt/visszaváltott névértéket levontuk (a legrégebbi vételből kezdve), így csak a jelenlegi készlet látszik."}
+        </InfoTip>
       </p>
     </div>
   );

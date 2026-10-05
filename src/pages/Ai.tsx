@@ -6,7 +6,7 @@ export default function Ai() {
     <div>
       <PageHeader
         title="AI elemzés"
-        subtitle="Egy kattintásos értékelés és beszélgetés a portfóliódról a saját Claude API-kulcsoddal. Alapból csak összesített pillanatkép megy el; részletes adatot (pl. tranzakciókat) csak a bekapcsolható eszközhasználat kér le, célzottan."
+        info="Egy kattintásos értékelés és beszélgetés a portfóliódról a saját Claude API-kulcsoddal. Alapból csak összesített pillanatkép megy el; részletes adatot (pl. tranzakciókat) csak a bekapcsolható eszközhasználat kér le, célzottan."
       />
       <AiPanel />
     </div>

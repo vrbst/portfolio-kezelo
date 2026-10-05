@@ -1,3 +1,4 @@
+import InfoTip from "../components/InfoTip";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -183,16 +184,31 @@ export default function Income() {
     <div>
       <PageHeader
         title="Hozam"
-        subtitle="Teljesítmény-mutatók és a realizált eredmény évenként."
+        info={
+          <>
+            Az XIRR (pénzsúlyozott) a saját pénzed évesített hozama; a TWR
+            (idősúlyozott) a befektetések teljesítménye a befizetések
+            időzítésétől függetlenül. Az állampapírokat (a portfólió
+            összértékéhez hasonlóan) visszaváltási díj nélkül, felhalmozott
+            kamattal értékeljük, lejáratig tartást feltételezve. Friss
+            portfóliónál az évesítés még zajos lehet. A realizált eredmény
+            átlagos bekerülési áron, a vételkori árfolyamon számol. A díjak
+            tájékoztató jellegűek (a vétel díja a bekerülésben is benne van). A
+            lakossági állampapír kamata és a TBSZ a lekötési időszak alatt
+            adómentes.
+          </>
+        }
       />
 
       <Card className="mb-6 p-6">
-        <h2 className="mb-1 text-lg font-semibold">Teljesítmény</h2>
-        <p className="mb-4 text-sm text-[var(--color-muted)]">
-          {shortPeriod
-            ? `A teljes időszak hozama (${returns.days} nap adat alapján). Egy évnél rövidebb időre az évesített érték félrevezetően felnagyítana, ezért csak kiegészítésként látszik.`
-            : `Évesített hozam-mutatók (${returns.days} nap adat alapján).`}
-        </p>
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+          Teljesítmény
+          <InfoTip>
+            {shortPeriod
+              ? `A teljes időszak hozama (${returns.days} nap adat alapján). Egy évnél rövidebb időre az évesített érték félrevezetően felnagyítana, ezért csak kiegészítésként látszik.`
+              : `Évesített hozam-mutatók (${returns.days} nap adat alapján).`}
+          </InfoTip>
+        </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Metric
             label="XIRR — pénzsúlyozott"
@@ -268,13 +284,15 @@ export default function Income() {
         <Card className="mb-6 p-6">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Havi teljesítmény</h2>
-              <p className="text-sm text-[var(--color-muted)]">
-                {monthlyMode === "pct"
-                  ? "A hónap hozama a befizetések hatása nélkül (TWR)."
-                  : "A hónap piaci eredménye: értékváltozás a nettó befizetések nélkül."}{" "}
-                A folyó hónap halványan, az eddigi állással.
-              </p>
+              <h2 className="flex items-center gap-2 text-lg font-semibold">
+                Havi teljesítmény
+                <InfoTip>
+                  {monthlyMode === "pct"
+                    ? "A hónap hozama a befizetések hatása nélkül (TWR)."
+                    : "A hónap piaci eredménye: értékváltozás a nettó befizetések nélkül."}{" "}
+                  A folyó hónap halványan, az eddigi állással.
+                </InfoTip>
+              </h2>
             </div>
             <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
               {(
@@ -372,14 +390,16 @@ export default function Income() {
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {Math.abs(fxi.valueHuf) > 1 && (
           <Card className="p-6">
-            <div className="mb-1 flex items-center gap-2">
+            <div className="mb-4 flex items-center gap-2">
               <Globe2 className="h-5 w-5 text-[var(--color-brand)]" />
               <h2 className="text-lg font-semibold">Devizahatás</h2>
+              <InfoTip>
+                A külföldi devizás papírok nem realizált hozamából mennyi a piac
+                és mennyi az árfolyammozgás (a vételi átlagárfolyamhoz képest).
+                Ha az árfolyamhatás dominál, a hozamod nagy része az EUR/HUF
+                mozgásból jön, és ez visszafordulhat.
+              </InfoTip>
             </div>
-            <p className="mb-4 text-sm text-[var(--color-muted)]">
-              A külföldi devizás papírok nem realizált hozamából mennyi a piac
-              és mennyi az árfolyammozgás (a vételi átlagárfolyamhoz képest).
-            </p>
             <div className="space-y-3 text-sm">
               <FxDivergingRow
                 label="Piaci árváltozás"
@@ -406,22 +426,18 @@ export default function Income() {
                 </span>
               </div>
             </div>
-            <p className="mt-3 text-xs text-[var(--color-muted)]">
-              Ha az árfolyamhatás dominál, a hozamod nagy része az EUR/HUF
-              mozgásból jön — ez visszafordulhat.
-            </p>
           </Card>
         )}
 
         <Card className="p-6">
-          <div className="mb-1 flex items-center gap-2">
+          <div className="mb-4 flex items-center gap-2">
             <Percent className="h-5 w-5 text-[var(--color-brand)]" />
             <h2 className="text-lg font-semibold">Költségek</h2>
+            <InfoTip>
+              Eddig kifizetett díjak és a tartás becsült éves alapkezelési
+              költsége (TER).
+            </InfoTip>
           </div>
-          <p className="mb-4 text-sm text-[var(--color-muted)]">
-            Eddig kifizetett díjak és a tartás becsült éves alapkezelési
-            költsége (TER).
-          </p>
           <div className="space-y-2 text-sm">
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-[var(--color-muted)]">
@@ -525,17 +541,6 @@ export default function Income() {
         </div>
       </Card>
 
-      <p className="mt-4 text-xs leading-relaxed text-[var(--color-muted)]">
-        Az XIRR (pénzsúlyozott) a saját pénzed évesített hozama; a TWR
-        (idősúlyozott) a befektetések teljesítménye a befizetések időzítésétől
-        függetlenül. Az állampapírokat — a portfólió összértékéhez hasonlóan —
-        a visszaváltási díj nélkül, felhalmozott kamattal értékeljük (lejáratig
-        tartást feltételezve). Friss portfóliónál az évesítés még zajos lehet. A realizált
-        eredmény átlagos bekerülési áron, a vételkori árfolyamon számol. A díjak
-        tájékoztató jellegűek (a vétel díja a bekerülésben is benne van). A
-        lakossági állampapír kamata és a TBSZ a lekötési időszak alatt
-        adómentes.
-      </p>
     </div>
   );
 }
@@ -621,11 +626,13 @@ function YearReturnChart({ years }: { years: YearIncome[] }) {
 
   return (
     <Card className="mt-6 p-5 sm:p-6">
-      <h2 className="mb-1 text-lg font-semibold">Éves hozam-bontás</h2>
-      <p className="mb-4 text-sm text-[var(--color-muted)]">
-        Bevétel a nullvonal fölött (realizált + kamat + osztalék), költség
-        alatta (díj + adó).
-      </p>
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+        Éves hozam-bontás
+        <InfoTip>
+          Bevétel a nullvonal fölött (realizált + kamat + osztalék), költség
+          alatta (díj + adó).
+        </InfoTip>
+      </h2>
       <div className="flex items-stretch gap-4 sm:gap-8">
         {rows.map((y) => {
           const active = hover === y.year;

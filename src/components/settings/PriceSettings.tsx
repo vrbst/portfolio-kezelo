@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useState } from "react";
 import { LineChart, RefreshCw, Check, Pencil, X } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
@@ -29,6 +30,13 @@ export default function PriceSettings() {
         <div className="flex items-center gap-2">
           <LineChart className="h-5 w-5 text-[var(--color-brand)]" />
           <h2 className="text-lg font-semibold">Árfolyamok</h2>
+          <InfoTip>
+            Automatikus forrás: Yahoo Finance (a szimbólumot az ISIN-ből keresi
+            meg) + frankfurter.app (EUR/HUF). Ha egy papírnál rossz listát
+            talál, a szimbólumot kézzel felülírhatod alább. Az árat is
+            megadhatod kézzel (ceruza): ez ideiglenes, a következő sikeres
+            árfrissítéskor automatikusan visszaáll az élő értékre.
+          </InfoTip>
         </div>
         <button
           className="btn-ghost"
@@ -41,14 +49,10 @@ export default function PriceSettings() {
           Frissítés
         </button>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Automatikus forrás: Yahoo Finance (a szimbólumot az ISIN-ből keresi meg)
-        + frankfurter.app (EUR/HUF
-        {eurHuf ? ` = ${formatNumber(eurHuf, 2)}` : ""}). Ha egy papírnál rossz
-        listát talál, a szimbólumot kézzel felülírhatod alább. Az árat is
-        megadhatod kézzel (ceruza) — ez ideiglenes, a következő sikeres
-        árfrissítéskor automatikusan visszaáll az élő értékre.
-        {priceUpdatedAt && ` Frissítve: ${formatDateTime(priceUpdatedAt)}.`}
+      <p className="mb-4 text-xs text-[var(--color-muted)]" data-privacy="public">
+        {eurHuf ? `EUR/HUF: ${formatNumber(eurHuf, 2)}` : ""}
+        {eurHuf && priceUpdatedAt ? " · " : ""}
+        {priceUpdatedAt && `Frissítve: ${formatDateTime(priceUpdatedAt)}`}
       </p>
 
       {priced.length === 0 ? (

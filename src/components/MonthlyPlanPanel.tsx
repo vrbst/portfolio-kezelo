@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, BellPlus, CalendarCheck, PiggyBank } from "lucide-react";
 import {
@@ -193,16 +194,16 @@ export default function MonthlyPlanPanel() {
 
   return (
     <section className="mb-6">
-      <h3 className="flex items-center gap-2 text-sm font-semibold">
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
         <CalendarCheck className="h-4 w-4 text-[var(--color-brand)]" />
         Havi terv — {monthLabel}
+        <InfoTip>
+          A havi megtakarítás sorrendben: előbb a határidős célok e havi része,
+          majd a DCA-célok, a maradék a célpályán. Ha nem elég a pénz, az
+          előrébb álló kap teljesen; a sorrend a nyilakkal állítható. A
+          kuponokat lent, a „Beérkezett” lista osztja el.
+        </InfoTip>
       </h3>
-      <p className="mb-2 text-xs text-[var(--color-muted)]">
-        A havi megtakarítás sorrendben: előbb a határidős célok e havi része, majd a
-        DCA-célok, a maradék a célpályán. Ha nem elég a pénz, az előrébb álló kap
-        teljesen — a sorrend a nyilakkal állítható. A kuponokat lent, a
-        „Beérkezett” lista osztja el.
-      </p>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <AmountInput
           value={String(plan.amountHuf)}
@@ -417,14 +418,17 @@ function LeftoverSection() {
       </button>
       {(open || isPayday) && (
         <div className="mt-2">
-          <p className="mb-2 text-xs text-[var(--color-muted)]">
-            Ha kevesebbet költöttél, írd be, mennyi maradt. Előbb a hónap még
-            hiányzó célrészei kapnak (a Havi terv sorrendjében)
-            {settings.pullForward &&
-              `, majd a ${settings.pullForwardMonths} hónapon belül esedékes határidős célok mindazt megkapják, ami a céldátumig még hiányzik (a későbbi célok csak az e havi részüket)`}
-            , a maradék pedig — mind — a célpályán megy. Ami már teljesült vagy
-            a Havi tervben rögzítve van, nem kerül újra elosztásra. A hónap
-            utolsó munkanapja: {month.lastWorkday}.
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+            Ha kevesebbet költöttél, írd be, mennyi maradt.
+            <InfoTip>
+              Előbb a hónap még hiányzó célrészei kapnak (a Havi terv
+              sorrendjében)
+              {settings.pullForward &&
+                `, majd a ${settings.pullForwardMonths} hónapon belül esedékes határidős célok mindazt megkapják, ami a céldátumig még hiányzik (a későbbi célok csak az e havi részüket)`}
+              , a maradék pedig mind a célpályán megy. Ami már teljesült vagy a
+              Havi tervben rögzítve van, nem kerül újra elosztásra. A hónap
+              utolsó munkanapja: {month.lastWorkday}.
+            </InfoTip>
           </p>
           <ul className="mb-2 text-xs text-[var(--color-muted)]">
             {status.map((l) => (

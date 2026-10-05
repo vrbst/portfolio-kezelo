@@ -40,7 +40,7 @@ export default function News() {
   const header = (
     <PageHeader
       title="Hírek"
-      subtitle="AI-összefoglaló a portfóliót érintő hírekről: hétköznap reggel a Xetra nyitása előtt és este a zárása után."
+      info="AI-összefoglaló a portfóliót érintő hírekről: hétköznap reggel a Xetra nyitása előtt és este a zárása után."
       action={
         index.status !== "off" && (
           <button

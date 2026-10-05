@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useState } from "react";
 import { Target, Plus, Trash2, X, Pencil, Check, BellPlus, Coins, Ban } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
@@ -145,14 +146,14 @@ export default function SavingsTargets() {
 
   return (
     <Card className="p-6">
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Target className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Középtávú célok</h2>
+        <InfoTip>
+          Célösszeg egy dátumra, mögé rendelt eszközökkel (pl. DKJ). Az app
+          mutatja az előrehaladást és a havi szükséges félretételt.
+        </InfoTip>
       </div>
-      <p className="mb-4 max-w-3xl text-sm text-[var(--color-muted)]">
-        Célösszeg egy dátumra, mögé rendelt eszközökkel (pl. DKJ). Az app
-        mutatja az előrehaladást és a havi szükséges félretételt.
-      </p>
 
       {progress.length > 0 && (
         <div className="mb-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,24rem),1fr))] gap-4">
@@ -648,35 +649,37 @@ function GoalRow({
       </div>
 
       {g.instrumentKeys.length > 0 ? (
-        <button
-          className="btn-ghost mt-2 text-xs"
-          onClick={() =>
-            onUpdate(g.id, { monthlyReminder: !g.monthlyReminder })
-          }
-          title={
-            g.monthlyReminder
-              ? "Havi vásárlás-emlékeztető kikapcsolása"
-              : "Havi emlékeztető: figyelmeztet, amíg a hónapban meg nem vetted"
-          }
-        >
-          <BellPlus className="h-4 w-4" />
-          {g.monthlyReminder
-            ? "Havi emlékeztető bekapcsolva"
-            : "Felvétel havi figyelmeztetésnek"}
-        </button>
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            className="btn-ghost text-xs"
+            onClick={() =>
+              onUpdate(g.id, { monthlyReminder: !g.monthlyReminder })
+            }
+            title={
+              g.monthlyReminder
+                ? "Havi vásárlás-emlékeztető kikapcsolása"
+                : "Havi emlékeztető: figyelmeztet, amíg a hónapban meg nem vetted"
+            }
+          >
+            <BellPlus className="h-4 w-4" />
+            {g.monthlyReminder
+              ? "Havi emlékeztető bekapcsolva"
+              : "Felvétel havi figyelmeztetésnek"}
+          </button>
+          {g.monthlyReminder && (
+            <InfoTip>
+              Minden hónapban figyelmeztet, amíg meg nem veszed a szükséges havi
+              összegben a hozzárendelt eszközt (a hónap utolsó munkanapja már a
+              következő hónaphoz számít).
+              {g.includeCoupons
+                ? " A hónapban beérkezett kötvénykamatot is hozzáadja a szükséges összeghez, azaz azt is fektesd be az eszközbe."
+                : ""}
+            </InfoTip>
+          )}
+        </div>
       ) : (
         <p className="mt-2 text-xs text-[var(--color-muted)]">
           Rendelj hozzá eszközt, hogy havi vásárlás-emlékeztetőt kérhess.
-        </p>
-      )}
-      {g.monthlyReminder && g.instrumentKeys.length > 0 && (
-        <p className="mt-1 text-xs text-[var(--color-muted)]">
-          Minden hónapban figyelmeztet, amíg meg nem veszed a szükséges havi
-          összegben a hozzárendelt eszközt (a hónap utolsó munkanapja már a
-          következő hónaphoz számít).
-          {g.includeCoupons
-            ? " A hónapban beérkezett kötvénykamatot is hozzáadja a szükséges összeghez — azaz azt is fektesd be az eszközbe."
-            : ""}
         </p>
       )}
       {g.monthlyReminder && g.instrumentKeys.length > 0 && (

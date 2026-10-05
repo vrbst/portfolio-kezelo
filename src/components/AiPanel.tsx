@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -698,11 +699,14 @@ export default function AiPanel() {
         {cError && (
           <p className="mt-3 text-sm text-[var(--color-negative)]">{cError}</p>
         )}
-        <p className="mt-3 text-[11px] text-[var(--color-muted)]">
-          Kérdésenként legfeljebb {usd(limits.perQuestionUsd)}
-          {toggles.tools ? ` és ${limits.maxToolRounds} eszközkör` : ""}. A
-          keretek a Beállításokban módosíthatók.
-          {modelInfo(model).thinking ? "" : " Ez a modell nem gondolkodik válasz előtt."}
+        <p className="mt-3 flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+          Költségkeret
+          <InfoTip>
+            Kérdésenként legfeljebb {usd(limits.perQuestionUsd)}
+            {toggles.tools ? ` és ${limits.maxToolRounds} eszközkör` : ""}. A
+            keretek a Beállításokban módosíthatók.
+            {modelInfo(model).thinking ? "" : " Ez a modell nem gondolkodik válasz előtt."}
+          </InfoTip>
         </p>
       </Card>
     </div>

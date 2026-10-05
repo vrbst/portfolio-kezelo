@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useMemo, useState } from "react";
 import { Check, Plus, Trash2, X, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -415,22 +416,19 @@ export default function GlidePathEditor({
             {showAdvanced ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             Haladó beállítások{customCount > 0 && ` (${customCount} egyedi)`}
           </button>
+          <InfoTip label="A pálya módja">
+            {inflows
+              ? "A pálya a mai arányból indul, és úgy halad, ahogy a várható befizetések, kuponok és lejáratok (hozam nélkül) a végső arány felé viszik; a bejövő pénz mind a végső arány felé megy. Riasztás csak akkor jön, ha egy csoport a pálya mögé esik a sávnál jobban (pl. árfolyamesés), vagy túlfut a végső célon a sávnál jobban."
+              : "A pálya a csoportonként megadott kezdő súlytól a végső célig halad a megadott dátumok között; a sáv ehhez a naptári pályához mér."}
+          </InfoTip>
         </div>
-        <p className="mt-1 text-xs text-[var(--color-muted)]">
-          {inflows
-            ? <>
-                A pálya a mai arányból indul, és úgy halad, ahogy a várható befizetések,
-                kuponok és lejáratok (hozam nélkül) a végső arány felé viszik — a bejövő pénz
-                mind a végső arány felé megy. Riasztás csak akkor jön, ha egy csoport a pálya
-                mögé esik a sávnál jobban (pl. árfolyamesés), vagy túlfut a végső célon a
-                sávnál jobban.{" "}
-                {inflowEnd &&
-                  (previewCfg.inflowReached
-                    ? `A végső arány várhatóan ${inflowEnd.slice(0, 7)}-ra áll be.`
-                    : "A várható befizetésekből a vetítés végéig sem áll be a végső arány.")}
-              </>
-            : "A pálya a csoportonként megadott kezdő súlytól a végső célig halad a megadott dátumok között; a sáv ehhez a naptári pályához mér."}
-        </p>
+        {inflows && inflowEnd && (
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            {previewCfg.inflowReached
+              ? `A végső arány várhatóan ${inflowEnd.slice(0, 7)}-ra áll be.`
+              : "A várható befizetésekből a vetítés végéig sem áll be a végső arány."}
+          </p>
+        )}
         <MonthlyAmountField
           value={draft.monthlyAmount}
           onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
@@ -727,23 +725,28 @@ export default function GlidePathEditor({
             ))}
           </div>
           <GlideBucketChart rows={preview} color={bucketColor(previewId!)} height="h-44" />
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Satírozva a tényleges sáv; szaggatott vonallal a minimum nélküli, számított sáv.{" "}
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
             {minRanges.length
               ? `A minimális sáv él: ${minRanges.map(([a, z]) => (a === z ? a.slice(0, 7) : `${a.slice(0, 7)} – ${z.slice(0, 7)}`)).join(", ")}.`
               : "A minimális sáv sehol nem szélesíti a sávot."}
+            <InfoTip label="Jelmagyarázat">
+              Satírozva a tényleges sáv; szaggatott vonallal a minimum nélküli,
+              számított sáv.
+            </InfoTip>
           </p>
         </section>
       )}
 
       {/* ---- Instruments ---- */}
       <section>
-        <h3 className="mb-1 text-sm font-semibold">Instrumentumok</h3>
-        <p className="mb-2 text-xs text-[var(--color-muted)]">
-          Minden tétel legfeljebb egy csoportba tartozhat. A csoporton kívüli
-          tételek (pl. parkoló készpénz) kimaradnak a súlyokból — a szabad
-          készpénz a bejövő pénz forrása.
-        </p>
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+          Instrumentumok
+          <InfoTip>
+            Minden tétel legfeljebb egy csoportba tartozhat. A csoporton kívüli
+            tételek (pl. parkoló készpénz) kimaradnak a súlyokból; a szabad
+            készpénz a bejövő pénz forrása.
+          </InfoTip>
+        </h3>
         <div className="overflow-x-auto">
           <table className={`w-full text-sm ${showAdvanced ? "min-w-[680px]" : "min-w-[480px]"}`}>
             <thead>

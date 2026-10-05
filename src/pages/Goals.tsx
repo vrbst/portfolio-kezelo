@@ -22,7 +22,7 @@ export default function Goals() {
     <div>
       <PageHeader
         title="Célok"
-        subtitle="Célpálya, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
+        info="Célpálya, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
       />
       <MonthlyBudgetBar />
       <div className="mb-4 space-y-4">

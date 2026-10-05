@@ -80,7 +80,6 @@ export default function Accounts() {
     <div>
       <PageHeader
         title="Számlák"
-        subtitle="TBSZ és államkincstári számláid részletesen."
       />
 
       <Section

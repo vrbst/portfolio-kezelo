@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { PiggyBank } from "lucide-react";
 import { useLeftoverSettings } from "../../lib/store";
 import { saveLeftoverSettings, type LeftoverSettings as Settings } from "../../lib/planPrefs";
@@ -16,16 +17,20 @@ export default function LeftoverSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <PiggyBank className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Hónap végi maradék</h2>
+        <InfoTip>
+          Ha egy hónapban marad pénz, a Havi terv alatti mezőben (vagy a botnak
+          küldött <code>/maradek 50000</code> paranccsal) javaslatot kapsz, mire
+          menjen: a hónap még hiányzó célrészei, a közeli határidős célok teljes
+          hátralévő összege, végül a célpálya. Az utolsó munkanap a magyar
+          munkanap-naptár szerint (hétvége, ünnepnap, áthelyezett munkanap)
+          számít: ugyanaz a nap, amelytől az app a vételeket már a következő
+          hónaphoz számítja. Ha a hónapra már rögzítettél maradékot, a bot csak
+          jelzi, nem kérdez újra.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Ha egy hónapban marad pénz, a Havi terv alatti mezőben (vagy a botnak
-        küldött <code>/maradek 50000</code> paranccsal) javaslatot kapsz, mire
-        menjen: a hónap még hiányzó célrészei, a közeli határidős célok teljes
-        hátralévő összege, végül a célpálya.
-      </p>
       <div className="space-y-3 text-sm">
         <label className="flex flex-wrap items-center gap-2">
           <input type="checkbox" checked={s.notify} onChange={(e) => set({ notify: e.target.checked })} />
@@ -62,12 +67,6 @@ export default function LeftoverSettings() {
           hónapon belül van
         </label>
       </div>
-      <p className="mt-3 text-xs text-[var(--color-muted)]">
-        Az utolsó munkanap a magyar munkanap-naptár szerint (hétvége, ünnepnap,
-        áthelyezett munkanap) — ugyanaz a nap, amelytől az app a vételeket már a
-        következő hónaphoz számítja. Ha a hónapra már rögzítettél maradékot, a
-        bot csak jelzi, nem kérdez újra.
-      </p>
     </Card>
   );
 }

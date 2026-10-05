@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useCallback, useMemo, useState } from "react";
 import { Route, Pencil, History } from "lucide-react";
 import {
@@ -525,25 +526,29 @@ export default function GlidePathSettings() {
               {projection && (
                 <p className="mt-2 text-xs text-[var(--color-muted)]">
                   <span className="font-medium text-[var(--color-text)]">Várható arány</span>{" "}
-                  (pontozott vonalak: élénk = csak befizetés, halvány = hozammal) — a
-                  végső célsúlyok elérése (±{(REACH_TOLERANCE * 100).toLocaleString("hu-HU")} százalékpont):
-                  csak befizetésből{" "}
+                  <InfoTip label="Hogyan számoljuk">
+                    Pontozott vonalak: élénk = csak befizetés, halvány = hozammal.
+                    A végső célsúlyok elérése ±{(REACH_TOLERANCE * 100).toLocaleString("hu-HU")}{" "}
+                    százalékpontos pontossággal.{" "}
+                    {inflows
+                      ? "A pálya a mentéskor számolt, csak befizetésből vonal; a sáv ehhez mér, frissíteni új mentéssel lehet. "
+                      : ""}
+                    Számol a szabad kuponokkal és lejáratokkal, a célpálya havi
+                    összegével (a célok lejártával újraszámolva) és a csoportba
+                    tartozó DCA vételekkel; a célhoz rendelt kupon és lejárat
+                    kimarad. A pénz a végső célsúlyok felé megy; az állampapír és
+                    a készpénz értéke nem változik, a hozam (az Előrejelzés
+                    „reális” forgatókönyve) csak a többire vonatkozik.
+                  </InfoTip>{" "}
+                  · csak befizetésből{" "}
                   <span className="font-medium text-[var(--color-text)]">
                     {projection.zero.reachedOn ? monthOf(projection.zero.reachedOn) : `${PROJECTION_YEARS} éven belül nem`}
                   </span>
                   , évi {pct(projection.realPct)} hozammal{" "}
                   <span className="font-medium text-[var(--color-text)]">
                     {projection.real.reachedOn ? monthOf(projection.real.reachedOn) : `${PROJECTION_YEARS} éven belül nem`}
-                  </span>{" "}
-                  {inflows
-                    ? "(a pálya a mentéskor számolt, csak befizetésből vonal — a sáv ehhez mér; frissíteni új mentéssel lehet)."
-                    : `(a pálya vége: ${monthOf(pathEnd)}).`}{" "}
-                  Számol a szabad kuponokkal és
-                  lejáratokkal, a célpálya havi összegével (a célok lejártával
-                  újraszámolva) és a csoportba tartozó DCA vételekkel; a célhoz
-                  rendelt kupon és lejárat kimarad. A pénz a végső célsúlyok felé
-                  megy; az állampapír és a készpénz értéke nem változik, a hozam
-                  (az Előrejelzés „reális” forgatókönyve) csak a többire vonatkozik.
+                  </span>
+                  {!inflows && ` · a pálya vége: ${monthOf(pathEnd)}`}
                 </p>
               )}
             </div>

@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useState } from "react";
 import { Bell } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
@@ -30,6 +31,10 @@ export default function AlertSettings() {
       <div className="mb-4 flex items-center gap-2">
         <Bell className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Figyelmeztetések</h2>
+        <InfoTip>
+          A figyelmeztetések állapota (elvetés) a felhős szinkronon át minden
+          eszközödön egységes. A küszöb és a türelmi idő eszközönként állítható.
+        </InfoTip>
       </div>
 
       <label className="mb-5 flex cursor-pointer items-start gap-3">
@@ -88,10 +93,6 @@ export default function AlertSettings() {
           </div>
         </label>
       </div>
-      <p className="mt-4 text-xs text-[var(--color-muted)]">
-        A figyelmeztetések állapota (elvetés) a felhős szinkronon át minden
-        eszközödön egységes. A küszöb és a türelmi idő eszközönként állítható.
-      </p>
     </Card>
   );
 }

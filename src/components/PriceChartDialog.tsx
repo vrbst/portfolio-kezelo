@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -276,13 +277,16 @@ export default function PriceChartDialog({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <p className="mt-2 text-xs text-[var(--color-muted)]">
-          Bal oldalt az előző kereskedési nap, jobb oldalt a mai (a még hátralévő
-          része üres); szaggatott vonal: előző napi zárás.
-          {!live &&
-            " Most nincs aktív kereskedés (zárva, vagy még nincs mai kötés), ezért az utolsó kereskedési nap görbéje szürke."}
-          {quote.intradayFrom &&
-            ` A görbe a(z) ${quote.intradayFrom} árfolyamát mutatja (ennek a jegyzésnek nincs napközbeni adata).`}
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+          {!live && "Most nincs aktív kereskedés."}
+          <InfoTip label="Hogyan olvasd">
+            Bal oldalt az előző kereskedési nap, jobb oldalt a mai (a még
+            hátralévő része üres); szaggatott vonal: előző napi zárás.
+            {!live &&
+              " Most nincs aktív kereskedés (zárva, vagy még nincs mai kötés), ezért az utolsó kereskedési nap görbéje szürke."}
+            {quote.intradayFrom &&
+              ` A görbe a(z) ${quote.intradayFrom} árfolyamát mutatja (ennek a jegyzésnek nincs napközbeni adata).`}
+          </InfoTip>
         </p>
       </div>
     </div>,

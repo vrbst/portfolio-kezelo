@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { useState } from "react";
 import { Landmark } from "lucide-react";
 import { usePortfolio, useToday } from "../../lib/store";
@@ -45,25 +46,25 @@ export default function BondSeriesSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Landmark className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Állampapír sorozatok</h2>
+        <InfoTip>
+          A pontos értékeléshez add meg a sorozat adatait: kibocsátás, éves kamat,
+          kamatperiódus és az első kamatfizetés dátuma — ebből számoljuk a
+          felhalmozott kamatot a kupon-ütemterv szerint. A portfólió a névérték +
+          felhalmozott kamat összeggel számol (lejáratig tartva ennyit ér), a
+          lejárat előtti eladási költség (alapból a névérték 1%-a) csak a „most"
+          visszaváltható összegnél jelenik meg a számla- és eszköz-nézetben.
+          Hétvégén a következő hétfői nappal számolunk (mint a MobilKincstár). Az
+          első (tört) kamat összegét kézzel is megadhatod (a MÁK-érték), mert a
+          tört periódus nem számolható forintra pontosan. A diszkont
+          kincstárjegyek automatikusan a vételár → névérték akkrécióval
+          értékelődnek. A lejárt sorozat automatikusan „nem vehető", de bármelyiket
+          kézzel is annak jelölheted (pl. lezárult DKJ-jegyzés) — a megtakarítási
+          célok nem javasolnak bele vételt.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        A pontos értékeléshez add meg a sorozat adatait: kibocsátás, éves kamat,
-        kamatperiódus és az első kamatfizetés dátuma — ebből számoljuk a
-        felhalmozott kamatot a kupon-ütemterv szerint. A portfólió a névérték +
-        felhalmozott kamat összeggel számol (lejáratig tartva ennyit ér), a
-        lejárat előtti eladási költség (alapból a névérték 1%-a) csak a „most"
-        visszaváltható összegnél jelenik meg a számla- és eszköz-nézetben.
-        Hétvégén a következő hétfői nappal számolunk (mint a MobilKincstár). Az
-        első (tört) kamat összegét kézzel is megadhatod (a MÁK-érték), mert a
-        tört periódus nem számolható forintra pontosan. A diszkont
-        kincstárjegyek automatikusan a vételár → névérték akkrécióval
-        értékelődnek. A lejárt sorozat automatikusan „nem vehető", de bármelyiket
-        kézzel is annak jelölheted (pl. lezárult DKJ-jegyzés) — a megtakarítási
-        célok nem javasolnak bele vételt.
-      </p>
 
       {open.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">

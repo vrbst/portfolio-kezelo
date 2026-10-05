@@ -1,3 +1,4 @@
+import InfoTip from "../components/InfoTip";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Trash2, Database, Download, Upload, ShieldCheck } from "lucide-react";
@@ -65,7 +66,7 @@ export default function Settings() {
             kerül szerverre.
           </p>
           <div className="mt-4 border-t border-[var(--color-border)] pt-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* The mobile tab bar has no Importálás entry (no room) — this
                   link keeps the import flow reachable on a phone. */}
               <Link to="/import" className="btn-ghost md:hidden">
@@ -78,14 +79,14 @@ export default function Settings() {
               >
                 <Download className="h-4 w-4" /> Teljes mentés fájlba (JSON)
               </button>
+              <InfoTip>
+                A teljes történet egy fájlban: tranzakciók (a nyers
+                kivonatsorokkal), számlák, értékpapírok, célok, emlékeztetők,
+                figyelmeztetés-előzmények, cél-allokáció és
+                előrejelzés-beállítások. A szinkron-token és az API-kulcs nem
+                kerül bele.
+              </InfoTip>
             </div>
-            <p className="mt-2 text-xs text-[var(--color-muted)]">
-              A teljes történet egy fájlban: tranzakciók (a nyers
-              kivonatsorokkal), számlák, értékpapírok, célok, emlékeztetők,
-              figyelmeztetés-előzmények, cél-allokáció és
-              előrejelzés-beállítások. A szinkron-token és az API-kulcs nem
-              kerül bele.
-            </p>
           </div>
           <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">
             Build: {build?.builtAt ? formatDateTime(build.builtAt) : "—"} ·{" "}

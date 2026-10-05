@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { Coins } from "lucide-react";
 import { tbszStatus, tbszExitScenarios } from "../lib/tbsz";
 import { formatMoney } from "../lib/format";
@@ -29,12 +30,14 @@ export default function TbszExitValue({
       <div className="flex items-center gap-2">
         <Coins className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Mi lenne, ha most eladnám?</h2>
+        <InfoTip>
+          Nettó, adózott érték a jelenlegi árakon. A TBSZ-en csak a{" "}
+          <span className="font-medium">hozam</span> adózik, a befizetett tőke
+          nem. A jövőbeli értékek a mostani hozamra vetített becslések: a
+          tényleges összeg a piaci mozgással változik. A kötvények lejárat
+          előtti eladásánál a visszaváltási költség külön levonódhat.
+        </InfoTip>
       </div>
-      <p className="mt-1 text-sm text-[var(--color-muted)]">
-        Nettó, adózott érték a jelenlegi árakon. A TBSZ-en csak a{" "}
-        <span className="font-medium">hozam</span> adózik — a befizetett tőke
-        nem.
-      </p>
 
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <div>
@@ -110,12 +113,6 @@ export default function TbszExitValue({
         </ul>
       )}
 
-      <p className="mt-3 text-xs text-[var(--color-muted)]">
-        A jövőbeli értékek a <span className="font-medium">mostani</span>{" "}
-        hozamra vetített becslések — a tényleges összeg a piaci mozgással
-        változik. A kötvények lejárat előtti eladásánál a visszaváltási költség
-        külön levonódhat.
-      </p>
     </Card>
   );
 }

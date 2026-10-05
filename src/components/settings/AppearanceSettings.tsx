@@ -1,3 +1,4 @@
+import InfoTip from "../InfoTip";
 import { Palette, Check } from "lucide-react";
 import { useSkin, type Skin } from "../../lib/skin";
 import { Card } from "../ui";
@@ -14,13 +15,13 @@ export default function AppearanceSettings() {
 
   return (
     <Card className="mt-4 p-6">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-2">
         <Palette className="h-5 w-5 text-[var(--color-brand)]" />
         <h2 className="text-lg font-semibold">Megjelenés</h2>
+        <InfoTip>
+          Az app kinézete. Csak ezen az eszközön érvényes, nem szinkronizálódik.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-xs text-[var(--color-muted)]">
-        Az app kinézete. Csak ezen az eszközön érvényes, nem szinkronizálódik.
-      </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <SkinOption

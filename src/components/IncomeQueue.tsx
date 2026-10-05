@@ -1,3 +1,4 @@
+import InfoTip from "./InfoTip";
 import { useEffect, useRef } from "react";
 import { BellPlus, CheckCheck } from "lucide-react";
 import { usePortfolio } from "../lib/store";
@@ -54,12 +55,14 @@ export default function IncomeQueue({
 
   return (
     <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-      <h4 className="text-xs font-semibold">Beérkezett, még el nem osztott</h4>
-      <p className="mb-2 text-xs text-[var(--color-muted)]">
-        Kupon, kamat, osztalék, lejárat a ledgerből{since ? ` (${since}-tól)` : ""}. Előbb a
-        rá igényt tartó célok kapnak (a hiányukig), a maradék a célpályán megy tovább;
-        több esemény időrendben épül egymásra.
-      </p>
+      <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
+        Beérkezett, még el nem osztott
+        <InfoTip>
+          Kupon, kamat, osztalék, lejárat a ledgerből{since ? ` (${since}-tól)` : ""}.
+          Előbb a rá igényt tartó célok kapnak (a hiányukig), a maradék a
+          célpályán megy tovább; több esemény időrendben épül egymásra.
+        </InfoTip>
+      </h4>
       {allocations.length === 0 ? (
         <p className="text-xs text-[var(--color-muted)]">Nincs elosztásra váró bejövő pénz.</p>
       ) : (
