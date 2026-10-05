@@ -10,8 +10,13 @@ import {
   toHuf,
   type PriceMap,
 } from "./portfolio";
-import { asOf, buildValueSeries, type ValueHistory } from "./series";
-import { txDay } from "./day";
+import {
+  asOf,
+  buildValueSeries,
+  type ValueHistory,
+  type ValuePoint,
+} from "./series";
+import { todayLocal, txDay } from "./day";
 
 /** Benchmark for the TWR comparison: a global all-world equity ETF. */
 export const BENCHMARK = {
@@ -203,4 +208,65 @@ export function computeReturns(
     twrIndex,
     days,
   };
+}
+
+export interface MonthPerformance {
+  /** Calendar month, "YYYY-MM". */
+  month: string;
+  /** Time-weighted return within the month (fraction). */
+  twr: number;
+  /** Market result in HUF: change of (value − invested), deposits removed. */
+  profitHuf: number;
+  /** The benchmark's return in HUF over the same month, if known. */
+  benchmark?: number;
+  /** The month is still running (the last point is today, live). */
+  current: boolean;
+}
+
+/** "YYYY-MM" of a "YYYY-MM-DD" day string (already a local day). */
+const monthOf = (day: string): string => day.slice(0, 7);
+
+/**
+ * Per-calendar-month performance, from the same daily curves as the totals:
+ * each month is anchored on its last sample, so the months compound exactly
+ * to `twrCumulativePct` and their HUF results add up to today's value −
+ * invested. A month with no sample of its own (only without daily history)
+ * folds into the next sampled one.
+ */
+export function monthlyPerformance(
+  twrIndex: { date: string; cum: number }[],
+  series: ValuePoint[],
+  bench?: number[] | null,
+  today: string = todayLocal(),
+): MonthPerformance[] {
+  const months = [...new Set(series.map((p) => monthOf(p.date)))].sort();
+  const profitEnd = new Map<string, number>();
+  for (const p of series) profitEnd.set(monthOf(p.date), p.value - p.invested);
+
+  const out: MonthPerformance[] = [];
+  let i = -1; // last twrIndex sample on/before the current month's end
+  let prevCum = 0;
+  let prevBench: number | undefined = 0;
+  let prevProfit = 0;
+  for (const m of months) {
+    while (i + 1 < twrIndex.length && monthOf(twrIndex[i + 1].date) <= m) i++;
+    const cum = i >= 0 ? twrIndex[i].cum : 0;
+    const b = i >= 0 ? bench?.[i] : 0;
+    const benchCum = b != null && Number.isFinite(b) ? b : undefined;
+    const profit = profitEnd.get(m) ?? prevProfit;
+    out.push({
+      month: m,
+      twr: (1 + cum) / (1 + prevCum) - 1,
+      profitHuf: profit - prevProfit,
+      benchmark:
+        benchCum != null && prevBench != null
+          ? (1 + benchCum) / (1 + prevBench) - 1
+          : undefined,
+      current: m === monthOf(today),
+    });
+    prevCum = cum;
+    prevBench = benchCum;
+    prevProfit = profit;
+  }
+  return out;
 }

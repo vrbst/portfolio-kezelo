@@ -17,6 +17,7 @@ import {
   BENCHMARK,
   fxImpact,
   buildValueSeries,
+  monthlyPerformance,
   type YearIncome,
 } from "../lib/portfolio";
 import {
@@ -29,6 +30,9 @@ import {
 } from "../components/ui";
 import { formatMoney, formatPercent, formatCompact } from "../lib/format";
 import BenchmarkChart from "../components/BenchmarkChart";
+import MonthlyPerformanceChart, {
+  type MonthlyMode,
+} from "../components/MonthlyPerformanceChart";
 
 export default function Income() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -100,18 +104,32 @@ export default function Income() {
     return { points, lastBench };
   }, [returns, historyFile]);
 
+  const valueSeries = useMemo(
+    () =>
+      buildValueSeries(accounts, transactions, instMap, prices, fx, historyFile),
+    [accounts, transactions, instMap, prices, fx, historyFile],
+  );
+
   // Portfolio profit (value − invested) over time → the Teljesítmény sparkline.
-  const profitSpark = useMemo(() => {
-    const series = buildValueSeries(
-      accounts,
-      transactions,
-      instMap,
-      prices,
-      fx,
-      historyFile,
-    );
-    return series.slice(-40).map((p) => p.value - p.invested);
-  }, [accounts, transactions, instMap, prices, fx, historyFile]);
+  const profitSpark = useMemo(
+    () => valueSeries.slice(-40).map((p) => p.value - p.invested),
+    [valueSeries],
+  );
+
+  // Per-month TWR / market result (+ benchmark) → the Havi teljesítmény bars.
+  const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>("pct");
+  const months = useMemo(
+    () =>
+      monthlyPerformance(
+        returns.twrIndex,
+        valueSeries,
+        benchmarkIndex(
+          historyFile,
+          returns.twrIndex.map((p) => p.date),
+        ),
+      ),
+    [returns, valueSeries, historyFile],
+  );
   const sparkUp =
     profitSpark.length > 1 &&
     profitSpark[profitSpark.length - 1] >= profitSpark[0];
@@ -245,6 +263,47 @@ export default function Income() {
             </div>
           )}
       </Card>
+
+      {months.length >= 2 && (
+        <Card className="mb-6 p-6">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Havi teljesítmény</h2>
+              <p className="text-sm text-[var(--color-muted)]">
+                {monthlyMode === "pct"
+                  ? "A hónap hozama a befizetések hatása nélkül (TWR)."
+                  : "A hónap piaci eredménye: értékváltozás a nettó befizetések nélkül."}{" "}
+                A folyó hónap halványan, az eddigi állással.
+              </p>
+            </div>
+            <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+              {(
+                [
+                  { key: "pct", label: "%" },
+                  { key: "huf", label: "Ft" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMonthlyMode(m.key)}
+                  className={`rounded-md px-2.5 py-1 transition ${
+                    monthlyMode === m.key
+                      ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                      : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <MonthlyPerformanceChart
+            data={months}
+            mode={monthlyMode}
+            benchmarkLabel={BENCHMARK.label}
+          />
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
