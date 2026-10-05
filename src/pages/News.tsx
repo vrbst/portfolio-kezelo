@@ -1,32 +1,41 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, ExternalLink, RefreshCw } from "lucide-react";
 import { PageHeader, Card, EmptyState, Badge } from "../components/ui";
 import { ImpactIcon } from "../components/NewsCard";
-import { clearNewsCache, newsDayLabel, useNewsDigest, useNewsIndex } from "../lib/news";
+import {
+  markNewsSeen,
+  newsDayLabel,
+  refreshNews,
+  useNewsDigest,
+  useNewsIndex,
+  useTodayUnread,
+} from "../lib/news";
 import {
   NEWS_CATEGORY_LABEL,
   NEWS_EDITION_LABEL,
   NEWS_REGION_LABEL,
   digestKey,
   rankedItems,
+  seenKey,
   type NewsDigest,
 } from "../lib/newsSchema";
 
 const IMPORTANCE_LABEL = { 3: "Fontos", 2: "Érdemes tudni", 1: "Háttér" } as const;
 
 export default function News() {
-  const [reload, setReload] = useState(0);
-  const index = useNewsIndex(reload);
+  const index = useNewsIndex();
   const entries = index.status === "ready" ? (index.data?.entries ?? []) : [];
   const [picked, setPicked] = useState<string | null>(null);
   const current = entries.find((e) => digestKey(e) === picked) ?? entries[0] ?? null;
-  const digest = useNewsDigest(current, reload);
+  const digest = useNewsDigest(current);
+  const unread = new Set(useTodayUnread().map(seenKey));
 
-  const refresh = () => {
-    clearNewsCache();
-    setReload((r) => r + 1);
-  };
+  // The digest on screen counts as read (only today's are ever flagged).
+  const shown = digest.status === "ready" && digest.data ? current : null;
+  useEffect(() => {
+    if (shown) markNewsSeen([shown]);
+  }, [shown]);
 
   const header = (
     <PageHeader
@@ -36,7 +45,7 @@ export default function News() {
         index.status !== "off" && (
           <button
             type="button"
-            onClick={refresh}
+            onClick={refreshNews}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm hover:bg-[var(--color-surface-2)]"
           >
             <RefreshCw size={14} /> Frissítés
@@ -97,7 +106,9 @@ export default function News() {
           >
             {entries.map((e) => (
               <option key={digestKey(e)} value={digestKey(e)}>
+                {unread.has(seenKey(e)) ? "● " : ""}
                 {newsDayLabel(e.day)} – {NEWS_EDITION_LABEL[e.edition].toLowerCase()} ({e.count} hír)
+                {unread.has(seenKey(e)) ? " – új" : ""}
               </option>
             ))}
           </select>

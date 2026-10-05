@@ -8,6 +8,7 @@ import {
   useDayChange,
 } from "../lib/store";
 import { categorizeAlerts } from "../lib/alerts";
+import { useTodayUnread } from "../lib/news";
 import { formatMoney, formatPercent } from "../lib/format";
 import {
   LayoutDashboard,
@@ -68,6 +69,8 @@ export default function Sidebar() {
   const active = useActiveAlerts();
   const alertState = usePortfolio((s) => s.alertState);
   const alertCount = categorizeAlerts(active, alertState).active.length;
+  // Today's unread news items (older unread digests are never flagged).
+  const newsCount = useTodayUnread().reduce((n, e) => n + e.count, 0);
   const summary = usePortfolioSummary();
   const day = useDayChange();
   const hasValue = summary.totalValueHuf > 0;
@@ -205,6 +208,18 @@ export default function Sidebar() {
                       ) : (
                         <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-negative)] px-1.5 text-[10px] font-semibold text-white">
                           {alertCount}
+                        </span>
+                      ))}
+                    {link.to === "/hirek" &&
+                      newsCount > 0 &&
+                      (collapsed ? (
+                        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--color-brand)]" />
+                      ) : (
+                        <span
+                          title="Mai olvasatlan hírek"
+                          className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-brand)] px-1.5 text-[10px] font-semibold text-white"
+                        >
+                          {newsCount}
                         </span>
                       ))}
                   </div>

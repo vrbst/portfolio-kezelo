@@ -9,7 +9,7 @@ import type { Context } from "./data";
 import { withTimeout } from "./data";
 import { ROOT } from "./env";
 import { contextAt } from "./testContext";
-import { alertMessages, runHandler, type Deps, type HubResponse } from "./tg-app";
+import { alertMessages, runHandler, searchEdition, type Deps, type HubResponse } from "./tg-app";
 import { fakeEngine, memoryStore } from "./news/testFakes";
 import { fixtureNewsBody } from "../../src/test/newsFixture";
 
@@ -385,6 +385,102 @@ describe("news digest", () => {
     await call(jobReq("news-evening"), empty.deps);
     const r = await call(commandReq("hirek"), empty.deps);
     expect(r.messages![0].html).toContain("Napzárta – 2026. okt. 14.");
+  });
+});
+
+describe("/hirkereses", () => {
+  // The command starts the news job at the hub (a fake here) and answers at
+  // once; the job, started by the hub, does the search.
+  const setup = (engine = fakeEngine([fixtureNewsBody(), fixtureNewsBody(), fixtureNewsBody()])) => {
+    const store = memoryStore();
+    const started: string[] = [];
+    let hub: "started" | "running" | Error = "started";
+    const at = (when: [number, number, number, number, number?]): Deps => ({
+      ...depsFor(() => contextAt(when)),
+      news: () => ({ engine, store, cacheDir: join(dir, "news"), appUrl: "https://example.com/app/" }),
+      runJob: async (job) => {
+        if (hub instanceof Error) throw hub;
+        started.push(job);
+        return hub;
+      },
+    });
+    return { at, engine, store, started, setHub: (h: typeof hub) => (hub = h) };
+  };
+  const now = (y: number, m: number, d: number, h: number, mi = 0) =>
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(y, m - 1, d, h, mi) });
+
+  it("starts the edition of the time of day and answers at once", async () => {
+    const s = setup();
+    now(2026, 10, 14, 9, 30);
+    const r = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 9, 30]));
+    expect(r.messages![0].html).toContain("Keresem a friss híreket (reggeli előzetes)");
+    expect(s.started).toEqual(["news-morning"]);
+    expect(s.engine.prompts).toHaveLength(0);
+    now(2026, 10, 14, 12, 0);
+    expect(searchEdition(new Date())).toBe("evening");
+  });
+
+  it("the job it starts: a fresh search, urgent, not counted as the scheduled run", async () => {
+    const s = setup();
+    // The scheduled morning edition is already out today…
+    now(2026, 10, 14, 7, 45);
+    await call(jobReq("news-morning"), s.at([2026, 10, 14, 7, 45]));
+    // …and still, on request, a new search.
+    now(2026, 10, 14, 15, 0);
+    await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 0]));
+    expect(s.started).toEqual(["news-evening"]);
+    const r = await call(JSON.stringify({ ...JSON.parse(jobReq("news-evening")), manual: true }), s.at([2026, 10, 14, 15, 1]));
+    expect(r.messages![0].priority).toBe("urgent");
+    expect(s.engine.prompts).toHaveLength(2);
+    const st = readState().news as Record<string, string>;
+    expect(st.searchRequestedAt).toBeUndefined();
+    expect(st.evening).toBeUndefined();
+    // So the evening digest still comes after the close, with a new search.
+    const evening = await call(jobReq("news-evening"), s.at([2026, 10, 14, 18, 15]));
+    expect(evening.messages).toHaveLength(1);
+    expect(evening.messages![0].priority).toBe("normal");
+    expect(s.engine.prompts).toHaveLength(3);
+  });
+
+  it("at most once per half hour; a second request meanwhile is told to wait", async () => {
+    const s = setup();
+    now(2026, 10, 14, 15, 0);
+    await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 0]));
+    now(2026, 10, 14, 15, 2);
+    expect((await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 2]))).messages![0].html).toContain("Már keresem");
+    await call(jobReq("news-evening"), s.at([2026, 10, 14, 15, 3]));
+    now(2026, 10, 14, 15, 10);
+    const r = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 10]));
+    expect(r.messages![0].html).toContain("10 perce volt. Újat 20 perc múlva");
+    now(2026, 10, 14, 15, 30);
+    await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 30]));
+    expect(s.started).toEqual(["news-evening", "news-evening"]);
+  });
+
+  it("the scheduled run already in progress answers instead; a hub error frees the command", async () => {
+    const s = setup();
+    s.setHub("running");
+    now(2026, 10, 14, 18, 16);
+    const r = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 18, 16]));
+    expect(r.messages![0].html).toContain("Épp most készül a(z) napzárta");
+    expect((readState().news as Record<string, string>).searchRequestedAt).toBeUndefined();
+
+    const t = setup();
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {} }));
+    t.setHub(new Error("A tg-hub nem indította el a keresést (HTTP 500)."));
+    now(2026, 10, 14, 15, 0);
+    expect(await call(commandReq("hirkereses"), t.at([2026, 10, 14, 15, 0]))).toMatchObject({ ok: false });
+    t.setHub("started");
+    await call(commandReq("hirkereses"), t.at([2026, 10, 14, 15, 1]));
+    expect(t.started).toEqual(["news-evening"]);
+  });
+
+  it("a failed search frees the command for another try", async () => {
+    const s = setup(fakeEngine([]));
+    now(2026, 10, 14, 15, 0);
+    await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 0]));
+    expect(await call(jobReq("news-evening"), s.at([2026, 10, 14, 15, 1]))).toMatchObject({ ok: false });
+    expect((readState().news as Record<string, string>).searchRequestedAt).toBeUndefined();
   });
 });
 

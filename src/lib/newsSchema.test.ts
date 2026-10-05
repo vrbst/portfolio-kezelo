@@ -3,6 +3,8 @@ import {
   NEWS_INDEX_SIZE,
   digestKey,
   rankedItems,
+  seenKey,
+  unreadToday,
   validateDigest,
   validateDigestBody,
   validateNewsIndex,
@@ -105,4 +107,26 @@ it("rankedItems: most important first, the model's order breaks ties", () => {
   expect(titles[0]).toMatch(/forint/);
   expect(titles[1]).toBe("Az MNB kivárást jelzett");
   expect(titles.at(-1)).toMatch(/háttérhír/);
+});
+
+describe("unreadToday", () => {
+  const index = () => {
+    let idx = withIndexEntry(null, fixtureDigest("2026-10-13", "evening"));
+    idx = withIndexEntry(idx, fixtureDigest("2026-10-14", "morning"));
+    return withIndexEntry(idx, fixtureDigest("2026-10-14", "evening"));
+  };
+
+  it("only today's digests count, an old unread one never does", () => {
+    expect(unreadToday(index(), [], "2026-10-14").map(digestKey)).toEqual(["2026-10-14-1", "2026-10-14-0"]);
+    expect(unreadToday(index(), [], "2026-10-15")).toEqual([]);
+    expect(unreadToday(null, [], "2026-10-14")).toEqual([]);
+  });
+
+  it("a read digest drops out; a new search of it is unread again", () => {
+    const idx = index();
+    const morning = idx.entries.find((e) => e.edition === "morning" && e.day === "2026-10-14")!;
+    expect(unreadToday(idx, [seenKey(morning)], "2026-10-14").map((e) => e.edition)).toEqual(["evening"]);
+    const again = withIndexEntry(idx, { ...fixtureDigest("2026-10-14", "morning"), generatedAt: "2026-10-14T09:00:00.000Z" });
+    expect(unreadToday(again, [seenKey(morning)], "2026-10-14").map((e) => e.edition)).toEqual(["evening", "morning"]);
+  });
 });

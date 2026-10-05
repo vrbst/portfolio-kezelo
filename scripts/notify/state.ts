@@ -37,9 +37,18 @@ export interface State {
    * the grace period the tick stays silent (tg-app.ts).
    */
   loadFailingSince?: string;
-  /** News digest: per edition, the last local day (YYYY-MM-DD) it was made for. */
-  news?: Partial<Record<NewsEdition, string>>;
+  news?: NewsState;
 }
+
+export type NewsState = {
+  /** Per edition: the last local day (YYYY-MM-DD) the scheduled run made it. */
+  [E in NewsEdition]?: string;
+} & {
+  /** ISO: /hirkereses asked for a fresh search; the news job it starts takes it. */
+  searchRequestedAt?: string;
+  /** ISO: the last on-demand search (the 30-minute guard). */
+  lastSearchAt?: string;
+};
 
 /** Fields of the old self-polling bot, now kept by tg-hub: dropped on load. */
 const LEGACY = ["offset", "strangers", "queue", "lastBeat", "lastErrorAt"];

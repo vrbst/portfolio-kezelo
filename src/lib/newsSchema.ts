@@ -104,6 +104,8 @@ export interface NewsIndexEntry {
   count: number;
   /** Item titles, so the next run can skip what was already reported. */
   titles: string[];
+  /** When it was made: a new search of the same edition is new again (unread). */
+  generatedAt?: string;
 }
 
 export interface NewsIndex {
@@ -270,6 +272,7 @@ export function validateNewsIndex(x: unknown): NewsIndex {
       headline: d.headline,
       count: typeof d.count === "number" ? d.count : 0,
       titles: Array.isArray(d.titles) ? d.titles.filter(text) : [],
+      ...(typeof d.generatedAt === "string" ? { generatedAt: d.generatedAt } : {}),
     })),
   };
 }
@@ -282,6 +285,7 @@ export function withIndexEntry(index: NewsIndex | null, digest: NewsDigest): New
     headline: digest.headline,
     count: digest.items.length,
     titles: digest.items.map((i) => i.title),
+    generatedAt: digest.generatedAt,
   };
   const rest = (index?.entries ?? []).filter((d) => digestKey(d) !== digestKey(digest));
   return {
@@ -290,6 +294,21 @@ export function withIndexEntry(index: NewsIndex | null, digest: NewsDigest): New
       .sort((a, b) => digestKey(b).localeCompare(digestKey(a)))
       .slice(0, NEWS_INDEX_SIZE),
   };
+}
+
+/** Identity of one version of a digest, for the "read" marks. */
+export const seenKey = (e: NewsIndexEntry) => `${digestKey(e)}@${e.generatedAt ?? ""}`;
+
+/**
+ * Today's digests not read yet. Only today's: an older one left unread is
+ * old news, never flagged.
+ */
+export function unreadToday(
+  index: NewsIndex | null,
+  seen: readonly string[],
+  today: string,
+): NewsIndexEntry[] {
+  return (index?.entries ?? []).filter((e) => e.day === today && !seen.includes(seenKey(e)));
 }
 
 /** Items most important first; the model's order breaks ties. */

@@ -9,14 +9,14 @@
 //     positions), stale data, weekly / monthly reports, and on the month's
 //     last working day the leftover question (/maradek answers it),
 //   • jobs "news-morning" / "news-evening" → the AI's market-news digest
-//     (news/), /hirek sends the latest again.
+//     (news/), /hirek sends the latest again, /hirkereses searches now.
 // What has been sent already lives in .notify/state.json (state.ts).
 
 import { resolve } from "node:path";
 import { NOTIFY_DIR, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine } from "./news/engine";
 import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
-import type { NewsEdition } from "../../src/lib/newsSchema";
+import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
 import { loadContext, withGlideAlerts, type Context } from "./data";
 import { loadState, updateState, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
@@ -81,6 +81,8 @@ export interface Deps {
   env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct">;
   /** The daily news digest's AI and storage (built only when needed). */
   news?: () => NewsDeps;
+  /** Start one of our jobs at the hub now (it runs apart from this request). */
+  runJob?: (job: string) => Promise<"started" | "running">;
 }
 
 export function defaultDeps(): Deps {
@@ -95,7 +97,22 @@ export function defaultDeps(): Deps {
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
     }),
+    runJob: hubRunJob,
   };
+}
+
+/** POST /v1/apps/{app}/jobs/{job}/run at the hub that started this process. */
+async function hubRunJob(job: string): Promise<"started" | "running"> {
+  const { TG_HUB_URL: url, TG_HUB_APP: app, TG_HUB_KEY: key } = process.env;
+  if (!url || !app || !key) throw new Error("A hírkeresés csak a tg-hubon keresztül indítható.");
+  const res = await fetch(`${url}/v1/apps/${app}/jobs/${job}/run`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (res.status === 409) return "running";
+  if (!res.ok) throw new Error(`A tg-hub nem indította el a keresést (HTTP ${res.status}).`);
+  return "started";
 }
 
 const msg = (html: string, urgent = false): HubMessage => ({
@@ -158,6 +175,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
     case "command":
       console.error(`/${req.command} ${req.args}`.trim());
       if (req.command === "hirek") return latestNews(deps);
+      if (req.command === "hirkereses") return searchNews(deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -243,28 +261,103 @@ async function leftover(arg: string, deps: Deps): Promise<HubResponse> {
 
 // ---- the news digest ------------------------------------------------------
 
+/** /hirkereses: how long a request waits for its job, and the gap between two. */
+export const NEWS_SEARCH_PENDING_MS = 10 * 60_000;
+export const NEWS_SEARCH_COOLDOWN_MS = 30 * 60_000;
+
+/** The edition an on-demand search refreshes: the morning one until noon. */
+export const searchEdition = (now: Date): NewsEdition => (now.getHours() < 12 ? "morning" : "evening");
+
 /**
  * Jobs "news-morning" (weekdays before the Xetra opens) and "news-evening"
  * (after it closes), tg-hub.app.json: the AI's digest of the market news →
- * the sync repo and one message. Each once a day; a manual run from the hub
- * sends it again (from the local copy if it was made already — news/job.ts).
+ * the sync repo and one message. Three ways to get here:
+ *   • on demand (/hirkereses left a request in the state): a fresh search,
+ *     sent at once (urgent: the user asked) — it doesn't count as the day's
+ *     scheduled run, so the evening digest still comes after the close;
+ *   • by schedule: a fresh search, once a day per edition;
+ *   • a manual run at the hub: today's digest again from the local copy
+ *     (this also retries a failed upload without a new search).
  */
 async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<HubResponse> {
   if (!deps.news) return fail("A hírösszefoglaló nincs beállítva.");
   const ctx = await contextFor(deps);
   if (typeof ctx === "string") return fail(ctx);
   const today = toLocalDay(ctx.at);
-  if (!manual && loadState(deps.stateFile).news?.[edition] === today) {
+  const st = loadState(deps.stateFile).news ?? {};
+  const asked = st.searchRequestedAt;
+  const onDemand = asked != null && ctx.at.getTime() - Date.parse(asked) < NEWS_SEARCH_PENDING_MS;
+  if (!onDemand && !manual && st[edition] === today) {
     console.error(`news: ${today} ${edition} done already`);
     return { v: 1, messages: [] };
   }
   const nd = deps.news();
-  const run = await makeDigest(ctx, nd, edition);
+  let run;
+  try {
+    run = await makeDigest(ctx, nd, edition, { reuseLocal: manual && !onDemand });
+  } finally {
+    // A failed search frees /hirkereses for another try.
+    if (onDemand)
+      updateState(deps.stateFile, (cur) => {
+        const { searchRequestedAt: _, ...rest } = cur.news ?? {};
+        return { ...cur, news: rest };
+      });
+  }
+  if (!onDemand)
+    updateState(deps.stateFile, (cur) => ({
+      ...cur,
+      news: { ...cur.news, [edition]: run.digest.day },
+    }));
+  return { v: 1, messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError), onDemand)] };
+}
+
+/**
+ * /hirkereses: a fresh search now. The search takes minutes and the hub
+ * runs one command at a time, so this only starts the news job (it answers
+ * on its own) and says so; at most once per NEWS_SEARCH_COOLDOWN_MS.
+ */
+async function searchNews(deps: Deps): Promise<HubResponse> {
+  if (!deps.news || !deps.runJob) return fail("A hírösszefoglaló nincs beállítva.");
+  const now = new Date();
+  const st = loadState(deps.stateFile).news ?? {};
+  const since = (iso?: string) => (iso ? now.getTime() - Date.parse(iso) : Infinity);
+  if (since(st.searchRequestedAt) < NEWS_SEARCH_PENDING_MS)
+    return { v: 1, messages: [msg("🔎 Már keresem a híreket, pár perc és jön.")] };
+  const last = since(st.lastSearchAt);
+  if (last < NEWS_SEARCH_COOLDOWN_MS) {
+    const wait = Math.ceil((NEWS_SEARCH_COOLDOWN_MS - last) / 60_000);
+    return {
+      v: 1,
+      messages: [msg(`Az előző keresés ${Math.floor(last / 60_000)} perce volt. Újat ${wait} perc múlva kérhetsz; a legutóbbit a /hirek küldi el.`)],
+    };
+  }
+  const edition = searchEdition(now);
   updateState(deps.stateFile, (cur) => ({
     ...cur,
-    news: { ...cur.news, [edition]: run.digest.day },
+    news: { ...cur.news, searchRequestedAt: now.toISOString(), lastSearchAt: now.toISOString() },
   }));
-  return { v: 1, messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError))] };
+  let started: "started" | "running";
+  try {
+    started = await deps.runJob(`news-${edition}`);
+  } catch (e) {
+    updateState(deps.stateFile, (cur) => ({
+      ...cur,
+      news: { ...cur.news, searchRequestedAt: undefined, lastSearchAt: st.lastSearchAt },
+    }));
+    return fail((e as Error).message);
+  }
+  if (started === "running") {
+    // The scheduled run is on it: its answer is the fresh one.
+    updateState(deps.stateFile, (cur) => ({
+      ...cur,
+      news: { ...cur.news, searchRequestedAt: undefined },
+    }));
+    return { v: 1, messages: [msg(`🔎 Épp most készül a(z) ${NEWS_EDITION_LABEL[edition].toLowerCase()}, pár perc és jön.`)] };
+  }
+  return {
+    v: 1,
+    messages: [msg(`🔎 Keresem a friss híreket (${NEWS_EDITION_LABEL[edition].toLowerCase()}), 2–4 perc és küldöm.`)],
+  };
 }
 
 /** /hirek: the newest digest from the sync repo again, with today's moves. */

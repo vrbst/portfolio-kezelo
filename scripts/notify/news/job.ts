@@ -119,11 +119,16 @@ export interface DigestRun {
   uploadError?: string;
 }
 
-/** Today's `edition`: from the local copy if made already, else a new AI run; then uploaded. */
+/**
+ * Today's `edition`: a new AI run — or, with `reuseLocal` (a manual resend,
+ * e.g. after a failed upload), the local copy if it was made already — then
+ * uploaded.
+ */
 export async function makeDigest(
   ctx: Context,
   deps: NewsDeps,
   edition: NewsEdition,
+  opts: { reuseLocal: boolean },
 ): Promise<DigestRun> {
   const day = toLocalDay(ctx.at);
   let index: NewsIndex | null = null;
@@ -137,7 +142,7 @@ export async function makeDigest(
   }
 
   const key = digestKey({ day, edition });
-  let digest = readCache(deps.cacheDir, day, edition);
+  let digest = opts.reuseLocal ? readCache(deps.cacheDir, day, edition) : null;
   if (digest) console.error(`news: reusing the local digest ${day} ${edition}`);
   else {
     const prompt = buildNewsPrompt({

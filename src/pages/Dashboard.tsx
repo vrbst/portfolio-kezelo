@@ -34,6 +34,7 @@ import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import NewsCard from "../components/NewsCard";
+import NewsBanner from "../components/NewsBanner";
 import DayChangeBreakdown from "../components/DayChangeBreakdown";
 import UnlockDialog from "../components/UnlockDialog";
 import { hasLock } from "../lib/privacyLock";
@@ -379,6 +380,7 @@ export default function Dashboard() {
         }
       />
 
+      <NewsBanner />
       <AlertsPanel />
 
       <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-start">

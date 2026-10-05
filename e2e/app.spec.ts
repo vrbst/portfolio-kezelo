@@ -120,6 +120,13 @@ async function show(page: Page, path: string) {
   );
 }
 
+/** A fresh load of a page, without waiting for its fade-in (see the news tests). */
+async function reopen(page: Page, path: string) {
+  await page.goto(`./#${path}`);
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+}
+
 /** Elements wider than the viewport (the page must not scroll sideways). */
 async function sidewaysOverflow(page: Page) {
   return page.evaluate(() => {
@@ -314,6 +321,38 @@ test.describe("market news (Hírek)", () => {
     await main.getByRole("link", { name: /Összes hír/ }).click();
     await expect(page).toHaveURL(/#\/hirek$/);
     expect(errors, "console / page errors").toEqual([]);
+  });
+
+  test("today's unread news are flagged (yesterday's never); reading clears it", async ({ page }, info) => {
+    await openSeeded(page, { sync: true });
+    await withNews(page);
+    const desktop = info.project.name === "desktop";
+    const badge = page.locator('aside a[href="#/hirek"] span[title="Mai olvasatlan hírek"]');
+    await show(page, "/");
+    // Today's morning edition: 7 items. Yesterday's unread evening one doesn't count.
+    await expect(page.locator("main")).toContainText("7 új hír ma (reggeli előzetes)");
+    if (desktop) await expect(badge).toHaveText("7");
+
+    await show(page, "/hirek");
+    await expect(page.locator("main")).toContainText("Reggeli előzetes");
+    // Back on the dashboard (a second dashboard load in one test never
+    // finishes its fade-in here, so this checks the content only).
+    await reopen(page, "/");
+    await expect(page.locator("main")).toContainText("Piaci hírek");
+    await expect(page.locator("main")).not.toContainText("új hír ma");
+    if (desktop) await expect(badge).toHaveCount(0);
+  });
+
+  test("the ✕ on the dashboard banner marks today's news read", async ({ page }) => {
+    await openSeeded(page, { sync: true });
+    await withNews(page);
+    await show(page, "/");
+    await expect(page.locator("main")).toContainText("új hír ma");
+    await page.getByTitle("Olvasottnak jelölöm").click();
+    await expect(page.locator("main")).not.toContainText("új hír ma");
+    await reopen(page, "/");
+    await expect(page.locator("main")).toContainText("Piaci hírek");
+    await expect(page.locator("main")).not.toContainText("új hír ma");
   });
 
   test("privacy mode: the news stay readable, nothing personal leaks", async ({ page }) => {
