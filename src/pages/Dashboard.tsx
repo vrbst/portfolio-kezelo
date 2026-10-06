@@ -397,10 +397,26 @@ export default function Dashboard() {
               }
               numericValue={scrub ? scrub.value : summary.totalValueHuf}
               format={(n) => formatMoney(n)}
-              sub={eurEquivalent(
-                scrub ? scrub.value : summary.totalValueHuf,
-                eurHuf,
-              )}
+              sub={
+                <>
+                  {eurEquivalent(
+                    scrub ? scrub.value : summary.totalValueHuf,
+                    eurHuf,
+                  )}
+                  {!scrub && dayChange?.eurPct != null && (
+                    <span
+                      className={`ml-1.5 ${
+                        dayChange.eurPct >= 0
+                          ? "text-[var(--color-positive)]"
+                          : "text-[var(--color-negative)]"
+                      }`}
+                      title="Mai változás EUR-ban"
+                    >
+                      {formatPercent(dayChange.eurPct)}
+                    </span>
+                  )}
+                </>
+              }
               delta={scrub ? scrubDelta?.abs : dayChange?.abs}
               deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
               deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}

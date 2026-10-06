@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
-import { buildValueSeries, dayChangeBreakdown, liveDayOverrides } from "./series";
+import { buildValueSeries, dayChangeBreakdown, eurDayPct, liveDayOverrides } from "./series";
 
 // Invented sample data: a Lightyear account with 10 units of a EUR ETF and
 // 50 EUR of cash. Yesterday: price 100, EUR/HUF 390; today: 110, 400.
@@ -140,5 +140,31 @@ describe("liveDayOverrides — today's move only from quotes that traded today",
 
   it("null when no held quote has a previous close", () => {
     expect(liveDayOverrides({ X: { price: 1 } }, () => false, "2026-10-04")).toBeNull();
+  });
+});
+
+describe("eurDayPct", () => {
+  it("EUR value change: market move plus forint move, flows netted out", () => {
+    // 409 500 HUF @390 = 1050 EUR → 460 000 HUF @400 = 1150 EUR.
+    expect(
+      eurDayPct({ value: 460_000, invested: 0 }, { value: 409_500, invested: 0 }, 400, 390),
+    ).toBeCloseTo(1150 / 1050 - 1, 10);
+  });
+
+  it("a deposit today is not a gain", () => {
+    // Same EUR value plus a 40 000 HUF (100 EUR) deposit → 0 % move.
+    expect(
+      eurDayPct({ value: 440_000, invested: 40_000 }, { value: 400_000, invested: 0 }, 400, 400),
+    ).toBeCloseTo(0, 10);
+  });
+
+  it("flat HUF value with a weaker forint is a EUR loss", () => {
+    expect(
+      eurDayPct({ value: 400_000, invested: 0 }, { value: 400_000, invested: 0 }, 400, 390),
+    ).toBeLessThan(0);
+  });
+
+  it("undefined without an EUR rate", () => {
+    expect(eurDayPct({ value: 1, invested: 0 }, { value: 1, invested: 0 }, undefined, 390)).toBeUndefined();
   });
 });

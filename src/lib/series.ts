@@ -358,6 +358,12 @@ export interface DayChange {
   abs: number;
   /** Fraction vs the earlier sample (undefined if it was 0). */
   pct?: number;
+  /**
+   * The same move in EUR terms (fraction): today's value at today's EUR/HUF vs
+   * yesterday's at yesterday's, flows netted out — the HUF figure plus the
+   * forint's own move. Undefined without an EUR rate.
+   */
+  eurPct?: number;
   /** "ma" when the samples are ≤1 day apart, else the gap ("3 nap"). */
   note: string;
   /** What the move is made of (FX, security prices, bond accrual, rest). */
@@ -541,6 +547,24 @@ export function liveDayOverrides(
   return { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined };
 }
 
+/**
+ * Day move in EUR as a fraction of yesterday's EUR value. Today's flows are
+ * converted at today's rate (they happen today), so only the market move and
+ * the EUR/HUF change remain.
+ */
+export function eurDayPct(
+  last: { value: number; invested: number },
+  prev: { value: number; invested: number },
+  eurNow: number | undefined,
+  eurPrev: number | undefined,
+): number | undefined {
+  if (!eurNow || !eurPrev || !prev.value) return undefined;
+  const prevEur = prev.value / eurPrev;
+  const abs =
+    last.value / eurNow - prevEur - (last.invested - prev.invested) / eurNow;
+  return abs / prevEur;
+}
+
 export function computeDayChange(
   series: ValuePoint[],
   accounts: Account[],
@@ -573,6 +597,12 @@ export function computeDayChange(
     return {
       abs,
       pct: prev.value ? abs / prev.value : undefined,
+      eurPct: eurDayPct(
+        last,
+        prev,
+        fx["EUR"],
+        overrides.fx?.EUR ?? asOf(history?.fx["EUR"], prevDay) ?? fx["EUR"],
+      ),
       note: "ma",
       breakdown: dayChangeBreakdown(
         accounts,
@@ -596,6 +626,12 @@ export function computeDayChange(
   return {
     abs,
     pct: prev.value ? abs / prev.value : undefined,
+    eurPct: eurDayPct(
+      last,
+      prev,
+      fx["EUR"],
+      asOf(history?.fx["EUR"], prev.date) ?? fx["EUR"],
+    ),
     note: gap <= 1 ? "ma" : `${gap} nap`,
     breakdown: dayChangeBreakdown(
       accounts,
