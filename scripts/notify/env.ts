@@ -28,6 +28,9 @@ export interface NotifyEnv {
   positionMovePct: number;
   wealthStepHuf: number;
   drawdownStepPct: number;
+  moveOverrides: Record<string, number>;
+  whySubjects: Record<string, string>;
+  whyModel: string;
   /** Daily news digest (news/): the model Claude Code runs it with. */
   newsModel: string;
   /** Path / name of the Claude Code CLI. */
@@ -46,6 +49,37 @@ function parseEnvFile(): Record<string, string> {
   return out;
 }
 
+export function parseMoveOverrides(s: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const part of s.split(",")) {
+    const m = part.trim().match(/^([^:\s][^:]*?)\s*:\s*(\d+(?:[.,]\d+)?)$/);
+    const pct = m ? Number(m[2].replace(",", ".")) : NaN;
+    if (m && pct > 0) out[m[1].trim().toUpperCase()] = pct;
+  }
+  return out;
+}
+
+export function parseWhySubjects(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of s.split(";")) {
+    const m = part.trim().match(/^([^=\s][^=]*?)\s*=\s*(\S.*)$/);
+    if (m) out[m[1].trim().toUpperCase()] = m[2].trim();
+  }
+  return out;
+}
+
+export function forHolding<T>(
+  map: Record<string, T> | undefined,
+  ids: (string | undefined)[],
+): T | undefined {
+  if (!map) return undefined;
+  for (const id of ids) {
+    const v = id ? map[id.trim().toUpperCase()] : undefined;
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
 export function loadEnv(): NotifyEnv {
   const e = { ...parseEnvFile(), ...process.env } as Record<string, string>;
   return {
@@ -57,10 +91,13 @@ export function loadEnv(): NotifyEnv {
       e.NOTIFY_RESERVE_GRACE_DAYS && Number(e.NOTIFY_RESERVE_GRACE_DAYS) >= 0
         ? Number(e.NOTIFY_RESERVE_GRACE_DAYS)
         : 45,
-    bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
-    positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
+    bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 1,
+    positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 1,
     wealthStepHuf: Number(e.NOTIFY_WEALTH_STEP_HUF) || 1_000_000,
     drawdownStepPct: Number(e.NOTIFY_DRAWDOWN_STEP_PCT) || 5,
+    moveOverrides: parseMoveOverrides(e.NOTIFY_MOVE_PCT_OVERRIDES ?? "WBIT:4"),
+    whySubjects: parseWhySubjects(e.NOTIFY_WHY_SUBJECT ?? "WBIT=Bitcoin (BTC)"),
+    whyModel: e.NEWS_WHY_MODEL || "sonnet",
     newsModel: e.NEWS_MODEL || "opus",
     newsClaudeBin: e.NEWS_CLAUDE_BIN || "claude",
     appUrl: e.APP_URL || "https://vrbst.github.io/portfolio-kezelo/",

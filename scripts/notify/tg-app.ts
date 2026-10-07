@@ -13,9 +13,11 @@
 // What has been sent already lives in .notify/state.json (state.ts).
 
 import { resolve } from "node:path";
-import { NOTIFY_DIR, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
-import { claudeCodeEngine } from "./news/engine";
+import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
+import { claudeCodeEngine, type NewsEngine } from "./news/engine";
 import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
+import { portfolioExposure } from "./news/prompt";
+import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
 import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
 import { loadContext, withGlideAlerts, type Context } from "./data";
 import { loadState, updateState, type State } from "./state";
@@ -85,9 +87,11 @@ export interface HubResponse {
 export interface Deps {
   load: () => Promise<Context>;
   stateFile: string;
-  env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct" | "wealthStepHuf" | "drawdownStepPct">;
+  env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct" | "wealthStepHuf" | "drawdownStepPct"> &
+    Partial<Pick<NotifyEnv, "moveOverrides" | "whySubjects">>;
   /** The daily news digest's AI and storage (built only when needed). */
   news?: () => NewsDeps;
+  why?: () => NewsEngine;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
   runJob?: (job: string) => Promise<"started" | "running">;
 }
@@ -104,6 +108,7 @@ export function defaultDeps(): Deps {
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
     }),
+    why: () => claudeCodeEngine({ bin: env.newsClaudeBin, model: env.whyModel, schema: WHY_JSON_SCHEMA }),
     runJob: hubRunJob,
   };
 }
@@ -196,6 +201,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === "tick") return tick(deps);
       if (req.job === "news-morning") return news(deps, "morning", req.manual === true);
       if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
+      if (req.job === WHY_JOB) return whyMoved(deps);
       return fail(`Ismeretlen job: ${req.job}`);
     default:
       return { v: 1, messages: [] };
@@ -452,6 +458,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile);
   delete st.loadFailingSince;
   const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
+  const asked = st.why?.request?.at;
   const messages = tickMessages(ctx, st, deps.env);
   const kept = new Set((st.priceAlerts ?? []).map((a) => a.id));
   // Save before answering: a kill after this only loses messages, never
@@ -462,11 +469,47 @@ async function tick(deps: Deps): Promise<HubResponse> {
     leftover: { ...st.leftover, answered: cur.leftover?.answered },
     news: cur.news,
     priceAlerts: (cur.priceAlerts ?? []).filter((a) => kept.has(a.id) || !alertIds.has(a.id)),
+    whyTaken: cur.whyTaken,
   }));
+  const request = st.why?.request?.at;
+  if (request && request !== asked && deps.runJob)
+    try {
+      await deps.runJob(WHY_JOB);
+    } catch (e) {
+      console.error("why: job start failed:", (e as Error).message);
+    }
   return { v: 1, messages };
 }
 
 export const PLAN_REMINDER_DAY = 10;
+export const WHY_JOB = "news-why";
+const FX_KEY = "EUR/HUF";
+export const WHY_MAX_RUNS_PER_DAY = 3;
+export const WHY_REQUEST_TTL_MS = 3 * 3_600_000;
+
+async function whyMoved(deps: Deps): Promise<HubResponse> {
+  if (!deps.why) return fail("A „Miért mozdult?” keresés nincs beállítva.");
+  const now = new Date();
+  const st = loadState(deps.stateFile);
+  const req = st.why?.request;
+  if (!req || st.whyTaken === req.at || now.getTime() - Date.parse(req.at) > WHY_REQUEST_TTL_MS)
+    return { v: 1, messages: [] };
+  updateState(deps.stateFile, (cur) => ({ ...cur, whyTaken: req.at }));
+  const [y, m, d] = st.why!.day.split("-").map(Number);
+  const prompt = buildWhyPrompt({
+    day: st.why!.day,
+    weekday: new Date(y, m - 1, d).getDay(),
+    factors: req.factors,
+    exposure: req.exposure,
+  });
+  const started = Date.now();
+  const { answer, costUsd } = await askWhy(deps.why(), prompt, req.factors);
+  console.error(
+    `why: ${answer.items.length} explained in ${Math.round((Date.now() - started) / 1000)} s` +
+      (costUsd != null ? `, ~$${costUsd.toFixed(2)} at API prices` : ""),
+  );
+  return { v: 1, messages: [msg(whyText(req.factors, answer))] };
+}
 
 /** From this hour on Friday the week's report is due (Xetra closes 17:30). */
 export const WEEKLY_REPORT_HOUR = 18;
@@ -521,6 +564,7 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   const marketMovedToday = heldQuotes.length
     ? heldQuotes.some((q) => quotedToday(q, now))
     : quotedToday(ctx.liveQuotes["EUR"], now);
+  const moved: WhyFactor[] = [];
   const dc = ctx.dayChange;
   if (dc?.pct != null && dc.note === "ma" && marketMovedToday) {
     const lv = level(dc.pct, env.bigMovePct);
@@ -532,23 +576,70 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
         ),
       );
     }
+    if (moves.total > 0) moved.push({ key: "portfolio", label: "portfólió", pct: dc.pct });
   }
   const posLines: string[] = [];
   for (const h of held) {
     const q = ctx.liveQuotes[h.instrumentKey];
     if (!q?.prevClose || !q.price || !quotedToday(q, now)) continue;
     const ch = q.price / q.prevClose - 1;
-    const lv = level(ch, env.positionMovePct);
+    const i = h.instrument;
+    const name = shortName(i?.name ?? h.instrumentKey);
+    const ids = [i?.ticker, name, i?.isin, h.instrumentKey];
+    const lv = level(ch, forHolding(env.moveOverrides, ids) ?? env.positionMovePct);
     if (lv > (moves.pos[h.instrumentKey] ?? 0)) {
       moves.pos[h.instrumentKey] = lv;
       // HUF move of the position today: value now minus value at prev close.
       const move = h.marketValueHuf - h.marketValueHuf / (1 + ch);
       posLines.push(
-        `${ch > 0 ? "🚀" : "🔻"} <b>${shortName(h.instrument?.name ?? h.instrumentKey)}: ${pct(ch, 1)}</b> ma (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
+        `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
       );
     }
+    if ((moves.pos[h.instrumentKey] ?? 0) > 0) {
+      const subject = forHolding(env.whySubjects, ids);
+      moved.push({
+        key: h.instrumentKey,
+        label: name,
+        pct: ch,
+        name: i?.name ?? h.instrumentKey,
+        currency: h.currency,
+        ...(i?.type ? { type: i.type } : {}),
+        ...(i?.ticker ? { ticker: i.ticker } : {}),
+        ...(i?.isin ? { isin: i.isin } : {}),
+        ...(subject ? { subject } : {}),
+      });
+    }
+  }
+  const eur = ctx.liveQuotes["EUR"];
+  if (marketMovedToday && eur?.prevClose && eur.price && quotedToday(eur, now)) {
+    const ch = eur.price / eur.prevClose - 1;
+    const lv = level(ch, env.positionMovePct);
+    if (lv > (moves.pos[FX_KEY] ?? 0)) {
+      moves.pos[FX_KEY] = lv;
+      posLines.push(
+        `${ch > 0 ? "🚀" : "🔻"} <b>EUR/HUF: ${pct(ch, 1)}</b> ma (${eur.price.toFixed(2).replace(".", ",")} Ft)`,
+      );
+    }
+    if ((moves.pos[FX_KEY] ?? 0) > 0) moved.push({ key: FX_KEY, label: "EUR/HUF", pct: ch });
   }
   if (posLines.length) out.push(msg(posLines.join("\n")));
+
+  if (st.why?.day !== today) st.why = { day: today, explained: [], runs: 0 };
+  const why = st.why;
+  const unexplained = moved.filter((f) => !why.explained.includes(f.key));
+  const open =
+    why.request != null &&
+    st.whyTaken !== why.request.at &&
+    now.getTime() - Date.parse(why.request.at) < WHY_REQUEST_TTL_MS;
+  if (unexplained.length && !open && why.runs < WHY_MAX_RUNS_PER_DAY) {
+    why.request = {
+      at: now.toISOString(),
+      factors: unexplained,
+      ...(unexplained.some((f) => f.key === "portfolio") ? { exposure: portfolioExposure(ctx) } : {}),
+    };
+    why.explained.push(...unexplained.map((f) => f.key));
+    why.runs++;
+  }
 
   // 3) Stale data: no sync in 2 weeks, price file 4+ days old (the price
   // workflow runs on weekdays only and GitHub often starts it hours late,

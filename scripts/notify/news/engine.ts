@@ -49,7 +49,7 @@ export function parseClaudeCodeOutput(stdout: string): EngineResult {
   };
 }
 
-export function claudeCodeEngine(opts: { bin: string; model: string }): NewsEngine {
+export function claudeCodeEngine(opts: { bin: string; model: string; schema?: object }): NewsEngine {
   return {
     name: "claude-code",
     model: opts.model,
@@ -62,7 +62,7 @@ export function claudeCodeEngine(opts: { bin: string; model: string }): NewsEngi
           // Only reading the web: nothing that touches this machine.
           "--tools", "WebSearch,WebFetch",
           "--allowedTools", "WebSearch,WebFetch",
-          "--json-schema", JSON.stringify(NEWS_JSON_SCHEMA),
+          "--json-schema", JSON.stringify(opts.schema ?? NEWS_JSON_SCHEMA),
         ];
         // Outside the repo: the project's CLAUDE.md is about coding, not news.
         const child = spawn(opts.bin, args, { cwd: tmpdir(), windowsHide: true });

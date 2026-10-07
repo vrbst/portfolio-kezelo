@@ -8,14 +8,17 @@ import { loadSavingsGoals } from "../../src/lib/savings";
 import { loadLeftoverSettings, loadPlanOrder } from "../../src/lib/planPrefs";
 import { allocateIncome, incomeEvents } from "../../src/lib/incomeFlow";
 import { toLocalDay } from "../../src/lib/day";
-import { local, FIX } from "../../src/test/fixture";
+import { local, FIX, VWCE } from "../../src/test/fixture";
 import type { Context } from "./data";
 import { contextAt } from "./testContext";
-import { tickMessages } from "./tg-app";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runHandler, tickMessages, type Deps } from "./tg-app";
 import { fillBondTerms, type BondRatesFile } from "../../src/lib/bondRates";
 import type { BondTerms, Instrument } from "../../src/lib/model";
 import { bondNoticeMessages } from "./bondNotices";
-import type { State } from "./state";
+import type { State, WhyState } from "./state";
 
 // Rules that must hold on ANY day and for ANY amount, checked on many random
 // cases of the invented portfolio (src/test/fixture.ts). Each one guards a
@@ -351,4 +354,81 @@ describe("állampapír-értesítések", () => {
       { numRuns: RUNS },
     );
   });
+});
+
+describe("Miért mozdult?: on any day's sequence of moves", () => {
+  const step = fc.oneof(
+    fc.record({
+      kind: fc.constant("tick" as const),
+      vwce: fc.constantFrom(0, 0.005, 0.012, -0.025),
+      eur: fc.constantFrom(0, 0.011, -0.013),
+    }),
+    fc.record({ kind: fc.constant("job" as const) }),
+  );
+
+  it("each factor is searched at most once a day, in at most 3 runs, one answer per run", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(step, { minLength: 1, maxLength: 10 }), async (steps) => {
+        const dir = mkdtempSync(join(tmpdir(), "why-"));
+        const started: string[] = [];
+        const searched: string[] = [];
+        let answers = 0;
+        let minute = 0;
+        let moves: Record<string, number> = {};
+        const stateFile = join(dir, "state.json");
+        const request = () =>
+          (JSON.parse(readFileSync(stateFile, "utf8")) as { why?: WhyState }).why?.request;
+        const engine = {
+          name: "fake",
+          model: "teszt",
+          run: async () => {
+            const factors = request()!.factors;
+            searched.push(...factors.map((f) => f.key));
+            return { output: { items: factors.map((f) => ({ factor: f.key, explanation: "ok", sources: [] })) } };
+          },
+        };
+        const deps: Deps = {
+          load: async () => {
+            const ctx = contextAt([2026, 10, 14, 9, (minute += 5)]);
+            for (const [key, ch] of Object.entries(moves)) {
+              const q = ctx.liveQuotes[key];
+              q.price = q.prevClose! * (1 + ch);
+            }
+            return ctx;
+          },
+          stateFile,
+          env: { bigMovePct: 1, positionMovePct: 1, wealthStepHuf: 1_000_000, drawdownStepPct: 5 },
+          why: () => engine,
+          runJob: async (job) => {
+            started.push(job);
+            return "started";
+          },
+        };
+        const req = (job: string) =>
+          JSON.stringify({ v: 1, id: "r", app: "p", now: "", type: "job", job, manual: false });
+        try {
+          for (const s of steps) {
+            if (s.kind === "tick") {
+              moves = { [VWCE]: s.vwce, EUR: s.eur };
+              await runHandler(req("tick"), deps);
+            } else {
+              const r = JSON.parse(await runHandler(req("news-why"), deps)) as { messages?: unknown[] };
+              answers += r.messages?.length ?? 0;
+            }
+          }
+          expect(new Set(searched).size).toBe(searched.length);
+          expect(started.length).toBeLessThanOrEqual(3);
+          expect(answers).toBeLessThanOrEqual(started.length);
+          const why = existsSync(stateFile)
+            ? (JSON.parse(readFileSync(stateFile, "utf8")) as { why?: WhyState }).why
+            : undefined;
+          expect(why?.runs ?? 0).toBeLessThanOrEqual(3);
+        } finally {
+          vi.useRealTimers();
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }),
+      { numRuns: 15 },
+    );
+  }, 120_000);
 });

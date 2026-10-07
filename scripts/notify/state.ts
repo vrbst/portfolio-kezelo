@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import type { GlideSignals } from "../../src/lib/rebalance";
 import type { NewsEdition } from "../../src/lib/newsSchema";
+import type { WhyFactor } from "./news/why";
 
 export interface State {
   /** Alert id → when it was first sent. Pruned when the alert resolves. */
@@ -48,6 +49,8 @@ export interface State {
     maturity?: Record<string, string>;
     periods?: Record<string, { start: string; rate: number }>;
   };
+  why?: WhyState;
+  whyTaken?: string;
 }
 
 export interface WealthState {
@@ -67,6 +70,13 @@ export interface PriceAlert {
   op: "below" | "above";
   level: number;
   createdAt: string;
+}
+
+export interface WhyState {
+  day: string;
+  explained: string[];
+  runs: number;
+  request?: { at: string; factors: WhyFactor[]; exposure?: string[] };
 }
 
 export type NewsState = {

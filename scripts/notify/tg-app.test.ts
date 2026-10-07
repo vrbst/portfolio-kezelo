@@ -7,11 +7,14 @@ import type { Alert } from "../../src/lib/alerts";
 import type { PortfolioSnapshot } from "../../src/lib/sync";
 import type { Context } from "./data";
 import { withTimeout } from "./data";
-import { ROOT } from "./env";
+import { ROOT, parseMoveOverrides, parseWhySubjects } from "./env";
 import { contextAt } from "./testContext";
 import { alertMessages, runHandler, searchEdition, type Deps, type HubResponse } from "./tg-app";
 import { fakeEngine, memoryStore } from "./news/testFakes";
 import { fixtureNewsBody } from "../../src/test/newsFixture";
+import { VWCE, WBIT } from "../../src/test/fixture";
+import { article } from "./news/why";
+import type { WhyState } from "./state";
 
 // The tg-hub handler at the protocol level: a request JSON in, a response
 // JSON out, on the invented portfolio (src/test/fixture.ts), no network.
@@ -543,4 +546,157 @@ describe("process", () => {
     expect(p.stdout).toBe("");
     expect(p.stderr).toContain("napló");
   }, 40_000);
+});
+
+describe("Miért mozdult?", () => {
+  const env1 = { bigMovePct: 1, positionMovePct: 1, wealthStepHuf: 1_000_000, drawdownStepPct: 5 };
+  const moveQuotes = (moves: Record<string, number>) => (ctx: Context) => {
+    for (const [key, ch] of Object.entries(moves)) {
+      const q = ctx.liveQuotes[key];
+      q.price = Math.round(q.prevClose! * (1 + ch) * 10_000) / 10_000;
+    }
+    return ctx;
+  };
+  const setup = (moves: Record<string, number> = {}, extra: Partial<Deps["env"]> = {}) => {
+    const answers: unknown[] = [];
+    const engine = fakeEngine(answers);
+    const started: string[] = [];
+    let current = moves;
+    let minute = 0;
+    const deps: Deps = {
+      load: async () => moveQuotes(current)(contextAt([2026, 10, 14, 10, (minute += 5)])),
+      stateFile,
+      env: { ...env1, ...extra },
+      why: () => engine,
+      runJob: async (job) => {
+        started.push(job);
+        return "started";
+      },
+    };
+    const request = () => (readState().why as WhyState).request!;
+    const answerAll = () =>
+      answers.push({
+        items: request().factors.map((f) => ({
+          factor: f.key,
+          explanation: `Ok: ${f.key} <hír>`,
+          sources: [{ title: "Reuters", url: "https://example.com/a?b=1&c=2" }],
+        })),
+      });
+    return { deps, engine, started, request, answerAll, setMoves: (m: Record<string, number>) => (current = m) };
+  };
+
+  it("the move alert goes out at once and starts one search; its answer names the factor, not the numbers", async () => {
+    const s = setup();
+    const tick = await call(jobReq(), s.deps);
+    expect(tick.messages!.some((m) => m.html.includes("−1,5%</b> ma"))).toBe(true);
+    expect(s.started).toEqual(["news-why"]);
+    expect(s.request().factors.map((f) => f.key)).toContain(WBIT);
+    s.answerAll();
+    const r = await call(jobReq("news-why"), s.deps);
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].priority).toBe("normal");
+    const html = r.messages![0].html;
+    expect(html).toMatch(new RegExp(`🔎 <b>Miért mozdult a .+\\?</b> Ok: ${WBIT} &lt;hír&gt;`));
+    expect(html).toContain('<a href="https://example.com/a?b=1&amp;c=2">Reuters</a>');
+    expect(html).not.toMatch(/\d%|Ft\b/);
+    expect(s.engine.prompts[0]).toContain(`factor: "${WBIT}"`);
+    expect(s.engine.prompts[0]).not.toMatch(/\d Ft/);
+
+    expect(await call(jobReq("news-why"), s.deps)).toEqual({ v: 1, messages: [] });
+    await call(jobReq(), s.deps);
+    expect(s.started).toEqual(["news-why"]);
+    expect(s.engine.prompts).toHaveLength(1);
+  });
+
+  it("factors that move together are explained in one search, one paragraph each; EUR/HUF alerts too", async () => {
+    const s = setup({ [VWCE]: 0.012, EUR: 0.011 });
+    const tick = await call(jobReq(), s.deps);
+    expect(tick.messages!.some((m) => m.html.includes("<b>EUR/HUF: +1,1%</b> ma"))).toBe(true);
+    const keys = s.request().factors.map((f) => f.key);
+    expect(keys).toEqual(expect.arrayContaining([VWCE, WBIT, "EUR/HUF"]));
+    s.answerAll();
+    const html = (await call(jobReq("news-why"), s.deps)).messages![0].html;
+    expect(html).toContain("Miért mozdult az EUR/HUF?");
+    expect(html.split("\n\n")).toHaveLength(keys.length);
+    expect(s.started).toEqual(["news-why"]);
+  });
+
+  it("a factor that moves later gets its own search once the first is taken; at most 3 a day", async () => {
+    const s = setup();
+    await call(jobReq(), s.deps);
+    s.setMoves({ EUR: 0.011 });
+    await call(jobReq(), s.deps);
+    expect(s.started).toEqual(["news-why"]);
+    s.answerAll();
+    await call(jobReq("news-why"), s.deps);
+    await call(jobReq(), s.deps);
+    expect(s.started).toEqual(["news-why", "news-why"]);
+    expect(s.request().factors.map((f) => f.key)).toEqual(["EUR/HUF"]);
+    expect((readState().why as WhyState).runs).toBe(2);
+
+    const st = readState();
+    writeFileSync(stateFile, JSON.stringify({ ...st, why: { ...(st.why as WhyState), explained: [], runs: 3 }, whyTaken: undefined }));
+    s.setMoves({ [VWCE]: 0.02 });
+    await call(jobReq(), s.deps);
+    expect(s.started).toHaveLength(2);
+  });
+
+  it("a failed search is a job error and is not retried", async () => {
+    const s = setup();
+    await call(jobReq(), s.deps);
+    expect(await call(jobReq("news-why"), s.deps)).toMatchObject({ ok: false, error: "no more answers" });
+    expect(await call(jobReq("news-why"), s.deps)).toEqual({ v: 1, messages: [] });
+  });
+
+  it("without a move alert nothing is searched", async () => {
+    const s = setup();
+    const deps = { ...s.deps, env: { ...env1, bigMovePct: 2, positionMovePct: 5 } };
+    await call(jobReq(), deps);
+    expect(s.started).toEqual([]);
+    expect(await call(jobReq("news-why"), deps)).toEqual({ v: 1, messages: [] });
+  });
+
+  it("a per-instrument threshold (by ticker or ISIN) replaces the default one for that instrument", async () => {
+    for (const key of ["WBIT", WBIT.toLowerCase()]) {
+      const quiet = setup({}, { moveOverrides: { [key.toUpperCase()]: 4 } });
+      const tick = await call(jobReq(), quiet.deps);
+      expect(tick.messages!.some((m) => m.html.includes("−1,5%</b> ma"))).toBe(false);
+      expect(quiet.started).toEqual([]);
+      rmSync(stateFile, { force: true });
+    }
+    const loud = setup({ [WBIT]: -0.045 }, { moveOverrides: { WBIT: 4 } });
+    const tick = await call(jobReq(), loud.deps);
+    expect(tick.messages!.some((m) => m.html.includes("<b>WBIT: −4,5%</b> ma"))).toBe(true);
+    expect(loud.request().factors.map((f) => f.key)).toEqual([WBIT]);
+  });
+
+  it("the search subject of a tracker is its underlying, the message keeps the instrument's name", async () => {
+    const s = setup({ [VWCE]: 0.012 }, { whySubjects: { WBIT: "Bitcoin (BTC)" } });
+    await call(jobReq(), s.deps);
+    s.answerAll();
+    const html = (await call(jobReq("news-why"), s.deps)).messages![0].html;
+    expect(html).toContain("Miért mozdult a WBIT?");
+    const prompt = s.engine.prompts[0];
+    const wbit = prompt.split("\n").find((l) => l.includes(`factor: "${WBIT}"`))!;
+    expect(wbit).toContain("keresd: Bitcoin (BTC) árfolyammozgásának oka");
+    expect(wbit).toContain("az EUR/USD mozgása is számíthat");
+    const vwce = prompt.split("\n").find((l) => l.includes(`factor: "${VWCE}"`))!;
+    expect(vwce).toContain("a követett index vagy piac");
+    expect(vwce).not.toContain("keresd:");
+  });
+
+  it("override settings: malformed entries are ignored", () => {
+    expect(parseMoveOverrides("WBIT:4, xyz : 2.5,bad,:3,ABC:0,DEF:x,")).toEqual({ WBIT: 4, XYZ: 2.5 });
+    expect(parseMoveOverrides("")).toEqual({});
+    expect(parseWhySubjects("WBIT=Bitcoin (BTC); rossz ; arany = Arany, unciánként;=x")).toEqual({
+      WBIT: "Bitcoin (BTC)",
+      ARANY: "Arany, unciánként",
+    });
+  });
+
+  it("the article before the factor's name", () => {
+    expect(article("EUR/HUF")).toBe("az");
+    expect(article("portfólió")).toBe("a");
+    expect(article("VWCE")).toBe("a");
+  });
 });

@@ -61,6 +61,18 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   tartott részvényt és ETF-et: aktuális ár saját devizában és napi változás.
   Ahol nincs élő ár, az
   árfolyamfájl záróára jelenik meg, jelölve.
+- **Nagy mozgás és „Miért mozdult?” a botban** – ha a portfólió, egy tartott
+  papír vagy az EUR/HUF aznap legalább 1%-ot mozdul (`NOTIFY_BIG_MOVE_PCT`,
+  `NOTIFY_POSITION_MOVE_PCT` a `.notify/.env`-ben), a riasztás azonnal megy;
+  utána egy rövid AI-hírkeresés (`news-why` job, alapból `sonnet`,
+  `NEWS_WHY_MODEL`) külön üzenetben megírja, mi mozgatta, forrásokkal. Egy
+  tényezőt naponta egyszer magyaráz, az egyszerre mozdulókat egy keresésben,
+  és naponta legfeljebb 3 keresés fut. Csak Telegramon jelenik meg, az app
+  Hírek oldalán nem. Papíronként saját küszöb adható
+  (`NOTIFY_MOVE_PCT_OVERRIDES="WBIT:4,XYZ:2"`, tickerre, ISIN-re vagy névre;
+  alapból `WBIT:4`), és egy mögöttes eszközt követő papírnál megadható, mire
+  keressen a „Miért?” (`NOTIFY_WHY_SUBJECT="WBIT=Bitcoin (BTC)"`, több
+  pontosvesszővel elválasztva; alapból ez). A hibás bejegyzéseket kihagyja.
 - **Tervek és mutatók a botban** – `/terv`: az e havi Havi terv (mit vegyél,
   melyik számlán); `/palya`: célpálya-súlyok a sávokkal, végcél, sávon kívül
   a javasolt lépések; `/hozam`: XIRR, TWR, VWCE-összevetés, időszakos és

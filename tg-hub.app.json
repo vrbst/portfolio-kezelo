@@ -52,6 +52,13 @@
       "catchUpWindow": "4h",
       "timeout": "15m",
       "expectSuccessWithin": "4d"
+    },
+    {
+      "id": "news-why",
+      "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
+      "every": "30m",
+      "timeout": "15m",
+      "expectSuccessWithin": "1d"
     }
   ],
   "health": { "repeatEvery": "6h" }
