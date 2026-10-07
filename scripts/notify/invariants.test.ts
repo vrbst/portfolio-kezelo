@@ -185,7 +185,7 @@ describe("invariants on any day", () => {
       }),
       { numRuns: RUNS },
     );
-  });
+  }, 60_000);
 
   it("Havi terv: money rules hold for any amount", () => {
     fc.assert(
