@@ -6,6 +6,7 @@
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
+import { usageFromClaudeOutput, type AiUsage } from "../aiUsage";
 
 export interface EngineResult {
   /** The structured answer (already parsed), or the raw text to parse. */
@@ -49,12 +50,49 @@ export function parseClaudeCodeOutput(stdout: string): EngineResult {
   };
 }
 
-export function claudeCodeEngine(opts: { bin: string; model: string; schema?: object }): NewsEngine {
+export interface EngineRun {
+  ok: boolean;
+  error?: string;
+  durationMs: number;
+  usage?: AiUsage;
+}
+
+export function claudeCodeEngine(opts: {
+  bin: string;
+  model: string;
+  schema?: object;
+  onRun?: (run: EngineRun) => void;
+}): NewsEngine {
   return {
     name: "claude-code",
     model: opts.model,
     run: (prompt) =>
-      new Promise((resolve, reject) => {
+      new Promise((resolveRun, rejectRun) => {
+        const started = Date.now();
+        let usage: AiUsage | undefined;
+        let reported = false;
+        const report = (ok: boolean, error?: string) => {
+          if (reported) return;
+          reported = true;
+          try {
+            opts.onRun?.({
+              ok,
+              ...(error ? { error } : {}),
+              durationMs: Date.now() - started,
+              ...(usage ? { usage } : {}),
+            });
+          } catch (e) {
+            console.error("ai-usage:", (e as Error).message);
+          }
+        };
+        const resolve = (r: EngineResult) => {
+          report(true);
+          resolveRun(r);
+        };
+        const reject = (e: Error) => {
+          report(false, e.message.slice(0, 200));
+          rejectRun(e);
+        };
         const args = [
           "-p",
           "--output-format", "json",
@@ -80,6 +118,7 @@ export function claudeCodeEngine(opts: { bin: string; model: string; schema?: ob
         });
         child.on("close", (code) => {
           clearTimeout(timer);
+          usage = usageFromClaudeOutput(out);
           if (code !== 0 && !out.trim())
             return reject(new Error(`A Claude Code ${code} kóddal állt le: ${err.trim().slice(0, 300)}`));
           try {

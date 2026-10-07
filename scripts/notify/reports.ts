@@ -58,6 +58,7 @@ import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
+import { weeklyAiLine } from "./aiUsage";
 
 // ---- formatting -----------------------------------------------------------
 
@@ -639,6 +640,8 @@ export function weeklyText(ctx: Context): string {
     );
   if (ctx.alerts.length)
     lines.push("", `⚠️ ${ctx.alerts.length} aktív teendő – /teendok`);
+  const ai = weeklyAiLine(ctx.aiUsage, ctx.at);
+  if (ai) lines.push("", ai);
   return lines.join("\n");
 }
 

@@ -14,7 +14,8 @@
 
 import { resolve } from "node:path";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
-import { claudeCodeEngine, type NewsEngine } from "./news/engine";
+import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
+import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
 import { portfolioExposure } from "./news/prompt";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
@@ -90,26 +91,57 @@ export interface Deps {
   env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct" | "wealthStepHuf" | "drawdownStepPct"> &
     Partial<Pick<NotifyEnv, "moveOverrides" | "whySubjects">>;
   /** The daily news digest's AI and storage (built only when needed). */
-  news?: () => NewsDeps;
+  news?: (job?: string) => NewsDeps;
   why?: () => NewsEngine;
+  aiUsageFile?: string;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
   runJob?: (job: string) => Promise<"started" | "running">;
 }
 
 export function defaultDeps(): Deps {
   const env = loadEnv();
+  const aiUsageFile = resolve(NOTIFY_DIR, "ai-usage.jsonl");
+  const logRun = (job: string, model: string) => (run: EngineRun) =>
+    appendAiUsage(aiUsageFile, aiUsageRecord(job, model, run));
   return {
-    load: () => loadContext(env),
+    load: () => loadContext(env, aiUsageFile),
     stateFile: resolve(NOTIFY_DIR, "state.json"),
     env,
-    news: () => ({
-      engine: claudeCodeEngine({ bin: env.newsClaudeBin, model: env.newsModel }),
+    news: (job = "news") => ({
+      engine: claudeCodeEngine({ bin: env.newsClaudeBin, model: env.newsModel, onRun: logRun(job, env.newsModel) }),
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
     }),
-    why: () => claudeCodeEngine({ bin: env.newsClaudeBin, model: env.whyModel, schema: WHY_JSON_SCHEMA }),
+    why: () =>
+      claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.whyModel,
+        schema: WHY_JSON_SCHEMA,
+        onRun: logRun(WHY_JOB, env.whyModel),
+      }),
+    aiUsageFile,
     runJob: hubRunJob,
+  };
+}
+
+export function aiUsageRecord(job: string, model: string, run: EngineRun, at = new Date()): AiUsageRecord {
+  const u = run.usage;
+  return {
+    at: at.toISOString(),
+    job,
+    model,
+    ok: run.ok,
+    ...(run.error ? { error: run.error } : {}),
+    inputTokens: u?.inputTokens ?? 0,
+    outputTokens: u?.outputTokens ?? 0,
+    cacheCreationTokens: u?.cacheCreationTokens ?? 0,
+    cacheReadTokens: u?.cacheReadTokens ?? 0,
+    webSearches: u?.webSearches ?? 0,
+    ...(u?.turns != null ? { turns: u.turns } : {}),
+    durationMs: u?.durationMs ?? run.durationMs,
+    ...(u?.costUsd != null ? { costUsd: u.costUsd } : {}),
+    ...(u?.models ? { models: u.models } : {}),
   };
 }
 
@@ -189,6 +221,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.command === "hirek") return latestNews(deps);
       if (req.command === "hirkereses") return searchNews(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
+      if (req.command === "koltseg") return aiCost(deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -236,6 +269,11 @@ async function contextFor(deps: Deps): Promise<Context | string> {
     console.error("load error:", (e as Error).message);
     return loadErrorText(e);
   }
+}
+
+function aiCost(deps: Deps): HubResponse {
+  const records = deps.aiUsageFile ? readAiUsage(deps.aiUsageFile) : [];
+  return { v: 1, messages: [msg(aiCostText(records, new Date()))] };
 }
 
 async function command(name: string, deps: Deps): Promise<HubResponse> {
@@ -317,7 +355,7 @@ async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<
     console.error(`news: ${today} ${edition} done already`);
     return { v: 1, messages: [] };
   }
-  const nd = deps.news();
+  const nd = deps.news(onDemand ? "hirkereses" : `news-${edition}`);
   let run;
   try {
     run = await makeDigest(ctx, nd, edition, { reuseLocal: manual && !onDemand });

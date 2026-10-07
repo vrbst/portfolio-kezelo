@@ -81,6 +81,7 @@ import {
   withBondRates,
   type BondRatesFile,
 } from "../../src/lib/bondRates";
+import { readAiUsage, type AiUsageRecord } from "./aiUsage";
 
 export interface Context {
   at: Date;
@@ -112,6 +113,7 @@ export interface Context {
   baseAlerts: Alert[];
   /** Dismissed / seen history synced from the app. */
   alertState: AlertState;
+  aiUsage?: AiUsageRecord[];
 }
 
 async function fetchJson<T>(
@@ -176,7 +178,7 @@ function dropDeleted(snap: PortfolioSnapshot) {
   };
 }
 
-export async function loadContext(env: NotifyEnv): Promise<Context> {
+export async function loadContext(env: NotifyEnv, aiUsageFile?: string): Promise<Context> {
   const raw = `https://raw.githubusercontent.com/${env.pricesRepo}/main/public`;
   const [snapshot, priceFile, history, bondRates] = await Promise.all([
     loadSnapshot(env),
@@ -198,7 +200,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     withTimeout(fetchLivePrices(targets), 30_000, {} as Record<string, LiveQuote>),
   ]);
 
-  return buildContext({
+  const ctx = buildContext({
     snapshot,
     priceFile,
     history,
@@ -209,6 +211,8 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     idleCashHuf: env.idleCashHuf,
     reserveGraceDays: env.reserveGraceDays,
   });
+  if (aiUsageFile) ctx.aiUsage = readAiUsage(aiUsageFile);
+  return ctx;
 }
 
 export interface ContextInput {

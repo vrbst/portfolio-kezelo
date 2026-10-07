@@ -87,6 +87,15 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   `/riasztas torol 1`; teljesülés után törlődik); január 1-jén éves zárás;
   május 20-ig szja-emlékeztető a TBSZ-en kívüli számlák előző évi
   jövedelméről; és ha egy tartott papírnak 7+ napja nincs új ára.
+- **AI-felhasználás a botban** – minden AI-futás (reggeli és esti hírek,
+  `/hirkereses`, „Miért mozdult?”, az újrapróbálásokkal együtt) egy sort ír a
+  `.notify/ai-usage.jsonl`-be: modell, tokenek (be, ki, cache), webes
+  keresések, lépések, futási idő, „API-áron” számolt $, siker vagy hiba. A
+  napló 180 napot (legfeljebb 5000 sort) tart meg, és az írása soha nem
+  buktat el egy jobot. A `/koltseg` az elmúlt 7 és 30 nap összesítését küldi
+  feladatonként és modellenként, a heti összefoglaló pedig egy sort
+  („🤖 AI: 12 futás, ~$4,80 API-áron (előző hét: $3,90)”). A $ csak
+  tájékoztató: a futások az előfizetés keretéből mennek.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz
