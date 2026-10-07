@@ -333,7 +333,8 @@ export function computeAccountSummary(
         // Incoming money: net of fees is what actually hits the cash pocket.
         const proceeds = Math.abs(t.netAmount ?? t.grossAmount ?? 0);
         if (p && p.qty > 0) {
-          const soldFrac = qty > 0 ? Math.min(qty / p.qty, 1) : 1;
+          const soldQty = qty > 0 ? Math.min(qty, p.qty) : p.qty;
+          const soldFrac = soldQty / p.qty;
           const costOut = p.cost * soldFrac;
           const realized = proceeds - costOut;
           p.realized += realized;
@@ -345,7 +346,7 @@ export function computeAccountSummary(
               ? proceeds
               : proceeds * histFxRate(history, p.ccy, t.date, fx);
           realizedPlHuf += proceedsHuf - p.costHuf * soldFrac;
-          p.qty -= qty;
+          p.qty -= soldQty;
           p.cost -= costOut;
           p.costHuf -= p.costHuf * soldFrac;
           p.costDateMs -= p.costDateMs * soldFrac;

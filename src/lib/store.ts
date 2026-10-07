@@ -51,6 +51,7 @@ import {
   unionIds,
   unionSnapshots,
   unionAccounts,
+  keepLocalRaw,
 } from "./syncMerge";
 
 // Hooks live in storeHooks.ts; re-exported so `from "./store"` keeps working.
@@ -293,6 +294,7 @@ async function applySnapshotLocal(
   const deletedReminderIds = snap.deletedReminderIds ?? [];
   const deletedAlertIds = snap.deletedAlertIds ?? [];
   const deletedAccounts = snap.deletedAccounts ?? {};
+  const transactions = keepLocalRaw(snap.transactions, get().transactions);
   await purgeAccountsFromDb(
     dropDeletedAccounts(get().accounts, get().transactions, deletedAccounts)
       .removedIds,
@@ -300,7 +302,7 @@ async function applySnapshotLocal(
   await Promise.all([
     db.accounts.bulkPut(snap.accounts),
     db.instruments.bulkPut(snap.instruments),
-    db.transactions.bulkPut(snap.transactions),
+    db.transactions.bulkPut(transactions),
     setMeta("deletedAccounts", deletedAccounts),
     setMeta("alertState", snap.alertState ?? {}),
     setMeta("goals", snap.goals ?? []),
@@ -315,7 +317,7 @@ async function applySnapshotLocal(
   set({
     accounts: snap.accounts,
     instruments: snap.instruments,
-    transactions: snap.transactions,
+    transactions,
     deletedAccounts,
     alertState: snap.alertState ?? {},
     goals: snap.goals ?? [],

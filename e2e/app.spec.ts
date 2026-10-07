@@ -248,6 +248,41 @@ test("the app shows the same total the bot computes", async ({ page }) => {
     .toContain(`${digits}Ft`);
 });
 
+test.describe("dashboard value chart", () => {
+  const tickTexts = (page: Page, axis: "x" | "y") =>
+    page.locator(`main .recharts-${axis}Axis-tick-labels .recharts-cartesian-axis-tick-value`).allTextContents();
+
+  test("opens on Hozam; in privacy mode the axis amounts are masked", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/");
+    await expect(page.getByRole("heading", { name: "Hozam az időben" })).toBeVisible();
+    await expect.poll(async () => (await tickTexts(page, "y")).length).toBeGreaterThan(0);
+    expect((await tickTexts(page, "y")).every((t) => t.trim() === "•••")).toBe(true);
+    const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name));
+    expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
+  });
+
+  test("the chosen view is kept after a reload; the short ranges show day labels", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/");
+    await page.getByRole("button", { name: "Érték", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Érték az időben" })).toBeVisible();
+    await reopen(page, "/");
+    await expect(page.getByRole("heading", { name: "Érték az időben" })).toBeVisible();
+    const week = page.getByRole("button", { name: "Utolsó 7 nap" });
+    await expect(week).toBeEnabled();
+    await week.click();
+    await expect(week).toHaveAttribute("aria-pressed", "true");
+    await expect
+      .poll(async () => {
+        const ticks = await tickTexts(page, "x");
+        return ticks.length >= 3 && ticks.every((t) => /^\d{2}\.\s?\d{2}\.?$/.test(t.trim()));
+      })
+      .toBe(true);
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+  });
+});
+
 test.describe("glide-path editor", () => {
   async function openEditor(page: Page, privacy = false) {
     const errors = await openSeeded(page, { privacy });

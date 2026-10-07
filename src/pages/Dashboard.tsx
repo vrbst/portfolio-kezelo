@@ -31,6 +31,16 @@ import {
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
+import {
+  RANGES,
+  effectiveRange,
+  loadChartMode,
+  profitBase,
+  rangeAvailability,
+  saveChartMode,
+  sliceRange,
+  type RangeKey,
+} from "../lib/chartRange";
 import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
@@ -62,42 +72,6 @@ import { CalendarClock, Landmark, Coins as CoinsIcon } from "lucide-react";
 import { SERIES_COLORS } from "../lib/skin";
 
 const COLORS = SERIES_COLORS;
-
-type RangeKey = "1w" | "2w" | "1m" | "3m" | "6m" | "1y" | "ytd" | "max";
-
-const RANGES: { key: RangeKey; label: string }[] = [
-  { key: "1w", label: "1 hét" },
-  { key: "2w", label: "2 hét" },
-  { key: "1m", label: "1H" },
-  { key: "3m", label: "3H" },
-  { key: "6m", label: "6H" },
-  { key: "1y", label: "1É" },
-  { key: "ytd", label: "Idei" },
-  { key: "max", label: "Max" },
-];
-
-/** Earliest YYYY-MM-DD to keep for a range (null = everything). */
-function rangeCutoff(key: RangeKey, now = new Date()): string | null {
-  if (key === "max") return null;
-  const d = new Date(now);
-  if (key === "ytd") return `${d.getFullYear()}-01-01`;
-  const days =
-    key === "1w"
-      ? 7
-      : key === "2w"
-        ? 14
-        : key === "1m"
-          ? 30
-          : key === "3m"
-            ? 90
-            : key === "6m"
-              ? 180
-              : 365;
-  d.setDate(d.getDate() - days);
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
 
 /** Short Hungarian "how long ago" label for the live-price freshness pill. */
 function relTime(iso?: string): string | null {
@@ -176,26 +150,25 @@ export default function Dashboard() {
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
   const reduceMotion = useReducedMotion();
 
-  const [range, setRange] = useState<RangeKey>("max");
-  const [chartMode, setChartMode] = useState<ChartMode>("profit");
+  const [wantedRange, setRange] = useState<RangeKey>("max");
+  const [chartMode, setChartModeState] = useState<ChartMode>(loadChartMode);
+  const setChartMode = (mode: ChartMode) => {
+    setChartModeState(mode);
+    saveChartMode(mode);
+  };
 
   // Which ranges actually contain ≥2 points (others are disabled, not silent).
-  const rangeAvail = useMemo(() => {
-    const map = {} as Record<RangeKey, boolean>;
-    for (const r of RANGES) {
-      const cutoff = rangeCutoff(r.key);
-      map[r.key] =
-        !cutoff || valueSeries.filter((p) => p.date >= cutoff).length >= 2;
-    }
-    return map;
-  }, [valueSeries]);
+  const rangeAvail = useMemo(
+    () => rangeAvailability(valueSeries),
+    [valueSeries],
+  );
+  const range = effectiveRange(wantedRange, rangeAvail);
 
-  const rangedSeries = useMemo(() => {
-    const cutoff = rangeCutoff(range);
-    if (!cutoff) return valueSeries;
-    const f = valueSeries.filter((p) => p.date >= cutoff);
-    return f.length >= 2 ? f : valueSeries;
-  }, [valueSeries, range]);
+  const rangedSeries = useMemo(
+    () => sliceRange(valueSeries, range),
+    [valueSeries, range],
+  );
+  const rangedProfitBase = profitBase(rangedSeries, range);
 
   // Chart scrubbing: while hovering the value chart the hero card shows that
   // day's value and the market move since the range start (flows netted out).
@@ -493,7 +466,9 @@ export default function Dashboard() {
                       : "Érték az időben"}
                     <InfoTip>
                       {chartMode === "profit"
-                        ? "Napi hozam (érték − befektetett tőke)."
+                        ? range === "max"
+                          ? "Napi hozam (érték − befektetett tőke)."
+                          : "Hozam az időszak eleje óta (érték − befektetett tőke, a kezdőnaphoz képest; a be- és kifizetések nem számítanak bele)."
                         : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)."}
                     </InfoTip>
                   </h2>
@@ -525,7 +500,10 @@ export default function Dashboard() {
                         key={r.key}
                         onClick={() => setRange(r.key)}
                         disabled={!rangeAvail[r.key]}
-                        className={`rounded-md px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-30 ${
+                        title={r.title}
+                        aria-label={r.title}
+                        aria-pressed={range === r.key}
+                        className={`rounded-md px-1.5 py-1 transition sm:px-2.5 disabled:cursor-not-allowed disabled:opacity-30 ${
                           range === r.key
                             ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
                             : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
@@ -540,6 +518,7 @@ export default function Dashboard() {
               <ValueChart
                 data={rangedSeries}
                 mode={chartMode}
+                profitBase={rangedProfitBase}
                 onScrub={setScrub}
               />
             </Card>

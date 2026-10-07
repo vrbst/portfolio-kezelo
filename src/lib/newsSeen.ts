@@ -19,7 +19,7 @@ export function loadNewsSeen(): string[] {
 /** Both lists, no duplicates, the latest few kept (only today's matter). */
 export function mergeNewsSeen(a: unknown, b: unknown): string[] {
   const list = (x: unknown) => (Array.isArray(x) ? x.filter((k): k is string => typeof k === "string") : []);
-  return [...new Set([...list(a), ...list(b)])].slice(-KEEP);
+  return [...new Set([...list(a), ...list(b)])].sort().slice(-KEEP);
 }
 
 export function saveNewsSeen(seen: string[]) {

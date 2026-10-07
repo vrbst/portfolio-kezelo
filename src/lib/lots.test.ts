@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Transaction } from "./model";
-import { purchaseLots } from "./lots";
+import { bondLots, purchaseLots } from "./lots";
+import { bondMarketValue, bondValuationMs } from "./bonds";
 
 // Invented sample data: three buys of a EUR ETF on two accounts, then a sell
 // on the first account that eats its oldest lot first (FIFO, per account).
@@ -43,5 +44,25 @@ describe("purchaseLots", () => {
     expect(b.unitCostCcy).toBeCloseTo(110);
     // The held quantities add up to the position.
     expect(r.lots.reduce((s, l) => s + l.quantity, 0)).toBe(13);
+  });
+
+  it("a sell without a quantity closes that account's lots, like computePortfolio", () => {
+    const closeA: Transaction = { id: "s2", accountId: "a", date: at(2025, 7, 1), type: "redemption", instrumentKey: "ETF", currency: "EUR", grossAmount: 1_100, netAmount: 1_100 };
+    const r2 = purchaseLots("ETF", [...TXS, closeA], new Map([["ETF", ETF]]), new Map([["ETF", 130]]), { EUR: 410 });
+    expect(r2.lots.map((l) => [l.accountId, l.quantity])).toEqual([["b", 5]]);
+  });
+});
+
+describe("bondLots", () => {
+  it("a T-bill lot accretes from its LOCAL purchase day, like the holdings row", () => {
+    const DKJ: Instrument = { key: "DKJ", name: "DKJ", type: "tbill", currency: "HUF", faceValue: 1, maturity: "2026-12-01" };
+    const bought: Transaction = {
+      id: "d1", accountId: "mak", date: new Date(2026, 8, 1).toISOString(), type: "buy", instrumentKey: "DKJ", quantity: 100_000, currency: "HUF", grossAmount: 95_000, netAmount: -95_000,
+    };
+    const now = new Date(2026, 9, 15, 12);
+    const r = bondLots("DKJ", [bought], new Map([["DKJ", DKJ]]), now);
+    const expected = bondMarketValue(DKJ, 100_000, 95_000, new Date(2026, 8, 1).getTime(), bondValuationMs(now.getTime()));
+    expect(r.lots).toHaveLength(1);
+    expect(r.lots[0].currentValueHuf).toBeCloseTo(expected.value, 6);
   });
 });

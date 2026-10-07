@@ -22,12 +22,15 @@ export function matchExisting(
 } {
   const newTxs: Transaction[] = [];
   const isNew: boolean[] = [];
+  const claimed = new Map<string, Transaction>();
   for (const t of parsed) {
     let id = t.id;
     for (;;) {
-      const prev = existing.get(id);
+      const prev = existing.get(id) ?? claimed.get(id);
       if (!prev) {
-        newTxs.push(id === t.id ? t : { ...t, id });
+        const out = id === t.id ? t : { ...t, id };
+        claimed.set(id, out);
+        newTxs.push(out);
         isNew.push(true);
         break;
       }

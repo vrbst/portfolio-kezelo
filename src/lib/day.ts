@@ -44,3 +44,13 @@ export function addDaysIso(day: string, n: number): string {
   const ms = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10));
   return utcDay(ms + n * 86_400_000);
 }
+
+export function localDayMs(s: string | undefined): number {
+  if (!s) return NaN;
+  const m = txDay(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+  const d = new Date(s);
+  return Number.isNaN(d.getTime())
+    ? NaN
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}

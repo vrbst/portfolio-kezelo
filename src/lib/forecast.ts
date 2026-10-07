@@ -4,6 +4,7 @@ import { isInternalTransfer, toHuf, couponAmountHuf, couponAt } from "./portfoli
 import { touchPref } from "./prefs";
 import { effectiveMonth, effectiveMonthKey } from "./goals";
 import { couponId, splitAmongGoals } from "./incomeClaims";
+import { localDayMs } from "./day";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -33,13 +34,7 @@ const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
 // Local date helpers (day-granular, local midnight) — mirror portfolio.ts so a
 // UTC offset never slips a coupon/maturity across a month boundary.
-function parseDayMs(s: string | undefined): number {
-  if (!s) return NaN;
-  const m = s.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? NaN : d.getTime();
-}
+const parseDayMs = localDayMs;
 function addMonths(ms: number, months: number): number {
   const d = new Date(ms);
   d.setMonth(d.getMonth() + months);

@@ -7,6 +7,7 @@ import { collectPrefs, type SyncedPrefs } from "./prefs";
 import type { Account, Instrument, Transaction } from "./model";
 import type { AlertState, Reminder } from "./alerts";
 import type { Goal } from "./goals";
+import { txDay } from "./day";
 
 export interface BackupFile {
   kind: "portfolio-backup";
@@ -61,7 +62,7 @@ export function downloadBackup() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `portfolio-mentes-${backup.exportedAt.slice(0, 10)}.json`;
+  a.download = `portfolio-mentes-${txDay(backup.exportedAt)}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();

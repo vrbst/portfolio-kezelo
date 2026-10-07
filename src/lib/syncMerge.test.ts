@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PortfolioSnapshot } from "./sync";
 import type { Account, Transaction } from "./model";
-import { unionSnapshots } from "./syncMerge";
+import { keepLocalRaw, unionSnapshots } from "./syncMerge";
 import { mergePrefs, type SyncedPrefs } from "./prefs";
+import { mergeNewsSeen } from "./newsSeen";
 
 const snap = (over: Partial<PortfolioSnapshot> = {}): PortfolioSnapshot => ({
   version: 1,
@@ -99,11 +100,39 @@ describe("unionSnapshots – a re-imported account", () => {
   });
 });
 
+describe("keepLocalRaw", () => {
+  it("a merged push snapshot without raw rows does not strip the local ones", () => {
+    const base = { accountId: "a", date: "2026-09-01", type: "buy" as const, currency: "HUF" as const };
+    const localTxs: Transaction[] = [{ id: "mine", ...base, raw: { "Face value": "100 000" } }];
+    const remoteOnly: Transaction = { id: "theirs", ...base };
+    const stripped = localTxs.map(({ raw: _raw, ...t }) => t);
+    const merged = unionSnapshots(snap({ transactions: [remoteOnly] }), snap({ transactions: stripped }));
+    const out = keepLocalRaw(merged.transactions, localTxs);
+    expect(out.find((t) => t.id === "mine")?.raw).toEqual({ "Face value": "100 000" });
+    expect(out.find((t) => t.id === "theirs")).toEqual(remoteOnly);
+  });
+});
+
 describe("newsSeen pref", () => {
   it("read marks of two devices are unioned, not overwritten", () => {
     const remote = { newsSeen: { updatedAt: "2026-10-07T10:00:00Z", value: ["a", "b"] } } as unknown as SyncedPrefs;
     const local = { newsSeen: { updatedAt: "2026-10-07T09:00:00Z", value: ["c"] } } as unknown as SyncedPrefs;
     const out = mergePrefs(remote, local) as { newsSeen: { value: string[] } };
     expect(out.newsSeen.value.sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("trimming keeps the newest marks whichever side they come from", () => {
+    const key = (day: number) => {
+      const d = `2026-09-${String(day).padStart(2, "0")}`;
+      return `${d}-0@${d}T05:45:00Z`;
+    };
+    const remoteOld = Array.from({ length: 20 }, (_, i) => key(i + 1));
+    const localNew = [key(25), key(26)];
+    for (const out of [mergeNewsSeen(localNew, remoteOld), mergeNewsSeen(remoteOld, localNew)]) {
+      expect(out).toHaveLength(20);
+      expect(out).toContain(key(25));
+      expect(out).toContain(key(26));
+      expect(out).not.toContain(key(1));
+    }
   });
 });

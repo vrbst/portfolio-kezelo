@@ -6,7 +6,7 @@
 
 import type { BondTerms, Instrument, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
-import { toLocalDay, txDay } from "./day";
+import { localDayMs, toLocalDay, txDay } from "./day";
 
 export const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -20,19 +20,7 @@ export const DEFAULT_BOND_SALE_COST = 0.01; // FixMÁP early-sale cost (1% of pa
  * dates with a local `now` would slip boundaries by the UTC offset (and wrongly
  * accrue a whole period on the coupon day).
  */
-function parseDayMs(s: string | undefined): number {
-  if (!s) return NaN;
-  // A stored ISO timestamp (UTC) is read back as its LOCAL day — slicing it
-  // would give the day before for a local-midnight date (a maturity picked
-  // as "2026-10-28" is stored as "2026-10-27T23:00:00.000Z").
-  if (s.includes("T")) return txDayMs(s);
-  const m = s.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
-  const d = new Date(s);
-  return Number.isNaN(d.getTime())
-    ? NaN
-    : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
+const parseDayMs = localDayMs;
 
 /**
  * `ms` + `months` calendar months, the day clamped to the target month's end
@@ -251,14 +239,7 @@ export const COUPON_CREDITED_DAYS = 7;
  * before — slicing the string (what parseDayMs does for bare bond dates) would
  * be off by one. Bond schedule dates are bare YYYY-MM-DD and go the other path.
  */
-function txDayMs(s: string | undefined): number {
-  if (!s) return NaN;
-  if (!s.includes("T")) return parseDayMs(s);
-  const d = new Date(s);
-  return Number.isNaN(d.getTime())
-    ? NaN
-    : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
+const txDayMs = localDayMs;
 
 /** instrument key → local days on which an `interest` payment was booked. */
 function creditedCouponDays(

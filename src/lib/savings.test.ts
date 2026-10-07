@@ -388,6 +388,15 @@ describe("savings goal – money already the goal's but not in a security (hold-
   it("outside the window nothing changes: a credited, not reinvested coupon is still missing", () => {
     expect(progress([...BASE_TXS, COUPON], at("2026-10-20")).gapHuf).toBeCloseTo(600_000);
   });
+
+  it("a goal created just after local midnight starts on that local day, not the UTC day before", () => {
+    const createdOn = (createdAt: string) =>
+      computeSavingsProgress([{ ...GOAL, createdAt }], [ACC], [...TXS, HOLD_COUPON, REDEEM], insts, new Map(), {}, at("2026-12-05"))[0];
+    const justAfterMidnight = createdOn(new Date(2026, 11, 2, 0, 30).toISOString());
+    const atNoon = createdOn(new Date(2026, 11, 2, 12, 0).toISOString());
+    expect(justAfterMidnight.assignedValueHuf).toBeCloseTo(atNoon.assignedValueHuf);
+    expect(justAfterMidnight.projectedHuf).toBeCloseTo(atNoon.projectedHuf);
+  });
 });
 
 describe("savings goal – picked coupons (couponIds)", () => {

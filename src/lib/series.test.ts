@@ -111,6 +111,28 @@ describe("buildValueSeries — flows", () => {
     expect(late.get("2026-09-27")).toBe(800_000);
     expect(late.get("2026-09-30")).toBe(1_000_000);
   });
+
+  it("files a bare-day deposit under that day in every time zone", () => {
+    const bare: Transaction = { ...flow("a", "bank", 5, 1_000_000), date: "2026-09-05" };
+    const inv = invested([bare], 30);
+    expect(inv.get("2026-09-04")).toBeUndefined();
+    expect(inv.get("2026-09-05")).toBe(1_000_000);
+  });
+});
+
+describe("buildValueSeries — sampling", () => {
+  it("a long history is thinned, but the last month is daily so short ranges have data", () => {
+    const old: Transaction[] = [
+      { id: "d", accountId: "ly", date: new Date(2020, 0, 2, 10).toISOString(), type: "deposit", currency: "EUR", grossAmount: 1050, netAmount: 1050 },
+      { id: "b", accountId: "ly", date: new Date(2020, 0, 3, 10).toISOString(), type: "buy", instrumentKey: ETF.key, quantity: 10, pricePerUnit: 100, currency: "EUR", grossAmount: 1000, netAmount: -1000 },
+    ];
+    const history = { prices: { [ETF.key]: [["2020-01-03", 100], ["2026-10-06", 120]] as [string, number][] }, fx: { EUR: [["2020-01-03", 390]] as [string, number][] } };
+    const s = buildValueSeries([LY], old, inst, new Map([[ETF.key, 120]]), { EUR: 400 }, history, new Date(2026, 9, 7, 12));
+    const days = new Set(s.map((p) => p.date));
+    expect(days.has("2023-06-15") && days.has("2023-06-16")).toBe(false);
+    for (let d = 1; d <= 7; d++) expect(days.has(`2026-10-0${d}`)).toBe(true);
+    expect(s.filter((p) => p.date >= "2026-09-23")).toHaveLength(15);
+  });
 });
 
 describe("liveDayOverrides — today's move only from quotes that traded today", () => {

@@ -837,7 +837,7 @@ function holdCashFrom(
   goal: SavingsGoal,
   instruments: Map<string, Instrument>,
 ): string | undefined {
-  const created = goal.createdAt.slice(0, 10);
+  const created = txDay(goal.createdAt);
   const target = goal.targetDate.slice(0, 10);
   const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
   let last = "";
@@ -880,7 +880,7 @@ function goalCash(
   );
   for (const g of goals) {
     const keys = new Set(g.instrumentKeys);
-    const created = g.createdAt.slice(0, 10);
+    const created = txDay(g.createdAt);
     const target = g.targetDate.slice(0, 10);
     for (const t of txs) {
       if (t.type !== "redemption" || !t.instrumentKey || !keys.has(t.instrumentKey)) continue;

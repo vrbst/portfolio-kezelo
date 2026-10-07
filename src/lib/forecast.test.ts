@@ -198,3 +198,32 @@ describe("savingsGoalExpenses – coupon cap", () => {
     expect(savingsGoalExpenses([g], covered)[0].couponCapHuf).toBeUndefined();
   });
 });
+
+describe("forecast – bond dates stored as the instant of local midnight", () => {
+  const withMaturity = (maturity: string) =>
+    ({
+      ...summary,
+      accounts: [
+        {
+          holdings: [
+            {
+              quantity: 1_000_000,
+              marketValueHuf: 1_000_000,
+              instrument: {
+                key: "BOND",
+                type: "gov_bond",
+                bond: { couponRate: 0.06, couponIntervalMonths: 12, firstCouponDate: "2025-12-01", maturity },
+              },
+            },
+          ],
+        },
+      ],
+    }) as unknown as PortfolioSummary;
+
+  it("a maturity of 1 December read from its ISO instant stays in December, with its last coupon", () => {
+    const bare = projectForecast(withMaturity("2029-12-01"), assume(), [], NOW);
+    const iso = projectForecast(withMaturity(new Date(2029, 11, 1).toISOString()), assume(), [], NOW);
+    expect(iso.couponHuf).toBeCloseTo(bare.couponHuf);
+    expect(at(iso, "2029-11").real).toBeCloseTo(at(bare, "2029-11").real);
+  });
+});

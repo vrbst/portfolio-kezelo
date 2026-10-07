@@ -6,7 +6,7 @@
 import type { Account, Instrument, Transaction } from "./model";
 import type { LiveQuote } from "./prices";
 import { toLocalDay } from "./bonds";
-import { addDaysIso, utcDay } from "./day";
+import { addDaysIso, txDay, utcDay } from "./day";
 import {
   buildFxHistory,
   computePortfolio,
@@ -32,15 +32,7 @@ export interface ValueHistory {
   fx: Record<string, [string, number][]>;
 }
 
-/**
- * The LOCAL calendar day of a transaction instant. Imports store a day-granular
- * date as local midnight (e.g. "2026-09-30" → "2026-09-29T22:00:00Z" in
- * Budapest), so slicing the UTC string would file it under the previous day.
- */
-const txDay = (iso: string): string => {
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? toLocalDay(ms) : iso.slice(0, 10);
-};
+const RECENT_DAILY_DAYS = 31;
 
 /** The instant at the end of LOCAL day `day` (YYYY-MM-DD). */
 const dayEndOf = (day: string): Date => new Date(`${day}T23:59:59.999`);
@@ -292,6 +284,12 @@ export function buildValueSeries(
     const spanDays = (endMs - startMs) / 86_400_000;
     const stepDays = spanDays <= 370 ? 1 : Math.ceil(spanDays / 370);
     for (let t = startMs; t <= endMs; t += stepDays * 86_400_000)
+      dayset.add(utcDay(t));
+    for (
+      let t = Math.max(startMs, endMs - RECENT_DAILY_DAYS * 86_400_000);
+      t <= endMs;
+      t += 86_400_000
+    )
       dayset.add(utcDay(t));
   }
   const days = [...dayset].filter((d) => d <= todayIso).sort();

@@ -109,6 +109,14 @@ export function unionIds(
   return [...new Set([...(a ?? []), ...(b ?? [])])];
 }
 
+export function keepLocalRaw(
+  txs: Transaction[],
+  local: Transaction[],
+): Transaction[] {
+  const raw = new Map(local.filter((t) => t.raw).map((t) => [t.id, t.raw]));
+  return txs.map((t) => (t.raw || !raw.has(t.id) ? t : { ...t, raw: raw.get(t.id) }));
+}
+
 /** Remove deleted accounts' rows from IndexedDB (bulkPut never deletes). */
 export async function purgeAccountsFromDb(ids: string[]) {
   if (ids.length === 0) return;

@@ -36,7 +36,7 @@ export default defineConfig([
           // local time (treasury: local midnight = the UTC day before), so
           // slicing it is off by one.
           selector:
-            "CallExpression[callee.property.name=/^(slice|substring)$/][arguments.0.value=0]:matches([arguments.1.value=7], [arguments.1.value=10])[callee.object.property.name=/^(date|maturity)$/]",
+            "CallExpression[callee.property.name=/^(slice|substring)$/][arguments.0.value=0]:matches([arguments.1.value=7], [arguments.1.value=10])[callee.object.property.name=/^(date|maturity|createdAt|exportedAt)$/]",
           message:
             'A tranzakció dátuma helyi időpont ISO-alakja; a levágott eleje a UTC nap (kincstári tételeknél az előző nap). Használd: txDay(x.date) (src/lib/day.ts), hónaphoz txDay(x.date).slice(0, 7).',
         },

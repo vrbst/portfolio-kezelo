@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDaysIso, toLocalDay, utcDay } from "./day";
+import { addDaysIso, localDayMs, toLocalDay, utcDay } from "./day";
 
 // Tests run in Europe/Budapest by default (vite.config.ts) and in CI also in
 // UTC and America/New_York; every assertion here must hold in all of them.
@@ -32,5 +32,14 @@ describe("day helpers", () => {
     expect(addDaysIso("2026-03-28", 2)).toBe("2026-03-30");
     expect(addDaysIso("2026-10-24", 2)).toBe("2026-10-26");
     expect(addDaysIso("2026-01-01", 365)).toBe("2027-01-01");
+  });
+
+  it("localDayMs: a bare day and the stored instant of its local midnight are the same local midnight", () => {
+    const localMidnight = new Date(2026, 9, 28).getTime();
+    expect(localDayMs("2026-10-28")).toBe(localMidnight);
+    expect(localDayMs(new Date(2026, 9, 28).toISOString())).toBe(localMidnight);
+    expect(localDayMs(new Date(2026, 9, 28, 15, 30).toISOString())).toBe(localMidnight);
+    expect(localDayMs(undefined)).toBeNaN();
+    expect(localDayMs("nem dátum")).toBeNaN();
   });
 });

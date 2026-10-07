@@ -10,7 +10,7 @@ import {
   type FxHistory,
   type PriceMap,
 } from "./portfolio";
-import { txDay } from "./day";
+import { localDayMs, txDay } from "./day";
 
 export interface PurchaseLot {
   /** ISO day (YYYY-MM-DD). */
@@ -106,7 +106,7 @@ function nettedOpenLots(
       queue.push(lot);
       allLots.push(lot);
     } else {
-      let toSell = t.quantity ?? 0;
+      let toSell = (t.quantity ?? 0) > 0 ? (t.quantity as number) : Infinity;
       for (const lot of queue) {
         if (toSell <= 1e-9) break;
         const take = Math.min(lot.remaining, toSell);
@@ -249,7 +249,7 @@ export function bondLots(
       inst,
       faceValue,
       costHuf,
-      Date.parse(l.date),
+      localDayMs(l.date),
       bondNowMs,
     );
     if (bv.needsData) needsData = true;

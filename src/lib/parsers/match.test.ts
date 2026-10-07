@@ -47,4 +47,17 @@ describe("matchExisting", () => {
     const r = matchExisting([fresh], stored(tx("a1", 100)));
     expect(r.newTxs).toEqual([fresh]);
   });
+
+  it("a row moved onto a suffix never shares it with another row of the same import", () => {
+    const parsed = [tx("c0ll1de", 250), tx("c0ll1de~x", 300)];
+    const r = matchExisting(parsed, stored(tx("c0ll1de", 100)));
+    const ids = r.newTxs.map((t) => t.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(r.newTxs.map((t) => [t.id, t.grossAmount])).toEqual([
+      ["c0ll1de~x", 250],
+      ["c0ll1de~x~x", 300],
+    ]);
+    const again = matchExisting(parsed, stored(tx("c0ll1de", 100), ...r.newTxs));
+    expect(again.newTxs).toEqual([]);
+  });
 });

@@ -15,6 +15,11 @@ import type { ValuePoint } from "../lib/portfolio";
 import { formatMoney, formatCompact } from "../lib/format";
 import { usePortfolio } from "../lib/store";
 import { CHART } from "../lib/skin";
+import { localDayMs } from "../lib/day";
+import { formatTimeTick, timeTicks } from "../lib/timeAxis";
+import type { ChartMode } from "../lib/chartRange";
+
+export type { ChartMode };
 
 const MASK = "•••";
 
@@ -68,15 +73,6 @@ function ChartTooltip({
   );
 }
 
-function formatMonth(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("hu-HU", {
-    year: "2-digit",
-    month: "short",
-  }).format(d);
-}
-
 function formatDay(ms: number): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "";
@@ -87,35 +83,21 @@ function formatDay(ms: number): string {
   }).format(d);
 }
 
-/** Month-start timestamps across [min,max], thinned to at most `maxLabels`. */
-function monthTicks(min: number, max: number, maxLabels = 8): number[] {
-  const ticks: number[] = [];
-  const d = new Date(min);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(1);
-  if (d.getTime() < min) d.setMonth(d.getMonth() + 1);
-  while (d.getTime() <= max) {
-    ticks.push(d.getTime());
-    d.setMonth(d.getMonth() + 1);
-  }
-  const step = Math.max(1, Math.ceil(ticks.length / maxLabels));
-  return ticks.filter((_, i) => i % step === 0);
-}
-
-export type ChartMode = "value" | "profit";
-
 /**
  * Portfolio history chart. In `value` mode: total value (filled) vs. invested
- * capital (dashed reference). In `profit` mode: the daily gain (value − invested)
+ * capital (dashed reference). In `profit` mode: the gain (value − invested −
+ * `profitBase`: lifetime on Max, since the range's first day on shorter ranges)
  * as a single area around a zero baseline — green above, red below.
  */
 export default function ValueChart({
   data,
   mode = "value",
+  profitBase = 0,
   onScrub,
 }: {
   data: ValuePoint[];
   mode?: ChartMode;
+  profitBase?: number;
   /** Hovered/touched sample while scrubbing the chart; null on release. */
   onScrub?: (point: ValuePoint | null) => void;
 }) {
@@ -130,14 +112,14 @@ export default function ValueChart({
     () =>
       data.map((d) => ({
         ...d,
-        ts: new Date(d.date).getTime(),
-        profit: d.value - d.invested,
+        ts: localDayMs(d.date),
+        profit: d.value - d.invested - profitBase,
       })),
-    [data],
+    [data, profitBase],
   );
   const min = chartData[0]?.ts ?? 0;
   const max = chartData[chartData.length - 1]?.ts ?? 0;
-  const ticks = monthTicks(min, max);
+  const { ticks, daily } = timeTicks(min, max);
 
   const lastProfit = chartData[chartData.length - 1]?.profit ?? 0;
   const profitColor = lastProfit < 0 ? CHART.negative : CHART.positive;
@@ -183,7 +165,7 @@ export default function ValueChart({
             type="number"
             domain={[min, max]}
             ticks={ticks}
-            tickFormatter={formatMonth}
+            tickFormatter={(v) => formatTimeTick(Number(v), daily)}
             tick={{ fill: CHART.axis, fontSize: 12 }}
             stroke={CHART.grid}
           />

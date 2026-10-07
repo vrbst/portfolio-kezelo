@@ -74,6 +74,21 @@ describe("computePortfolio", () => {
     expect(s2.totalValueHuf).toBe(0);
     expect(s2.netDepositedHuf).toBe(0);
   });
+
+  it("a redemption without a quantity closes the whole position, counted once", () => {
+    const etfEur = new Map([["ETF", 130]]);
+    const txs = [
+      tx({ accountId: "inv", date: at(2025, 1, 2), type: "deposit", currency: "EUR", grossAmount: 2_000, netAmount: 2_000 }),
+      tx({ accountId: "inv", date: at(2025, 1, 3), type: "buy", instrumentKey: "ETF", quantity: 20, currency: "EUR", grossAmount: 2_000, netAmount: -2_000 }),
+      tx({ accountId: "inv", date: at(2025, 6, 2), type: "redemption", instrumentKey: "ETF", currency: "EUR", grossAmount: 2_200, netAmount: 2_200 }),
+    ];
+    const s3 = computePortfolio([INV], txs, instruments, etfEur, fx, new Date(2025, 11, 31, 12));
+    const a = s3.accounts[0];
+    expect(a.holdings.reduce((sum, h) => sum + h.quantity, 0)).toBe(0);
+    expect(s3.holdingsValueHuf).toBe(0);
+    expect(a.cash.EUR).toBeCloseTo(2_200);
+    expect(s3.totalValueHuf).toBeCloseTo(2_200 * 410);
+  });
 });
 
 describe("computeReturns", () => {
