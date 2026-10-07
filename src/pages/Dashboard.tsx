@@ -63,9 +63,11 @@ import { SERIES_COLORS } from "../lib/skin";
 
 const COLORS = SERIES_COLORS;
 
-type RangeKey = "1m" | "3m" | "6m" | "1y" | "ytd" | "max";
+type RangeKey = "1w" | "2w" | "1m" | "3m" | "6m" | "1y" | "ytd" | "max";
 
 const RANGES: { key: RangeKey; label: string }[] = [
+  { key: "1w", label: "1 hét" },
+  { key: "2w", label: "2 hét" },
   { key: "1m", label: "1H" },
   { key: "3m", label: "3H" },
   { key: "6m", label: "6H" },
@@ -79,7 +81,18 @@ function rangeCutoff(key: RangeKey, now = new Date()): string | null {
   if (key === "max") return null;
   const d = new Date(now);
   if (key === "ytd") return `${d.getFullYear()}-01-01`;
-  const days = key === "1m" ? 30 : key === "3m" ? 90 : key === "6m" ? 180 : 365;
+  const days =
+    key === "1w"
+      ? 7
+      : key === "2w"
+        ? 14
+        : key === "1m"
+          ? 30
+          : key === "3m"
+            ? 90
+            : key === "6m"
+              ? 180
+              : 365;
   d.setDate(d.getDate() - days);
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -164,7 +177,7 @@ export default function Dashboard() {
   const reduceMotion = useReducedMotion();
 
   const [range, setRange] = useState<RangeKey>("max");
-  const [chartMode, setChartMode] = useState<ChartMode>("value");
+  const [chartMode, setChartMode] = useState<ChartMode>("profit");
 
   // Which ranges actually contain ≥2 points (others are disabled, not silent).
   const rangeAvail = useMemo(() => {
