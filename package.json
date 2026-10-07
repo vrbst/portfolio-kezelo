@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "prices": "node scripts/fetch-prices.mjs",
+    "bond-rates": "node scripts/fetch-bond-rates.mjs",
     "test": "vitest run",
     "test:update": "vitest run -u",
     "test:e2e": "npm run build && playwright test"

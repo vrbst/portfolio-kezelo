@@ -44,6 +44,10 @@ export interface State {
   lastYearly?: string;
   taxReminded?: string;
   priceAlerts?: PriceAlert[];
+  bondNotices?: {
+    maturity?: Record<string, string>;
+    periods?: Record<string, { start: string; rate: number }>;
+  };
 }
 
 export interface WealthState {

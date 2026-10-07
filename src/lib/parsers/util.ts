@@ -41,20 +41,12 @@ const isoDay = (y: number, m: number, d: number) =>
  * back in UTC and every string-prefix consumer (calendar, events) with it.
  * (Not a hashId input, so the format is free to be the correct one.)
  *  - "Diszkont Kincstárjegy D260527" -> 2026-05-27
- *  - "Fix Magyar Állampapír 2031/Q1" -> 2031-03-31 (end of quarter, approx)
  */
 export function maturityFromName(name: string): string | undefined {
   const disc = name.match(/D(\d{2})(\d{2})(\d{2})/);
   if (disc) {
     const [, yy, mm, dd] = disc;
     return isoDay(2000 + Number(yy), Number(mm), Number(dd));
-  }
-  const fix = name.match(/(\d{4})\/Q([1-4])/);
-  if (fix) {
-    const [, yyyy, q] = fix;
-    const endMonth = Number(q) * 3; // Q1->3, Q4->12
-    const d = new Date(Number(yyyy), endMonth, 0); // day 0 = last day of prev month
-    return isoDay(d.getFullYear(), d.getMonth() + 1, d.getDate());
   }
   return undefined;
 }

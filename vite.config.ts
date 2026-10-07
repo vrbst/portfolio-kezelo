@@ -29,7 +29,7 @@ import { VitePWA } from "vite-plugin-pwa";
 function buildStamp(): { builtAt: string; sha: string } {
   try {
     const out = execSync(
-      'git log -1 --format=%cI%x09%h -- . ":(exclude)public/prices.json" ":(exclude)public/history.json"',
+      'git log -1 --format=%cI%x09%h -- . ":(exclude)public/prices.json" ":(exclude)public/history.json" ":(exclude)public/bond-rates.json"',
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     ).trim();
     const [iso, sha] = out.split("\t");

@@ -13,10 +13,12 @@ import {
 } from "../../src/test/fixture";
 import { buildContext, type Context } from "./data";
 import { installLocalStorage } from "./env";
+import type { BondRatesFile } from "../../src/lib/bondRates";
 
 export function contextAt(
   localWallClock: [number, number, number, number, number?],
   tweak?: (s: PortfolioSnapshot) => void,
+  bondRates?: BondRatesFile,
 ): Context {
   const [y, m, d, h, mi = 0] = localWallClock;
   const at = new Date(y, m - 1, d, h, mi);
@@ -36,6 +38,7 @@ export function contextAt(
     snapshot,
     priceFile,
     history,
+    bondRates,
     ...fixtureQuotes(priceFile),
     at,
     idleCashHuf: 100_000,

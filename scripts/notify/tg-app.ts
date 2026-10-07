@@ -58,6 +58,7 @@ import { effectiveMonthKey } from "../../src/lib/goals";
 import { loadLeftoverSettings } from "../../src/lib/planPrefs";
 import { leftoverMonth, parseLeftoverAmount } from "../../src/lib/leftover";
 import { isLastWorkdayOfMonth } from "../../src/lib/huCalendar";
+import { bondNoticeMessages } from "./bondNotices";
 
 // ---- protocol (the parts we use) ------------------------------------------
 
@@ -571,6 +572,7 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
       out.push(msg(text));
     } else if (days <= limit) delete st.warned[key];
   }
+  out.push(...bondNoticeMessages(ctx, st).map((html) => msg(html)));
 
   // 4) Weekly (Friday from 18:00, after the Xetra close; caught up on the
   //    weekend if the hub was down) and monthly (the 1st from 08:00) reports.

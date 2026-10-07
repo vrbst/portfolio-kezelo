@@ -49,6 +49,13 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   mennyi pénzed lenne, ha ma mindent eladnál: a TBSZ-eken a hozam adójával (a
   számla aktuális szakaszának kulcsával), az állampapíroknál a lejárat előtti
   visszaváltási díjjal (alapból 1%) csökkentve, számlánkénti bontásban.
+- **Állampapír-kamatok a botban** – a bot az ÁKK adataiból (`public/bond-rates.json`)
+  egy tartott állampapír vagy DKJ lejárata előtt 30 és 7 nappal szól, és
+  felsorolja a most kapható lakossági állampapírokat és a legutóbbi DKJ-aukció
+  hozamát; MÁP Plusz, PMÁP, BMÁP és hasonló sorozatoknál jelzi az új
+  kamatperiódust (régi → új kamat). A hiányzó sorozat-adatokat (kamat,
+  kamatfizetés gyakorisága, ismert kamatfizetési nap, lejárat) a bot az
+  ÁKK-adatokból pótolja; a kézzel beírtakat soha nem írja felül.
 - **Árfolyamok a botban** – a Telegram-bot `/arfolyam` parancsa elsőként az
   EUR/HUF-ot (és a tartott papírok többi devizáját) mutatja, utána minden
   tartott részvényt és ETF-et: aktuális ár saját devizában és napi változás.
@@ -156,8 +163,13 @@ az összes ellenőrzést (lint, tesztek három időzónában, build, böngésző
 ## Árfolyamok frissítése
 
 ```bash
-npm run prices   # public/prices.json + history.json frissítése (Yahoo + frankfurter)
+npm run prices       # public/prices.json + history.json frissítése (Yahoo + frankfurter)
+npm run bond-rates   # public/bond-rates.json: lakossági állampapír-kamatok, kamatperiódusok, DKJ-aukciók (ÁKK)
 ```
+
+Az ÁKK-adatok az akk.hu statisztikai oldalainak nem hivatalos JSON-API-jából
+jönnek; ha a lekérdezés vagy a mezők megváltoznak, a script a korábbi adatokat
+megtartja és hibával áll le, a bot pedig 7 nap után szól, hogy a fájl elavult.
 
 A `.github/workflows/prices.yml` ezt hétköznaponta automatikusan lefuttatja,
 commitolja, és utána újradeployol. Új ISIN-t a `scripts/fetch-prices.mjs`

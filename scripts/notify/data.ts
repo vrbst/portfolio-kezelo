@@ -76,6 +76,11 @@ import {
 import { toLocalDay } from "../../src/lib/portfolio";
 import { liveGlideVersions } from "../../src/lib/flowPath";
 import { githubToken, installLocalStorage, type NotifyEnv } from "./env";
+import {
+  validateBondRatesFile,
+  withBondRates,
+  type BondRatesFile,
+} from "../../src/lib/bondRates";
 
 export interface Context {
   at: Date;
@@ -87,6 +92,7 @@ export interface Context {
   fx: Record<string, number>;
   priceFile: PriceFile | null;
   history: HistoryFile | null;
+  bondRates: BondRatesFile | null;
   liveQuotes: Record<string, LiveQuote>;
   summary: PortfolioSummary;
   series: ValuePoint[];
@@ -172,10 +178,11 @@ function dropDeleted(snap: PortfolioSnapshot) {
 
 export async function loadContext(env: NotifyEnv): Promise<Context> {
   const raw = `https://raw.githubusercontent.com/${env.pricesRepo}/main/public`;
-  const [snapshot, priceFile, history] = await Promise.all([
+  const [snapshot, priceFile, history, bondRates] = await Promise.all([
     loadSnapshot(env),
     optional(fetchJson<PriceFile>(`${raw}/prices.json`)),
     optional(fetchJson<HistoryFile>(`${raw}/history.json`)),
+    optional(fetchJson<unknown>(`${raw}/bond-rates.json`).then(validateBondRatesFile)),
   ]);
 
   // Planning prefs (savings goals, forecast settings…) → the lib's storage.
@@ -195,6 +202,7 @@ export async function loadContext(env: NotifyEnv): Promise<Context> {
     snapshot,
     priceFile,
     history,
+    bondRates,
     fxQuotes,
     priceQuotes,
     at: new Date(),
@@ -207,6 +215,7 @@ export interface ContextInput {
   snapshot: PortfolioSnapshot;
   priceFile: PriceFile | null;
   history: HistoryFile | null;
+  bondRates?: BondRatesFile | null;
   /** Live FX quotes (e.g. EUR) and live instrument quotes, by key. */
   fxQuotes: Record<string, LiveQuote>;
   priceQuotes: Record<string, LiveQuote>;
@@ -224,7 +233,8 @@ export function buildContext(input: ContextInput): Context {
   const { snapshot, priceFile, history, fxQuotes, priceQuotes, at } = input;
   const env = input;
   const { accounts, transactions } = dropDeleted(snapshot);
-  const instruments = snapshot.instruments;
+  const bondRates = input.bondRates ?? null;
+  const instruments = withBondRates(snapshot.instruments, bondRates);
   const instMap = new Map(instruments.map((i) => [i.key, i]));
   const liveQuotes = { ...fxQuotes, ...priceQuotes };
 
@@ -358,6 +368,7 @@ export function buildContext(input: ContextInput): Context {
     fx,
     priceFile,
     history,
+    bondRates,
     liveQuotes,
     summary,
     series,

@@ -12,6 +12,9 @@ import { local, FIX } from "../../src/test/fixture";
 import type { Context } from "./data";
 import { contextAt } from "./testContext";
 import { tickMessages } from "./tg-app";
+import { fillBondTerms, type BondRatesFile } from "../../src/lib/bondRates";
+import type { BondTerms, Instrument } from "../../src/lib/model";
+import { bondNoticeMessages } from "./bondNotices";
 import type { State } from "./state";
 
 // Rules that must hold on ANY day and for ANY amount, checked on many random
@@ -262,6 +265,87 @@ describe("invariants on any day", () => {
           } finally {
             vi.useRealTimers();
           }
+        },
+      ),
+      { numRuns: RUNS },
+    );
+  });
+});
+
+describe("állampapír-értesítések", () => {
+  type Clock = [number, number, number, number, number];
+  const ratesFor = (clock: Clock): BondRatesFile => ({
+    updatedAt: new Date(clock[0], clock[1] - 1, clock[2], clock[3]).toISOString(),
+    retail: [
+      { type: "FixMÁP", series: "2029/Q2", rateText: "5.50", rateMin: 5.5, rateMax: 5.5, ehm: 5.62, maturity: "2029-10-25", currency: "HUF", validFrom: "2026-01-01", validTo: null },
+    ],
+    periods: [],
+    dkj: [{ auctionDate: "2026-01-07", series: "D270428", isin: null, maturity: "2027-04-28", avgYield: 5.15 }],
+  });
+  const noticeKey = (m: string) => {
+    const r = /Lejár (ma|holnap|(\d+) nap múlva): (.*)$/m.exec(m);
+    if (!r) return m.split("\n")[0];
+    const days = r[2] ? Number(r[2]) : r[1] === "holnap" ? 1 : 0;
+    return `${r[3]}|${days > 7 ? 30 : 7}`;
+  };
+
+  it("a maturity stage is announced at most once, whatever the tick days", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 250, max: 470 }),
+        fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 10, maxLength: 25 }),
+        (start, steps) => {
+          const st: State = { sentAlerts: {}, warned: {} };
+          const seen = new Map<string, number>();
+          let offset = start;
+          for (const step of steps) {
+            offset += step;
+            const d = new Date(2026, 0, 5 + offset);
+            const clock: Clock = [d.getFullYear(), d.getMonth() + 1, d.getDate(), 10, 0];
+            try {
+              for (const m of bondNoticeMessages(contextAt(clock, undefined, ratesFor(clock)), st))
+                seen.set(noticeKey(m), (seen.get(noticeKey(m)) ?? 0) + 1);
+            } finally {
+              vi.useRealTimers();
+            }
+          }
+          for (const n of seen.values()) expect(n).toBe(1);
+        },
+      ),
+      { numRuns: 8 },
+    );
+  }, 60_000);
+
+  it("filling from the ÁKK data never changes a value already there", () => {
+    const file: BondRatesFile = {
+      ...ratesFor([2026, 10, 7, 18, 0]),
+      periods: [
+        { type: "FixMÁP", series: "2029/Q2", rate: 5.5, periodStart: "2026-07-25", periodEnd: "2026-10-25", paymentDate: "2026-10-25", maturity: "2029-10-25", currency: "HUF" },
+      ],
+    };
+    fc.assert(
+      fc.property(
+        fc.record(
+          {
+            couponRate: fc.double({ min: 0.001, max: 0.2, noNaN: true }),
+            couponIntervalMonths: fc.constantFrom(1, 3, 6, 12),
+            firstCouponDate: fc.constantFrom("2025-01-15", "2026-03-01"),
+            issueDate: fc.constantFrom("2024-10-25", "2025-02-01"),
+            maturity: fc.constantFrom("2029-10-26", "2030-01-01"),
+          },
+          { requiredKeys: [] },
+        ),
+        (own: BondTerms) => {
+          const inst: Instrument = {
+            key: "fix",
+            name: "Fix Magyar Állampapír 2029/Q2",
+            type: "gov_bond",
+            currency: "HUF",
+            bond: own,
+          };
+          const filled = fillBondTerms(inst, file);
+          for (const [k, v] of Object.entries(own)) expect(filled.bond?.[k as keyof BondTerms]).toBe(v);
+          if (own.maturity) expect(filled.maturity).toBeUndefined();
         },
       ),
       { numRuns: RUNS },

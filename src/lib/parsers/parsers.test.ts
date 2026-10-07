@@ -45,7 +45,8 @@ describe("date helpers – local calendar days", () => {
   });
   it("maturity from the security name", () => {
     expect(maturityFromName("Diszkont Kincstárjegy D261118")).toBe("2026-11-18");
-    expect(maturityFromName("Fix Magyar Állampapír 2031/Q1")).toBe("2031-03-31");
+    expect(maturityFromName("Fix Magyar Állampapír 2031/Q1")).toBeUndefined();
+    expect(maturityFromName("Fix Magyar Állampapír 2029/Q2")).toBeUndefined();
     expect(maturityFromName("Magyar Állampapír Plusz")).toBeUndefined();
   });
 });
