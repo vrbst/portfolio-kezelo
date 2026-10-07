@@ -30,6 +30,7 @@ import {
   type PlanOrder,
 } from "./planPrefs";
 import type { AccountLimits, PurchaseAccounts } from "./accountRules";
+import { loadNewsSeen, mergeNewsSeen } from "./newsSeen";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -60,6 +61,8 @@ export interface SyncedPrefs {
   purchaseAccounts?: StampedPref<PurchaseAccounts>;
   /** Month-end leftover: reminder and pull-forward settings. */
   leftover?: StampedPref<LeftoverSettings>;
+  /** Market-news digests already read (any device) — merged as a union. */
+  newsSeen?: StampedPref<string[]>;
 }
 
 export type PrefKind =
@@ -74,7 +77,8 @@ export type PrefKind =
   | "planOrder"
   | "accountLimits"
   | "purchaseAccounts"
-  | "leftover";
+  | "leftover"
+  | "newsSeen";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -89,6 +93,7 @@ const KINDS: PrefKind[] = [
   "accountLimits",
   "purchaseAccounts",
   "leftover",
+  "newsSeen",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -104,6 +109,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   accountLimits: "pf-account-limits",
   purchaseAccounts: "pf-purchase-accounts",
   leftover: "pf-leftover",
+  newsSeen: "pf-news-seen",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -118,6 +124,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   accountLimits: "pf-account-limits-updated",
   purchaseAccounts: "pf-purchase-accounts-updated",
   leftover: "pf-leftover-updated",
+  newsSeen: "pf-news-seen-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -134,6 +141,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   accountLimits: loadAccountLimits,
   purchaseAccounts: loadPurchaseAccounts,
   leftover: loadLeftoverSettings,
+  newsSeen: loadNewsSeen,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {
@@ -223,6 +231,7 @@ const UNION: Partial<Record<PrefKind, (a: unknown, b: unknown) => unknown>> = {
     mergeGlideVersions(a as GlideConfig[] | null, b as GlideConfig[] | null),
   income: (a, b) =>
     mergeIncomeState(a as IncomeState | null, b as IncomeState | null),
+  newsSeen: (a, b) => mergeNewsSeen(a, b),
 };
 
 /** Per-field last-write-wins merge; `over` wins timestamp ties. */

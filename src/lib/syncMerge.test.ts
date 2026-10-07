@@ -98,3 +98,12 @@ describe("unionSnapshots – a re-imported account", () => {
     }
   });
 });
+
+describe("newsSeen pref", () => {
+  it("read marks of two devices are unioned, not overwritten", () => {
+    const remote = { newsSeen: { updatedAt: "2026-10-07T10:00:00Z", value: ["a", "b"] } } as unknown as SyncedPrefs;
+    const local = { newsSeen: { updatedAt: "2026-10-07T09:00:00Z", value: ["c"] } } as unknown as SyncedPrefs;
+    const out = mergePrefs(remote, local) as { newsSeen: { value: string[] } };
+    expect(out.newsSeen.value.sort()).toEqual(["a", "b", "c"]);
+  });
+});

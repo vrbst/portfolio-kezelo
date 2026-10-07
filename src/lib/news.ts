@@ -1,8 +1,8 @@
 // The market-news digests (made on the owner's machine, see scripts/notify/
 // news/) from the private sync repo, with the device's sync token. Read-only
 // here; kept in memory and refreshed every 10 minutes (and when the app is
-// shown again), so a new digest shows up in an open app. "Read" marks are per
-// device (localStorage).
+// shown again), so a new digest shows up in an open app. "Read" marks are synced
+// across devices (the newsSeen pref).
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { getRepoFile, type SyncConfig } from "./sync";
@@ -20,6 +20,8 @@ import {
 } from "./newsSchema";
 import { toLocalDay } from "./day";
 import { usePortfolio } from "./store";
+import { loadNewsSeen, mergeNewsSeen, saveNewsSeen } from "./newsSeen";
+import { PREFS_EVENT } from "./prefs";
 
 const cache = new Map<string, Promise<unknown>>();
 
@@ -158,33 +160,29 @@ export function useNewsDigest(pick: { day: string; edition: NewsEdition } | null
   return r;
 }
 
-// ---- read marks (per device) --------------------------------------------------
+// ---- read marks (synced as the "newsSeen" pref; localStorage is the local copy) ----
 
-const SEEN_KEY = "pf-news-seen";
-
-function loadSeen(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(SEEN_KEY) ?? "[]") as unknown;
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-let seen = loadSeen();
+let seen = loadNewsSeen();
 const seenListeners = new Set<() => void>();
 
 /** Mark one digest version read (only today's matter; a few are kept). */
 export function markNewsSeen(entries: NewsIndexEntry[]) {
   const add = entries.map(seenKey).filter((k) => !seen.includes(k));
   if (!add.length) return;
-  seen = [...seen, ...add].slice(-20);
-  try {
-    localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
-  } catch {
-    /* ignore */
-  }
+  seen = mergeNewsSeen(seen, add);
+  saveNewsSeen(seen);
   for (const l of seenListeners) l();
+}
+
+// A sync pull may bring marks read on another device.
+if (typeof window !== "undefined") {
+  window.addEventListener(PREFS_EVENT, (e) => {
+    if ((e as CustomEvent<{ source?: string }>).detail?.source !== "remote") return;
+    const next = loadNewsSeen();
+    if (JSON.stringify(next) === JSON.stringify(seen)) return;
+    seen = next;
+    for (const l of seenListeners) l();
+  });
 }
 
 function subscribeSeen(l: () => void) {
