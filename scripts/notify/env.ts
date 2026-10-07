@@ -26,6 +26,8 @@ export interface NotifyEnv {
   bigMovePct: number;
   /** Daily move (%) of a single position that triggers a message. */
   positionMovePct: number;
+  wealthStepHuf: number;
+  drawdownStepPct: number;
   /** Daily news digest (news/): the model Claude Code runs it with. */
   newsModel: string;
   /** Path / name of the Claude Code CLI. */
@@ -57,6 +59,8 @@ export function loadEnv(): NotifyEnv {
         : 45,
     bigMovePct: Number(e.NOTIFY_BIG_MOVE_PCT) || 2,
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 5,
+    wealthStepHuf: Number(e.NOTIFY_WEALTH_STEP_HUF) || 1_000_000,
+    drawdownStepPct: Number(e.NOTIFY_DRAWDOWN_STEP_PCT) || 5,
     newsModel: e.NEWS_MODEL || "opus",
     newsClaudeBin: e.NEWS_CLAUDE_BIN || "claude",
     appUrl: e.APP_URL || "https://vrbst.github.io/portfolio-kezelo/",

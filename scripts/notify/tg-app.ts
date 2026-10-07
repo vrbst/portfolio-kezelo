@@ -45,10 +45,16 @@ import {
   returnsText,
   sft,
   shortName,
+  planReminderText,
   statusText,
+  taxReminderText,
   tbszText,
   weeklyText,
+  yearlyText,
 } from "./reports";
+import { priceAlertCommand, priceAlertMessages } from "./priceAlerts";
+import { goalMilestoneMessages, stalePriceMessage, wealthMessages } from "./watch";
+import { effectiveMonthKey } from "../../src/lib/goals";
 import { loadLeftoverSettings } from "../../src/lib/planPrefs";
 import { leftoverMonth, parseLeftoverAmount } from "../../src/lib/leftover";
 import { isLastWorkdayOfMonth } from "../../src/lib/huCalendar";
@@ -78,7 +84,7 @@ export interface HubResponse {
 export interface Deps {
   load: () => Promise<Context>;
   stateFile: string;
-  env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct">;
+  env: Pick<NotifyEnv, "bigMovePct" | "positionMovePct" | "wealthStepHuf" | "drawdownStepPct">;
   /** The daily news digest's AI and storage (built only when needed). */
   news?: () => NewsDeps;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
@@ -176,6 +182,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       console.error(`/${req.command} ${req.args}`.trim());
       if (req.command === "hirek") return latestNews(deps);
       if (req.command === "hirkereses") return searchNews(deps);
+      if (req.command === "riasztas") return priceAlerts(req.args, deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -257,6 +264,18 @@ async function leftover(arg: string, deps: Deps): Promise<HubResponse> {
     messages: [msg(r.html + hint)],
     expectText: { context: "maradek", ttl: "10m" },
   };
+}
+
+async function priceAlerts(args: string, deps: Deps): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  let html = "";
+  updateState(deps.stateFile, (cur) => {
+    const r = priceAlertCommand(ctx, args, cur.priceAlerts ?? []);
+    html = r.html;
+    return { ...cur, priceAlerts: r.alerts };
+  });
+  return { v: 1, messages: [msg(html)] };
 }
 
 // ---- the news digest ------------------------------------------------------
@@ -431,7 +450,9 @@ async function tick(deps: Deps): Promise<HubResponse> {
   }
   const st = loadState(deps.stateFile);
   delete st.loadFailingSince;
+  const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
   const messages = tickMessages(ctx, st, deps.env);
+  const kept = new Set((st.priceAlerts ?? []).map((a) => a.id));
   // Save before answering: a kill after this only loses messages, never
   // sends them twice. /maradek and the news job may have written meanwhile:
   // keep their fields.
@@ -439,9 +460,12 @@ async function tick(deps: Deps): Promise<HubResponse> {
     ...st,
     leftover: { ...st.leftover, answered: cur.leftover?.answered },
     news: cur.news,
+    priceAlerts: (cur.priceAlerts ?? []).filter((a) => kept.has(a.id) || !alertIds.has(a.id)),
   }));
   return { v: 1, messages };
 }
+
+export const PLAN_REMINDER_DAY = 10;
 
 /** From this hour on Friday the week's report is due (Xetra closes 17:30). */
 export const WEEKLY_REPORT_HOUR = 18;
@@ -582,5 +606,35 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
       out.push(msg(leftoverPromptText(ctx, done)));
     }
   }
+
+  const year = today.slice(0, 4);
+  if (now.getHours() >= 8 && st.lastYearly !== year) {
+    if (st.lastYearly) out.push(msg(yearlyText(ctx)));
+    st.lastYearly = year;
+  }
+  if (now.getMonth() === 4 && now.getDate() <= 20 && now.getHours() >= 9 && st.taxReminded !== year) {
+    st.taxReminded = year;
+    const tax = taxReminderText(ctx);
+    if (tax) out.push(msg(tax));
+  }
+
+  const planMonth = effectiveMonthKey(now);
+  if (
+    now.getDate() >= PLAN_REMINDER_DAY &&
+    planMonth === ym &&
+    now.getHours() >= 9 &&
+    st.planReminded !== planMonth
+  ) {
+    st.planReminded = planMonth;
+    const text = planReminderText(ctx);
+    if (text) out.push(msg(text));
+  }
+
+  const goals = goalMilestoneMessages(ctx, st);
+  if (goals.length) out.push(msg(goals.join("\n")));
+  for (const text of wealthMessages(ctx, st, env)) out.push(msg(text));
+  for (const text of priceAlertMessages(ctx, st)) out.push(msg(text));
+  const stalePrices = stalePriceMessage(ctx, st);
+  if (stalePrices) out.push(msg(stalePrices));
   return out;
 }

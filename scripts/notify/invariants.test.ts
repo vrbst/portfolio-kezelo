@@ -11,6 +11,8 @@ import { toLocalDay } from "../../src/lib/day";
 import { local, FIX } from "../../src/test/fixture";
 import type { Context } from "./data";
 import { contextAt } from "./testContext";
+import { tickMessages } from "./tg-app";
+import type { State } from "./state";
 
 // Rules that must hold on ANY day and for ANY amount, checked on many random
 // cases of the invented portfolio (src/test/fixture.ts). Each one guards a
@@ -153,6 +155,24 @@ describe("invariants on any day", () => {
             expect(tg).toBeCloseTo(1, 6);
             for (const b of ctx.glide.buckets) expect(b.low).toBeLessThanOrEqual(b.high);
           }
+        } finally {
+          vi.useRealTimers();
+        }
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  it("the tick sends nothing twice: a second run at the same moment is silent", () => {
+    const env = { bigMovePct: 2, positionMovePct: 5, wealthStepHuf: 1_000_000, drawdownStepPct: 5 };
+    fc.assert(
+      fc.property(moment, fc.boolean(), (when, seasoned) => {
+        try {
+          const st: State = seasoned
+            ? { sentAlerts: {}, warned: {}, lastWeekly: "2025-12-26", lastMonthly: "2025-12", lastYearly: "2025" }
+            : { sentAlerts: {}, warned: {} };
+          tickMessages(contextAt(when), st, env);
+          expect(tickMessages(contextAt(when), st, env)).toEqual([]);
         } finally {
           vi.useRealTimers();
         }

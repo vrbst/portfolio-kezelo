@@ -59,6 +59,15 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   a javasolt lépések; `/hozam`: XIRR, TWR, VWCE-összevetés, időszakos és
   számlánkénti eredmény; `/tbsz`: TBSZ-szakaszok, határidők, nettó érték most
   és a következő mérföldkövek után.
+- **Értesítések a botban** – a célok 25/50/75/100%-os mérföldkövei; minden
+  újabb kerek összeg (alapból 1 M Ft, `NOTIFY_WEALTH_STEP_HUF`) átlépése; a
+  csúcstól mért visszaesés 5%-onként (`NOTIFY_DRAWDOWN_STEP_PCT`, a
+  befizetésektől függetlenül, az összes eredményből) és a visszatérés a
+  csúcsra; a hónap 10-étől a Havi terv még hiányzó tételei; saját ár- és
+  árfolyamriasztás (`/riasztas VWCE 100 alatt`, `/riasztas EUR 400 felett`,
+  `/riasztas torol 1`; teljesülés után törlődik); január 1-jén éves zárás;
+  május 20-ig szja-emlékeztető a TBSZ-en kívüli számlák előző évi
+  jövedelméről; és ha egy tartott papírnak 7+ napja nincs új ára.
 - **Figyelmeztetések** – parlagon heverő készpénz, TBSZ-határidők, elmaradt
   célok, kupon-import emlékeztetők, saját teendők.
 - **AI elemzés** – egykattintásos értékelés és szabad kérdés-válasz

@@ -21,13 +21,14 @@
     { "name": "eladas", "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
     { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" },
     { "name": "hirek", "description": "Legutóbbi piaci hírösszefoglaló" },
-    { "name": "hirkereses", "description": "Friss hírkeresés most (2–4 perc, félóránként egyszer)" }
+    { "name": "hirkereses", "description": "Friss hírkeresés most (2–4 perc, félóránként egyszer)" },
+    { "name": "riasztas", "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett)" }
   ],
   "quietHours": { "from": "22:00", "to": "07:30" },
   "jobs": [
     {
       "id": "tick",
-      "description": "Riasztások, nagy mozgások, elavult adat, heti/havi jelentés, hónap végi maradék",
+      "description": "Riasztások, nagy mozgások, célok, csúcs és visszaesés, árriasztások, elavult adat, heti/havi/éves jelentés, havi terv, hónap végi maradék",
       "every": "5m",
       "timeout": "3m",
       "expectSuccessWithin": "6h"

@@ -24,7 +24,8 @@ import {
   positionsFromSummary,
   suggestionText,
 } from "../../src/lib/rebalance";
-import { benchmarkIndex, BENCHMARK, computeReturns } from "../../src/lib/returns";
+import { benchmarkIndex, BENCHMARK, computeReturns, monthlyPerformance } from "../../src/lib/returns";
+import { computeIncomeByYear } from "../../src/lib/income";
 import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
 import { addDaysIso, toLocalDay, txDay } from "../../src/lib/day";
 import {
@@ -39,7 +40,9 @@ import {
   buildMonthlyPlan,
   computePlanNeeds,
   defaultPlanAmount,
+  planLineText,
   planTextLines,
+  type MonthlyPlan,
 } from "../../src/lib/monthlyPlan";
 import { loadLeftoverSettings, loadPlanOrder } from "../../src/lib/planPrefs";
 import {
@@ -103,7 +106,7 @@ const MONTHS = [
   "január", "február", "március", "április", "május", "június",
   "július", "augusztus", "szeptember", "október", "november", "december",
 ];
-const dayLabel = (iso: string) => {
+export const dayLabel = (iso: string) => {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   return `${y}. ${MONTHS[m - 1].slice(0, 3)}. ${d}.`;
 };
@@ -194,7 +197,7 @@ export function statusText(ctx: Context): string {
 }
 
 /** Price in its own currency: "123,45 EUR" (HUF without decimals). */
-const px = (n: number, ccy: string) =>
+export const px = (n: number, ccy: string) =>
   ccy === "HUF"
     ? ft(n)
     : `${n.toLocaleString("hu-HU", { minimumFractionDigits: 2, maximumFractionDigits: n < 10 ? 4 : 2 })} ${esc(ccy)}`;
@@ -644,6 +647,31 @@ export function weeklyText(ctx: Context): string {
  * shows (default amount: the monthly budget minus what goals already got).
  */
 function monthlyPlanLines(ctx: Context): string[] {
+  const plan = monthlyPlanOf(ctx);
+  if (plan.lines.length === 0 && !plan.glidePlan) return [];
+  const out = [
+    "",
+    `💶 <b>Havi terv – ${esc(effectiveMonthLabel(ctx.at))}</b> (${ft(plan.amountHuf)})`,
+    ...planTextLines(plan).map((l) => `→ ${esc(l)}`),
+  ];
+  if (plan.shortHuf >= 1)
+    out.push(`⚠️ Nem elég a pénz minden célra — összesen ${ft(plan.shortHuf)} hiányzik.`);
+  return out;
+}
+
+export function planReminderText(ctx: Context): string | null {
+  const open = monthlyPlanOf(ctx).lines.filter((l) => l.need.needHuf >= 1);
+  if (!open.length) return null;
+  const total = open.reduce((s, l) => s + l.need.needHuf, 0);
+  return [
+    `⏰ <b>Havi terv – ${esc(effectiveMonthLabel(ctx.at))}: még ${ft(total)} hiányzik</b>`,
+    ...open.map((l) => `→ ${esc(planLineText(l))}`),
+    "",
+    "<i>A teljes terv: /terv · az appban: Teendők → Havi terv.</i>",
+  ].join("\n");
+}
+
+function monthlyPlanOf(ctx: Context): MonthlyPlan {
   const needs = computePlanNeeds({
     savingsGoals: loadSavingsGoals(),
     dcaGoals: ctx.snapshot.goals ?? [],
@@ -656,7 +684,7 @@ function monthlyPlanLines(ctx: Context): string[] {
     now: ctx.at,
   });
   const budgetHuf = monthlyBudgetHuf(ctx.transactions, ctx.fx, ctx.at);
-  const plan = buildMonthlyPlan({
+  return buildMonthlyPlan({
     amountHuf: defaultPlanAmount(budgetHuf, needs),
     needs,
     glide: ctx.glideConfig,
@@ -671,15 +699,6 @@ function monthlyPlanLines(ctx: Context): string[] {
     instruments: ctx.instMap,
     accounts: ctx.accountCtx,
   });
-  if (plan.lines.length === 0 && !plan.glidePlan) return [];
-  const out = [
-    "",
-    `💶 <b>Havi terv – ${esc(effectiveMonthLabel(ctx.at))}</b> (${ft(plan.amountHuf)})`,
-    ...planTextLines(plan).map((l) => `→ ${esc(l)}`),
-  ];
-  if (plan.shortHuf >= 1)
-    out.push(`⚠️ Nem elég a pénz minden célra — összesen ${ft(plan.shortHuf)} hiányzik.`);
-  return out;
 }
 
 // ---- Month-end leftover ----------------------------------------------------
@@ -820,6 +839,104 @@ export function monthlyText(ctx: Context): string {
 
   const goals = goalsText(ctx);
   if (!goals.startsWith("Még nincs")) lines.push("", goals);
+  return lines.join("\n");
+}
+
+function incomeOf(ctx: Context, year: number, kinds?: string[]) {
+  const accounts = ctx.summary.accounts
+    .map((a) => a.account)
+    .filter((a) => !kinds || kinds.includes(a.kind));
+  if (!accounts.length) return undefined;
+  return computeIncomeByYear(accounts, ctx.transactions, ctx.instMap, ctx.fx).find(
+    (y) => y.year === year,
+  );
+}
+
+const TAXABLE_KINDS = ["regular", "cash"];
+
+export function yearlyText(ctx: Context): string {
+  const year = ctx.at.getFullYear() - 1;
+  const b = pointAt(ctx.series, `${year}-12-31`);
+  const a = pointAt(ctx.series, `${year - 1}-12-31`) ?? ctx.series[0];
+  const lines = [`🎆 <b>Éves zárás – ${year}</b>`, ""];
+  if (b) {
+    lines.push(`Év végi vagyon: <b>${ft(b.value)}</b>`);
+    if (a && a !== b) {
+      const r = computeReturns(
+        ctx.summary.accounts.map((x) => x.account),
+        ctx.transactions,
+        ctx.instMap,
+        ctx.prices,
+        ctx.fx,
+        ctx.history,
+        ctx.at,
+      );
+      const bench = benchmarkIndex(ctx.history, r.twrIndex.map((x) => x.date));
+      const months = monthlyPerformance(r.twrIndex, ctx.series, bench, toLocalDay(ctx.at)).filter(
+        (m) => m.month.startsWith(`${year}-`),
+      );
+      const twr = months.reduce((t, m) => t * (1 + m.twr), 1) - 1;
+      const benchYear = months.every((m) => m.benchmark != null)
+        ? months.reduce((t, m) => t * (1 + m.benchmark!), 1) - 1
+        : undefined;
+      const d = marketDelta(a, b);
+      lines.push(`${arrow(d)} Éves piaci eredmény: ${sft(d)}${months.length ? ` (TWR ${pct(twr)})` : ""}`);
+      if (months.length && benchYear != null)
+        lines.push(`${esc(BENCHMARK.label)} ugyanezalatt: ${pct(benchYear)} (Ft-ban)`);
+      const flows = b.invested - a.invested;
+      if (Math.abs(flows) >= 1) lines.push(`Nettó befizetés: ${sft(flows)}`);
+    }
+  }
+  const inc = incomeOf(ctx, year);
+  if (inc) {
+    const parts: string[] = [];
+    if (Math.abs(inc.realizedPlHuf) >= 1) parts.push(`realizált ${sft(inc.realizedPlHuf)}`);
+    if (inc.interestHuf >= 1) parts.push(`kamat ${ft(inc.interestHuf)}`);
+    if (inc.dividendHuf >= 1) parts.push(`osztalék ${ft(inc.dividendHuf)}`);
+    if (inc.feesHuf >= 1) parts.push(`díjak −${ft(inc.feesHuf)}`);
+    if (parts.length) lines.push("", `Az év során: ${parts.join(" · ")}`);
+  }
+  const tax = taxableIncome(ctx, year);
+  if (tax)
+    lines.push(
+      "",
+      `🧾 A TBSZ-en kívüli számlák ${year}-es jövedelme: ${sft(tax.totalHuf)} – szja-bevallás május 20-ig, májusban emlékeztetlek.`,
+    );
+  return lines.join("\n");
+}
+
+function taxableIncome(ctx: Context, year: number) {
+  const inc = incomeOf(ctx, year, TAXABLE_KINDS);
+  if (!inc) return null;
+  const totalHuf = inc.realizedPlHuf + inc.dividendHuf + inc.interestHuf;
+  if (
+    Math.abs(inc.realizedPlHuf) < 1 &&
+    inc.dividendHuf < 1 &&
+    Math.abs(inc.interestHuf) < 1
+  )
+    return null;
+  return { ...inc, totalHuf };
+}
+
+export function taxReminderText(ctx: Context): string | null {
+  const year = ctx.at.getFullYear() - 1;
+  const tax = taxableIncome(ctx, year);
+  if (!tax) return null;
+  const lines = [
+    "🧾 <b>Szja-bevallás: május 20.</b>",
+    `A TBSZ-en kívüli számláidon ${year}-ben:`,
+  ];
+  if (Math.abs(tax.realizedPlHuf) >= 1) lines.push(`• Realizált árfolyameredmény: ${sft(tax.realizedPlHuf)}`);
+  if (tax.dividendHuf >= 1) lines.push(`• Osztalék: ${ft(tax.dividendHuf)}`);
+  if (Math.abs(tax.interestHuf) >= 1) lines.push(`• Kamat: ${sft(tax.interestHuf)}`);
+  const accs = ctx.summary.accounts
+    .filter((a) => TAXABLE_KINDS.includes(a.account.kind))
+    .map((a) => shortName(a.account.name));
+  lines.push(
+    `Számlák: ${accs.join(", ")}`,
+    "",
+    "<i>Ahol a bróker nem vonta le az adót (pl. külföldi brókernél), a jövedelmet magadnak kell bevallanod. A TBSZ és az állampapír-kamat nem tartozik ide.</i>",
+  );
   return lines.join("\n");
 }
 

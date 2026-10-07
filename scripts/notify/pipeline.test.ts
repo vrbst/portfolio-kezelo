@@ -17,12 +17,15 @@ import {
   liquidationText,
   monthlyText,
   newsText,
+  planReminderText,
   planText,
   quotesText,
   returnsText,
   statusText,
+  taxReminderText,
   tbszText,
   weeklyText,
+  yearlyText,
 } from "./reports";
 
 // End-to-end snapshot of the whole calculation pipeline on the invented
@@ -105,6 +108,9 @@ function fullReport(ctx: Context): string {
     section("maradék kérdés", leftoverPromptText(ctx)),
     section("/maradek 80000", leftoverAnswer(ctx, "80000").html),
     section("/maradek 900000", leftoverAnswer(ctx, "900000").html),
+    section("havi terv emlékeztető", planReminderText(ctx) ?? "(nincs)"),
+    section("éves zárás", yearlyText(ctx)),
+    section("szja-emlékeztető", taxReminderText(ctx) ?? "(nincs)"),
   ].join("\n");
 }
 

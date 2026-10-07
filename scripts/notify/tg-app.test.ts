@@ -27,7 +27,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const env = { bigMovePct: 2, positionMovePct: 5 };
+const env = { bigMovePct: 2, positionMovePct: 5, wealthStepHuf: 1_000_000, drawdownStepPct: 5 };
 const depsFor = (ctx: () => Context): Deps => ({ load: async () => ctx(), stateFile, env });
 const failing = (message: string): Deps => ({
   load: async () => {

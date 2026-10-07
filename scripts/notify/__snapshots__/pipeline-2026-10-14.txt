@@ -258,3 +258,25 @@ Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez 
 → Befizetések (a fentiek számlánként): Lightyear TBSZ 2026 (LY-TESZT26): 665 732 Ft = VWCE (DCA) + Célpálya (ebből váltás 2319 Ft); Államkincstár (12345678): 220 513 Ft = Babakocsi + Autó; Államkincstár (12345678) (félretétel): 13 750 Ft = Nyaralás
 
 Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez tervként rögzíthető.
+
+==== havi terv emlékeztető ====
+⏰ <b>Havi terv – 2026. október: még 334 263 Ft hiányzik</b>
+→ Babakocsi: Diszkont Kincstárjegy D261118 vétel 66 667 Ft (66 923 db, díj 0 Ft) → Államkincstár (12345678)
+→ Nyaralás: tartsd készpénzben a céldátumig 13 750 Ft → Államkincstár (12345678) (Diszkont Kincstárjegy D270310: nem vehetőnek jelölve)
+→ Autó: Diszkont Kincstárjegy D270512 vétel 153 846 Ft (157 109 db, díj 0 Ft) → Államkincstár (12345678)
+→ VWCE (DCA): VWCE vétel 99 253 Ft (1,4236 db, díj 400 Ft, váltás 347 Ft) → Lightyear TBSZ 2026 (LY-TESZT26)
+
+<i>A teljes terv: /terv · az appban: Teendők → Havi terv.</i>
+
+==== éves zárás ====
+🎆 <b>Éves zárás – 2025</b>
+
+Év végi vagyon: <b>6 281 515 Ft</b>
+📈 Éves piaci eredmény: +482 028 Ft (TWR +11,9%)
+VWCE (FTSE All-World) ugyanezalatt: +22,6% (Ft-ban)
+Nettó befizetés: +5 650 000 Ft
+
+Az év során: kamat 162 500 Ft · díjak −9466 Ft
+
+==== szja-emlékeztető ====
+(nincs)

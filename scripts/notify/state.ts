@@ -38,6 +38,31 @@ export interface State {
    */
   loadFailingSince?: string;
   news?: NewsState;
+  goalLevels?: Record<string, number>;
+  wealth?: WealthState;
+  planReminded?: string;
+  lastYearly?: string;
+  taxReminded?: string;
+  priceAlerts?: PriceAlert[];
+}
+
+export interface WealthState {
+  step: number;
+  peakPl: number;
+  peakValue: number;
+  peakDay: string;
+  drawdown: number;
+}
+
+export interface PriceAlert {
+  id: string;
+  key: string;
+  label: string;
+  currency: string;
+  fx: boolean;
+  op: "below" | "above";
+  level: number;
+  createdAt: string;
 }
 
 export type NewsState = {
