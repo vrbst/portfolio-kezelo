@@ -48,6 +48,8 @@ const INSTRUMENTS = [
   },
 ]
 
+const FX_CURRENCIES = ['EUR', 'USD']
+
 const UA = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
@@ -100,8 +102,8 @@ async function resolveQuote(isin, wantCcy) {
   throw new Error('egyik listán sincs ár')
 }
 
-async function fetchFx() {
-  const res = await fetch('https://api.frankfurter.app/latest?from=EUR&to=HUF')
+async function fetchFx(ccy) {
+  const res = await fetch(`https://api.frankfurter.app/latest?from=${ccy}&to=HUF`)
   if (!res.ok) throw new Error(`fx: HTTP ${res.status}`)
   const data = await res.json()
   return data.rates?.HUF
@@ -129,13 +131,13 @@ async function fetchHistory(symbol) {
 }
 
 /** Daily EUR/HUF history from frankfurter: [[YYYY-MM-DD, rate], …]. */
-async function fetchFxHistory() {
+async function fetchFxHistory(ccy) {
   const end = new Date().toISOString().slice(0, 10)
   const start = new Date(Date.now() - HISTORY_YEARS * 365 * 86_400_000)
     .toISOString()
     .slice(0, 10)
   const res = await fetch(
-    `https://api.frankfurter.app/${start}..${end}?from=EUR&to=HUF`,
+    `https://api.frankfurter.app/${start}..${end}?from=${ccy}&to=HUF`,
   )
   if (!res.ok) throw new Error(`fx history: HTTP ${res.status}`)
   const data = await res.json()
@@ -232,33 +234,35 @@ async function main() {
   // EUR/HUF is carried forward like the prices: an empty fx would value every
   // EUR position at 1 HUF/EUR until the app's live rate arrives, and blank the
   // chart's EUR history until the next run.
-  let fx = {}
-  try {
-    const eurHuf = await fetchFx()
-    if (!eurHuf) throw new Error('üres válasz')
-    fx = { EUR: eurHuf }
-    freshPrices++
-    console.log(`✓ EUR/HUF = ${eurHuf}`)
-  } catch (err) {
-    console.warn(`! FX: ${err.message}`)
-    if (prevFile?.fx?.EUR) {
-      fx = prevFile.fx
-      console.log('  ↳ EUR/HUF megtartva a korábbi fájlból')
+  const fx = {}
+  const fxHist = {}
+  for (const ccy of FX_CURRENCIES) {
+    try {
+      const rate = await fetchFx(ccy)
+      if (!rate) throw new Error('üres válasz')
+      fx[ccy] = rate
+      freshPrices++
+      console.log(`✓ ${ccy}/HUF = ${rate}`)
+    } catch (err) {
+      console.warn(`! FX ${ccy}: ${err.message}`)
+      if (prevFile?.fx?.[ccy]) {
+        fx[ccy] = prevFile.fx[ccy]
+        console.log(`  ↳ ${ccy}/HUF megtartva a korábbi fájlból`)
+      }
     }
-  }
 
-  let fxHist = {}
-  try {
-    const series = await fetchFxHistory()
-    if (!series.length) throw new Error('üres válasz')
-    fxHist = { EUR: series }
-    freshHist++
-    console.log(`✓ EUR/HUF history: ${series.length} nap`)
-  } catch (err) {
-    console.warn(`! FX history: ${err.message}`)
-    if (prevHistFile?.fx?.EUR?.length) {
-      fxHist = prevHistFile.fx
-      console.log('  ↳ EUR/HUF history megtartva a korábbi fájlból')
+    try {
+      const series = await fetchFxHistory(ccy)
+      if (!series.length) throw new Error('üres válasz')
+      fxHist[ccy] = series
+      freshHist++
+      console.log(`✓ ${ccy}/HUF history: ${series.length} nap`)
+    } catch (err) {
+      console.warn(`! FX history ${ccy}: ${err.message}`)
+      if (prevHistFile?.fx?.[ccy]?.length) {
+        fxHist[ccy] = prevHistFile.fx[ccy]
+        console.log(`  ↳ ${ccy}/HUF history megtartva a korábbi fájlból`)
+      }
     }
   }
 

@@ -342,6 +342,7 @@ export interface Position {
   provider?: string;
   /** That broker's buy / sell cost (see BrokerFees). */
   brokerCost?: CostRule;
+  listed?: boolean;
 }
 
 /**
@@ -399,6 +400,7 @@ export function positionsFromSummary(
               ? h.marketValueHuf / h.quantity
               : undefined,
         bondSellCostPct: bondSellCost(inst, day),
+        ...(inst && LISTED_TYPES.has(inst.type) ? { listed: true } : {}),
         provider: acc.account.provider,
         brokerCost: brokerFees[acc.account.provider],
       });
@@ -421,6 +423,8 @@ export function positionsFromSummary(
       p.unitPriceHuf = p.valueHuf / p.quantity;
   return [...map.values()];
 }
+
+const LISTED_TYPES = new Set(["etf", "stock", "fund"]);
 
 /** Early-sale cost of a fixed-rate bond before maturity; T-bills have none. */
 function bondSellCost(inst: Instrument | undefined, day: string) {
@@ -2053,6 +2057,33 @@ export function glideAlerts(
   accounts?: AccountContext,
 ): Alert[] {
   if (!state || !cfg || state.totalHuf <= 0) return [];
+  return [...unassignedAlerts(state), ...bandAlerts(state, cfg, signals, accounts)];
+}
+
+export function unassignedAlerts(state: AllocationState): Alert[] {
+  const loose = state.unassigned
+    .filter((p) => p.listed && p.valueHuf >= 1)
+    .sort((a, b) => a.key.localeCompare(b.key));
+  if (loose.length === 0) return [];
+  const names = loose.map((p) => p.name).join(", ");
+  return [
+    {
+      id: `glide-unassigned:${loose.map((p) => p.key).join(",")}`,
+      severity: "medium",
+      title: `Célpálya – csoporton kívül: ${names}`,
+      detail: `${names} egyik célpálya-csoportban sincs benne, így kimarad a súlyokból és a javaslatokból. A Célpálya kártyán eszközosztály szerint besorolhatod.`,
+      to: "/goals",
+      actionLabel: "Célpálya",
+    },
+  ];
+}
+
+function bandAlerts(
+  state: AllocationState,
+  cfg: GlideConfig,
+  signals: GlideSignals,
+  accounts?: AccountContext,
+): Alert[] {
   const period = checkPeriod(cfg.checkFrequency, state.day);
   const p = (v: number) =>
     `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;

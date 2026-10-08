@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Account, Instrument, Transaction } from "./model";
-import type { LiveQuote } from "./prices";
+import { isFxKey, type LiveQuote } from "./prices";
 import { toLocalDay } from "./bonds";
 import { addDaysIso, txDay, utcDay } from "./day";
 import {
@@ -72,6 +72,11 @@ function makeDayMarker(
   history?: ValueHistory | null,
 ) {
   const fxHistory = buildFxHistory(sorted);
+  const fxCcys = new Set([
+    "EUR",
+    ...Object.keys(history?.fx ?? {}),
+    ...fxHistory.keys(),
+  ]);
   // Per-instrument trade-price timeline (instrument currency per unit) — the
   // fallback when no market history is available.
   const priceTimeline = new Map<string, { date: string; price: number }[]>();
@@ -109,13 +114,12 @@ function makeDayMarker(
         tradePriceAsOf(inst.key, endMs);
       if (p != null) pricesAtD.set(inst.key, p);
     }
-    const fxAtD = {
-      ...fx,
-      EUR:
-        asOf(history?.fx["EUR"], day) ??
-        histFxRate(fxHistory, "EUR", dayEnd.toISOString(), fx),
-      ...(overrides?.fx ?? {}),
-    };
+    const fxAtD: Record<string, number> = { ...fx };
+    for (const ccy of fxCcys)
+      fxAtD[ccy] =
+        asOf(history?.fx[ccy], day) ??
+        histFxRate(fxHistory, ccy, dayEnd.toISOString(), fx);
+    Object.assign(fxAtD, overrides?.fx ?? {});
     // Value the holdings at the SAME instant used as the transaction cutoff
     // (end of the local `day`). Bond accrued interest resets on the coupon
     // boundary; a coupon tx is stored at the value date's local midnight, so it
@@ -420,11 +424,12 @@ export function dayChangeBreakdown(
       overrides.prices?.[inst.key] ?? asOf(history?.prices[inst.key], prevDay);
     if (p != null) prevPrices.set(inst.key, p);
   }
-  const prevFx: Record<string, number> = {
-    ...fx,
-    EUR: asOf(history?.fx["EUR"], prevDay) ?? fx["EUR"],
-    ...(overrides.fx ?? {}),
-  };
+  const prevFx: Record<string, number> = { ...fx };
+  for (const [ccy, series] of Object.entries(history?.fx ?? {})) {
+    const r = asOf(series, prevDay) ?? fx[ccy];
+    if (r != null) prevFx[ccy] = r;
+  }
+  Object.assign(prevFx, overrides.fx ?? {});
   const prevEnd = dayEndOf(prevDay);
   const mark = (p: PriceMap, f: Record<string, number>, at: Date) =>
     computePortfolio(accounts, transactions, instMap, p, f, at);
@@ -443,6 +448,7 @@ export function dayChangeBreakdown(
   let bondBase = 0;
   const priceLines: { label: string; abs: number; pct?: number }[] = [];
   let priceBase = 0;
+  const priceKeys = new Set<string>();
   const fxByCcy = new Map<string, number>();
   const addFx = (ccy: string, v: number) =>
     fxByCcy.set(ccy, (fxByCcy.get(ccy) ?? 0) + v);
@@ -465,6 +471,7 @@ export function dayChangeBreakdown(
         pct: p0 && p1 != null ? p1 / p0 - 1 : undefined,
       });
     priceBase += vb.get(key) ?? 0;
+    priceKeys.add(key);
     const ccy = inst?.currency ?? "HUF";
     if (ccy !== "HUF") addFx(ccy, vD - (vc.get(key) ?? 0));
   }
@@ -492,7 +499,9 @@ export function dayChangeBreakdown(
     const abs = priceLines.reduce((s, l) => s + l.abs, 0);
     items.push({
       kind: "price",
-      label: "ETF-árfolyamok",
+      label: [...priceKeys].every((k) => instMap.get(k)?.type === "etf")
+        ? "ETF-árfolyamok"
+        : "Tőzsdei árfolyamok",
       abs,
       pct: priceBase > 0 ? abs / priceBase : undefined,
       children: priceLines.length > 1 ? priceLines : undefined,
@@ -539,10 +548,12 @@ export function liveDayOverrides(
   const prices: Record<string, number> = {};
   for (const [key, q] of Object.entries(liveQuotes))
     if (isHeld(key) && q.prevClose != null) prices[key] = tradedToday(q) ? q.prevClose : q.price;
-  const eur = liveQuotes["EUR"];
-  const eurPrev = eur?.prevClose != null ? (tradedToday(eur) ? eur.prevClose : eur.price) : undefined;
-  if (eurPrev == null && Object.keys(prices).length === 0) return null;
-  return { prices, fx: eurPrev != null ? { EUR: eurPrev } : undefined };
+  const fx: Record<string, number> = {};
+  for (const [key, q] of Object.entries(liveQuotes))
+    if (isFxKey(key) && !isHeld(key) && q.prevClose != null)
+      fx[key] = tradedToday(q) ? q.prevClose : q.price;
+  if (Object.keys(fx).length === 0 && Object.keys(prices).length === 0) return null;
+  return { prices, fx: Object.keys(fx).length > 0 ? fx : undefined };
 }
 
 /**

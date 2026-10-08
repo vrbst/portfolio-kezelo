@@ -7,6 +7,7 @@
 
 import { PREFS_EVENT, touchPref } from "./prefs";
 import { toLocalDay, utcDay } from "./day";
+import type { Instrument, InstrumentType, Transaction } from "./model";
 
 export interface PriceEntry {
   price: number;
@@ -147,6 +148,7 @@ export interface LiveQuote {
    * `prevClose` is Friday's move, not today's.
    */
   marketTime?: number;
+  quoteType?: string;
 }
 
 /**
@@ -352,6 +354,7 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
       exchange: meta?.fullExchangeName,
       name: meta?.longName ?? meta?.shortName,
       marketTime: reopened ? rawTime : lastTradeTime(rawTime, lastBar),
+      quoteType: meta?.instrumentType,
     };
   } catch {
     return null;
@@ -514,15 +517,18 @@ async function fetchYahooHistory(
 export async function fetchLiveHistory(
   targets: LivePriceTarget[],
   range = "5y",
+  currencies: string[] = ["EUR"],
 ): Promise<HistoryFile> {
   const overrides = loadSymbolOverrides();
   const prices: Record<string, [string, number][]> = {};
   const fx: Record<string, [string, number][]> = {};
 
-  const [, ...rest] = await Promise.all([
-    fetchYahooHistory("EURHUF=X", range).then((h) => {
-      if (h?.series.length) fx["EUR"] = h.series;
-    }),
+  await Promise.all([
+    ...currencies.map((ccy) =>
+      fetchYahooHistory(`${ccy}HUF=X`, range).then((h) => {
+        if (h?.series.length) fx[ccy] = h.series;
+      }),
+    ),
     ...targets.map(async (t) => {
       const r = await resolveSymbol(t, overrides);
       if (!r) return;
@@ -532,30 +538,97 @@ export async function fetchLiveHistory(
       prices[t.key] = h.series;
     }),
   ]);
-  void rest;
 
   return { updatedAt: new Date().toISOString(), prices, fx };
 }
 
 /**
- * Live EUR->HUF. Prefers Yahoo's intraday EURHUF=X (via the Worker), which
- * actually moves through the day; falls back to frankfurter's ECB reference
- * rate (once-daily, business days only) if Yahoo is unavailable.
+ * Live HUF rates of the given currencies. Prefers Yahoo's intraday
+ * `<CCY>HUF=X` (via the Worker), which actually moves through the day; falls
+ * back to frankfurter's ECB reference rate (once-daily, business days only)
+ * if Yahoo is unavailable.
  */
-export async function fetchLiveFx(): Promise<Record<string, LiveQuote>> {
-  const yahoo = await fetchYahooQuote("EURHUF=X");
-  if (yahoo) {
-    const { currency: _currency, ...live } = yahoo;
-    return { EUR: live };
+export async function fetchLiveFx(
+  currencies: string[] = ["EUR"],
+): Promise<Record<string, LiveQuote>> {
+  const out: Record<string, LiveQuote> = {};
+  await Promise.all(
+    currencies.map(async (ccy) => {
+      const yahoo = await fetchYahooQuote(`${ccy}HUF=X`);
+      if (yahoo) {
+        const { currency: _currency, quoteType: _quoteType, ...live } = yahoo;
+        out[ccy] = live;
+        return;
+      }
+      try {
+        const res = await fetch(
+          `https://api.frankfurter.app/latest?from=${ccy}&to=HUF`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { rates?: { HUF?: number } };
+        if (data.rates?.HUF) out[ccy] = { price: data.rates.HUF };
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
+  return out;
+}
+
+export function fxCurrencies(
+  instruments: Pick<Instrument, "currency">[],
+  transactions: Pick<Transaction, "currency">[] = [],
+): string[] {
+  const out = new Set<string>(["EUR"]);
+  for (const x of [...instruments, ...transactions])
+    if (x.currency !== "HUF" && isFxKey(x.currency)) out.add(x.currency);
+  return [...out].sort();
+}
+
+export function isFxKey(key: string): boolean {
+  return /^[A-Z]{3}$/.test(key);
+}
+
+const QUOTE_TYPES: Record<string, InstrumentType> = { EQUITY: "stock", ETF: "etf" };
+
+export function refinedInstrumentType(
+  inst: Instrument,
+  quote: LiveQuote | undefined,
+): InstrumentType | undefined {
+  if (inst.typeManual || (inst.type !== "etf" && inst.type !== "stock")) return undefined;
+  const t = quote?.quoteType ? QUOTE_TYPES[quote.quoteType] : undefined;
+  return t && t !== inst.type ? t : undefined;
+}
+
+/**
+ * Daily FX history: the committed series (ECB fixing) is canonical — the live
+ * Yahoo series samples at a different time of day and disagrees with it by up
+ * to ~0.5% per day, which permanently perturbs the TWR chain on conversion
+ * days. Live data only extends the tail (days after the committed series ends).
+ */
+/**
+ * Merge dated [day, value] series (EUR/HUF rates or per-instrument closes): the
+ * committed snapshot is canonical, the live pull only appends days AFTER its last
+ * committed day. This keeps the (denser, ECB/build-time) history intact and never
+ * lets a sparse or delayed live fetch shorten it — e.g. Yahoo's illiquid .SG
+ * listings sometimes return just 1–2 points, which must not clobber a rich
+ * committed series (that made a holding's price chart vanish). A key absent from
+ * committed is taken wholesale from live (a newly bought ETF the build never saw).
+ */
+export function mergeDatedSeries(
+  committed: Record<string, [string, number][]> | undefined,
+  live: Record<string, [string, number][]>,
+): Record<string, [string, number][]> {
+  const out: Record<string, [string, number][]> = { ...(committed ?? {}) };
+  for (const [key, series] of Object.entries(live)) {
+    const base = out[key];
+    if (!base?.length) {
+      out[key] = series;
+      continue;
+    }
+    const lastDay = base[base.length - 1][0];
+    const tail = series.filter(([d]) => d > lastDay);
+    if (tail.length) out[key] = [...base, ...tail];
   }
-  try {
-    const res = await fetch(
-      "https://api.frankfurter.app/latest?from=EUR&to=HUF",
-    );
-    if (!res.ok) return {};
-    const data = (await res.json()) as { rates?: { HUF?: number } };
-    return data.rates?.HUF ? { EUR: { price: data.rates.HUF } } : {};
-  } catch {
-    return {};
-  }
+  return out;
 }

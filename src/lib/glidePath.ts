@@ -622,6 +622,57 @@ export function validateConfig(
   return { errors, warnings };
 }
 
+export interface AutoAssignment {
+  key: string;
+  bucketId: string;
+}
+
+export function assignByAssetClass(
+  cfg: GlideConfig,
+  keys: string[],
+  instruments: Map<string, Instrument>,
+): AutoAssignment[] {
+  const bucketIds = new Set(cfg.buckets.map((b) => b.id));
+  const votes = new Map<AssetClass, Map<string, number>>();
+  for (const [key, rule] of Object.entries(cfg.instruments)) {
+    const inst = instruments.get(key);
+    if (!inst || !bucketIds.has(rule.bucketId)) continue;
+    const cls = assetClassOf(inst);
+    const m = votes.get(cls) ?? new Map<string, number>();
+    m.set(rule.bucketId, (m.get(rule.bucketId) ?? 0) + 1);
+    votes.set(cls, m);
+  }
+  const out: AutoAssignment[] = [];
+  for (const key of keys) {
+    const inst = instruments.get(key);
+    if (!inst || isCashKey(key) || cfg.instruments[key]) continue;
+    const cls = assetClassOf(inst);
+    const ranked = [...(votes.get(cls) ?? [])].sort((a, b) => b[1] - a[1]);
+    if (ranked.length > 0) {
+      if (ranked.length === 1 || ranked[0][1] > ranked[1][1])
+        out.push({ key, bucketId: ranked[0][0] });
+      continue;
+    }
+    const label = assetClassLabel[cls];
+    const aliases = new Set(
+      [label, ...label.split("/")].map((n) => n.trim().toLocaleLowerCase("hu")),
+    );
+    const named = cfg.buckets.filter((b) => aliases.has(b.name.trim().toLocaleLowerCase("hu")));
+    if (named.length === 1) out.push({ key, bucketId: named[0].id });
+  }
+  return out;
+}
+
+export function withAssignments(
+  cfg: GlideConfig,
+  assignments: AutoAssignment[],
+): GlideConfig {
+  const instruments = { ...cfg.instruments };
+  for (const a of assignments)
+    instruments[a.key] = { bucketId: a.bucketId, sellable: false, acceptsContributions: false };
+  return { ...cfg, instruments };
+}
+
 // ---- Defaults & migration ---------------------------------------------------
 
 /** Global defaults for a fresh configuration. */

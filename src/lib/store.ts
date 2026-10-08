@@ -4,6 +4,7 @@ import type { Account, Instrument, Transaction } from "./model";
 import type { ParsedImport } from "./parsers";
 import { matchExisting } from "./parsers/match";
 import {
+  buildFxHistory,
   computePortfolio,
   type PortfolioSummary,
   type PriceMap,
@@ -14,6 +15,9 @@ import {
   fetchLiveFx,
   fetchLivePrices,
   fetchLiveHistory,
+  fxCurrencies,
+  mergeDatedSeries,
+  refinedInstrumentType,
   type PriceFile,
   type HistoryFile,
   type LiveQuote,
@@ -196,6 +200,10 @@ function savePrivacy(v: boolean) {
 /** Derive a fallback EUR->HUF rate from the latest conversion legs. */
 function deriveFx(txs: Transaction[]): Record<string, number> {
   const fx: Record<string, number> = {};
+  for (const [ccy, points] of buildFxHistory(txs)) {
+    const last = points[points.length - 1];
+    if (last) fx[ccy] = last.rate;
+  }
   const eurLegs = txs
     .filter(
       (t) =>
@@ -229,39 +237,6 @@ function buildPriceMap(
   for (const [key, price] of Object.entries(live)) map.set(key, price);
   for (const [key, price] of Object.entries(manual)) map.set(key, price);
   return map;
-}
-
-/**
- * Daily FX history: the committed series (ECB fixing) is canonical — the live
- * Yahoo series samples at a different time of day and disagrees with it by up
- * to ~0.5% per day, which permanently perturbs the TWR chain on conversion
- * days. Live data only extends the tail (days after the committed series ends).
- */
-/**
- * Merge dated [day, value] series (EUR/HUF rates or per-instrument closes): the
- * committed snapshot is canonical, the live pull only appends days AFTER its last
- * committed day. This keeps the (denser, ECB/build-time) history intact and never
- * lets a sparse or delayed live fetch shorten it — e.g. Yahoo's illiquid .SG
- * listings sometimes return just 1–2 points, which must not clobber a rich
- * committed series (that made a holding's price chart vanish). A key absent from
- * committed is taken wholesale from live (a newly bought ETF the build never saw).
- */
-function mergeDatedSeries(
-  committed: Record<string, [string, number][]> | undefined,
-  live: Record<string, [string, number][]>,
-): Record<string, [string, number][]> {
-  const out: Record<string, [string, number][]> = { ...(committed ?? {}) };
-  for (const [key, series] of Object.entries(live)) {
-    const base = out[key];
-    if (!base?.length) {
-      out[key] = series;
-      continue;
-    }
-    const lastDay = base[base.length - 1][0];
-    const tail = series.filter(([d]) => d > lastDay);
-    if (tail.length) out[key] = [...base, ...tail];
-  }
-  return out;
 }
 
 function buildSnapshot(s: PortfolioState): PortfolioSnapshot {
@@ -732,9 +707,21 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // price poll never clobbers the live-fetched chart series.
     const [file, fxQuotes, priceQuotes] = await Promise.all([
       loadPriceFile(),
-      fetchLiveFx(),
+      fetchLiveFx(fxCurrencies(get().instruments, get().transactions)),
       fetchLivePrices(targets),
     ]);
+    const retyped = get()
+      .instruments.map((i) => {
+        const type = refinedInstrumentType(i, priceQuotes[i.key]);
+        return type ? { ...i, type } : undefined;
+      })
+      .filter((i): i is Instrument => !!i);
+    if (retyped.length > 0) {
+      const byKey = new Map(retyped.map((i) => [i.key, i]));
+      await db.instruments.bulkPut(retyped);
+      set((s) => ({ instruments: s.instruments.map((i) => byKey.get(i.key) ?? i) }));
+      scheduleAutoSync(set, get);
+    }
     const priceOf = (q: Record<string, LiveQuote>) =>
       Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.price]));
     const liveFx = priceOf(fxQuotes);
@@ -798,7 +785,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       }));
     if (targets.length === 0) return;
 
-    const live = await fetchLiveHistory(targets);
+    const live = await fetchLiveHistory(
+      targets,
+      undefined,
+      fxCurrencies(get().instruments, get().transactions),
+    );
     set({
       historyFile: {
         updatedAt: live.updatedAt ?? committed?.updatedAt,

@@ -191,6 +191,13 @@ export function buildFxHistory(txs: Transaction[]): FxHistory {
   }
 
   const map: FxHistory = new Map();
+  const add = (ccy: string, date: string, rate: number) => {
+    const arr = map.get(ccy) ?? [];
+    arr.push({ date, rate });
+    map.set(ccy, arr);
+  };
+  const abs = (l: Transaction) => Math.abs(l.grossAmount ?? l.netAmount ?? 0);
+  const cross: [Transaction, Transaction][] = [];
   for (const legs of groups.values()) {
     // A conversion is a 2-leg pair (HUF + one foreign leg). Reference-less
     // legs fall back to a per-day group key, so two unrelated same-day
@@ -199,16 +206,34 @@ export function buildFxHistory(txs: Transaction[]): FxHistory {
     if (legs.length !== 2) continue;
     const hufLeg = legs.find((l) => (l.currency || "HUF") === "HUF");
     const foreign = legs.find((l) => l.currency && l.currency !== "HUF");
-    if (!hufLeg || !foreign) continue;
-    const hufAbs = Math.abs(hufLeg.grossAmount ?? hufLeg.netAmount ?? 0);
-    const foreignAbs = Math.abs(foreign.grossAmount ?? foreign.netAmount ?? 0);
+    if (!foreign) continue;
+    if (!hufLeg) {
+      const [x, y] = legs;
+      if (x.currency && y.currency && x.currency !== y.currency) cross.push([x, y]);
+      continue;
+    }
+    const hufAbs = abs(hufLeg);
+    const foreignAbs = abs(foreign);
     if (!hufAbs || !foreignAbs) continue;
     const rate = hufAbs / foreignAbs; // effective, fee-inclusive
     if (rate <= 1) continue;
-    const arr = map.get(foreign.currency) ?? [];
-    arr.push({ date: foreign.date, rate });
-    map.set(foreign.currency, arr);
+    add(foreign.currency, foreign.date, rate);
   }
+  for (const arr of map.values())
+    arr.sort((a, b) => a.date.localeCompare(b.date));
+  const derived: [string, string, number][] = [];
+  for (const [x, y] of cross) {
+    if (!abs(x) || !abs(y)) continue;
+    for (const [known, other] of [
+      [x, y],
+      [y, x],
+    ]) {
+      if (map.has(other.currency) || !map.has(known.currency)) continue;
+      const rate = (histFxRate(map, known.currency, known.date, {}) * abs(known)) / abs(other);
+      if (rate > 1) derived.push([other.currency, other.date, rate]);
+    }
+  }
+  for (const [ccy, date, rate] of derived) add(ccy, date, rate);
   for (const arr of map.values())
     arr.sort((a, b) => a.date.localeCompare(b.date));
   return map;

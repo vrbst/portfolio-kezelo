@@ -101,6 +101,7 @@ export interface Instrument {
    * jegyzése lezárult). A lejárt sorozat enélkül is automatikusan nem vehető.
    */
   notBuyable?: boolean;
+  typeManual?: boolean;
 }
 
 /** Normalised transaction type across all providers. */

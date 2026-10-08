@@ -2,13 +2,14 @@ import InfoTip from "../InfoTip";
 import { useState } from "react";
 import { LineChart, RefreshCw, Check, Pencil, X } from "lucide-react";
 import { usePortfolio } from "../../lib/store";
-import { Card, Badge } from "../ui";
+import { Card } from "../ui";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import { instrumentTypeLabel } from "../../lib/labels";
 import { loadSymbolOverrides, saveSymbolOverride } from "../../lib/prices";
-import type { Instrument } from "../../lib/model";
+import type { Instrument, InstrumentType } from "../../lib/model";
 
 const PRICED_TYPES = new Set(["etf", "stock", "fund"]);
+const TYPE_CHOICES: InstrumentType[] = ["etf", "stock", "fund"];
 
 export default function PriceSettings() {
   const instruments = usePortfolio((s) => s.instruments);
@@ -135,7 +136,27 @@ function PriceRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 font-medium">
           {inst.ticker || inst.name}
-          <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
+          <select
+            value={inst.type}
+            onChange={(e) =>
+              void updateInstrument(inst.key, {
+                type: e.target.value as InstrumentType,
+                typeManual: true,
+              })
+            }
+            title={
+              inst.typeManual
+                ? "Kézzel beállított típus"
+                : "Típus — az árfolyamforrás alapján automatikusan, de átállítható"
+            }
+            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-xs font-normal"
+          >
+            {TYPE_CHOICES.map((t) => (
+              <option key={t} value={t}>
+                {instrumentTypeLabel[t]}
+              </option>
+            ))}
+          </select>
           {isLive && (
             <span
               className="h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]"
@@ -155,23 +176,25 @@ function PriceRow({
             className="w-44 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-xs"
           />
           {/* TER + its field + "%" wrap together on a phone. */}
-          <span className="flex items-center gap-2 sm:ml-2">
-            TER:
-            <input
-              key={`ter:${inst.terPct ?? ""}`}
-              type="number"
-              step="0.01"
-              min={0}
-              defaultValue={
-                inst.terPct != null ? +(inst.terPct * 100).toFixed(3) : ""
-              }
-              onBlur={(e) => saveTer(e.target.value)}
-              placeholder="pl. 0.22"
-              title="Az alap éves költséghányada (TER) százalékban — a Hozam oldal költségbecsléséhez."
-              className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
-            />
-            %
-          </span>
+          {inst.type !== "stock" && (
+            <span className="flex items-center gap-2 sm:ml-2">
+              TER:
+              <input
+                key={`ter:${inst.terPct ?? ""}`}
+                type="number"
+                step="0.01"
+                min={0}
+                defaultValue={
+                  inst.terPct != null ? +(inst.terPct * 100).toFixed(3) : ""
+                }
+                onBlur={(e) => saveTer(e.target.value)}
+                placeholder="pl. 0.22"
+                title="Az alap éves költséghányada (TER) százalékban — a Hozam oldal költségbecsléséhez."
+                className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-xs tabular-nums"
+              />
+              %
+            </span>
+          )}
         </label>
       </div>
       <div className="text-right">

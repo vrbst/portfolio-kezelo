@@ -16,8 +16,13 @@ import {
 } from "../../src/lib/portfolio";
 import {
   fetchLiveFx,
+  fetchLiveHistory,
   fetchLivePrices,
+  fxCurrencies,
+  mergeDatedSeries,
+  refinedInstrumentType,
   type HistoryFile,
+  type LivePriceTarget,
   type LiveQuote,
   type PriceFile,
 } from "../../src/lib/prices";
@@ -161,6 +166,29 @@ export async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T) {
   }
 }
 
+export function historyGaps(
+  history: HistoryFile | null,
+  targets: LivePriceTarget[],
+  currencies: string[],
+): { targets: LivePriceTarget[]; currencies: string[] } {
+  return {
+    targets: targets.filter((t) => !history?.prices[t.key]?.length),
+    currencies: currencies.filter((c) => !history?.fx[c]?.length),
+  };
+}
+
+export function withLiveHistory(
+  history: HistoryFile | null,
+  live: HistoryFile,
+): HistoryFile | null {
+  if (!Object.keys(live.prices).length && !Object.keys(live.fx).length) return history;
+  return {
+    updatedAt: history?.updatedAt ?? live.updatedAt,
+    prices: mergeDatedSeries(history?.prices, live.prices),
+    fx: mergeDatedSeries(history?.fx, live.fx),
+  };
+}
+
 /** Accounts deleted on any device (tombstone newer than a re-import). */
 function dropDeleted(snap: PortfolioSnapshot) {
   const tomb = snap.deletedAccounts ?? {};
@@ -195,15 +223,25 @@ export async function loadContext(env: NotifyEnv, aiUsageFile?: string): Promise
   const targets = snapshot.instruments
     .filter((i) => tickerTypes.has(i.type))
     .map((i) => ({ key: i.key, isin: i.isin ?? i.key, currency: i.currency }));
-  const [fxQuotes, priceQuotes] = await Promise.all([
-    withTimeout(fetchLiveFx(), 20_000, {} as Record<string, LiveQuote>),
+  const currencies = fxCurrencies(snapshot.instruments, snapshot.transactions);
+  const gaps = historyGaps(history, targets, currencies);
+  const empty: HistoryFile = { prices: {}, fx: {} };
+  const [fxQuotes, priceQuotes, liveHistory] = await Promise.all([
+    withTimeout(fetchLiveFx(currencies), 20_000, {} as Record<string, LiveQuote>),
     withTimeout(fetchLivePrices(targets), 30_000, {} as Record<string, LiveQuote>),
+    gaps.targets.length || gaps.currencies.length
+      ? withTimeout(fetchLiveHistory(gaps.targets, "2y", gaps.currencies), 30_000, empty)
+      : Promise.resolve(empty),
   ]);
+  snapshot.instruments = snapshot.instruments.map((i) => {
+    const type = refinedInstrumentType(i, priceQuotes[i.key]);
+    return type ? { ...i, type } : i;
+  });
 
   const ctx = buildContext({
     snapshot,
     priceFile,
-    history,
+    history: withLiveHistory(history, liveHistory),
     bondRates,
     fxQuotes,
     priceQuotes,

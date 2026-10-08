@@ -16,11 +16,13 @@ import {
 } from "../lib/store";
 import { glideAmountSource } from "../lib/budget";
 import {
+  assignByAssetClass,
   isInflowMode,
   newConfigGlobals,
   isActive,
   latestConfig,
   saveGlideVersion,
+  withAssignments,
   type GlideConfig,
 } from "../lib/glidePath";
 import {
@@ -340,6 +342,18 @@ export default function GlidePathSettings() {
       : cfg?.buckets[0]?.id;
   const unassigned = (state?.unassigned ?? []).filter((p) => Math.abs(p.valueHuf) > 0.5);
   const unassignedHuf = unassigned.reduce((s, p) => s + p.valueHuf, 0);
+  const assignable = cfg
+    ? assignByAssetClass(
+        cfg,
+        unassigned.map((p) => p.key),
+        new Map(instruments.map((i) => [i.key, i])),
+      )
+    : [];
+  const assignAll = () => {
+    if (!cfg) return;
+    const next = withAssignments({ ...cfg, validFrom: today }, assignable);
+    save(isInflowMode(next) ? { ...next, ...freeze(next) } : next);
+  };
   const nextCheck = cfg
     ? checkDays(cfg.checkFrequency, today, `${+today.slice(0, 4) + 1}${today.slice(4)}`).find((d) => d > today)
     : undefined;
@@ -461,6 +475,22 @@ export default function GlidePathSettings() {
             <p className="mt-3 text-xs text-[var(--color-muted)]">
               Csoporton kívül: <Amt>{formatMoney(unassignedHuf)}</Amt> (
               {unassigned.map((p) => p.name).join(", ")}) — kimarad a súlyokból.
+              {assignable.length > 0 && (
+                <>
+                  {" "}
+                  <button
+                    className="text-[var(--color-brand)] hover:underline"
+                    onClick={assignAll}
+                    title="Az új papírt abba a csoportba teszi, ahol a vele azonos eszközosztályú papírjaid vannak. Nem kap befizetést és nem adható el a javaslatokban — ezt a szerkesztőben átállíthatod."
+                  >
+                    Besorolás eszközosztály szerint (
+                    {assignable
+                      .map((a) => `${names.get(a.key) ?? a.key} → ${cfg?.buckets.find((b) => b.id === a.bucketId)?.name ?? ""}`)
+                      .join(", ")}
+                    )
+                  </button>
+                </>
+              )}
             </p>
           )}
           {cfg && (

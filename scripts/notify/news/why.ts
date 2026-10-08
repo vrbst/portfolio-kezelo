@@ -110,7 +110,9 @@ export function buildWhyPrompt(p: {
     const fund =
       f.type === "etf" || f.type === "fund"
         ? " — alap: a követett index vagy piac mai mozgását magyarázd (a név alapján, pl. világindex → globális részvénypiac), ne a tickerre keress"
-        : "";
+        : f.type === "stock"
+          ? " — egyedi részvény: a cég mai híreire, bejelentéseire, elemzői lépéseire és a szektorára keress"
+          : "";
     return `${head}${what}${quoted}: ${move}${fund}`;
   });
   const exposure = p.exposure?.length
