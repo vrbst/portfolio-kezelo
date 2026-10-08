@@ -141,13 +141,25 @@ function wholeMonthsBetween(from: string, to: string): number | undefined {
 
 const SCHEDULE_MONTHS = new Set([1, 3, 6, 12]);
 
+export const VARIABLE_RATE = new Set<BondFamily>(["PMÁP", "PEMÁP", "BMÁP", "MÁP Plusz", "KTV", "BABA"]);
+
 export function fillBondTerms(inst: Instrument, file: BondRatesFile | null): Instrument {
   const p = periodFor(inst, file);
   if (!p) return inst;
   const bond: BondTerms = { ...inst.bond };
   let changed = false;
+  const rate = Math.round(p.rate * 1e4) / 1e6;
   if (bond.couponRate == null) {
-    bond.couponRate = Math.round(p.rate * 1e4) / 1e6;
+    bond.couponRate = rate;
+    changed = true;
+  }
+  const family = familyOfType(p.type);
+  if (family && VARIABLE_RATE.has(family) && !bond.rates?.some((r) => r.from === p.periodStart)) {
+    bond.rates = [...(bond.rates ?? []), { from: p.periodStart, rate }].sort((x, y) => x.from.localeCompare(y.from));
+    changed = true;
+  }
+  if (family === "BABA" && bond.capitalizing == null) {
+    bond.capitalizing = true;
     changed = true;
   }
   const months = wholeMonthsBetween(p.periodStart, p.periodEnd);
@@ -160,6 +172,10 @@ export function fillBondTerms(inst: Instrument, file: BondRatesFile | null): Ins
       bond.firstCouponDate = p.periodStart;
       changed = true;
     }
+  } else if (bond.firstCouponDate == null && family !== "BABA") {
+    bond.firstCouponDate = p.paymentDate ?? p.periodEnd;
+    if (bond.issueDate == null) bond.issueDate = p.periodStart;
+    changed = true;
   }
   const maturity = bond.maturity == null && p.maturity && p.maturity !== inst.maturity ? p.maturity : undefined;
   if (!changed && !maturity) return inst;
@@ -189,4 +205,14 @@ export function latestDkjAuction(file: BondRatesFile, today: string): DkjAuction
   return [...file.dkj]
     .filter((a) => a.auctionDate <= today && a.auctionDate >= since)
     .sort((a, b) => b.auctionDate.localeCompare(a.auctionDate))[0];
+}
+
+export async function loadBondRatesFile(): Promise<BondRatesFile | null> {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}bond-rates.json`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return validateBondRatesFile(await res.json());
+  } catch {
+    return null;
+  }
 }

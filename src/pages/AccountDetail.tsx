@@ -10,7 +10,7 @@ import {
   ChevronDown,
   Trash2,
 } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
 import { loadSavingsGoals } from "../lib/savings";
 import { PREFS_EVENT } from "../lib/prefs";
 import {
@@ -32,6 +32,7 @@ import TbszTimeline from "../components/TbszTimeline";
 import AccountLimitsCard from "../components/AccountLimitsCard";
 import InstrumentLogo from "../components/InstrumentLogo";
 import TbszExitValue from "../components/TbszExitValue";
+import BondSwitchCard from "../components/BondSwitchCard";
 import HoldingPriceChart, {
   type BuyPoint,
 } from "../components/HoldingPriceChart";
@@ -64,7 +65,7 @@ export default function AccountDetail() {
   const priceFile = usePortfolio((s) => s.priceFile);
   const historyFile = usePortfolio((s) => s.historyFile);
 
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const account = accounts.find((a) => a.id === id);
   const accSummary = summary.accounts.find((a) => a.account.id === id);
 
@@ -408,6 +409,8 @@ export default function AccountDetail() {
       )}
 
       <AccountLimitsCard account={account} />
+
+      {isTreasury && <BondSwitchCard holdings={accSummary.holdings} />}
 
       {/* Holdings */}
       <div className="mt-6">

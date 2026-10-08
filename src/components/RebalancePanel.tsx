@@ -9,6 +9,7 @@ import {
   useMonthlyBudget,
   useToday,
   useAccountContext,
+  useValuedInstruments,
 } from "../lib/store";
 import IncomeQueue, { CouponWarning } from "./IncomeQueue";
 import MonthlyPlanPanel from "./MonthlyPlanPanel";
@@ -226,7 +227,7 @@ function SaveAsReminder({ plan, title }: { plan: RebalancePlan; title: string })
 
 /** Instrument display names for positions assigned but not held (key only). */
 function useNamed(state: AllocationState | null): AllocationState | null {
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   return useMemo(() => {
     if (!state) return null;
     const names = new Map(instruments.map((i) => [i.key, i.name]));

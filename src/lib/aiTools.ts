@@ -8,6 +8,7 @@ import type { Instrument, Transaction } from "./model";
 import {
   asOf,
   assetClassOf,
+  consolidatedHoldings,
   isInternalTransfer,
   toHuf,
   type PortfolioSummary,
@@ -24,6 +25,8 @@ import {
 } from "./forecast";
 import { assetClassLabel, txTypeLabel } from "./labels";
 import { addDaysIso, toLocalDay, todayLocal, txDay } from "./day";
+import type { BondRatesFile } from "./bondRates";
+import { bondAdvice, bondMarket } from "./bondSwitch";
 
 /** Everything the tools read — the same state the pages show. */
 export interface ToolEnv {
@@ -37,6 +40,7 @@ export interface ToolEnv {
   cashflows: Cashflow[];
   /** Savings goals as planned expenses (for projections). */
   goalExpenses: PlannedExpense[];
+  bondRates?: BondRatesFile | null;
 }
 
 export interface ClientTool {
@@ -422,6 +426,77 @@ const getCashflows: ClientTool = {
   },
 };
 
+const pct2 = (x: number) => Math.round(x * 100) / 100;
+
+const compareGovBonds: ClientTool = {
+  def: {
+    name: "compare_gov_bonds",
+    description:
+      "Currently buyable Hungarian retail government bonds (ÁKK data: yield = EHM if published, else coupon; floating = rate fixed only for the current period) and the latest T-bill auction, plus a comparison of each held government bond against them: switch candidate with early-redemption cost, break-even months and estimated extra interest until maturity (simple interest), or why to keep it. Optional min_gap_pct filters offers to those beating the held bond by at least that many percentage points.",
+    strict: true,
+    input_schema: {
+      type: "object",
+      properties: { min_gap_pct: nullable({ type: "number" }) },
+      required: ["min_gap_pct"],
+      additionalProperties: false,
+    },
+  },
+  label: () => "Állampapír-összevetés",
+  run: (i, env) => {
+    const day = today();
+    const market = bondMarket(env.bondRates ?? null, day);
+    if (!market) return JSON.stringify({ error: "Nincs betöltött ÁKK-adat." });
+    const gap = num(i.min_gap_pct);
+    const advice = bondAdvice(consolidatedHoldings(env.summary), env.bondRates ?? null, day);
+    return JSON.stringify({
+      as_of: market.updatedAt,
+      offers: market.offers.map((o) => ({
+        type: o.offer.type,
+        series: o.offer.series,
+        yield_pct: pct2(o.yieldPct),
+        yield_is_ehm: o.offer.ehm != null,
+        floating: o.floating,
+        maturity: o.offer.maturity,
+        currency: o.offer.currency,
+      })),
+      latest_tbill_auction: market.dkj
+        ? { series: market.dkj.series, yield_pct: market.dkj.avgYield, auction: market.dkj.auctionDate, maturity: market.dkj.maturity }
+        : null,
+      holdings: advice.map((a) => {
+        const v = a.verdict;
+        return {
+          name: a.instrument.name,
+          value_huf: round(a.valueHuf),
+          rate_pct: a.ratePct != null ? pct2(a.ratePct) : null,
+          floating: a.floating,
+          maturity: a.maturity ?? null,
+          days_to_maturity: a.daysToMaturity ?? null,
+          verdict: v.kind === "keep" ? `keep:${v.reason}` : v.kind,
+          switch_to:
+            v.kind === "switch"
+              ? {
+                  type: v.to.offer.type,
+                  series: v.to.offer.series,
+                  yield_pct: pct2(v.to.yieldPct),
+                  gap_pct: pct2(v.gapPct),
+                  sale_cost_huf: round(v.saleCostHuf),
+                  break_even_months: Math.ceil(v.breakEvenMonths),
+                  horizon_years: pct2(v.horizonYears),
+                  extra_interest_huf: round(v.gainHuf),
+                }
+              : null,
+          better_offers:
+            gap != null && a.ratePct != null
+              ? market.offers
+                  .filter((o) => o.offer.currency === a.instrument.currency && o.yieldPct - a.ratePct! >= gap)
+                  .map((o) => `${o.offer.type} ${o.offer.series}`)
+              : undefined,
+        };
+      }),
+    });
+  },
+};
+
 export const CLIENT_TOOLS: ClientTool[] = [
   runForecast,
   getHoldings,
@@ -429,6 +504,7 @@ export const CLIENT_TOOLS: ClientTool[] = [
   getPriceHistory,
   getValueHistory,
   getCashflows,
+  compareGovBonds,
 ];
 
 /** Run one tool call; errors become an error result the model can read. */

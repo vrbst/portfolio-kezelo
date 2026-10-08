@@ -14,6 +14,7 @@ import {
   type ValuePoint,
 } from "./portfolio";
 import { type HistoryFile } from "./prices";
+import { withBondRates, type BondRatesFile } from "./bondRates";
 import {
   computeAlerts,
   bondImportAlerts,
@@ -122,6 +123,16 @@ function sharedMemo<A extends readonly unknown[], R>(
   };
 }
 
+const cachedValuedInstruments = sharedMemo(
+  (instruments: Instrument[], bondRates: BondRatesFile | null) => withBondRates(instruments, bondRates),
+);
+
+export function useValuedInstruments(): Instrument[] {
+  const instruments = usePortfolio((s) => s.instruments);
+  const bondRates = usePortfolio((s) => s.bondRates);
+  return cachedValuedInstruments(instruments, bondRates);
+}
+
 const cachedSummary = sharedMemo(
   (
     accounts: Account[],
@@ -143,7 +154,7 @@ const cachedSummary = sharedMemo(
 export function usePortfolioSummary(): PortfolioSummary {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   return cachedSummary(accounts, transactions, instruments, prices, fx);
@@ -173,7 +184,7 @@ const cachedValueSeries = sharedMemo(
 export function useValueSeries(): ValuePoint[] {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
@@ -196,7 +207,7 @@ export function useDayChange(): DayChange | null {
   const series = useValueSeries();
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
@@ -219,7 +230,7 @@ const cachedGoalProgress = sharedMemo(computeGoalProgress);
 export function useGoalProgress(): GoalProgress[] {
   const goals = usePortfolio((s) => s.goals);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const fx = usePortfolio((s) => s.fx);
   return cachedGoalProgress(goals, transactions, instruments, fx);
 }
@@ -318,7 +329,7 @@ export function useActiveAlerts(): Alert[] {
   const reminders = usePortfolio((s) => s.reminders);
   const savingsGoals = useSavingsGoals();
   const accounts = usePortfolio((s) => s.accounts);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const glideVersions = useGlideVersions();
@@ -454,7 +465,7 @@ const cachedLiveVersions = sharedMemo(
 export function useLiveGlideVersions(versions: GlideConfig[]): GlideConfig[] {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
   const summary = usePortfolioSummary();
@@ -541,7 +552,7 @@ const cachedWeightHistory = sharedMemo(
 export function useGlideHistory(versions: GlideConfig[]): WeightPoint[] {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
   const summary = usePortfolioSummary();
@@ -597,7 +608,7 @@ const cachedPositionsAt = sharedMemo(
 export function usePositionsAt(): PositionsAt {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const fx = usePortfolio((s) => s.fx);
   const history = usePortfolio((s) => s.historyFile);
   const summary = usePortfolioSummary();
@@ -664,7 +675,7 @@ export function useMonthlyBudget(): {
   const savingsGoals = useSavingsGoals();
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const dcaGoals = usePortfolio((s) => s.goals);
@@ -731,7 +742,7 @@ export function useIncomeQueue(): {
     if (loaded) ensureIncomeState(today);
   }, [loaded, today]);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const accounts = usePortfolio((s) => s.accounts);
   const fx = usePortfolio((s) => s.fx);
   const { savings, glide } = useMonthlyBudget();
@@ -850,7 +861,7 @@ export function usePlanNeeds(): PlanNeed[] {
     usePortfolio((s) => s.goals),
     usePortfolio((s) => s.accounts),
     usePortfolio((s) => s.transactions),
-    usePortfolio((s) => s.instruments),
+    useValuedInstruments(),
     usePortfolio((s) => s.prices),
     usePortfolio((s) => s.fx),
     usePlanOrder(),
@@ -880,7 +891,7 @@ export function useMonthlyPlan(amountHuf: number | null): {
   const state = useGlideState(versions);
   const summary = usePortfolioSummary();
   const fx = usePortfolio((s) => s.fx);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const day = useToday();
   const fees = useBrokerFees();
   const positions = cachedMarketPositions(summary, fx, day, fees);
@@ -991,7 +1002,7 @@ export function useLeftoverPlan(amountHuf: number): {
     usePortfolio((s) => s.goals),
     usePortfolio((s) => s.accounts),
     usePortfolio((s) => s.transactions),
-    usePortfolio((s) => s.instruments),
+    useValuedInstruments(),
     usePortfolio((s) => s.prices),
     usePortfolio((s) => s.fx),
     usePlanOrder(),
@@ -1013,7 +1024,7 @@ export function useLeftoverPlan(amountHuf: number): {
     state,
     breakdown.budgetHuf,
     cachedMarketPositions(summary, fx, day, fees),
-    cachedInstMap(usePortfolio((s) => s.instruments)),
+    cachedInstMap(useValuedInstruments()),
     useAccountContext(),
   );
   return { plan, leftover, budgetHuf: breakdown.budgetHuf };

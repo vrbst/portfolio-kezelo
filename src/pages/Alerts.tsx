@@ -14,6 +14,7 @@ import {
   useGoalProgress,
   useSavingsGoals,
   useGlideVersions,
+  useValuedInstruments,
 } from "../lib/store";
 import { categorizeAlerts, computeStatusChecks } from "../lib/alerts";
 import { PERIOD_LABEL } from "../lib/goals";
@@ -36,7 +37,7 @@ export default function Alerts() {
   const glideCfg = latestConfig(useGlideVersions());
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const dismissAlert = usePortfolio((s) => s.dismissAlert);

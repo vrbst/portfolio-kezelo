@@ -21,6 +21,7 @@ import {
   usePortfolio,
   usePortfolioSummary,
   useSavingsGoals,
+  useValuedInstruments,
 } from "../lib/store";
 import {
   buildFxHistory,
@@ -108,7 +109,7 @@ function usePlannedExpenses(): PlannedExpense[] {
 export default function Calendar() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const fx = usePortfolio((s) => s.fx);
   const privacy = usePortfolio((s) => s.privacy);
   const dcaGoals = usePortfolio((s) => s.goals);

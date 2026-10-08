@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Wallet, Landmark, ArrowRight } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
 import HoldingsPanel from "../components/HoldingsPanel";
 import {
   PageHeader,
@@ -26,7 +26,7 @@ import { tbszStatus } from "../lib/tbsz";
 export default function Accounts() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const historyFile = usePortfolio((s) => s.historyFile);

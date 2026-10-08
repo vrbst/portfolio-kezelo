@@ -126,13 +126,39 @@ describe("fillBondTerms", () => {
   it("a yearly PMÁP gets a 12-month schedule", () => {
     expect(fillBondTerms(bond("Prémium Magyar Állampapír 2027/J"), file()).bond).toEqual({
       couponRate: 0.0515,
+      rates: [{ from: "2026-01-27", rate: 0.0515 }],
       couponIntervalMonths: 12,
       firstCouponDate: "2026-01-27",
     });
   });
 
-  it("an irregular first period fills only the rate", () => {
-    expect(fillBondTerms(bond("Magyar Állampapír Plusz 2031/M1"), file()).bond).toEqual({ couponRate: 0.065 });
+  it("an irregular first period: issued at its start, the payment day anchors the schedule", () => {
+    expect(fillBondTerms(bond("Magyar Állampapír Plusz 2031/M1"), file()).bond).toEqual({
+      couponRate: 0.065,
+      rates: [{ from: "2026-01-06", rate: 0.065 }],
+      firstCouponDate: "2027-02-27",
+      issueDate: "2026-01-06",
+    });
+  });
+
+  it("a floating bond gets the period rate even when a rate was typed in, keeping the typed one", () => {
+    const own = bond("Prémium Magyar Állampapír 2027/J", { bond: { couponRate: 0.07 } });
+    const filled = fillBondTerms(own, file()).bond!;
+    expect(filled.couponRate).toBe(0.07);
+    expect(filled.rates).toEqual([{ from: "2026-01-27", rate: 0.0515 }]);
+    const again = fillBondTerms({ ...own, bond: filled }, file()).bond!;
+    expect(again.rates).toHaveLength(1);
+  });
+
+  it("a FixMÁP gets no rate periods: its coupon is fixed", () => {
+    expect(fillBondTerms(bond("Fix Magyar Állampapír 2029/Q2"), file()).bond?.rates).toBeUndefined();
+  });
+
+  it("a Babakötvény is marked capitalizing", () => {
+    const f = file({ periods: [period({ type: "BABA", series: "2045/S_BABA", rate: 7.4, periodStart: "2026-02-01", periodEnd: "2027-02-01", paymentDate: null, maturity: "2045-02-01" })] });
+    const b = fillBondTerms(bond("Babakötvény 2045/S_BABA"), f).bond!;
+    expect(b.capitalizing).toBe(true);
+    expect(b.rates).toEqual([{ from: "2026-02-01", rate: 0.074 }]);
   });
 
   it("the filled terms value the bond with accrued interest instead of at par", () => {

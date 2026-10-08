@@ -71,6 +71,13 @@ export interface BondTerms {
    * ha tudod a MÁK-értéket, ide beírhatod. Üresen a becsült érték jelenik meg.
    */
   firstCouponHuf?: number;
+  rates?: BondRatePeriod[];
+  capitalizing?: boolean;
+}
+
+export interface BondRatePeriod {
+  from: string;
+  rate: number;
 }
 
 export interface Instrument {

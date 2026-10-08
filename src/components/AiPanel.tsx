@@ -33,6 +33,7 @@ import {
   useMonthlyBudget,
   useGlideVersions,
   useGlideState,
+  useValuedInstruments,
 } from "../lib/store";
 import {
   computeReturns,
@@ -40,7 +41,9 @@ import {
   isInternalTransfer,
   toHuf,
   toLocalDay,
+  consolidatedHoldings,
 } from "../lib/portfolio";
+import { bondAdvice, bondMarket } from "../lib/bondSwitch";
 import { upcomingEvents } from "../lib/events";
 import { tbszStatus } from "../lib/tbsz";
 import { computeSavingsProgress, savingsGoalExpenses } from "../lib/savings";
@@ -114,10 +117,11 @@ export default function AiPanel() {
   const summary = usePortfolioSummary();
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const historyFile = usePortfolio((s) => s.historyFile);
+  const bondRates = usePortfolio((s) => s.bondRates);
   const privacy = usePortfolio((s) => s.privacy);
   const series = useValueSeries();
   const dayChange = useDayChange();
@@ -139,6 +143,14 @@ export default function AiPanel() {
     () => savingsGoalExpenses(savingsGoals, savingsProgress),
     [savingsGoals, savingsProgress],
   );
+
+  const bonds = useMemo(() => {
+    const today = toLocalDay(new Date());
+    return {
+      advice: bondAdvice(consolidatedHoldings(summary), bondRates, today),
+      market: bondMarket(bondRates, today),
+    };
+  }, [summary, bondRates]);
 
   // The live snapshot. A conversation freezes its own copy when it starts.
   const context = useMemo(() => {
@@ -221,6 +233,7 @@ export default function AiPanel() {
         shortfall: result.shortfall.real ?? result.shortfall.pess,
       },
       glide,
+      bonds,
       budget: {
         monthlyHuf: assumptions.monthlySavingHuf,
         thisMonthNetHuf: thisMonthNet,
@@ -251,6 +264,7 @@ export default function AiPanel() {
     goalExpenses,
     cashflows,
     glide,
+    bonds,
   ]);
 
   const toolEnv: ToolEnv = {
@@ -263,6 +277,7 @@ export default function AiPanel() {
     series,
     cashflows,
     goalExpenses,
+    bondRates,
   };
 
   const [spend, setSpend] = useState<AiSpend>(loadSpend);
@@ -439,13 +454,15 @@ export default function AiPanel() {
       s.push(
         `Mit érdemes kezdeni a ${txDay(big.date)}-i lejárattal?`,
       );
+    if (bonds.advice.some((a) => a.verdict.kind === "switch"))
+      s.push("Érdemes lecserélnem valamelyik állampapíromat egy most kaphatóra?");
     s.push("Mekkora a devizakockázatom, és kell-e vele foglalkoznom?");
     if (toggles.tools)
       s.push("Mi lenne, ha havonta 50 000 Ft-tal többet tennék félre?");
     else s.push("Mennyire koncentrált a portfólióm?");
     if (toggles.web) s.push("Mennyi most a lakossági állampapírok kamata?");
     return s.slice(0, 5);
-  }, [savingsGoals, cashflows, toggles.tools, toggles.web]);
+  }, [savingsGoals, cashflows, bonds, toggles.tools, toggles.web]);
 
   if (!apiKey)
     return (

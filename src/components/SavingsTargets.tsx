@@ -1,7 +1,7 @@
 import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useState } from "react";
 import { Target, Plus, Trash2, X, Pencil, Check, BellPlus, Coins, Ban } from "lucide-react";
-import { usePortfolio, usePortfolioSummary, useToday } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useToday, useValuedInstruments } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
   computeSavingsProgress,
@@ -40,7 +40,7 @@ export default function SavingsTargets() {
   const summary = usePortfolioSummary();
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
 
@@ -247,7 +247,7 @@ function GoalRow({
   onRemove: (id: string) => void;
 }) {
   const g = p.goal;
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const today = useToday();
   const assignable = holdings.filter((h) => !g.instrumentKeys.includes(h.key));
   const barPct = Math.min(p.projectedPct * 100, 100);

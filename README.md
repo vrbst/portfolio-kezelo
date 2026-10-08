@@ -56,6 +56,26 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   kamatperiódust (régi → új kamat). A hiányzó sorozat-adatokat (kamat,
   kamatfizetés gyakorisága, ismert kamatfizetési nap, lejárat) a bot az
   ÁKK-adatokból pótolja; a kézzel beírtakat soha nem írja felül.
+- **Nem csak fix kamatú, negyedéves papírok** – a kamatfizetés gyakorisága
+  sorozatonként éves, féléves, negyedéves vagy havi lehet; a változó kamatú
+  papíroknál (PMÁP, BMÁP, MÁP Plusz, KTV) az app és a bot az ÁKK aktuális
+  kamatperiódusának kamatával értékel, minden kupon a saját periódusa kamatával
+  számolódik, a még meg nem hirdetett jövőbeli periódusokra az utolsó ismert
+  kamattal. A tőkésítő papír (pl. Babakötvény) évente a tőkéhez adja a kamatot,
+  közben nem fizet, és a lejáratkor egy összegben jön. Tört első periódusnál az
+  ÁKK-ból ismert kifizetési nap lesz az ütemezés kiindulópontja.
+- **Állampapír-csere javaslat** – a kincstári számla oldalán az app a tartott
+  állampapírok kamatát összeveti a most kapható lakossági papírokkal
+  (`public/bond-rates.json`): csere-jelöltet akkor mutat, ha az új papír legalább
+  0,25 százalékponttal többet hoz, és a lejárat előtti visszaváltási díj a
+  mostani papír lejáratáig megtérül (megtérülési idő, becsült többlet). Az
+  AI elemzés ugyanezt az összevetést kapja meg, a chat pedig a
+  `compare_gov_bonds` eszközzel kérdezheti le.
+  A bot ugyanezt jelzi: új csere-jelöltnél egyszer szól (90 nap után, ha még
+  mindig érvényes, újra), a változó kamatú papír új kamatperiódusáról szóló
+  üzenetbe beleírja a csere-jelöltet, a lejárati üzenetbe pedig a most elérhető
+  legmagasabb hozamot. Változó kamatú papírnál az ÁKK aktuális kamatperiódusának
+  kamatával számol, nem a kézzel beírt kamattal.
 - **Árfolyamok a botban** – a Telegram-bot `/arfolyam` parancsa elsőként az
   EUR/HUF-ot (és a tartott papírok többi devizáját) mutatja, utána minden
   tartott részvényt és ETF-et: aktuális ár saját devizában és napi változás.

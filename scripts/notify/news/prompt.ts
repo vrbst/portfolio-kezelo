@@ -2,7 +2,7 @@
 // portfolio is exposed to — instruments and their weights in percent, never
 // an amount — and the titles already reported, so it doesn't repeat them.
 
-import { consolidatedHoldings } from "../../../src/lib/portfolio";
+import { consolidatedHoldings, currentRate } from "../../../src/lib/portfolio";
 import { txDay } from "../../../src/lib/day";
 import {
   NEWS_EDITION_LABEL,
@@ -40,7 +40,7 @@ export function portfolioExposure(ctx: Context): string[] {
         h.currency,
         i?.ticker ? `ticker: ${i.ticker}` : "",
         i?.isin ? `ISIN: ${i.isin}` : "",
-        i?.bond?.couponRate != null ? `kamat: ${(i.bond.couponRate * 100).toFixed(2)}%` : "",
+        currentRate(i?.bond) != null ? `kamat: ${(currentRate(i?.bond)! * 100).toFixed(2)}%` : "",
         i?.maturity ? `lejárat: ${txDay(i.maturity)}` : "",
       ].filter(Boolean);
       return `- ${i?.name ?? h.instrumentKey} (${what.join(", ")}): ${pctOf(h.marketValueHuf, total)}`;

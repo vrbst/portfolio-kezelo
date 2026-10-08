@@ -48,6 +48,7 @@ export interface State {
   bondNotices?: {
     maturity?: Record<string, string>;
     periods?: Record<string, { start: string; rate: number }>;
+    switches?: Record<string, string>;
   };
   why?: WhyState;
   whyTaken?: string;

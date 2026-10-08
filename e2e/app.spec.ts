@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  fixtureBondRates,
   fixtureHistory,
   fixturePriceFile,
   fixtureSnapshot,
@@ -59,6 +60,7 @@ async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean 
   await page.route(/^https?:\/\/(?!localhost)/, (r) => r.abort());
   await page.route("**/prices.json*", (r) => r.fulfill({ json: priceFile }));
   await page.route("**/history.json*", (r) => r.fulfill({ json: history }));
+  await page.route("**/bond-rates.json*", (r) => r.fulfill({ json: fixtureBondRates() }));
 
   // Let the app create its IndexedDB, then fill it and the prefs, and reload.
   await page.goto("./");
@@ -400,6 +402,18 @@ test.describe("market news (Hírek)", () => {
       expect(await readableSecrets(page, goalNames), path).toEqual([]);
     }
   });
+});
+
+test("Kincstár: the bond card suggests a switch and lists the buyable bonds", async ({ page }) => {
+  await openSeeded(page);
+  await show(page, "/accounts/mak");
+  const card = page.locator(".card", { has: page.getByRole("heading", { name: "Állampapír-ajánlatok" }) });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Érdemes lehet cserélni");
+  await expect(card).toContainText("→ FixMÁP 2031/T");
+  await expect(card).toContainText("Lejár 35 nap múlva");
+  await expect(card.locator("table")).toContainText("MÁP Plusz 2032/T");
+  await expect(card.locator("table")).toContainText("DKJ D270120");
 });
 
 test.describe("explanations behind an \"i\"", () => {

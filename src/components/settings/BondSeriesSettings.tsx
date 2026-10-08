@@ -1,7 +1,8 @@
 import InfoTip from "../InfoTip";
 import { useState } from "react";
 import { Landmark } from "lucide-react";
-import { usePortfolio, useToday } from "../../lib/store";
+import { usePortfolio, useToday, useValuedInstruments } from "../../lib/store";
+import { hasCouponTerms } from "../../lib/bonds";
 import { Card, Badge, AmountInput } from "../ui";
 import { instrumentTypeLabel } from "../../lib/labels";
 import type { BondTerms, Instrument } from "../../lib/model";
@@ -28,6 +29,7 @@ export default function BondSeriesSettings() {
   const instruments = usePortfolio((s) => s.instruments);
   const updateInstrument = usePortfolio((s) => s.updateInstrument);
   const today = useToday();
+  const valued = new Map(useValuedInstruments().map((i) => [i.key, i]));
 
   const bonds = instruments.filter((i) => BOND_TYPES.has(i.type));
   if (bonds.length === 0) return null;
@@ -56,6 +58,11 @@ export default function BondSeriesSettings() {
           felhalmozott kamat összeggel számol (lejáratig tartva ennyit ér), a
           lejárat előtti eladási költség (alapból a névérték 1%-a) csak a „most"
           visszaváltható összegnél jelenik meg a számla- és eszköz-nézetben.
+          Változó kamatú papírnál (PMÁP, BMÁP, MÁP Plusz) az ÁKK aktuális
+          kamatperiódusának kamatával számolunk, a jövőbeli kamatokat az utolsó
+          ismert kamattal becsüljük; az üres mezőket az ÁKK-adatból pótoljuk. A
+          tőkésítő papír (pl. Babakötvény) nem fizet kamatot közben: a kamat
+          évente a tőkéhez adódik, és a lejáratkor egy összegben jön.
           Hétvégén a következő hétfői nappal számolunk (mint a MobilKincstár). Az
           első (tört) kamat összegét kézzel is megadhatod (a MÁK-érték), mert a
           tört periódus nem számolható forintra pontosan. A diszkont
@@ -91,7 +98,11 @@ export default function BondSeriesSettings() {
         {bonds.map((inst) => {
           const isTbill = inst.type === "tbill";
           const b = inst.bond ?? {};
-          const missing = !isTbill && b.couponRate == null;
+          const eb = valued.get(inst.key)?.bond;
+          const missing =
+            !isTbill && (eb?.capitalizing ? !eb.issueDate : !hasCouponTerms(eb));
+          const fromAkk = !isTbill && !missing && b.couponRate == null;
+          const periods = eb?.rates ?? [];
           const state = buyState(inst, today);
           return (
             <div
@@ -102,7 +113,8 @@ export default function BondSeriesSettings() {
                 <span className="font-medium">{inst.name}</span>
                 <Badge tone="neutral">{instrumentTypeLabel[inst.type]}</Badge>
                 {missing && <Badge tone="warning">hiányzó adat</Badge>}
-                {!isTbill && !missing && <Badge tone="positive">megadva</Badge>}
+                {!isTbill && !missing && !fromAkk && <Badge tone="positive">megadva</Badge>}
+                {fromAkk && <Badge tone="positive">ÁKK-adatból</Badge>}
                 {state === "matured" && (
                   <Badge tone="neutral">lejárt — nem vehető</Badge>
                 )}
@@ -188,7 +200,7 @@ export default function BondSeriesSettings() {
                   <Field label="Kamatperiódus">
                     <select
                       className={inputCls}
-                      value={b.couponIntervalMonths ?? 12}
+                      value={b.couponIntervalMonths ?? eb?.couponIntervalMonths ?? 12}
                       onChange={(e) =>
                         setBond(inst, {
                           couponIntervalMonths: Number(e.target.value),
@@ -244,6 +256,22 @@ export default function BondSeriesSettings() {
                       className={`${inputCls} w-32 text-right`}
                     />
                   </Field>
+                  <label className="flex items-center gap-1.5 pb-2 text-xs text-[var(--color-muted)]">
+                    <input
+                      type="checkbox"
+                      checked={!!eb?.capitalizing}
+                      onChange={(e) => setBond(inst, { capitalizing: e.target.checked })}
+                    />
+                    Tőkésítő (kamat a lejáratkor)
+                  </label>
+                  {periods.length > 0 && (
+                    <p className="w-full text-xs text-[var(--color-muted)]" data-privacy="public">
+                      Kamatperiódusok (ÁKK):{" "}
+                      {periods
+                        .map((p) => `${p.from}-tól ${(p.rate * 100).toFixed(2).replace(".", ",")}%`)
+                        .join(" · ")}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

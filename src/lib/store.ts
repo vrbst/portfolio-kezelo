@@ -18,6 +18,7 @@ import {
   type HistoryFile,
   type LiveQuote,
 } from "./prices";
+import { loadBondRatesFile, type BondRatesFile } from "./bondRates";
 import {
   loadSyncConfig,
   saveSyncConfig,
@@ -70,6 +71,7 @@ interface PortfolioState {
   priceFile: PriceFile | null;
   /** Daily price/FX history for the value chart (from public/history.json). */
   historyFile: HistoryFile | null;
+  bondRates: BondRatesFile | null;
   /** Live quotes (Worker→Yahoo): instrument key -> price (instrument ccy). */
   livePrices: Record<string, number>;
   /**
@@ -473,6 +475,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   fx: {},
   priceFile: null,
   historyFile: null,
+  bondRates: null,
   livePrices: {},
   liveQuotes: {},
   manualPrices: {},
@@ -564,6 +567,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     });
     // Pull live prices in the background (non-blocking).
     void get().refreshPrices();
+    void loadBondRatesFile().then((bondRates) => bondRates && set({ bondRates }));
   },
 
   importParsed: async (parsed) => {

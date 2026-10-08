@@ -100,12 +100,59 @@ export function bondValuationMs(ms: number): number {
  * that stub period's coupon is a prorated amount MÁK rounds separately, and the
  * observed daily accrual there does follow the /365 basis.
  */
+export function rateOn(bond: BondTerms | undefined, ms: number): number | undefined {
+  let rate = bond?.couponRate;
+  const periods = bond?.rates;
+  if (periods?.length) {
+    const sorted = [...periods].sort((a, b) => a.from.localeCompare(b.from));
+    let hit: number | undefined;
+    for (const p of sorted) if (parseDayMs(p.from) <= ms) hit = p.rate;
+    rate = hit ?? rate ?? sorted[0].rate;
+  }
+  return rate != null && rate > 0 ? rate : undefined;
+}
+
+export const currentRate = (bond: BondTerms | undefined, now: Date = new Date()) =>
+  rateOn(bond, now.getTime());
+
+export function hasCouponTerms(bond: BondTerms | undefined): bond is BondTerms {
+  return !!bond && !bond.capitalizing && rateOn(bond, Infinity) != null;
+}
+
+function capitalizedAccrued(bond: BondTerms, nowMs: number): number | undefined {
+  const issue = parseDayMs(bond.issueDate);
+  if (!Number.isFinite(issue)) return undefined;
+  const matMs = parseDayMs(bond.maturity);
+  if (Number.isFinite(matMs) && nowMs > matMs) nowMs = matMs;
+  if (nowMs <= issue) return 0;
+  let factor = 1;
+  for (let k = 0; k < 100; k++) {
+    const start = couponAt(issue, 12, k);
+    const end = couponAt(issue, 12, k + 1);
+    const r = rateOn(bond, start);
+    if (r == null) return undefined;
+    if (end <= nowMs) {
+      factor *= 1 + r;
+      continue;
+    }
+    factor *= 1 + r * ((nowMs - start) / (end - start));
+    break;
+  }
+  return factor - 1;
+}
+
+export function redemptionHuf(bond: BondTerms | undefined, face: number): number {
+  if (!bond?.capitalizing) return face;
+  const accrued = capitalizedAccrued(bond, parseDayMs(bond.maturity));
+  return face * (1 + (accrued ?? 0));
+}
+
 function fixedBondAccrued(
   bond: BondTerms | undefined,
   nowMs: number,
 ): number | undefined {
-  const rate = bond?.couponRate;
-  if (!rate || rate <= 0) return undefined;
+  if (bond?.capitalizing) return capitalizedAccrued(bond, nowMs);
+  if (!hasCouponTerms(bond)) return undefined;
   const interval =
     bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
       ? bond.couponIntervalMonths
@@ -143,6 +190,8 @@ function fixedBondAccrued(
     return undefined;
   }
 
+  const rate = rateOn(bond, anchorMs);
+  if (rate == null) return undefined;
   const days = (nowMs - anchorMs) / 86_400_000;
   if (days <= 0) return 0;
   if (regularPeriod) {
@@ -166,11 +215,10 @@ export function couponAmountHuf(
   faceValue: number,
   couponDateIso: string | undefined,
 ): number | undefined {
-  const rate = bond?.couponRate;
   const d = parseDayMs(couponDateIso);
-  if (!rate || rate <= 0 || !Number.isFinite(d)) return undefined;
+  if (!hasCouponTerms(bond) || !Number.isFinite(d)) return undefined;
   const interval =
-    bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
+    bond.couponIntervalMonths && bond.couponIntervalMonths > 0
       ? bond.couponIntervalMonths
       : 12;
   // A regular coupon is a FIXED amount per period (interval/12 of the annual
@@ -191,10 +239,10 @@ export function couponAmountHuf(
       // shave a fraction off the count.
       const days = Math.round((d - issue) / 86_400_000);
       if (days <= 0) return undefined;
-      return faceValue * rate * (days / 365);
+      return faceValue * (rateOn(bond, issue) ?? 0) * (days / 365);
     }
   }
-  return faceValue * rate * (interval / 12);
+  return faceValue * (rateOn(bond, addMonths(d, -interval)) ?? 0) * (interval / 12);
 }
 
 /** Next coupon date strictly after `now` from the series terms, or undefined. */
@@ -203,7 +251,7 @@ export function nextCouponDate(
   now: Date = new Date(),
 ): string | undefined {
   const first = parseDayMs(bond?.firstCouponDate);
-  if (!Number.isFinite(first)) return undefined;
+  if (!Number.isFinite(first) || bond?.capitalizing) return undefined;
   const interval =
     bond?.couponIntervalMonths && bond.couponIntervalMonths > 0
       ? bond.couponIntervalMonths
@@ -288,7 +336,7 @@ export function futureBondCashflows(
 
       // Remaining coupons (fixed-rate bonds with series terms).
       const first = parseDayMs(bond?.firstCouponDate);
-      if (Number.isFinite(first) && bond?.couponRate) {
+      if (Number.isFinite(first) && hasCouponTerms(bond)) {
         const interval =
           bond.couponIntervalMonths && bond.couponIntervalMonths > 0
             ? bond.couponIntervalMonths
@@ -323,7 +371,7 @@ export function futureBondCashflows(
           date: toLocalDay(matMs),
           kind: "maturity",
           title: `${inst.name} — lejárat`,
-          amountHuf: face,
+          amountHuf: redemptionHuf(bond, face),
           accountId,
           instrumentKey: inst.key,
         });
@@ -466,7 +514,7 @@ export function bondImportReminders(
 
       // --- Coupon (fixed-rate series with terms) ---
       const first = parseDayMs(bond?.firstCouponDate);
-      if (Number.isFinite(first) && bond?.couponRate) {
+      if (Number.isFinite(first) && hasCouponTerms(bond)) {
         const interval =
           bond.couponIntervalMonths && bond.couponIntervalMonths > 0
             ? bond.couponIntervalMonths
@@ -509,7 +557,7 @@ export function bondImportReminders(
             name: inst.name,
             accountId: acc.account.id,
             date: toLocalDay(matMs),
-            amountHuf: h.quantity,
+            amountHuf: redemptionHuf(bond, h.quantity),
           });
         }
       }

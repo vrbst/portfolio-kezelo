@@ -10,7 +10,7 @@ import {
   Globe2,
   Percent,
 } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
 import {
   computeIncomeByYear,
   computeReturns,
@@ -38,7 +38,7 @@ import MonthlyPerformanceChart, {
 export default function Income() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const historyFile = usePortfolio((s) => s.historyFile);

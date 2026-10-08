@@ -13,6 +13,7 @@ import type { SavingsProgress } from "./savings";
 import { bandBaseNote, type AllocationState } from "./rebalance";
 import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
+import type { BondAdvice, BondMarket } from "./bondSwitch";
 // The SDK is loaded on first use (dynamic import → its own chunk), so it
 // doesn't weigh on the app's startup; only the types are static.
 type AnthropicSdk = typeof import("@anthropic-ai/sdk").default;
@@ -307,6 +308,7 @@ export interface AiContextExtras {
   budget?: { monthlyHuf: number; thisMonthNetHuf: number };
   /** Passive income: last 12 months realised, next 12 months expected. */
   passive?: { last12Huf: number; next12CouponHuf: number; next12MaturityHuf: number };
+  bonds?: { advice: BondAdvice[]; market: BondMarket | null };
 }
 
 /** ~30-day (or closest available) portfolio value change from the series. */
@@ -555,6 +557,42 @@ export function buildAiPortfolioContext(
     }
   }
 
+  if (extras?.bonds?.market) {
+    const { advice, market } = extras.bonds;
+    const p2 = (x: number) => `${x.toFixed(2)}%`;
+    lines.push(
+      "",
+      `Most kapható lakossági állampapírok (ÁKK, ${market.updatedAt ? ymd(market.updatedAt) : "?"}; hozam = EHM, ha van, különben a kamat):`,
+    );
+    for (const o of market.offers)
+      lines.push(
+        `- ${o.offer.type} ${o.offer.series}: ${p2(o.yieldPct)}${o.floating ? " (változó kamat, csak a mostani periódusra)" : ""}, lejár ${o.offer.maturity}`,
+      );
+    if (market.dkj)
+      lines.push(
+        `- DKJ ${market.dkj.series}: ${p2(market.dkj.avgYield)} (aukció ${market.dkj.auctionDate}, lejár ${market.dkj.maturity ?? "?"})`,
+      );
+    if (advice.length) {
+      lines.push("", "Tartott állampapírok összevetése a kapható papírokkal (az app számolta, egyszerű kamattal):");
+      for (const a of advice) {
+        const head = `- ${a.instrument.name} (${a.ratePct != null ? p2(a.ratePct) : "kamat ismeretlen"}${a.floating ? ", változó" : ""}${a.maturity ? `, lejár ${a.maturity}` : ""}, érték ${huf(a.valueHuf)} Ft)`;
+        const v = a.verdict;
+        const tail =
+          v.kind === "switch"
+            ? `csere-jelölt: ${v.to.offer.type} ${v.to.offer.series} ${p2(v.to.yieldPct)}; visszaváltási díj ${huf(v.saleCostHuf)} Ft, ${Math.ceil(v.breakEvenMonths)} hónap alatt térül meg, ${v.horizonYears.toFixed(1)} év alatt kb. ${huf(v.gainHuf)} Ft többlet`
+            : v.kind === "maturing"
+              ? `${v.days} nap múlva lejár, újrabefektetés kérdése`
+              : {
+                  "no-better": "nincs érdemben jobb kapható papír",
+                  fee: "van magasabb kamatú papír, de a visszaváltási díj nem térül meg a lejáratig",
+                  "no-rate": "a kamata nem ismert, nem összevethető",
+                  tbill: "DKJ, a lejáratig tartandó",
+                }[v.reason];
+        lines.push(`${head}: ${tail}`);
+      }
+    }
+  }
+
   // --- TBSZ tax status: per account, with concrete exit amounts ---
   if (extras?.tbsz?.length) {
     lines.push(
@@ -610,7 +648,7 @@ export function buildAiPortfolioContext(
   return lines.filter((l): l is string => l != null).join("\n");
 }
 
-const SYSTEM = `Magyar pénzügyi asszisztens vagy egy személyes, lakossági portfólió-követő appban. Megkapod a felhasználó portfóliójának számszerű pillanatképét (forintban), és ahol van adat, a megtakarítási céljait, aktív figyelmeztetéseit, közelgő eseményeit (kötvény-lejáratok, kuponok) és a TBSZ-számlái adózási állapotát is. Tömören, magyarul, közérthetően válaszolj. Kizárólag a megadott adatokra támaszkodj — soha ne találj ki számokat, és ha valami nem derül ki az adatokból, mondd ki őszintén. Használd ki a gazdagabb adatokat: ha van cél, értékeld hogy jó úton van-e; ha van figyelmeztetés vagy közelgő lejárat, térj ki rá; a trend és a TBSZ-adómentességi mérföldkövek relevánsak lehetnek. A középtávú célhoz rendelt eszközök (és lejáratuk, kuponjaik) arra a célra vannak félretéve: ne kezeld őket szabadon felhasználható pénzként, és ne javasold máshová tenni őket. Ne adj konkrét vételi/eladási utasítást; inkább összefüggéseket, kockázatokat, koncentrációt és megfontolandó szempontokat emelj ki. Egyszerű szöveget használj: rövid bekezdések vagy "- " kezdetű felsorolás, NE használj markdown fejlécet vagy csillagos kiemelést. A forint/euró összegek a felhasználó valós egyenlegei — kezeld diszkréten.`;
+const SYSTEM = `Magyar pénzügyi asszisztens vagy egy személyes, lakossági portfólió-követő appban. Megkapod a felhasználó portfóliójának számszerű pillanatképét (forintban), és ahol van adat, a megtakarítási céljait, aktív figyelmeztetéseit, közelgő eseményeit (kötvény-lejáratok, kuponok) és a TBSZ-számlái adózási állapotát is. Tömören, magyarul, közérthetően válaszolj. Kizárólag a megadott adatokra támaszkodj — soha ne találj ki számokat, és ha valami nem derül ki az adatokból, mondd ki őszintén. Használd ki a gazdagabb adatokat: ha van cél, értékeld hogy jó úton van-e; ha van figyelmeztetés vagy közelgő lejárat, térj ki rá; a trend és a TBSZ-adómentességi mérföldkövek relevánsak lehetnek. A középtávú célhoz rendelt eszközök (és lejáratuk, kuponjaik) arra a célra vannak félretéve: ne kezeld őket szabadon felhasználható pénzként, és ne javasold máshová tenni őket. Ne adj konkrét vételi/eladási utasítást; ha az állampapír-összevetés csere-jelöltet mutat, ismertesd a számait (díj, megtérülés, többlet) és a kockázatait (változó kamat, eltérő lejárat, a célokhoz rendelt pénz), a döntést hagyd a felhasználóra; inkább összefüggéseket, kockázatokat, koncentrációt és megfontolandó szempontokat emelj ki. Egyszerű szöveget használj: rövid bekezdések vagy "- " kezdetű felsorolás, NE használj markdown fejlécet vagy csillagos kiemelést. A forint/euró összegek a felhasználó valós egyenlegei — kezeld diszkréten.`;
 
 /** Prompt for the forecast page's narrative — reasons over projected numbers. */
 export const FORECAST_PROMPT =

@@ -131,3 +131,61 @@ describe("tick", () => {
     expect(again.filter((m) => m.html.includes("Lejár"))).toEqual([]);
   });
 });
+
+describe("switch suggestions", () => {
+  const better = {
+    retail: [
+      ...rates().retail,
+      { type: "FixMÁP", series: "2031/T", rateText: "7.60", rateMin: 7.6, rateMax: 7.6, ehm: 7.75, maturity: "2031-09-20", currency: "HUF", validFrom: "2026-10-01", validTo: null },
+    ],
+  };
+  const isSwitch = (m: string) => m.includes("Csere-lehetőség");
+
+  it("no suggestion while nothing pays more than the held bond", () => {
+    expect(bondNoticeMessages(at([2026, 10, 14, 10]), fresh()).filter(isSwitch)).toEqual([]);
+  });
+
+  it("a better buyable bond is suggested once, with fee, payback and gain", () => {
+    const st = fresh();
+    const ms = bondNoticeMessages(at([2026, 10, 14, 10], undefined, better), st).filter(isSwitch);
+    expect(ms).toHaveLength(1);
+    expect(ms[0]).toContain("Csere-lehetőség: FixMÁP 2030/I");
+    expect(ms[0]).toContain("6,50% → <b>FixMÁP 2031/T: 7,75%</b>, lejár 2031. szept. 20.");
+    expect(ms[0]).toMatch(/A visszaváltási díj \(.+ Ft\) \d+ hónap alatt térül meg; \d+,\d év alatt kb\. \+.+ Ft\./);
+    expect(st.bondNotices?.switches).toEqual({ [`${FIX}|FixMÁP 2031/T`]: "2026-10-14" });
+    expect(bondNoticeMessages(at([2026, 10, 15, 10], undefined, better), st).filter(isSwitch)).toEqual([]);
+  });
+
+  it("reminds again after 90 days if it still pays", () => {
+    const st = fresh();
+    bondNoticeMessages(at([2026, 10, 14, 10], undefined, better), st);
+    expect(bondNoticeMessages(at([2027, 1, 11, 10], undefined, better), st).filter(isSwitch)).toEqual([]);
+    expect(bondNoticeMessages(at([2027, 1, 12, 10], undefined, better), st).filter(isSwitch)).toHaveLength(1);
+  });
+
+  it("forgets the suggestion once the bond is sold", () => {
+    const st = fresh();
+    bondNoticeMessages(at([2026, 10, 14, 10], undefined, better), st);
+    const sold = (s: PortfolioSnapshot) => {
+      s.transactions = s.transactions.filter((t) => t.instrumentKey !== FIX);
+    };
+    bondNoticeMessages(at([2026, 10, 15, 10], sold, better), st);
+    expect(st.bondNotices?.switches).toEqual({});
+  });
+
+  it("a new interest period carries the suggestion instead of a separate message", () => {
+    const st = fresh();
+    bondNoticeMessages(at([2026, 10, 14, 10], asPmap), st);
+    const next = { ...better, periods: [pmap(5.25, "2027-03-15", "2028-03-15")] };
+    const ms = bondNoticeMessages(at([2027, 3, 16, 10], asPmap, next), st);
+    expect(ms.filter(isSwitch)).toEqual([]);
+    const [m] = ms.filter((x) => x.includes("új kamatperiódus"));
+    expect(m).toContain("6,50% → <b>5,25%</b>");
+    expect(m).toContain("💡 Csere-jelölt: 5,25% → <b>FixMÁP 2031/T: 7,75%</b>");
+  });
+
+  it("the maturity notice names the best yield now", () => {
+    const [m] = bondNoticeMessages(at([2026, 10, 20, 10]), fresh());
+    expect(m).toContain("Legmagasabb hozam most: FixMÁP 2029/Q2 (5,62%)");
+  });
+});

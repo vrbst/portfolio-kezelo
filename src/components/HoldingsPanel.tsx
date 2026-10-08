@@ -1,7 +1,7 @@
 import InfoTip from "./InfoTip";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Layers, ChevronRight, Target, Wallet } from "lucide-react";
-import { usePortfolio, usePortfolioSummary } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
 import { consolidatedHoldings, purchaseLots, bondLots } from "../lib/portfolio";
 import { loadSavingsGoals } from "../lib/savings";
 import { PREFS_EVENT } from "../lib/prefs";
@@ -329,7 +329,7 @@ export default function HoldingsPanel({
 
 function LotsTable({ instrumentKey }: { instrumentKey: string }) {
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
 
@@ -459,7 +459,7 @@ function LotsTable({ instrumentKey }: { instrumentKey: string }) {
 
 function BondLotsTable({ instrumentKey }: { instrumentKey: string }) {
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
 
   const result = useMemo(() => {
     const map = new Map(instruments.map((i) => [i.key, i]));

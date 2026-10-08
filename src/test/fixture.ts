@@ -17,6 +17,7 @@ import type { SavingsGoal } from "../lib/savings";
 import type { GlideConfig } from "../lib/glidePath";
 import type { Goal } from "../lib/goals";
 import type { HistoryFile, LiveQuote, PriceFile } from "../lib/prices";
+import type { BondRatesFile } from "../lib/bondRates";
 
 /** Local wall-clock time → the ISO instant the importers store. */
 export const local = (y: number, m: number, d: number, hh = 10, mi = 0) =>
@@ -346,6 +347,17 @@ export function fixturePriceFile(history: HistoryFile): PriceFile {
     },
   };
 }
+
+export const fixtureBondRates = (): BondRatesFile => ({
+  updatedAt: STAMP,
+  retail: [
+    { type: "FixMÁP", series: "2031/T", rateText: "7.60", rateMin: 7.6, rateMax: 7.6, ehm: 7.75, maturity: "2031-09-20", currency: "HUF", validFrom: "2026-09-01", validTo: null },
+    { type: "MÁP Plusz", series: "2032/T", rateText: "6.00 - 7.00", rateMin: 6, rateMax: 7, ehm: 6.4, maturity: "2032-05-10", currency: "HUF", validFrom: "2026-09-01", validTo: null },
+    { type: "PMÁP", series: "2036/T", rateText: "5.00", rateMin: 5, rateMax: 5, ehm: null, maturity: "2036-02-21", currency: "HUF", validFrom: "2026-07-17", validTo: "2027-02-20" },
+  ],
+  periods: [],
+  dkj: [{ auctionDate: "2026-10-06", series: "D270120", isin: null, maturity: "2027-01-20", avgYield: 5.2 }],
+});
 
 /** Live quotes: today a little up from the file's last close. */
 export function fixtureQuotes(priceFile: PriceFile): {

@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Currency, Instrument, Transaction } from "./model";
-import { bondMarketValue, bondValuationMs, nextCouponDate } from "./bonds";
+import { bondMarketValue, bondValuationMs, currentRate, nextCouponDate } from "./bonds";
 import {
   buildFxHistory,
   histFxRate,
@@ -274,7 +274,7 @@ export function bondLots(
     hadRedemptions: hadSells,
     maturity: inst?.bond?.maturity ?? inst?.maturity,
     nextCoupon: inst?.bond ? nextCouponDate(inst.bond, now) : undefined,
-    couponRate: inst?.bond?.couponRate,
+    couponRate: currentRate(inst?.bond, now),
     needsData,
   };
 }

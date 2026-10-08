@@ -20,6 +20,7 @@ import {
   useGoalProgress,
   useValueSeries,
   useDayChange,
+  useValuedInstruments,
 } from "../lib/store";
 import {
   accountReturn,
@@ -89,7 +90,7 @@ function relTime(iso?: string): string | null {
 export default function Dashboard() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
-  const instruments = usePortfolio((s) => s.instruments);
+  const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
   const historyFile = usePortfolio((s) => s.historyFile);
