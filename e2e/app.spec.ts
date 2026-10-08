@@ -413,7 +413,13 @@ test("Kincstár: the bond card suggests a switch and lists the buyable bonds", a
   await expect(card).toContainText("→ FixMÁP 2031/T");
   await expect(card).toContainText("Lejár 35 nap múlva");
   await expect(card.locator("table")).toContainText("MÁP Plusz 2032/T");
-  await expect(card.locator("table")).toContainText("DKJ D270120");
+  const dkj = card.getByRole("combobox", { name: "DKJ-sorozat" });
+  await expect(dkj).toHaveValue("D261223");
+  await expect(dkj.locator("option")).toHaveText(["DKJ D261223", "DKJ D270120"]);
+  const dkjRow = card.locator("tr", { has: page.getByRole("combobox", { name: "DKJ-sorozat" }) });
+  await expect(dkjRow).toContainText("5,24%");
+  await dkj.selectOption("D270120");
+  await expect(dkjRow).toContainText("5,20%");
 });
 
 test.describe("explanations behind an \"i\"", () => {

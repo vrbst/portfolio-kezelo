@@ -356,7 +356,10 @@ export const fixtureBondRates = (): BondRatesFile => ({
     { type: "PMÁP", series: "2036/T", rateText: "5.00", rateMin: 5, rateMax: 5, ehm: null, maturity: "2036-02-21", currency: "HUF", validFrom: "2026-07-17", validTo: "2027-02-20" },
   ],
   periods: [],
-  dkj: [{ auctionDate: "2026-10-06", series: "D270120", isin: null, maturity: "2027-01-20", avgYield: 5.2 }],
+  dkj: [
+    { auctionDate: "2026-10-06", series: "D270120", isin: null, maturity: "2027-01-20", avgYield: 5.2 },
+    { auctionDate: "2026-09-08", series: "D261223", isin: null, maturity: "2026-12-23", avgYield: 5.24 },
+  ],
 });
 
 /** Live quotes: today a little up from the file's last close. */

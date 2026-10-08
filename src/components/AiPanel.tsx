@@ -147,10 +147,10 @@ export default function AiPanel() {
   const bonds = useMemo(() => {
     const today = toLocalDay(new Date());
     return {
-      advice: bondAdvice(consolidatedHoldings(summary), bondRates, today),
+      advice: bondAdvice(consolidatedHoldings(summary), bondRates, today, savingsGoals),
       market: bondMarket(bondRates, today),
     };
-  }, [summary, bondRates]);
+  }, [summary, bondRates, savingsGoals]);
 
   // The live snapshot. A conversation freezes its own copy when it starts.
   const context = useMemo(() => {
@@ -278,6 +278,7 @@ export default function AiPanel() {
     cashflows,
     goalExpenses,
     bondRates,
+    savingsGoals,
   };
 
   const [spend, setSpend] = useState<AiSpend>(loadSpend);

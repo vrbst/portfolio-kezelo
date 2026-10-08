@@ -6,14 +6,14 @@ import {
   auctionsFor,
   buyableOffers,
   familyOfType,
-  latestDkjAuction,
+  currentDkjSeries,
   maturityOf,
   periodFor,
   type BondRatesFile,
   type InterestPeriod,
   type RetailOffer,
 } from "../../src/lib/bondRates";
-import { bondAdvice, rankedOffers, type SwitchVerdict } from "../../src/lib/bondSwitch";
+import { bondAdvice, rankedOffers, type BondAdvice, type SwitchVerdict } from "../../src/lib/bondSwitch";
 import { esc, mft, shortName } from "./reports";
 import type { Context } from "./data";
 import type { State } from "./state";
@@ -44,8 +44,7 @@ export function offerLines(file: BondRatesFile, today: string): string[] {
       (o.currency !== "HUF" ? `, ${esc(o.currency)}` : "") +
       (o.maturity ? `, lejár ${fullDay(o.maturity)}` : ""),
   );
-  const dkj = latestDkjAuction(file, today);
-  if (dkj)
+  for (const dkj of currentDkjSeries(file, today))
     lines.push(
       `• DKJ ${esc(dkj.series)}: ${pctText(dkj.avgYield)} (aukció ${shortDay(dkj.auctionDate)}` +
         (dkj.maturity ? `, lejár ${fullDay(dkj.maturity)}` : "") +
@@ -74,12 +73,14 @@ export function maturityNoticeText(
   days: number,
   file: BondRatesFile,
   today: string,
+  advice?: BondAdvice,
 ): string {
   const offers = offerLines(file, today);
   const best = rankedOffers(file, today, inst.currency)[0];
   return [
     `⏳ <b>Lejár ${whenText(days)}: ${shortName(inst.name)}</b> (${fullDay(maturity)}, ${mft(valueHuf)})`,
     ownRateLine(inst, file),
+    goalLine(advice, maturity),
     best
       ? `Legmagasabb hozam most: ${esc(best.offer.type)} ${esc(best.offer.series)} (${pctText(best.yieldPct)}${best.floating ? ", változó" : ""})`
       : undefined,
@@ -87,6 +88,19 @@ export function maturityNoticeText(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function goalLine(advice: BondAdvice | undefined, maturity: string): string | undefined {
+  const v = advice?.verdict;
+  if (v?.kind !== "maturing" || !v.goal) return undefined;
+  const head = `🎯 A(z) <b>${esc(v.goal.name)}</b> célhoz tartozik (${fullDay(v.goal.targetDate)}).`;
+  if (v.goal.targetDate <= maturity) return `${head} A kifizetés a célra megy, nem kell újra befektetni.`;
+  if (!v.reinvest)
+    return `${head} Nincs olyan kapható papír, ami a cél dátumáig lejár — a kifizetést tartsd készpénzben a célig.`;
+  return (
+    `${head} A cél dátumáig lejáró legjobb: <b>${esc(v.reinvest.name)}</b> ${pctText(v.reinvest.yieldPct)}` +
+    `${v.reinvest.floating ? " (változó)" : ""}, lejár ${fullDay(v.reinvest.maturity)}`
+  );
 }
 
 export function periodNoticeText(inst: Instrument, prevRate: number, p: InterestPeriod): string {
@@ -143,7 +157,8 @@ export function bondNoticeMessages(ctx: Context, st: State): string[] {
   const sent = (notices.maturity ??= {});
   const periods = (notices.periods ??= {});
   const switches = (notices.switches ??= {});
-  const advice = new Map(bondAdvice(held, file, today).map((a) => [a.instrumentKey, a]));
+  const goals = ctx.savings.map((s) => s.goal);
+  const advice = new Map(bondAdvice(held, file, today, goals).map((a) => [a.instrumentKey, a]));
   const periodLines: string[] = [];
   const switchLines: string[] = [];
   for (const h of held) {
@@ -155,7 +170,7 @@ export function bondNoticeMessages(ctx: Context, st: State): string[] {
       const stage = due.length ? Math.min(...due) : undefined;
       if (stage != null && !sent[`${h.instrumentKey}|${maturity}|${stage}`]) {
         for (const d of due) sent[`${h.instrumentKey}|${maturity}|${d}`] = maturity;
-        out.push(maturityNoticeText(inst, h.marketValueHuf, maturity, days, file, today));
+        out.push(maturityNoticeText(inst, h.marketValueHuf, maturity, days, file, today, advice.get(h.instrumentKey)));
       }
     }
     const p = periodFor(inst, file);

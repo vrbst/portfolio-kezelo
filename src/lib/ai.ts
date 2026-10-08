@@ -568,10 +568,8 @@ export function buildAiPortfolioContext(
       lines.push(
         `- ${o.offer.type} ${o.offer.series}: ${p2(o.yieldPct)}${o.floating ? " (változó kamat, csak a mostani periódusra)" : ""}, lejár ${o.offer.maturity}`,
       );
-    if (market.dkj)
-      lines.push(
-        `- DKJ ${market.dkj.series}: ${p2(market.dkj.avgYield)} (aukció ${market.dkj.auctionDate}, lejár ${market.dkj.maturity ?? "?"})`,
-      );
+    for (const d of market.dkj)
+      lines.push(`- DKJ ${d.series}: ${p2(d.avgYield)} (utolsó aukció ${d.auctionDate}, lejár ${d.maturity ?? "?"})`);
     if (advice.length) {
       lines.push("", "Tartott állampapírok összevetése a kapható papírokkal (az app számolta, egyszerű kamattal):");
       for (const a of advice) {
@@ -581,7 +579,15 @@ export function buildAiPortfolioContext(
           v.kind === "switch"
             ? `csere-jelölt: ${v.to.offer.type} ${v.to.offer.series} ${p2(v.to.yieldPct)}; visszaváltási díj ${huf(v.saleCostHuf)} Ft, ${Math.ceil(v.breakEvenMonths)} hónap alatt térül meg, ${v.horizonYears.toFixed(1)} év alatt kb. ${huf(v.gainHuf)} Ft többlet`
             : v.kind === "maturing"
-              ? `${v.days} nap múlva lejár, újrabefektetés kérdése`
+              ? `${v.days} nap múlva lejár, ${
+                  !v.goal
+                    ? "újrabefektetés kérdése"
+                    : a.maturity && v.goal.targetDate <= a.maturity
+                      ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}), a kifizetés a célra megy`
+                      : v.reinvest
+                        ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}); a céldátumig lejáró legjobb: ${v.reinvest.name} ${p2(v.reinvest.yieldPct)}, lejár ${v.reinvest.maturity}`
+                        : `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}); nincs a céldátumig lejáró kapható papír, készpénzben tartandó`
+                }`
               : {
                   "no-better": "nincs érdemben jobb kapható papír",
                   fee: "van magasabb kamatú papír, de a visszaváltási díj nem térül meg a lejáratig",

@@ -200,11 +200,17 @@ export function buyableOffers(file: BondRatesFile, today: string): RetailOffer[]
   );
 }
 
-export function latestDkjAuction(file: BondRatesFile, today: string): DkjAuction | undefined {
-  const since = addDaysIso(today, -45);
-  return [...file.dkj]
-    .filter((a) => a.auctionDate <= today && a.auctionDate >= since)
-    .sort((a, b) => b.auctionDate.localeCompare(a.auctionDate))[0];
+export const DKJ_SERIES_DAYS = 370;
+
+export function currentDkjSeries(file: BondRatesFile, today: string): DkjAuction[] {
+  const since = addDaysIso(today, -DKJ_SERIES_DAYS);
+  const latest = new Map<string, DkjAuction>();
+  for (const a of file.dkj) {
+    if (a.auctionDate > today || a.auctionDate < since || !a.maturity || a.maturity <= today) continue;
+    const prev = latest.get(a.series);
+    if (!prev || a.auctionDate > prev.auctionDate) latest.set(a.series, a);
+  }
+  return [...latest.values()].sort((a, b) => a.maturity!.localeCompare(b.maturity!));
 }
 
 export async function loadBondRatesFile(): Promise<BondRatesFile | null> {

@@ -3,10 +3,10 @@ import type { Instrument } from "./model";
 import { bondMarketValue } from "./bonds";
 import {
   buyableOffers,
+  currentDkjSeries,
   dkjSeriesOfName,
   familyOfName,
   fillBondTerms,
-  latestDkjAuction,
   periodFor,
   seriesOfName,
   validateBondRatesFile,
@@ -177,10 +177,18 @@ describe("offers", () => {
     expect(buyableOffers(file(), "2026-10-07").map((o) => o.series)).toEqual(["2029/Q2", "2031/M6"]);
   });
 
-  it("the latest DKJ auction of the last 45 days", () => {
-    expect(latestDkjAuction(file(), "2026-10-07")?.series).toBe("D270428");
-    expect(latestDkjAuction(file(), "2026-10-06")?.series).toBe("D270120");
-    expect(latestDkjAuction(file({ dkj: file().dkj.slice(0, 1) }), "2026-10-07")).toBeUndefined();
+  it("every running DKJ series once, at its latest auction, by maturity", () => {
+    const dkj = [
+      ...file().dkj,
+      { auctionDate: "2026-09-29", series: "D270120", isin: "HU0000000002", maturity: "2027-01-20", avgYield: 5.16 },
+      { auctionDate: "2026-02-11", series: "D270210", isin: "HU0000000004", maturity: "2027-02-10", avgYield: 5.9 },
+      { auctionDate: "2025-09-01", series: "D261216", isin: "HU0000000005", maturity: "2026-12-16", avgYield: 6.1 },
+    ];
+    const list = currentDkjSeries(file({ dkj }), "2026-10-07");
+    expect(list.map((a) => a.series)).toEqual(["D270120", "D270210", "D270428"]);
+    expect(list[0].avgYield).toBe(5.17);
+    expect(currentDkjSeries(file({ dkj }), "2026-10-06").map((a) => a.series)).toEqual(["D261007", "D270120", "D270210"]);
+    expect(currentDkjSeries(file({ dkj: file().dkj.slice(0, 1) }), "2026-10-07")).toEqual([]);
   });
 });
 

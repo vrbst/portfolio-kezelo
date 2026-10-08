@@ -1,13 +1,15 @@
 import type { Instrument } from "./model";
 import type { HoldingView } from "./portfolio";
 import { BOND_TYPES } from "./bonds";
+import { addDaysIso } from "./day";
+import { DEFAULT_MIN_DAYS_TO_MATURITY, type SavingsGoal } from "./savings";
 import {
   auctionsFor,
   buyableOffers,
+  currentDkjSeries,
   familyOfName,
   familyOfType,
   fillBondTerms,
-  latestDkjAuction,
   maturityOf,
   periodFor,
   type BondFamily,
@@ -60,8 +62,22 @@ export function rankedOffers(file: BondRatesFile, today: string, currency = "HUF
   return out.sort((a, b) => b.yieldPct - a.yieldPct);
 }
 
+export interface GoalLink {
+  id: string;
+  name: string;
+  targetDate: string;
+}
+
+export interface ReinvestOption {
+  name: string;
+  yieldPct: number;
+  maturity: string;
+  floating: boolean;
+  auctionDate?: string;
+}
+
 export type SwitchVerdict =
-  | { kind: "maturing"; days: number }
+  | { kind: "maturing"; days: number; goal?: GoalLink; reinvest?: ReinvestOption }
   | {
       kind: "switch";
       to: OfferView;
@@ -117,7 +133,53 @@ export function breakEvenYears(
   return (marketHuf - proceedsHuf) / perYear;
 }
 
-export function adviseHolding(h: BondHolding, file: BondRatesFile, today: string): BondAdvice | undefined {
+export function goalOfHolding(
+  instrumentKey: string,
+  goals: SavingsGoal[],
+  today: string,
+): SavingsGoal | undefined {
+  return goals
+    .filter((g) => g.instrumentKeys.includes(instrumentKey) && g.targetDate.slice(0, 10) >= today)
+    .sort((a, b) => a.targetDate.localeCompare(b.targetDate))[0];
+}
+
+export function reinvestForGoal(
+  file: BondRatesFile,
+  today: string,
+  payoutDay: string,
+  goal: SavingsGoal,
+  currency = "HUF",
+): ReinvestOption | undefined {
+  const target = goal.targetDate.slice(0, 10);
+  const earliest = addDaysIso(payoutDay, Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY));
+  const fits = (maturity: string) => maturity > earliest && maturity <= target;
+  const options: ReinvestOption[] = rankedOffers(file, today, currency)
+    .filter((o) => fits(o.offer.maturity!) && (!o.offer.validTo || o.offer.validTo >= payoutDay))
+    .map((o) => ({
+      name: `${o.offer.type} ${o.offer.series}`,
+      yieldPct: o.yieldPct,
+      maturity: o.offer.maturity!,
+      floating: o.floating,
+    }));
+  if (currency === "HUF")
+    for (const a of currentDkjSeries(file, today))
+      if (fits(a.maturity!))
+        options.push({
+          name: `DKJ ${a.series}`,
+          yieldPct: a.avgYield,
+          maturity: a.maturity!,
+          floating: false,
+          auctionDate: a.auctionDate,
+        });
+  return options.sort((a, b) => b.yieldPct - a.yieldPct || b.maturity.localeCompare(a.maturity))[0];
+}
+
+export function adviseHolding(
+  h: BondHolding,
+  file: BondRatesFile,
+  today: string,
+  goals: SavingsGoal[] = [],
+): BondAdvice | undefined {
   const inst = h.instrument;
   if (!inst || !BOND_TYPES.has(inst.type) || h.quantity <= 1e-9) return undefined;
   const marketHuf = h.marketValueHuf ?? h.costBasisHuf;
@@ -136,8 +198,13 @@ export function adviseHolding(h: BondHolding, file: BondRatesFile, today: string
     floating: inst.type === "gov_bond" && !!family && FLOATING.has(family),
   };
   if (daysToMaturity != null && daysToMaturity < 0) return undefined;
-  if (daysToMaturity != null && daysToMaturity <= MATURING_DAYS)
-    return { ...base, verdict: { kind: "maturing", days: daysToMaturity } };
+  if (maturity && daysToMaturity != null && daysToMaturity <= MATURING_DAYS) {
+    const goal = goalOfHolding(h.instrumentKey, goals, today);
+    if (!goal) return { ...base, verdict: { kind: "maturing", days: daysToMaturity } };
+    const link = { id: goal.id, name: goal.name, targetDate: goal.targetDate.slice(0, 10) };
+    const reinvest = reinvestForGoal(file, today, maturity, goal, inst.currency);
+    return { ...base, verdict: { kind: "maturing", days: daysToMaturity, goal: link, ...(reinvest ? { reinvest } : {}) } };
+  }
 
   const offers = rankedOffers(file, today, inst.currency);
   if (inst.type === "tbill") return { ...base, verdict: { kind: "keep", reason: "tbill", best: offers[0] } };
@@ -172,11 +239,16 @@ export function adviseHolding(h: BondHolding, file: BondRatesFile, today: string
   return { ...base, verdict: { kind: "keep", reason: feeBlocked ? "fee" : "no-better", best: offers[0] } };
 }
 
-export function bondAdvice(holdings: BondHolding[], file: BondRatesFile | null, today: string): BondAdvice[] {
+export function bondAdvice(
+  holdings: BondHolding[],
+  file: BondRatesFile | null,
+  today: string,
+  goals: SavingsGoal[] = [],
+): BondAdvice[] {
   if (!file) return [];
   const out: BondAdvice[] = [];
   for (const h of holdings) {
-    const a = adviseHolding(h, file, today);
+    const a = adviseHolding(h, file, today, goals);
     if (a) out.push(a);
   }
   const rank = (a: BondAdvice) => (a.verdict.kind === "switch" ? 0 : a.verdict.kind === "maturing" ? 1 : 2);
@@ -186,7 +258,7 @@ export function bondAdvice(holdings: BondHolding[], file: BondRatesFile | null, 
 export interface BondMarket {
   updatedAt?: string;
   offers: OfferView[];
-  dkj?: DkjAuction;
+  dkj: DkjAuction[];
 }
 
 export function bondMarket(file: BondRatesFile | null, today: string): BondMarket | null {
@@ -194,6 +266,6 @@ export function bondMarket(file: BondRatesFile | null, today: string): BondMarke
   return {
     updatedAt: file.updatedAt,
     offers: rankedOffers(file, today),
-    dkj: latestDkjAuction(file, today),
+    dkj: currentDkjSeries(file, today),
   };
 }

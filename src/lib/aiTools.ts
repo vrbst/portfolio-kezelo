@@ -27,6 +27,7 @@ import { assetClassLabel, txTypeLabel } from "./labels";
 import { addDaysIso, toLocalDay, todayLocal, txDay } from "./day";
 import type { BondRatesFile } from "./bondRates";
 import { bondAdvice, bondMarket } from "./bondSwitch";
+import type { SavingsGoal } from "./savings";
 
 /** Everything the tools read — the same state the pages show. */
 export interface ToolEnv {
@@ -41,6 +42,7 @@ export interface ToolEnv {
   /** Savings goals as planned expenses (for projections). */
   goalExpenses: PlannedExpense[];
   bondRates?: BondRatesFile | null;
+  savingsGoals?: SavingsGoal[];
 }
 
 export interface ClientTool {
@@ -447,7 +449,7 @@ const compareGovBonds: ClientTool = {
     const market = bondMarket(env.bondRates ?? null, day);
     if (!market) return JSON.stringify({ error: "Nincs betöltött ÁKK-adat." });
     const gap = num(i.min_gap_pct);
-    const advice = bondAdvice(consolidatedHoldings(env.summary), env.bondRates ?? null, day);
+    const advice = bondAdvice(consolidatedHoldings(env.summary), env.bondRates ?? null, day, env.savingsGoals ?? []);
     return JSON.stringify({
       as_of: market.updatedAt,
       offers: market.offers.map((o) => ({
@@ -459,9 +461,12 @@ const compareGovBonds: ClientTool = {
         maturity: o.offer.maturity,
         currency: o.offer.currency,
       })),
-      latest_tbill_auction: market.dkj
-        ? { series: market.dkj.series, yield_pct: market.dkj.avgYield, auction: market.dkj.auctionDate, maturity: market.dkj.maturity }
-        : null,
+      tbills: market.dkj.map((d) => ({
+        series: d.series,
+        yield_pct: d.avgYield,
+        last_auction: d.auctionDate,
+        maturity: d.maturity,
+      })),
       holdings: advice.map((a) => {
         const v = a.verdict;
         return {
@@ -472,6 +477,11 @@ const compareGovBonds: ClientTool = {
           maturity: a.maturity ?? null,
           days_to_maturity: a.daysToMaturity ?? null,
           verdict: v.kind === "keep" ? `keep:${v.reason}` : v.kind,
+          goal: v.kind === "maturing" && v.goal ? { name: v.goal.name, target_date: v.goal.targetDate } : null,
+          reinvest_for_goal:
+            v.kind === "maturing" && v.reinvest
+              ? { name: v.reinvest.name, yield_pct: pct2(v.reinvest.yieldPct), maturity: v.reinvest.maturity }
+              : null,
           switch_to:
             v.kind === "switch"
               ? {

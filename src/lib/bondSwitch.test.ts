@@ -11,6 +11,7 @@ import {
   switchGain,
   type BondHolding,
 } from "./bondSwitch";
+import type { SavingsGoal } from "./savings";
 
 const TODAY = "2026-10-08";
 
@@ -175,6 +176,53 @@ describe("adviseHolding", () => {
   });
 });
 
+describe("maturing bond of a savings goal", () => {
+  const goal = (over: Partial<SavingsGoal> = {}): SavingsGoal => ({
+    id: "g1",
+    name: "Autó",
+    targetHuf: 1_000_000,
+    targetDate: "2027-06-30",
+    instrumentKeys: ["dkj"],
+    includeCoupons: false,
+    createdAt: "2026-01-01",
+    ...over,
+  });
+  const dkjInst = bond("Diszkont Kincstárjegy D261028", { key: "dkj", type: "tbill", maturity: "2026-10-28" });
+  const dkjFile = file({
+    dkj: [
+      { auctionDate: "2026-10-06", series: "D270120", isin: null, maturity: "2027-01-20", avgYield: 5.17 },
+      { auctionDate: "2026-09-23", series: "D270428", isin: null, maturity: "2027-04-28", avgYield: 5.16 },
+      { auctionDate: "2026-09-24", series: "D270818", isin: null, maturity: "2027-08-18", avgYield: 5.4 },
+      { auctionDate: "2026-09-08", series: "D261112", isin: null, maturity: "2026-11-12", avgYield: 5.5 },
+    ],
+  });
+
+  it("suggests the best paper maturing by the goal's date, not after it", () => {
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [goal()])!;
+    expect(a.verdict).toMatchObject({
+      kind: "maturing",
+      days: 20,
+      goal: { id: "g1", name: "Autó", targetDate: "2027-06-30" },
+      reinvest: { name: "DKJ D270120", yieldPct: 5.17, maturity: "2027-01-20" },
+    });
+  });
+
+  it("holds cash when nothing matures between the payout and the goal's date", () => {
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [goal({ targetDate: "2026-12-15" })])!;
+    expect(a.verdict).toMatchObject({ kind: "maturing", goal: { targetDate: "2026-12-15" } });
+    expect(a.verdict.kind === "maturing" && a.verdict.reinvest).toBeFalsy();
+  });
+
+  it("without a goal, or with a past goal, it stays a plain maturity flag", () => {
+    expect(adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY)!.verdict).toEqual({ kind: "maturing", days: 20 });
+    const past = goal({ targetDate: "2026-01-01" });
+    expect(adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [past])!.verdict).toEqual({
+      kind: "maturing",
+      days: 20,
+    });
+  });
+});
+
 describe("bondAdvice / bondMarket", () => {
   it("lists switch candidates first and is empty without data", () => {
     const keep = bond("Fix Magyar Állampapír 2031/A", { maturity: "2031-12-15", bond: { couponRate: 0.06 } });
@@ -183,6 +231,6 @@ describe("bondAdvice / bondMarket", () => {
     expect(out.map((a) => a.verdict.kind)).toEqual(["switch", "keep"]);
     expect(bondAdvice([holding(sw)], null, TODAY)).toEqual([]);
     expect(bondMarket(null, TODAY)).toBeNull();
-    expect(bondMarket(file(), TODAY)!.dkj?.series).toBe("D270120");
+    expect(bondMarket(file(), TODAY)!.dkj.map((d) => d.series)).toEqual(["D270120"]);
   });
 });

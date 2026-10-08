@@ -64,6 +64,8 @@ describe("maturity notices", () => {
     expect(m).toContain("• FixMÁP 2029/Q2: 5,50% (EHM 5,62%), lejár 2029. okt. 25.");
     expect(m).toContain("• MÁP Plusz 2031/M6: 5,00%–6,00% (EHM 5,47%)");
     expect(m).toContain("• DKJ D270428: 5,15% (aukció okt. 7., lejár 2027. ápr. 28.)");
+    expect(m).toContain("A(z) <b>Babakocsi</b> célhoz tartozik (2026. dec. 20.)");
+    expect(m).toContain("a kifizetést tartsd készpénzben a célig");
     expect(m).not.toContain("BABA");
     expect(bondNoticeMessages(at([2026, 10, 21, 10]), st)).toEqual([]);
   });

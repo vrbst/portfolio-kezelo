@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRightLeft } from "lucide-react";
 import InfoTip from "./InfoTip";
 import { Card, Badge } from "./ui";
-import { usePortfolio, useToday } from "../lib/store";
+import { usePortfolio, useSavingsGoals, useToday } from "../lib/store";
 import { formatDate, formatDateTime, formatMoney } from "../lib/format";
 import { bondAdvice, bondMarket, type BondAdvice, type OfferView } from "../lib/bondSwitch";
 import type { HoldingView } from "../lib/portfolio";
@@ -33,7 +33,31 @@ function Verdict({ a }: { a: BondAdvice }) {
     return (
       <div className="text-sm">
         <Badge tone="warning">Lejár {v.days === 0 ? "ma" : `${v.days} nap múlva`}</Badge>{" "}
-        <span className="text-[var(--color-muted)]">a lenti listából választhatsz újrabefektetést</span>
+        {!v.goal ? (
+          <span className="text-[var(--color-muted)]">a lenti listából választhatsz újrabefektetést</span>
+        ) : (
+          <span className="text-[var(--color-muted)]">
+            a(z) <span className="priv">{v.goal.name}</span> célhoz tartozik ({formatDate(v.goal.targetDate)})
+          </span>
+        )}
+        {v.goal && (
+          <div className="mt-1 text-xs text-[var(--color-muted)]">
+            {a.maturity && v.goal.targetDate <= a.maturity ? (
+              "A kifizetés a cél dátumára már megvan — nem kell újra befektetni."
+            ) : v.reinvest ? (
+              <>
+                A cél dátumáig lejáró legjobb kapható papír:{" "}
+                <span className="font-medium text-[var(--color-text)]">{v.reinvest.name}</span> (
+                {pct(v.reinvest.yieldPct)}
+                {v.reinvest.floating ? ", változó" : ""}
+                {v.reinvest.auctionDate ? `, aukció ${formatDate(v.reinvest.auctionDate)}` : ""}, lejár{" "}
+                {formatDate(v.reinvest.maturity)}).
+              </>
+            ) : (
+              "Nincs olyan kapható papír, ami a cél dátumáig lejár — a kifizetést tartsd készpénzben a célig."
+            )}
+          </div>
+        )}
       </div>
     );
   const text = {
@@ -48,9 +72,12 @@ function Verdict({ a }: { a: BondAdvice }) {
 export default function BondSwitchCard({ holdings }: { holdings: HoldingView[] }) {
   const file = usePortfolio((s) => s.bondRates);
   const today = useToday();
-  const advice = useMemo(() => bondAdvice(holdings, file, today), [holdings, file, today]);
+  const goals = useSavingsGoals();
+  const advice = useMemo(() => bondAdvice(holdings, file, today, goals), [holdings, file, today, goals]);
   const market = useMemo(() => bondMarket(file, today), [file, today]);
-  if (!market || (!advice.length && !market.offers.length)) return null;
+  const [dkjSeries, setDkjSeries] = useState<string>();
+  if (!market || (!advice.length && !market.offers.length && !market.dkj.length)) return null;
+  const dkj = market.dkj.find((d) => d.series === dkjSeries) ?? market.dkj[0];
 
   return (
     <Card className="mt-6 p-5">
@@ -88,7 +115,7 @@ export default function BondSwitchCard({ holdings }: { holdings: HoldingView[] }
         </ul>
       )}
 
-      {market.offers.length > 0 && (
+      {(market.offers.length > 0 || market.dkj.length > 0) && (
         <div className="mt-5" data-privacy="public">
           <h3 className="mb-2 text-sm font-semibold">Most kapható</h3>
           <div className="overflow-x-auto">
@@ -114,16 +141,25 @@ export default function BondSwitchCard({ holdings }: { holdings: HoldingView[] }
                     <td className="py-1.5 text-right tabular-nums">{formatDate(o.offer.maturity)}</td>
                   </tr>
                 ))}
-                {market.dkj && (
+                {dkj && (
                   <tr className="border-t border-[var(--color-border)]/50">
                     <td className="py-1.5 pr-3">
-                      DKJ {market.dkj.series}
-                      <span className="ml-1 text-xs text-[var(--color-muted)]">
-                        aukció {formatDate(market.dkj.auctionDate)}
-                      </span>
+                      <select
+                        aria-label="DKJ-sorozat"
+                        className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-sm"
+                        value={dkj.series}
+                        onChange={(e) => setDkjSeries(e.target.value)}
+                      >
+                        {market.dkj.map((d) => (
+                          <option key={d.series} value={d.series}>
+                            DKJ {d.series}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="ml-1 text-xs text-[var(--color-muted)]">aukció {formatDate(dkj.auctionDate)}</span>
                     </td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{pct(market.dkj.avgYield)}</td>
-                    <td className="py-1.5 text-right tabular-nums">{formatDate(market.dkj.maturity)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{pct(dkj.avgYield)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatDate(dkj.maturity)}</td>
                   </tr>
                 )}
               </tbody>

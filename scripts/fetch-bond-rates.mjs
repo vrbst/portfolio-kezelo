@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const OUT = resolve(__dirname, '../public/bond-rates.json')
 const API = 'https://www.akk.hu/api/data/xpose3-dwh/data'
-const DKJ_DAYS = 60
+const DKJ_DAYS = 370
 
 const budapestDay = (ms) =>
   new Intl.DateTimeFormat('en-CA', {
