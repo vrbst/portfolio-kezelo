@@ -1,7 +1,7 @@
 // Memoised selector hooks over the portfolio store (shared across all
 // consumers). Grew out of store.ts, which re-exports everything here.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Account, Instrument, Transaction } from "./model";
 import {
   computePortfolio,
@@ -81,10 +81,12 @@ import {
   loadAccountLimits,
   loadBrokerFees,
   loadLeftoverSettings,
+  loadMoveAlertSettings,
   loadPlanOrder,
   loadPurchaseAccounts,
   type BrokerFees,
   type LeftoverSettings,
+  type MoveAlertSettings,
   type PlanOrder,
 } from "./planPrefs";
 import {
@@ -299,6 +301,16 @@ export function useSavingsGoals(): SavingsGoal[] {
     return () => window.removeEventListener(PREFS_EVENT, on);
   }, []);
   return goals;
+}
+
+export function useGoalNamesByInstrument(): Map<string, string[]> {
+  const goals = useSavingsGoals();
+  return useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const g of goals)
+      for (const key of g.instrumentKeys) m.set(key, [...(m.get(key) ?? []), g.name]);
+    return m;
+  }, [goals]);
 }
 
 /**
@@ -789,6 +801,10 @@ export function usePlanOrder(): PlanOrder {
 /** Month-end leftover settings (Beállítások). */
 export function useLeftoverSettings(): LeftoverSettings {
   return usePref(loadLeftoverSettings);
+}
+
+export function useMoveAlertSettings(): MoveAlertSettings {
+  return usePref(loadMoveAlertSettings);
 }
 
 /** Per-account limits (Számla oldal). */

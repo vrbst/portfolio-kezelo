@@ -7,6 +7,7 @@ import {
   buyableOffers,
   familyOfType,
   currentDkjSeries,
+  isFreshDkj,
   maturityOf,
   periodFor,
   type BondRatesFile,
@@ -44,12 +45,16 @@ export function offerLines(file: BondRatesFile, today: string): string[] {
       (o.currency !== "HUF" ? `, ${esc(o.currency)}` : "") +
       (o.maturity ? `, lejár ${fullDay(o.maturity)}` : ""),
   );
-  for (const dkj of currentDkjSeries(file, today))
+  const series = currentDkjSeries(file, today);
+  const fresh = series.filter((a) => isFreshDkj(a, today));
+  for (const dkj of fresh)
     lines.push(
       `• DKJ ${esc(dkj.series)}: ${pctText(dkj.avgYield)} (aukció ${shortDay(dkj.auctionDate)}` +
         (dkj.maturity ? `, lejár ${fullDay(dkj.maturity)}` : "") +
         ")",
     );
+  if (series.length > fresh.length)
+    lines.push(`• további ${series.length - fresh.length} futó DKJ-sorozat régebbi aukcióval (az appban)`);
   return lines;
 }
 
@@ -80,7 +85,7 @@ export function maturityNoticeText(
   return [
     `⏳ <b>Lejár ${whenText(days)}: ${shortName(inst.name)}</b> (${fullDay(maturity)}, ${mft(valueHuf)})`,
     ownRateLine(inst, file),
-    goalLine(advice, maturity),
+    goalLine(advice),
     best
       ? `Legmagasabb hozam most: ${esc(best.offer.type)} ${esc(best.offer.series)} (${pctText(best.yieldPct)}${best.floating ? ", változó" : ""})`
       : undefined,
@@ -90,11 +95,13 @@ export function maturityNoticeText(
     .join("\n");
 }
 
-function goalLine(advice: BondAdvice | undefined, maturity: string): string | undefined {
+function goalLine(advice: BondAdvice | undefined): string | undefined {
   const v = advice?.verdict;
   if (v?.kind !== "maturing" || !v.goal) return undefined;
   const head = `🎯 A(z) <b>${esc(v.goal.name)}</b> célhoz tartozik (${fullDay(v.goal.targetDate)}).`;
-  if (v.goal.targetDate <= maturity) return `${head} A kifizetés a célra megy, nem kell újra befektetni.`;
+  if (v.plan?.kind === "payout") return `${head} A kifizetés a cél napján megérkezik, nem kell újra befektetni.`;
+  if (v.plan?.kind === "late")
+    return `${head} ⚠️ A kifizetés ${v.plan.days} nappal a cél dátuma után érkezik — a célra időben nem lesz meg belőle.`;
   if (!v.reinvest)
     return `${head} Nincs olyan kapható papír, ami a cél dátumáig lejár — a kifizetést tartsd készpénzben a célig.`;
   return (

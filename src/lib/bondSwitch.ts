@@ -1,8 +1,7 @@
 import type { Instrument } from "./model";
 import type { HoldingView } from "./portfolio";
 import { BOND_TYPES } from "./bonds";
-import { addDaysIso } from "./day";
-import { DEFAULT_MIN_DAYS_TO_MATURITY, type SavingsGoal } from "./savings";
+import { maturityFitsGoal, type SavingsGoal } from "./savings";
 import {
   auctionsFor,
   buyableOffers,
@@ -10,6 +9,7 @@ import {
   familyOfName,
   familyOfType,
   fillBondTerms,
+  isFreshDkj,
   maturityOf,
   periodFor,
   type BondFamily,
@@ -76,8 +76,14 @@ export interface ReinvestOption {
   auctionDate?: string;
 }
 
+export type GoalPlan =
+  | { kind: "payout" }
+  | { kind: "late"; days: number }
+  | { kind: "reinvest" }
+  | { kind: "cash" };
+
 export type SwitchVerdict =
-  | { kind: "maturing"; days: number; goal?: GoalLink; reinvest?: ReinvestOption }
+  | { kind: "maturing"; days: number; goal?: GoalLink; plan?: GoalPlan; reinvest?: ReinvestOption }
   | {
       kind: "switch";
       to: OfferView;
@@ -137,10 +143,12 @@ export function goalOfHolding(
   instrumentKey: string,
   goals: SavingsGoal[],
   today: string,
+  maturity?: string,
 ): SavingsGoal | undefined {
-  return goals
+  const linked = goals
     .filter((g) => g.instrumentKeys.includes(instrumentKey) && g.targetDate.slice(0, 10) >= today)
-    .sort((a, b) => a.targetDate.localeCompare(b.targetDate))[0];
+    .sort((a, b) => a.targetDate.localeCompare(b.targetDate));
+  return (maturity ? linked.find((g) => g.targetDate.slice(0, 10) >= maturity) : undefined) ?? linked[0];
 }
 
 export function reinvestForGoal(
@@ -150,9 +158,7 @@ export function reinvestForGoal(
   goal: SavingsGoal,
   currency = "HUF",
 ): ReinvestOption | undefined {
-  const target = goal.targetDate.slice(0, 10);
-  const earliest = addDaysIso(payoutDay, Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY));
-  const fits = (maturity: string) => maturity > earliest && maturity <= target;
+  const fits = (maturity: string) => maturityFitsGoal(maturity, goal, payoutDay);
   const options: ReinvestOption[] = rankedOffers(file, today, currency)
     .filter((o) => fits(o.offer.maturity!) && (!o.offer.validTo || o.offer.validTo >= payoutDay))
     .map((o) => ({
@@ -163,7 +169,7 @@ export function reinvestForGoal(
     }));
   if (currency === "HUF")
     for (const a of currentDkjSeries(file, today))
-      if (fits(a.maturity!))
+      if (isFreshDkj(a, today) && fits(a.maturity!))
         options.push({
           name: `DKJ ${a.series}`,
           yieldPct: a.avgYield,
@@ -199,11 +205,18 @@ export function adviseHolding(
   };
   if (daysToMaturity != null && daysToMaturity < 0) return undefined;
   if (maturity && daysToMaturity != null && daysToMaturity <= MATURING_DAYS) {
-    const goal = goalOfHolding(h.instrumentKey, goals, today);
+    const goal = goalOfHolding(h.instrumentKey, goals, today, maturity);
     if (!goal) return { ...base, verdict: { kind: "maturing", days: daysToMaturity } };
     const link = { id: goal.id, name: goal.name, targetDate: goal.targetDate.slice(0, 10) };
+    const maturing = { kind: "maturing" as const, days: daysToMaturity, goal: link };
+    if (link.targetDate === maturity) return { ...base, verdict: { ...maturing, plan: { kind: "payout" } } };
+    if (link.targetDate < maturity)
+      return { ...base, verdict: { ...maturing, plan: { kind: "late", days: daysBetween(link.targetDate, maturity) } } };
     const reinvest = reinvestForGoal(file, today, maturity, goal, inst.currency);
-    return { ...base, verdict: { kind: "maturing", days: daysToMaturity, goal: link, ...(reinvest ? { reinvest } : {}) } };
+    return {
+      ...base,
+      verdict: reinvest ? { ...maturing, plan: { kind: "reinvest" }, reinvest } : { ...maturing, plan: { kind: "cash" } },
+    };
   }
 
   const offers = rankedOffers(file, today, inst.currency);
@@ -258,7 +271,7 @@ export function bondAdvice(
 export interface BondMarket {
   updatedAt?: string;
   offers: OfferView[];
-  dkj: DkjAuction[];
+  dkj: (DkjAuction & { fresh: boolean })[];
 }
 
 export function bondMarket(file: BondRatesFile | null, today: string): BondMarket | null {
@@ -266,6 +279,6 @@ export function bondMarket(file: BondRatesFile | null, today: string): BondMarke
   return {
     updatedAt: file.updatedAt,
     offers: rankedOffers(file, today),
-    dkj: currentDkjSeries(file, today),
+    dkj: currentDkjSeries(file, today).map((a) => ({ ...a, fresh: isFreshDkj(a, today) })),
   };
 }

@@ -15,6 +15,7 @@ import { fixtureNewsBody } from "../../src/test/newsFixture";
 import { VWCE, WBIT } from "../../src/test/fixture";
 import { article } from "./news/why";
 import type { WhyState } from "./state";
+import type { MoveAlertSettings } from "../../src/lib/planPrefs";
 
 // The tg-hub handler at the protocol level: a request JSON in, a response
 // JSON out, on the invented portfolio (src/test/fixture.ts), no network.
@@ -557,14 +558,18 @@ describe("Miért mozdult?", () => {
     }
     return ctx;
   };
-  const setup = (moves: Record<string, number> = {}, extra: Partial<Deps["env"]> = {}) => {
+  const setup = (
+    moves: Record<string, number> = {},
+    extra: Partial<Deps["env"]> = {},
+    tweak?: (s: PortfolioSnapshot) => void,
+  ) => {
     const answers: unknown[] = [];
     const engine = fakeEngine(answers);
     const started: string[] = [];
     let current = moves;
     let minute = 0;
     const deps: Deps = {
-      load: async () => moveQuotes(current)(contextAt([2026, 10, 14, 10, (minute += 5)])),
+      load: async () => moveQuotes(current)(contextAt([2026, 10, 14, 10, (minute += 5)], tweak)),
       stateFile,
       env: { ...env1, ...extra },
       why: () => engine,
@@ -668,6 +673,46 @@ describe("Miért mozdult?", () => {
     const tick = await call(jobReq(), loud.deps);
     expect(tick.messages!.some((m) => m.html.includes("<b>WBIT: −4,5%</b> ma"))).toBe(true);
     expect(loud.request().factors.map((f) => f.key)).toEqual([WBIT]);
+  });
+
+  const moveAlertPrefs = (value: MoveAlertSettings) => (s: PortfolioSnapshot) => {
+    s.prefs = { ...s.prefs, moveAlerts: { updatedAt: "2026-10-01T08:00:00.000Z", value } };
+  };
+  const moveLines = (r: HubResponse) =>
+    (r.messages ?? []).flatMap((m) => m.html.split("\n")).filter((l) => /<\/b> ma\b|Nagy mozgás ma/.test(l));
+
+  it("a per-instrument threshold set in the app is used and wins over the .env one", async () => {
+    const quiet = setup({}, {}, moveAlertPrefs({ byKey: { [WBIT]: 4 } }));
+    expect(moveLines(await call(jobReq(), quiet.deps)).some((l) => l.includes("WBIT"))).toBe(false);
+    rmSync(stateFile, { force: true });
+    const loud = setup({}, { moveOverrides: { WBIT: 4 } }, moveAlertPrefs({ byKey: { [WBIT]: 1 } }));
+    const wbit = moveLines(await call(jobReq(), loud.deps)).find((l) => l.includes("<b>WBIT: −1,5%</b> ma"));
+    expect(wbit).toMatch(/ma, árfolyam: \d+,\d{2,4} EUR \(/);
+  });
+
+  it("a threshold changed during the day: the same move is not sent again, a bigger one is measured by the new threshold", async () => {
+    let byKey: Record<string, number> = { [WBIT]: 1 };
+    const s = setup({}, {}, (snap) => moveAlertPrefs({ byKey })(snap));
+    const wbitLines = async () => moveLines(await call(jobReq(), s.deps)).filter((l) => l.includes("<b>WBIT:"));
+    expect(await wbitLines()).toHaveLength(1);
+    byKey = { [WBIT]: 0.5 };
+    expect(await wbitLines()).toEqual([]);
+    byKey = { [WBIT]: 4 };
+    s.setMoves({ [WBIT]: -0.045 });
+    expect(await wbitLines()).toEqual([expect.stringContaining("<b>WBIT: −4,5%</b> ma")]);
+  });
+
+  it("the app's portfolio and default position thresholds replace the .env ones; EUR/HUF has its own", async () => {
+    const quiet = setup(
+      { [VWCE]: 0.012, EUR: 0.011 },
+      {},
+      moveAlertPrefs({ portfolioPct: 50, positionPct: 50, byKey: {} }),
+    );
+    expect(moveLines(await call(jobReq(), quiet.deps))).toEqual([]);
+    expect(quiet.started).toEqual([]);
+    rmSync(stateFile, { force: true });
+    const fx = setup({ EUR: 0.011 }, { bigMovePct: 50, positionMovePct: 50 }, moveAlertPrefs({ byKey: { "EUR/HUF": 1 } }));
+    expect(moveLines(await call(jobReq(), fx.deps))).toEqual([expect.stringContaining("<b>EUR/HUF: +1,1%</b> ma")]);
   });
 
   it("the search subject of a tracker is its underlying, the message keeps the instrument's name", async () => {

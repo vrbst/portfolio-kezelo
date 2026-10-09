@@ -95,7 +95,7 @@ export function loadEnv(): NotifyEnv {
     positionMovePct: Number(e.NOTIFY_POSITION_MOVE_PCT) || 1,
     wealthStepHuf: Number(e.NOTIFY_WEALTH_STEP_HUF) || 1_000_000,
     drawdownStepPct: Number(e.NOTIFY_DRAWDOWN_STEP_PCT) || 5,
-    moveOverrides: parseMoveOverrides(e.NOTIFY_MOVE_PCT_OVERRIDES ?? "WBIT:4"),
+    moveOverrides: parseMoveOverrides(e.NOTIFY_MOVE_PCT_OVERRIDES ?? ""),
     whySubjects: parseWhySubjects(e.NOTIFY_WHY_SUBJECT ?? "WBIT=Bitcoin (BTC)"),
     whyModel: e.NEWS_WHY_MODEL || "sonnet",
     newsModel: e.NEWS_MODEL || "opus",

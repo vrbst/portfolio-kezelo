@@ -213,6 +213,32 @@ describe("maturing bond of a savings goal", () => {
     expect(a.verdict.kind === "maturing" && a.verdict.reinvest).toBeFalsy();
   });
 
+  it("a goal due before the payout is told the money arrives late, with nothing to reinvest", () => {
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [goal({ targetDate: "2026-10-20" })])!;
+    expect(a.verdict).toMatchObject({ kind: "maturing", plan: { kind: "late", days: 8 } });
+    expect(a.verdict.kind === "maturing" && a.verdict.reinvest).toBeFalsy();
+  });
+
+  it("a goal due on the payout day is covered by the payout", () => {
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [goal({ targetDate: "2026-10-28" })])!;
+    expect(a.verdict).toMatchObject({ kind: "maturing", plan: { kind: "payout" } });
+  });
+
+  it("a DKJ yield from an old auction is not offered for reinvestment", () => {
+    const old = { auctionDate: "2026-01-14", series: "D270310", isin: null, maturity: "2027-03-10", avgYield: 9 };
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), file({ dkj: [...dkjFile.dkj, old] }), TODAY, [goal()])!;
+    expect(a.verdict).toMatchObject({ plan: { kind: "reinvest" }, reinvest: { name: "DKJ D270120" } });
+    expect(bondMarket(file({ dkj: [old] }), TODAY)!.dkj).toEqual([{ ...old, fresh: false }]);
+  });
+
+  it("of several linked goals, the one the payout still arrives in time for is advised", () => {
+    const early = goal({ id: "g0", name: "Babakocsi", targetDate: "2026-10-20" });
+    const a = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [early, goal()])!;
+    expect(a.verdict).toMatchObject({ goal: { id: "g1" }, plan: { kind: "reinvest" } });
+    const onlyEarly = adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY, [early])!;
+    expect(onlyEarly.verdict).toMatchObject({ goal: { id: "g0" }, plan: { kind: "late" } });
+  });
+
   it("without a goal, or with a past goal, it stays a plain maturity flag", () => {
     expect(adviseHolding(holding(dkjInst, 1_000_000, 0), dkjFile, TODAY)!.verdict).toEqual({ kind: "maturing", days: 20 });
     const past = goal({ targetDate: "2026-01-01" });

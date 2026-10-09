@@ -12,6 +12,7 @@ import AiSettings from "../components/settings/AiSettings";
 import PriceSettings from "../components/settings/PriceSettings";
 import BondSeriesSettings from "../components/settings/BondSeriesSettings";
 import AlertSettings from "../components/settings/AlertSettings";
+import MoveAlertSettings from "../components/settings/MoveAlertSettings";
 import BrokerFeeSettings from "../components/settings/BrokerFeeSettings";
 import PurchaseAccountSettings from "../components/settings/PurchaseAccountSettings";
 import LeftoverSettings from "../components/settings/LeftoverSettings";
@@ -104,6 +105,8 @@ export default function Settings() {
       <AiSettings />
 
       <AlertSettings />
+
+      <MoveAlertSettings />
 
       <BrokerFeeSettings />
 

@@ -42,7 +42,8 @@ import {
   sliceRange,
   type RangeKey,
 } from "../lib/chartRange";
-import HoldingsPanel, { HOLDINGS_PANEL_ID } from "../components/HoldingsPanel";
+import HoldingsTable, { HOLDINGS_PANEL_ID } from "../components/holdings/HoldingsTable";
+import SectorExposureCard from "../components/SectorExposureCard";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import NewsCard from "../components/NewsCard";
@@ -102,6 +103,11 @@ export default function Dashboard() {
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const isMobile = useIsMobile();
   const [mobileTab, setMobileTab] = useState<MobileTab>("holdings");
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<MobileTab>>(() => new Set(["holdings", "market"]));
+  const selectTab = (t: MobileTab) => {
+    setMobileTab(t);
+    setVisitedTabs((v) => (v.has(t) ? v : new Set(v).add(t)));
+  };
 
   const valueSeries = useValueSeries();
 
@@ -792,6 +798,8 @@ export default function Dashboard() {
       </Card>
     );
 
+  const activeTab: MobileTab = mobileTab === "events" && !eventsCard ? "holdings" : mobileTab;
+
   return (
     <div>
       <PageHeader
@@ -858,15 +866,15 @@ export default function Dashboard() {
             aria-label="Áttekintés részletei"
             className="mobile-segments sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 -mx-4 flex gap-1.5 px-4 py-1.5"
           >
-            {DASH_TABS.filter((t) => t.key !== "events" || events.length > 0).map(
+            {DASH_TABS.filter((t) => t.key !== "events" || eventsCard).map(
               (t) => (
                 <button
                   key={t.key}
                   role="tab"
-                  aria-selected={mobileTab === t.key}
-                  onClick={() => setMobileTab(t.key)}
+                  aria-selected={activeTab === t.key}
+                  onClick={() => selectTab(t.key)}
                   className={`min-w-0 flex-1 rounded-full border px-2 py-1.5 text-[13px] font-medium transition-colors ${
-                    mobileTab === t.key
+                    activeTab === t.key
                       ? "border-[var(--color-brand)]/50 bg-[var(--color-brand)]/20 text-[var(--color-text)]"
                       : "border-[var(--color-border)] bg-[var(--color-surface-2)]/40 text-[var(--color-muted)]"
                   }`}
@@ -877,36 +885,34 @@ export default function Dashboard() {
             )}
           </div>
           <NoCardEnter>
-            <div
-              key={mobileTab === "holdings" ? "holdings-on" : "holdings-off"}
-              role="tabpanel"
-              hidden={mobileTab !== "holdings"}
-            >
-              <HoldingsPanel maxBodyHeight="26rem" />
-            </div>
-            <div
-              key={mobileTab === "market" ? "market-on" : "market-off"}
-              role="tabpanel"
-              hidden={mobileTab !== "market"}
-              className="flex-col gap-4 [&:not([hidden])]:flex"
-            >
-              <LivePricesPanel />
-              <NewsCard />
-            </div>
-            <div
-              key={mobileTab === "allocation" ? "allocation-on" : "allocation-off"}
-              role="tabpanel"
-              hidden={mobileTab !== "allocation"}
-            >
-              {allocationCard}
-            </div>
-            <div
-              key={mobileTab === "events" ? "events-on" : "events-off"}
-              role="tabpanel"
-              hidden={mobileTab !== "events"}
-            >
-              {eventsCard}
-            </div>
+            {visitedTabs.has("holdings") && (
+              <div key="holdings" role="tabpanel" hidden={activeTab !== "holdings"}>
+                <HoldingsTable maxBodyHeight="26rem" />
+              </div>
+            )}
+            {visitedTabs.has("market") && (
+              <div
+                key="market"
+                role="tabpanel"
+                hidden={activeTab !== "market"}
+                className="flex-col gap-4 [&:not([hidden])]:flex"
+              >
+                <LivePricesPanel />
+                <NewsCard />
+              </div>
+            )}
+            {activeTab === "allocation" && (
+              <div key="allocation" role="tabpanel" className="flex flex-col gap-4">
+                {allocationCard}
+                <SectorExposureCard />
+                {goalsCard}
+              </div>
+            )}
+            {eventsCard && visitedTabs.has("events") && (
+              <div key="events" role="tabpanel" hidden={activeTab !== "events"}>
+                {eventsCard}
+              </div>
+            )}
           </NoCardEnter>
         </div>
       ) : (
@@ -931,7 +937,7 @@ export default function Dashboard() {
 
             {/* Cap the holdings list so a long portfolio scrolls instead of
                 stretching the column (and dragging the right rail down with it). */}
-            <HoldingsPanel maxBodyHeight="26rem" fill />
+            <HoldingsTable maxBodyHeight="26rem" fill />
           </div>
 
           {/* Jobb oldalsáv: élő árfolyamok → hírek → allokáció → események. Its height is
@@ -946,6 +952,7 @@ export default function Dashboard() {
             <LivePricesPanel />
             <NewsCard />
             {allocationCard}
+            <SectorExposureCard />
 
             {/* Havi célok (DCA) — kompakt haladás-gyűrűk. Csak ha van cél. */}
             {goalsCard}

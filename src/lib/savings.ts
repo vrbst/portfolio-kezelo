@@ -173,9 +173,13 @@ export function suitableForGoalBuy(
   if (inst && goal.unbuyableKeys?.includes(inst.key)) return false;
   const mat = maturityDay(inst);
   if (!mat) return true;
+  return maturityFitsGoal(mat, goal, today);
+}
+
+export function maturityFitsGoal(maturity: string, goal: SavingsGoal, buyDay: string): boolean {
   const n = Math.max(0, goal.minDaysToMaturity ?? DEFAULT_MIN_DAYS_TO_MATURITY);
-  const earliest = toLocalDay(Date.parse(`${today}T12:00:00`) + n * DAY_MS);
-  return mat > earliest && mat <= goal.targetDate.slice(0, 10);
+  const earliest = toLocalDay(Date.parse(`${buyDay}T12:00:00`) + n * DAY_MS);
+  return maturity > earliest && maturity <= goal.targetDate.slice(0, 10);
 }
 
 const STORE_KEY = "pf-savings";

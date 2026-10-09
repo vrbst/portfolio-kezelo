@@ -433,6 +433,10 @@ async function resolveSymbol(
   return symbol ? { symbol, trusted: false } : null;
 }
 
+export async function resolveYahooSymbol(t: LivePriceTarget): Promise<string | null> {
+  return (await resolveSymbol(t, loadSymbolOverrides()))?.symbol ?? null;
+}
+
 export async function fetchLivePrices(
   targets: LivePriceTarget[],
 ): Promise<Record<string, LiveQuote>> {

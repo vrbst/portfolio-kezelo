@@ -248,8 +248,7 @@ body::before {
     color-mix(in oklab, var(--color-brand) 35%, transparent);
 }
 .mobile-tab:active,
-.mobile-tile:active,
-.mobile-row:active {
+.mobile-tile:active {
   transform: scale(0.96);
 }
 .mobile-tab,
@@ -259,9 +258,16 @@ body::before {
   transition: transform 0.12s ease;
 }
 .mobile-row:active {
-  transform: none;
   background: color-mix(in oklab, var(--color-surface-2) 70%, transparent);
 }
+@media (hover: none) {
+  [title] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 .mobile-swipe,
 .mobile-segments {
   scrollbar-width: none;

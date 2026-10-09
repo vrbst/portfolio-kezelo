@@ -88,7 +88,7 @@ function loadObject<T>(key: string): T {
 
 function saveObject(
   key: string,
-  kind: "accountLimits" | "purchaseAccounts" | "leftover",
+  kind: "accountLimits" | "purchaseAccounts" | "leftover" | "moveAlerts",
   v: unknown,
 ) {
   try {
@@ -163,4 +163,36 @@ export function loadLeftoverSettings(): LeftoverSettings {
 
 export function saveLeftoverSettings(v: LeftoverSettings) {
   saveObject(LEFTOVER_KEY, "leftover", v);
+}
+
+export interface MoveAlertSettings {
+  portfolioPct?: number;
+  positionPct?: number;
+  byKey: Record<string, number>;
+}
+
+const MOVE_ALERTS_KEY = "pf-move-alerts";
+
+const positivePct = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+
+export function loadMoveAlertSettings(): MoveAlertSettings {
+  const v = loadObject<Partial<MoveAlertSettings>>(MOVE_ALERTS_KEY);
+  const byKey: Record<string, number> = {};
+  if (v.byKey && typeof v.byKey === "object" && !Array.isArray(v.byKey))
+    for (const [k, pct] of Object.entries(v.byKey)) {
+      const p = positivePct(pct);
+      if (p !== undefined) byKey[k] = p;
+    }
+  const portfolioPct = positivePct(v.portfolioPct);
+  const positionPct = positivePct(v.positionPct);
+  return {
+    ...(portfolioPct !== undefined ? { portfolioPct } : {}),
+    ...(positionPct !== undefined ? { positionPct } : {}),
+    byKey,
+  };
+}
+
+export function saveMoveAlertSettings(v: MoveAlertSettings) {
+  saveObject(MOVE_ALERTS_KEY, "moveAlerts", v);
 }

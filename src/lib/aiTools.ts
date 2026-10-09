@@ -465,6 +465,7 @@ const compareGovBonds: ClientTool = {
         series: d.series,
         yield_pct: d.avgYield,
         last_auction: d.auctionDate,
+        yield_is_stale: !d.fresh,
         maturity: d.maturity,
       })),
       holdings: advice.map((a) => {

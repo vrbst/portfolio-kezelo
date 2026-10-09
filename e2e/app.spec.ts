@@ -155,8 +155,8 @@ async function sidewaysOverflow(page: Page) {
 }
 
 /** Visible (not blurred / hidden) texts in <main> with an amount or a goal name. */
-function readableSecrets(page: Page, goalNames: string[]) {
-  return page.evaluate((goalNames) => {
+function readableSecrets(page: Page, goalNames: string[], root = "main") {
+  return page.evaluate(([goalNames, root]) => {
     const money = /\d[\d\s\u00a0\u202f.,]*\s?(Ft|€|EUR|M Ft)(?![a-zá-ű])/;
     const hidden = (el: Element | null): boolean => {
       // Market prices and fixed samples are not personal (data-privacy="public").
@@ -170,7 +170,7 @@ function readableSecrets(page: Page, goalNames: string[]) {
       return false;
     };
     const out: string[] = [];
-    const walker = document.createTreeWalker(document.querySelector("main") ?? document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(document.querySelector(root) ?? document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const text = n.textContent ?? "";
       const hit = money.test(text) || goalNames.some((g) => text.includes(g));
@@ -182,7 +182,7 @@ function readableSecrets(page: Page, goalNames: string[]) {
       }
     }
     return [...new Set(out)];
-  }, goalNames);
+  }, [goalNames, root] as const);
 }
 
 test.describe("every page", () => {
@@ -217,6 +217,86 @@ test.describe("privacy mode", () => {
       expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
     });
   }
+});
+
+test.describe("holdings: one table everywhere, details in a sheet", () => {
+  test("a dashboard row opens the instrument sheet with the buys; Esc closes it", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/");
+    const main = page.locator("main");
+    if (await main.getByRole("tab", { name: "Eszközök" }).count()) await main.getByRole("tab", { name: "Eszközök" }).click();
+    await main.getByRole("button", { name: "VWCE" }).first().click();
+    const sheet = page.getByRole("dialog", { name: /VWCE/ });
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText("Vásárlásaim");
+    await expect(sheet).toContainText("Piaci adatok (1 év)");
+    await expect(sheet).toContainText("Nagy mozgás riasztás");
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  });
+
+  test("an account page lists only that account's holdings", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/accounts/mak");
+    const main = page.locator("main");
+    await expect(main.getByRole("heading", { name: "Értékpapírok" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "VWCE" })).toHaveCount(0);
+    await show(page, "/accounts");
+    await expect(main.getByRole("heading", { name: "Eszközeim" })).toHaveCount(0);
+  });
+
+  test("paper data from the sync repo: in the sheet and as sector exposure on the dashboard", async ({ page }) => {
+    await openSeeded(page, { sync: true });
+    const at = "2026-10-14T05:00:00.000Z";
+    const file = {
+      v: 1,
+      updatedAt: at,
+      items: {
+        IE00BK5BQT80: {
+          symbol: "VWCE.DE",
+          fetchedAt: at,
+          quoteType: "ETF",
+          currency: "EUR",
+          pe: 21.04,
+          pb: 3.44,
+          totalAssets: 85_316_706_304,
+          sectors: [
+            { name: "technology", weight: 0.317 },
+            { name: "financial_services", weight: 0.1675 },
+          ],
+          topHoldings: [{ name: "NVIDIA Corp", weight: 0.048 }],
+        },
+      },
+      errors: {},
+    };
+    await page.route(/api\.github\.com\/repos\/teszt\/adat\/contents\//, (r) =>
+      new URL(r.request().url()).pathname.endsWith("market/fundamentals.json")
+        ? r.fulfill({ json: { sha: "s", content: Buffer.from(JSON.stringify(file), "utf8").toString("base64") } })
+        : r.fulfill({ status: 404, body: "" }),
+    );
+    await show(page, "/");
+    const main = page.locator("main");
+    if (await main.getByRole("tab", { name: "Allokáció" }).count()) await main.getByRole("tab", { name: "Allokáció" }).click();
+    await expect(main).toContainText("Szektor-kitettség");
+    await expect(main).toContainText("Technológia");
+    if (await main.getByRole("tab", { name: "Eszközök" }).count()) await main.getByRole("tab", { name: "Eszközök" }).click();
+    await main.getByRole("button", { name: "VWCE" }).first().click();
+    const sheet = page.getByRole("dialog", { name: /VWCE/ });
+    await expect(sheet).toContainText("Papír-adatok");
+    await expect(sheet).toContainText("P/E (súlyozott)");
+    await expect(sheet).toContainText("21,0");
+    await expect(sheet).toContainText("NVIDIA Corp");
+  });
+
+  test("privacy mode: nothing personal is readable in the sheet", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/accounts/ly-tbsz25");
+    await page.locator("main").getByRole("button", { name: "VWCE" }).first().click();
+    await expect(page.getByRole("dialog")).toContainText("Vásárlásaim");
+    const goalNames = savingsGoals().map((g) => g.name);
+    expect(await readableSecrets(page, goalNames, '[role="dialog"]')).toEqual([]);
+  });
 });
 
 test("the app shows the same total the bot computes", async ({ page }) => {
@@ -443,6 +523,29 @@ test.describe("explanations behind an \"i\"", () => {
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(vw);
     await page.keyboard.press("Escape");
+    await expect(pop).toHaveCount(0);
+  });
+
+  test("on touch, a short tap shows an element's title like a hover does", async ({ page }, info) => {
+    test.skip(info.project.name !== "mobile", "touch only");
+    await openSeeded(page);
+    await show(page, "/");
+    const marked = await page.evaluate(() => {
+      const el = [...document.querySelectorAll("main [title]")].find(
+        (e) =>
+          e.getAttribute("title")!.trim() &&
+          !e.closest("a,button,input,select,textarea,label,summary,[role=button],[role=tab],[role=link]") &&
+          (e as HTMLElement).offsetWidth > 0,
+      );
+      el?.setAttribute("data-e2e-titled", "");
+      return el?.getAttribute("title") ?? null;
+    });
+    expect(marked, "a titled, non-interactive element on the dashboard").not.toBeNull();
+    const pop = page.locator("[data-touch-title]");
+    await page.locator("[data-e2e-titled]").tap();
+    await expect(pop).toBeVisible();
+    await expect(pop).toHaveText(marked!.trim());
+    await page.locator("[data-e2e-titled]").tap();
     await expect(pop).toHaveCount(0);
   });
 

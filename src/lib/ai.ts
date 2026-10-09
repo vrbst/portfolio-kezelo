@@ -569,7 +569,7 @@ export function buildAiPortfolioContext(
         `- ${o.offer.type} ${o.offer.series}: ${p2(o.yieldPct)}${o.floating ? " (változó kamat, csak a mostani periódusra)" : ""}, lejár ${o.offer.maturity}`,
       );
     for (const d of market.dkj)
-      lines.push(`- DKJ ${d.series}: ${p2(d.avgYield)} (utolsó aukció ${d.auctionDate}, lejár ${d.maturity ?? "?"})`);
+      lines.push(`- DKJ ${d.series}: ${p2(d.avgYield)} (utolsó aukció ${d.auctionDate}${d.fresh ? "" : ", régi, a mai hozam eltérhet"}, lejár ${d.maturity ?? "?"})`);
     if (advice.length) {
       lines.push("", "Tartott állampapírok összevetése a kapható papírokkal (az app számolta, egyszerű kamattal):");
       for (const a of advice) {
@@ -582,8 +582,10 @@ export function buildAiPortfolioContext(
               ? `${v.days} nap múlva lejár, ${
                   !v.goal
                     ? "újrabefektetés kérdése"
-                    : a.maturity && v.goal.targetDate <= a.maturity
-                      ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}), a kifizetés a célra megy`
+                    : v.plan?.kind === "payout"
+                      ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}), a kifizetés a cél napján megérkezik`
+                      : v.plan?.kind === "late"
+                        ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}), de a kifizetés ${v.plan.days} nappal a céldátum után érkezik, a célra időben nem lesz meg`
                       : v.reinvest
                         ? `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}); a céldátumig lejáró legjobb: ${v.reinvest.name} ${p2(v.reinvest.yieldPct)}, lejár ${v.reinvest.maturity}`
                         : `a(z) "${v.goal.name}" célhoz tartozik (${v.goal.targetDate}); nincs a céldátumig lejáró kapható papír, készpénzben tartandó`

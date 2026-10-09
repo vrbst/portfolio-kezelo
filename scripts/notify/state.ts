@@ -14,9 +14,9 @@ export interface State {
   lastWeekly?: string; // YYYY-MM-DD of the Friday whose report was sent
   lastMonthly?: string; // YYYY-MM
   /**
-   * Today's already-reported move levels (level = |move| / threshold, floored):
-   * a new message goes out only when a level is crossed, so a 2% day pings
-   * once, and again if it deepens to 4%.
+   * Today's last reported |move| (fraction): a new message goes out only when
+   * the move crosses a higher multiple of the current threshold than the one
+   * already reported, so a 2% day pings once, and again if it deepens to 4%.
    */
   moves?: { day: string; total: number; pos: Record<string, number> };
   /** Stale-data warnings: key → last sent ISO (re-sent at most weekly). */

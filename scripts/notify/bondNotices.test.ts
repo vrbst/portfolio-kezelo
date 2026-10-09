@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BondRatesFile, InterestPeriod } from "../../src/lib/bondRates";
 import type { PortfolioSnapshot } from "../../src/lib/sync";
 import { DKJ1, FIX } from "../../src/test/fixture";
-import { bondNoticeMessages } from "./bondNotices";
+import { bondNoticeMessages, maturityNoticeText, offerLines } from "./bondNotices";
+import { DKJ_SERIES_DAYS } from "../../src/lib/bondRates";
+import type { BondAdvice } from "../../src/lib/bondSwitch";
+import type { Instrument } from "../../src/lib/model";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { ROOT } from "./env";
 import { contextAt } from "./testContext";
 import { tickMessages } from "./tg-app";
 import type { State } from "./state";
@@ -88,6 +94,32 @@ describe("maturity notices", () => {
 
   it("no notice without the rate file", () => {
     expect(bondNoticeMessages(contextAt([2026, 10, 20, 10]), fresh())).toEqual([]);
+  });
+});
+
+describe("buyable list and goal line", () => {
+  const file = { updatedAt: "2026-10-08T06:00:00Z", ...rates() };
+
+  it("lists only DKJ series with a recent auction; the older ones are just counted", () => {
+    const lines = offerLines(file, "2026-10-08");
+    expect(lines.some((l) => l.includes("D270428"))).toBe(true);
+    expect(lines.some((l) => l.includes("D261118"))).toBe(false);
+    expect(lines.at(-1)).toBe("• további 1 futó DKJ-sorozat régebbi aukcióval (az appban)");
+  });
+
+  it("a goal due before the payout gets a late warning, not 'the payout goes to the goal'", () => {
+    const inst = { key: DKJ1, name: "Diszkont Kincstárjegy D261118", type: "tbill", currency: "HUF" } as Instrument;
+    const advice = {
+      verdict: { kind: "maturing", days: 10, goal: { id: "g", name: "Autó", targetDate: "2026-11-01" }, plan: { kind: "late", days: 17 } },
+    } as BondAdvice;
+    const text = maturityNoticeText(inst, 1_000_000, "2026-11-18", 10, file, "2026-10-08", advice);
+    expect(text).toContain("17 nappal a cél dátuma után érkezik");
+    expect(text).not.toContain("a célra megy");
+  });
+
+  it("the fetch script pulls as many days of DKJ auctions as the app lists", () => {
+    const script = readFileSync(resolve(ROOT, "scripts/fetch-bond-rates.mjs"), "utf8");
+    expect(Number(script.match(/const DKJ_DAYS = (\d+)/)?.[1])).toBe(DKJ_SERIES_DAYS);
   });
 });
 

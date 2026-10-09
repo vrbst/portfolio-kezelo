@@ -1,52 +1,41 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Pencil,
   Check,
   X,
-  Target,
   ChevronDown,
   Trash2,
 } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
-import { loadSavingsGoals } from "../lib/savings";
-import { PREFS_EVENT } from "../lib/prefs";
 import {
   accountReturn,
   isInternalTransfer,
   isEmptyAccount,
   accountValueSpark,
-  type HoldingView,
 } from "../lib/portfolio";
 import {
   PageHeader,
   Card,
   StatCard,
   Badge,
-  Delta,
   EmptyState,
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
 import AccountLimitsCard from "../components/AccountLimitsCard";
-import InstrumentLogo from "../components/InstrumentLogo";
 import TbszExitValue from "../components/TbszExitValue";
 import BondSwitchCard from "../components/BondSwitchCard";
-import HoldingPriceChart, {
-  type BuyPoint,
-} from "../components/HoldingPriceChart";
+import HoldingsTable from "../components/holdings/HoldingsTable";
 import {
   formatMoney,
   formatNumber,
-  formatPercent,
   formatDate,
   eurEquivalent,
 } from "../lib/format";
 import {
   accountKindLabel,
   txTypeLabel,
-  instrumentTypeLabel,
 } from "../lib/labels";
 import { groupTransactions } from "../lib/txGroups";
 import type { AccountKind, Transaction } from "../lib/model";
@@ -62,7 +51,6 @@ export default function AccountDetail() {
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const fx = usePortfolio((s) => s.fx);
   const prices = usePortfolio((s) => s.prices);
-  const priceFile = usePortfolio((s) => s.priceFile);
   const historyFile = usePortfolio((s) => s.historyFile);
 
   const instruments = useValuedInstruments();
@@ -90,39 +78,6 @@ export default function AccountDetail() {
         .sort((a, b) => b.date.localeCompare(a.date)),
     [transactions, id],
   );
-
-  // Medium-term goal an instrument is assigned to → shown on its holding row.
-  const [savingsGoals, setSavingsGoals] = useState(loadSavingsGoals);
-  useEffect(() => {
-    const onPrefs = () => setSavingsGoals(loadSavingsGoals());
-    window.addEventListener(PREFS_EVENT, onPrefs);
-    return () => window.removeEventListener(PREFS_EVENT, onPrefs);
-  }, []);
-  const goalsByInstrument = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const g of savingsGoals)
-      for (const key of g.instrumentKeys)
-        m.set(key, [...(m.get(key) ?? []), g.name]);
-    return m;
-  }, [savingsGoals]);
-
-  // Own buys per instrument → marked on the expandable price chart.
-  const buysByInstrument = useMemo(() => {
-    const m = new Map<string, BuyPoint[]>();
-    for (const t of accTxs) {
-      if (t.type !== "buy" || !t.instrumentKey || !t.quantity) continue;
-      const price = t.pricePerUnit ?? (t.grossAmount ?? 0) / t.quantity;
-      if (!(price > 0)) continue;
-      m.set(t.instrumentKey, [
-        ...(m.get(t.instrumentKey) ?? []),
-        { date: t.date, price },
-      ]);
-    }
-    return m;
-  }, [accTxs]);
-
-  // Which holding row has its price chart expanded (instrument key).
-  const [chartOpen, setChartOpen] = useState<string | null>(null);
 
   // Transactions list with the funding conversion legs folded under their
   // buy/sell head; txOpen holds the expanded head ids.
@@ -167,15 +122,6 @@ export default function AccountDetail() {
   // Treasury: bonds' quantity = face value (névérték), so summing gives the
   // total nominal you get back at the maturities.
   const totalFaceHuf = accSummary.holdings.reduce((s, h) => s + h.quantity, 0);
-  // A pozíciók értéke névértéken + felhalmozott kamaton, illetve az az összeg,
-  // ami ma ténylegesen kijönne (kötvénynél a lejárat előtti visszaváltási
-  // díjjal csökkentve). A kettő csak akkor tér el, ha van ilyen díjas papír.
-  const totalRedeemableHuf = accSummary.holdings.reduce(
-    (s, h) => s + (h.redeemableValueHuf ?? h.marketValueHuf ?? 0),
-    0,
-  );
-  const showRedeemable =
-    Math.abs(totalRedeemableHuf - accSummary.holdingsValueHuf) > 0.5;
   // EUR equivalent only makes sense for the (EUR-invested) Lightyear accounts,
   // not the HUF-denominated treasury bonds.
   const eur = (huf: number, opts?: { sign?: boolean }) =>
@@ -412,268 +358,13 @@ export default function AccountDetail() {
 
       {isTreasury && <BondSwitchCard holdings={accSummary.holdings} />}
 
-      {/* Holdings */}
       <div className="mt-6">
-        <h2 className="mb-3 text-lg font-semibold">
-          {isTreasury ? "Értékpapírok" : "Pozíciók"}
-        </h2>
-        {accSummary.holdings.length === 0 ? (
-          <Card className="p-6 text-sm text-[var(--color-muted)]">
-            Nincs nyitott pozíció ezen a számlán.
-          </Card>
-        ) : (
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-[var(--color-muted)]">
-                  <tr className="border-b border-[var(--color-border)]">
-                    <th className="px-4 py-3 font-medium">Eszköz</th>
-                    <th className="px-4 py-3 text-right font-medium">
-                      {isTreasury ? "Névérték" : "Mennyiség"}
-                    </th>
-                    <th className="px-4 py-3 text-right font-medium">
-                      Árfolyam
-                    </th>
-                    <th className="px-4 py-3 text-right font-medium">
-                      Bekerülés
-                    </th>
-                    <th className="px-4 py-3 text-right font-medium">Érték</th>
-                    {!isTreasury && (
-                      <th className="px-4 py-3 text-right font-medium">
-                        Hozam
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {accSummary.holdings.map((h) => {
-                    const priceName = priceFile?.prices[h.instrumentKey]?.name;
-                    const unitHuf =
-                      h.currentPrice != null && h.currency !== "HUF"
-                        ? h.currentPrice * (fx[h.currency] ?? 0)
-                        : undefined;
-                    const priceSeries = historyFile?.prices[h.instrumentKey];
-                    const hasChart = !!priceSeries && priceSeries.length >= 2;
-                    const open = chartOpen === h.instrumentKey;
-                    return (
-                      <Fragment key={h.instrumentKey}>
-                        <tr
-                          className={`border-b border-[var(--color-border)]/50 hover:bg-[var(--color-surface-2)]/40 ${
-                            open ? "" : "last:border-0"
-                          }`}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-start gap-3">
-                            <InstrumentLogo instrument={h.instrument} />
-                            <div className="min-w-0">
-                            <div
-                              className={`font-medium ${
-                                hasChart
-                                  ? "inline-flex cursor-pointer items-center gap-1 hover:text-[var(--color-brand)]"
-                                  : ""
-                              }`}
-                              onClick={
-                                hasChart
-                                  ? () =>
-                                      setChartOpen(
-                                        open ? null : h.instrumentKey,
-                                      )
-                                  : undefined
-                              }
-                              title={hasChart ? "Árfolyam grafikon" : undefined}
-                            >
-                              {h.instrument?.name ?? h.instrumentKey}
-                              {hasChart && (
-                                <ChevronDown
-                                  className={`h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform ${
-                                    open ? "rotate-180" : ""
-                                  }`}
-                                />
-                              )}
-                            </div>
-                            {priceName && priceName !== h.instrument?.name && (
-                              <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-                                {priceName}
-                              </div>
-                            )}
-                            <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-                              {h.instrument && (
-                                <Badge tone="neutral">
-                                  {instrumentTypeLabel[h.instrument.type]}
-                                </Badge>
-                              )}
-                              {(h.instrument?.bond?.maturity ??
-                                h.instrument?.maturity) && (
-                                <span>
-                                  lejárat:{" "}
-                                  {formatDate(
-                                    h.instrument?.bond?.maturity ??
-                                      h.instrument?.maturity,
-                                  )}
-                                </span>
-                              )}
-                              {h.instrument?.isin && (
-                                <span>{h.instrument.isin}</span>
-                              )}
-                              {(
-                                goalsByInstrument.get(h.instrumentKey) ?? []
-                              ).map((goalName) => (
-                                <span
-                                  key={goalName}
-                                  className="priv inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/15 px-2 py-0.5 text-[var(--color-brand)]"
-                                  title="Középtávú célhoz rendelve"
-                                >
-                                  <Target className="h-3 w-3" />
-                                  {goalName}
-                                </span>
-                              ))}
-                            </div>
-                            {h.bondNeedsData && (
-                              <Link
-                                to="/settings"
-                                className="mt-1 inline-block"
-                                title="Add meg a sorozat adatait a pontos értékhez"
-                              >
-                                <Badge tone="warning">
-                                  névértéken — sorozat-adat hiányzik
-                                </Badge>
-                              </Link>
-                            )}
-                            </div>
-                            </div>
-                          </td>
-                          <td className="amt px-4 py-3 text-right tabular-nums">
-                            {formatNumber(h.quantity, isTreasury ? 0 : 4)}
-                          </td>
-                          <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                            {h.currentPrice != null && h.currency !== "HUF" ? (
-                              <>
-                                <div className="amt text-[var(--color-text)]">
-                                  {formatMoney(h.currentPrice, h.currency)}
-                                </div>
-                                {unitHuf != null && (
-                                  <div className="amt text-xs opacity-70">
-                                    ≈ {formatMoney(unitHuf)}
-                                  </div>
-                                )}
-                              </>
-                            ) : isTreasury &&
-                              h.marketValueHuf != null &&
-                              h.quantity > 0 ? (
-                              <div>
-                                {(
-                                  (h.marketValueHuf / h.quantity) *
-                                  100
-                                ).toFixed(2)}
-                                %
-                              </div>
-                            ) : (
-                              <span>—</span>
-                            )}
-                          </td>
-                          <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                            <div>{formatMoney(h.costBasisHuf)}</div>
-                            {h.currency !== "HUF" && (
-                              <div className="text-xs opacity-70">
-                                {formatMoney(h.costBasisCcy, h.currency)}
-                              </div>
-                            )}
-                            {!isTreasury && h.quantity > 0 && (
-                              <div className="mt-1 text-xs opacity-70">
-                                átlagár:{" "}
-                                {formatMoney(h.avgCost, h.currency, {
-                                  decimals: h.currency === "HUF" ? 0 : 2,
-                                })}
-                                {h.currency !== "HUF" &&
-                                  ` · ≈ ${formatMoney(h.costBasisHuf / h.quantity)}`}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium tabular-nums">
-                            <div className="amt">
-                              {formatMoney(h.marketValueHuf)}
-                            </div>
-                            {h.currency !== "HUF" &&
-                              h.marketValueCcy != null && (
-                                <div className="amt text-xs font-normal text-[var(--color-muted)]">
-                                  {formatMoney(h.marketValueCcy, h.currency)}
-                                </div>
-                              )}
-                            {/* Az érték a névérték + felhalmozott kamat; ez a
-                                sor mutatja, mennyi jönne ténylegesen, ha ma
-                                váltanád vissza a lejárat előtt. */}
-                            {h.redeemableValueHuf != null && (
-                              <div
-                                className="amt text-xs font-normal text-[var(--color-muted)]"
-                                title="Ennyit kapnál, ha ma visszaváltanád (a lejárat előtti visszaváltási díjjal csökkentve)"
-                              >
-                                most: {formatMoney(h.redeemableValueHuf)}
-                              </div>
-                            )}
-                          </td>
-                          {!isTreasury && <ReturnCell h={h} fx={fx} />}
-                        </tr>
-                        {open && hasChart && (
-                          <tr className="border-b border-[var(--color-border)]/50 last:border-0">
-                            <td
-                              colSpan={isTreasury ? 5 : 6}
-                              className="bg-[var(--color-surface-2)]/30 px-4 py-4"
-                            >
-                              <HoldingPriceChart
-                                series={priceSeries!}
-                                currency={h.currency}
-                                fxSeries={historyFile?.fx?.["EUR"]}
-                                buys={
-                                  buysByInstrument.get(h.instrumentKey) ?? []
-                                }
-                              />
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-                {isTreasury && accSummary.holdings.length > 0 && (
-                  <tfoot>
-                    <tr className="border-t-2 border-[var(--color-border)] font-semibold">
-                      <td className="px-4 py-3">Összesen</td>
-                      <td className="amt px-4 py-3 text-right tabular-nums">
-                        {formatNumber(
-                          accSummary.holdings.reduce(
-                            (s, h) => s + h.quantity,
-                            0,
-                          ),
-                          0,
-                        )}
-                      </td>
-                      <td />
-                      <td className="amt px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
-                        {formatMoney(
-                          accSummary.holdings.reduce(
-                            (s, h) => s + h.costBasisHuf,
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="amt px-4 py-3 text-right tabular-nums">
-                        {formatMoney(accSummary.holdingsValueHuf)}
-                        {showRedeemable && (
-                          <div
-                            className="text-xs font-normal text-[var(--color-muted)]"
-                            title="Ennyit kapnál, ha ma mindent visszaváltanál (a lejárat előtti visszaváltási díjjal csökkentve)"
-                          >
-                            most: {formatMoney(totalRedeemableHuf)}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
-          </Card>
-        )}
+        <HoldingsTable
+          accountId={account.id}
+          variant="full"
+          title={isTreasury ? "Értékpapírok" : "Pozíciók"}
+          showTotals={isTreasury}
+        />
       </div>
 
       {/* Cash by currency — a treasury és a TBSZ számlán a készpénz már fent
@@ -817,117 +508,3 @@ export default function AccountDetail() {
   );
 }
 
-/**
- * "Hozam" table cell: total P/L with its %, plus a hover bubble decomposing the
- * gain into the instrument-currency (price) return and the FX effect.
- *
- * Decomposition (cost basis is locked at the historical purchase FX):
- *   Total HUF      = marketValueHuf − costBasisHuf            (= unrealizedPlHuf)
- *   Jegyzési deviza = marketValueCcy − costBasisCcy           (price only, no FX)
- *   Devizahatás    = costBasisCcy × FX_now − costBasisHuf     (FX on the basis)
- *   Total = (price return × FX_now) + Devizahatás
- */
-function ReturnCell({ h, fx }: { h: HoldingView; fx: Record<string, number> }) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-
-  const total = h.unrealizedPlHuf;
-  const hasReturn = total != null && Math.abs(total) > 0.5;
-  const totalPct =
-    h.costBasisHuf > 0 && total != null ? total / h.costBasisHuf : undefined;
-
-  const isFx = h.currency !== "HUF" && h.marketValueCcy != null;
-  const ccyReturn = isFx ? h.marketValueCcy! - h.costBasisCcy : undefined;
-  const ccyPct =
-    isFx && h.costBasisCcy > 0 && ccyReturn != null
-      ? ccyReturn / h.costBasisCcy
-      : undefined;
-  const rateNow = h.currency === "HUF" ? 1 : (fx[h.currency] ?? 0);
-  const fxEffect =
-    isFx && rateNow > 0 ? h.costBasisCcy * rateNow - h.costBasisHuf : undefined;
-  // FX contribution as a share of the HUF cost basis, so total% ≈ price% + FX%.
-  const fxPct =
-    fxEffect != null && h.costBasisHuf > 0
-      ? fxEffect / h.costBasisHuf
-      : undefined;
-
-  return (
-    <td className="px-4 py-3 text-right tabular-nums">
-      {hasReturn ? (
-        <span
-          className="inline-flex cursor-help"
-          onMouseEnter={(e) => setRect(e.currentTarget.getBoundingClientRect())}
-          onMouseLeave={() => setRect(null)}
-        >
-          <Delta value={total} pct={totalPct} className="text-xs" />
-        </span>
-      ) : (
-        <span className="text-[var(--color-muted)]">—</span>
-      )}
-
-      {hasReturn &&
-        rect &&
-        createPortal(
-          <div
-            className="fixed z-50 w-64 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-left text-xs shadow-xl"
-            style={{
-              top: rect.bottom + 6,
-              right: Math.max(8, window.innerWidth - rect.right),
-            }}
-          >
-            <div className="mb-1.5 font-medium text-[var(--color-text)]">
-              Hozam összetétele
-            </div>
-            <TipRow
-              label="Teljes hozam"
-              value={formatMoney(total!, "HUF", { sign: true })}
-              pct={totalPct}
-              sign={total!}
-            />
-            {isFx && ccyReturn != null && (
-              <TipRow
-                label={`Jegyzési deviza hozam (${h.currency})`}
-                value={formatMoney(ccyReturn, h.currency, { sign: true })}
-                pct={ccyPct}
-                sign={ccyReturn}
-              />
-            )}
-            {isFx && fxEffect != null && (
-              <TipRow
-                label="Devizahatás"
-                value={formatMoney(fxEffect, "HUF", { sign: true })}
-                pct={fxPct}
-                sign={fxEffect}
-              />
-            )}
-          </div>,
-          document.body,
-        )}
-    </td>
-  );
-}
-
-function TipRow({
-  label,
-  value,
-  pct,
-  sign,
-}: {
-  label: string;
-  value: string;
-  pct?: number;
-  sign: number;
-}) {
-  const color =
-    sign >= 0 ? "text-[var(--color-positive)]" : "text-[var(--color-negative)]";
-  return (
-    <div className="flex items-center justify-between gap-3 py-0.5">
-      <span className="text-[var(--color-muted)]">{label}</span>
-      <span className={`whitespace-nowrap tabular-nums ${color}`}>
-        <span className="amt">{value}</span>
-        {pct != null && (
-          <span className="ml-1 opacity-80">{formatPercent(pct)}</span>
-        )}
-      </span>
-    </div>
-  );
-}

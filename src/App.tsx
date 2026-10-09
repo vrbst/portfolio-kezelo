@@ -11,6 +11,7 @@ import MobileNav from "./components/MobileNav";
 import MobileTopBar from "./components/MobileTopBar";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
+import TouchTitles from "./components/TouchTitles";
 import AlertsBanner from "./components/AlertsBanner";
 import { Skeleton } from "./components/ui";
 import {
@@ -120,6 +121,7 @@ export default function App() {
         <MobileNav />
         <InstallPrompt />
         <UpdatePrompt />
+        <TouchTitles />
       </div>
     </MotionConfig>
   );

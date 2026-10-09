@@ -25,7 +25,8 @@ import { loadState, updateState, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
-import { quotedToday } from "../../src/lib/prices";
+import { quotedToday, resolveYahooSymbol } from "../../src/lib/prices";
+import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
 import { addDaysIso, toLocalDay } from "../../src/lib/day";
 import {
   alertLine,
@@ -44,6 +45,7 @@ import {
   newsText,
   pct,
   planText,
+  px,
   quotesText,
   returnsText,
   sft,
@@ -58,7 +60,8 @@ import {
 import { priceAlertCommand, priceAlertMessages } from "./priceAlerts";
 import { goalMilestoneMessages, stalePriceMessage, wealthMessages } from "./watch";
 import { effectiveMonthKey } from "../../src/lib/goals";
-import { loadLeftoverSettings } from "../../src/lib/planPrefs";
+import { loadLeftoverSettings, loadMoveAlertSettings } from "../../src/lib/planPrefs";
+import { FX_MOVE_KEY } from "../../src/lib/moveAlerts";
 import { leftoverMonth, parseLeftoverAmount } from "../../src/lib/leftover";
 import { isLastWorkdayOfMonth } from "../../src/lib/huCalendar";
 import { bondNoticeMessages } from "./bondNotices";
@@ -93,6 +96,7 @@ export interface Deps {
   /** The daily news digest's AI and storage (built only when needed). */
   news?: (job?: string) => NewsDeps;
   why?: () => NewsEngine;
+  fundamentals?: () => FundamentalsDeps;
   aiUsageFile?: string;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
   runJob?: (job: string) => Promise<"started" | "running">;
@@ -122,6 +126,14 @@ export function defaultDeps(): Deps {
       }),
     aiUsageFile,
     runJob: hubRunJob,
+    fundamentals: () => {
+      let session: ReturnType<typeof yahooFetcher> | undefined;
+      return {
+        resolve: (t) => resolveYahooSymbol({ key: t.key, isin: t.isin, currency: t.currency }),
+        fetch: async (symbol) => (await (session ??= yahooFetcher()))(symbol),
+        store: repoStore(env.syncRepo, newsGithubToken),
+      };
+    },
   };
 }
 
@@ -235,6 +247,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === "news-morning") return news(deps, "morning", req.manual === true);
       if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
       if (req.job === WHY_JOB) return whyMoved(deps);
+      if (req.job === FUNDAMENTALS_JOB) return fundamentalsJob(deps);
       return fail(`Ismeretlen job: ${req.job}`);
     default:
       return { v: 1, messages: [] };
@@ -521,7 +534,25 @@ async function tick(deps: Deps): Promise<HubResponse> {
 
 export const PLAN_REMINDER_DAY = 10;
 export const WHY_JOB = "news-why";
-const FX_KEY = "EUR/HUF";
+export const FUNDAMENTALS_JOB = "fundamentals";
+
+const QUOTED_TYPES = new Set(["etf", "stock", "fund"]);
+
+async function fundamentalsJob(deps: Deps): Promise<HubResponse> {
+  if (!deps.fundamentals) return { v: 1, messages: [] };
+  const ctx = await deps.load();
+  const targets = consolidatedHoldings(ctx.summary)
+    .filter((h) => h.quantity > 1e-9 && h.instrument && QUOTED_TYPES.has(h.instrument.type))
+    .map((h) => ({
+      key: h.instrumentKey,
+      name: shortName(h.instrument!.name),
+      isin: h.instrument!.isin ?? h.instrumentKey,
+      currency: h.currency,
+    }));
+  const { messages } = await refreshFundamentals(targets, deps.fundamentals(), ctx.at);
+  return { v: 1, messages: messages.map((m) => msg(m)) };
+}
+const FX_KEY = FX_MOVE_KEY;
 export const WHY_MAX_RUNS_PER_DAY = 3;
 export const WHY_REQUEST_TTL_MS = 3 * 3_600_000;
 
@@ -589,8 +620,15 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   //    re-reported only when it crosses the next threshold level.
   if (st.moves?.day !== today) st.moves = { day: today, total: 0, pos: {} };
   const moves = st.moves;
+  const moveSettings = loadMoveAlertSettings();
+  const positionStep = (key: string, ids: (string | undefined)[]) =>
+    moveSettings.byKey[key] ??
+    forHolding(env.moveOverrides, ids) ??
+    moveSettings.positionPct ??
+    env.positionMovePct;
   const level = (x: number, step: number) =>
     Math.floor((Math.abs(x) * 100 + 1e-9) / step);
+  const crosses = (x: number, reported: number, step: number) => level(x, step) > level(reported, step);
   // Only today's trading counts: on a weekend, a holiday or before the open
   // the quotes still carry the last session's move (price vs the close
   // before it), and the per-day levels above were just reset — without this
@@ -605,9 +643,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   const moved: WhyFactor[] = [];
   const dc = ctx.dayChange;
   if (dc?.pct != null && dc.note === "ma" && marketMovedToday) {
-    const lv = level(dc.pct, env.bigMovePct);
-    if (lv > moves.total) {
-      moves.total = lv;
+    if (crosses(dc.pct, moves.total, moveSettings.portfolioPct ?? env.bigMovePct)) {
+      moves.total = Math.abs(dc.pct);
       out.push(
         msg(
           `${dc.abs > 0 ? "🚀" : "🔻"} <b>Nagy mozgás ma: ${pct(dc.pct, 2)}</b> (${sft(dc.abs)})\nVagyon: ${ft(ctx.summary.totalValueHuf)}`,
@@ -624,13 +661,12 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     const i = h.instrument;
     const name = shortName(i?.name ?? h.instrumentKey);
     const ids = [i?.ticker, name, i?.isin, h.instrumentKey];
-    const lv = level(ch, forHolding(env.moveOverrides, ids) ?? env.positionMovePct);
-    if (lv > (moves.pos[h.instrumentKey] ?? 0)) {
-      moves.pos[h.instrumentKey] = lv;
+    if (crosses(ch, moves.pos[h.instrumentKey] ?? 0, positionStep(h.instrumentKey, ids))) {
+      moves.pos[h.instrumentKey] = Math.abs(ch);
       // HUF move of the position today: value now minus value at prev close.
       const move = h.marketValueHuf - h.marketValueHuf / (1 + ch);
       posLines.push(
-        `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
+        `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma, árfolyam: ${px(q.price, h.currency)} (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
       );
     }
     if ((moves.pos[h.instrumentKey] ?? 0) > 0) {
@@ -651,9 +687,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   const eur = ctx.liveQuotes["EUR"];
   if (marketMovedToday && eur?.prevClose && eur.price && quotedToday(eur, now)) {
     const ch = eur.price / eur.prevClose - 1;
-    const lv = level(ch, env.positionMovePct);
-    if (lv > (moves.pos[FX_KEY] ?? 0)) {
-      moves.pos[FX_KEY] = lv;
+    if (crosses(ch, moves.pos[FX_KEY] ?? 0, positionStep(FX_KEY, ["EUR"]))) {
+      moves.pos[FX_KEY] = Math.abs(ch);
       posLines.push(
         `${ch > 0 ? "🚀" : "🔻"} <b>EUR/HUF: ${pct(ch, 1)}</b> ma (${eur.price.toFixed(2).replace(".", ",")} Ft)`,
       );

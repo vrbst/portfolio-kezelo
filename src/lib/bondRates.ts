@@ -202,6 +202,12 @@ export function buyableOffers(file: BondRatesFile, today: string): RetailOffer[]
 
 export const DKJ_SERIES_DAYS = 370;
 
+export const DKJ_FRESH_DAYS = 45;
+
+export function isFreshDkj(a: DkjAuction, today: string): boolean {
+  return a.auctionDate >= addDaysIso(today, -DKJ_FRESH_DAYS);
+}
+
 export function currentDkjSeries(file: BondRatesFile, today: string): DkjAuction[] {
   const since = addDaysIso(today, -DKJ_SERIES_DAYS);
   const latest = new Map<string, DkjAuction>();

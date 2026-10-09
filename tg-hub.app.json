@@ -55,6 +55,15 @@
       "expectSuccessWithin": "4d"
     },
     {
+      "id": "fundamentals",
+      "description": "Papír-adatok (P/E, szektorok, top tételek) a tartott papírokra a Yahoo-ról; 3 nap folyamatos hiba után szól",
+      "at": "06:40",
+      "catchUp": "run",
+      "catchUpWindow": "12h",
+      "timeout": "5m",
+      "expectSuccessWithin": "4d"
+    },
+    {
       "id": "news-why",
       "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
       "every": "30m",

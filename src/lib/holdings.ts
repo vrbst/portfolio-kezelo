@@ -4,7 +4,7 @@
 
 import type { AccountKind, Currency, Instrument } from "./model";
 import { BOND_TYPES } from "./bonds";
-import type { PortfolioSummary } from "./portfolio";
+import type { AccountSummary, HoldingView, PortfolioSummary } from "./portfolio";
 
 export type AssetClass = "equity" | "crypto" | "bond" | "tbill" | "cash";
 
@@ -95,6 +95,8 @@ export interface ConsolidatedHolding {
   accountCount: number;
   /** Account kind this instrument lives in (treasury bonds vs TBSZ ETFs). */
   accountKind: AccountKind;
+  currentPrice?: number;
+  bondNeedsData?: boolean;
 }
 
 // Group order in the consolidated view: Államkincstár first, then TBSZ.
@@ -133,21 +135,10 @@ export function consolidatedHoldings(
             (existing.marketValueCcy ?? 0) + h.marketValueCcy;
         existing.unrealizedPlHuf += h.unrealizedPlHuf ?? 0;
         existing.accountCount += 1;
+        existing.currentPrice ??= h.currentPrice;
+        if (h.bondNeedsData) existing.bondNeedsData = true;
       } else {
-        map.set(h.instrumentKey, {
-          instrumentKey: h.instrumentKey,
-          instrument: h.instrument,
-          currency: h.currency,
-          quantity: h.quantity,
-          costBasisCcy: h.costBasisCcy,
-          costBasisHuf: h.costBasisHuf,
-          marketValueCcy: h.marketValueCcy,
-          marketValueHuf: mv,
-          redeemableValueHuf: redeemable,
-          unrealizedPlHuf: h.unrealizedPlHuf ?? 0,
-          accountCount: 1,
-          accountKind: acc.account.kind,
-        });
+        map.set(h.instrumentKey, { ...holdingRow(h, acc), redeemableValueHuf: redeemable });
       }
     }
   }
@@ -162,4 +153,36 @@ export function consolidatedHoldings(
     if (ka !== kb) return ka - kb;
     return b.marketValueHuf - a.marketValueHuf;
   });
+}
+
+function holdingRow(h: HoldingView, acc: AccountSummary): ConsolidatedHolding {
+  return {
+    instrumentKey: h.instrumentKey,
+    instrument: h.instrument,
+    currency: h.currency,
+    quantity: h.quantity,
+    costBasisCcy: h.costBasisCcy,
+    costBasisHuf: h.costBasisHuf,
+    marketValueCcy: h.marketValueCcy,
+    marketValueHuf: h.marketValueHuf ?? 0,
+    redeemableValueHuf: h.redeemableValueHuf,
+    unrealizedPlHuf: h.unrealizedPlHuf ?? 0,
+    accountCount: 1,
+    accountKind: acc.account.kind,
+    ...(h.currentPrice != null ? { currentPrice: h.currentPrice } : {}),
+    ...(h.bondNeedsData ? { bondNeedsData: true } : {}),
+  };
+}
+
+export function bondPricePct(
+  h: Pick<ConsolidatedHolding, "currency" | "quantity" | "marketValueHuf" | "marketValueCcy">,
+): number | undefined {
+  const value = h.currency === "HUF" ? h.marketValueHuf : h.marketValueCcy;
+  return value != null && h.quantity > 0 ? (value / h.quantity) * 100 : undefined;
+}
+
+export function rowsFor(summary: PortfolioSummary, accountId?: string): ConsolidatedHolding[] {
+  if (!accountId) return consolidatedHoldings(summary);
+  const acc = summary.accounts.find((a) => a.account.id === accountId);
+  return acc ? acc.holdings.filter((h) => h.quantity > 1e-9).map((h) => holdingRow(h, acc)) : [];
 }

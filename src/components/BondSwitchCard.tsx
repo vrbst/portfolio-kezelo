@@ -42,8 +42,12 @@ function Verdict({ a }: { a: BondAdvice }) {
         )}
         {v.goal && (
           <div className="mt-1 text-xs text-[var(--color-muted)]">
-            {a.maturity && v.goal.targetDate <= a.maturity ? (
-              "A kifizetés a cél dátumára már megvan — nem kell újra befektetni."
+            {v.plan?.kind === "payout" ? (
+              "A kifizetés a cél napján megérkezik — nem kell újra befektetni."
+            ) : v.plan?.kind === "late" ? (
+              <span className="text-[var(--color-warning)]">
+                A kifizetés {v.plan.days} nappal a cél dátuma után érkezik — a célra időben nem lesz meg belőle.
+              </span>
             ) : v.reinvest ? (
               <>
                 A cél dátumáig lejáró legjobb kapható papír:{" "}
@@ -77,7 +81,7 @@ export default function BondSwitchCard({ holdings }: { holdings: HoldingView[] }
   const market = useMemo(() => bondMarket(file, today), [file, today]);
   const [dkjSeries, setDkjSeries] = useState<string>();
   if (!market || (!advice.length && !market.offers.length && !market.dkj.length)) return null;
-  const dkj = market.dkj.find((d) => d.series === dkjSeries) ?? market.dkj[0];
+  const dkj = market.dkj.find((d) => d.series === dkjSeries) ?? market.dkj.find((d) => d.fresh) ?? market.dkj[0];
 
   return (
     <Card className="mt-6 p-5">
@@ -153,10 +157,16 @@ export default function BondSwitchCard({ holdings }: { holdings: HoldingView[] }
                         {market.dkj.map((d) => (
                           <option key={d.series} value={d.series}>
                             DKJ {d.series}
+                            {d.fresh ? "" : " (régi aukció)"}
                           </option>
                         ))}
                       </select>
                       <span className="ml-1 text-xs text-[var(--color-muted)]">aukció {formatDate(dkj.auctionDate)}</span>
+                      {!dkj.fresh && (
+                        <span className="ml-1 text-xs text-[var(--color-warning)]">
+                          (régi aukció, a mai hozam eltérhet)
+                        </span>
+                      )}
                     </td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{pct(dkj.avgYield)}</td>
                     <td className="py-1.5 text-right tabular-nums">{formatDate(dkj.maturity)}</td>

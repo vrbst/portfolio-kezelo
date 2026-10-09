@@ -22,7 +22,19 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   drag & drop, duplikátum-szűréssel. Az újraimportálás a már meglévő papírok
   hiányzó adatait pótolja, a kézi beállításokat nem írja felül.
 - **Áttekintés** – teljes érték, napi változás (a be-/kifizetések nélkül),
-  hozam, befektetett tőke, kamat, eszközallokáció, értékgrafikon.
+  hozam, befektetett tőke, kamat, eszközallokáció, szektor-kitettség (az
+  ETF-eken átnézve), értékgrafikon.
+- **Eszközeim és papír-adatlap** – ugyanaz a táblázat az Áttekintésen
+  (minden számla összevonva) és egy számla oldalán (csak az a számla). Egy
+  sorra koppintva nyílik a papír adatlapja: árfolyam és napi változás,
+  érték, bekerülés, átlagár, hozam (deviza-hatással), 1 éves sáv és csúcstól
+  mért esés, grafikon a vételekkel, P/E, szektorok, legnagyobb tételek, a
+  mozgás-riasztás küszöbe, számlánkénti megosztás, célok és a vételi tételek.
+- **Papír-adatok a botból** – a bot `fundamentals` jobja naponta a tartott
+  papírokra lekéri a Yahoo-ról a P/E-t, a szektorokat, a legnagyobb
+  tételeket stb., és a szinkron-repóba írja (`market/fundamentals.json`).
+  Ha egy papíré nem töltődik le, a legutóbbi adat marad; ha 3 napja nem
+  sikerül, a bot szól (hetente legfeljebb egyszer).
 - **Számlák** – pozíciók, készpénz devizánként, teljes tranzakció-történet,
   TBSZ-évjárat és -idővonal, kilépési érték; a számla törölhető (a törlés
   szinkronizálódik, újraimportálással visszahozható).
@@ -82,15 +94,21 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   Ahol nincs élő ár, az
   árfolyamfájl záróára jelenik meg, jelölve.
 - **Nagy mozgás és „Miért mozdult?” a botban** – ha a portfólió, egy tartott
-  papír vagy az EUR/HUF aznap legalább 1%-ot mozdul (`NOTIFY_BIG_MOVE_PCT`,
-  `NOTIFY_POSITION_MOVE_PCT` a `.notify/.env`-ben), a riasztás azonnal megy;
+  papír vagy az EUR/HUF aznap legalább a küszöbét (alapból 1%) mozdul, a
+  riasztás azonnal megy. A küszöbök a Beállítások → Nagy mozgás riasztás
+  kártyán állíthatók: a teljes portfólióra, alapértékként egy papírra, és
+  külön minden tartott papírra és az EUR/HUF-ra. A lista a tartott papírokból
+  épül, mindegyik mellett a jellemző napi mozgás és a becsült riasztásszám
+  havonta. Szinkronizálódik, a bot ezt olvassa;
   utána egy rövid AI-hírkeresés (`news-why` job, alapból `sonnet`,
   `NEWS_WHY_MODEL`) külön üzenetben megírja, mi mozgatta, forrásokkal. Egy
   tényezőt naponta egyszer magyaráz, az egyszerre mozdulókat egy keresésben,
   és naponta legfeljebb 3 keresés fut. Csak Telegramon jelenik meg, az app
-  Hírek oldalán nem. Papíronként saját küszöb adható
-  (`NOTIFY_MOVE_PCT_OVERRIDES="WBIT:4,XYZ:2"`, tickerre, ISIN-re vagy névre;
-  alapból `WBIT:4`), és egy mögöttes eszközt követő papírnál megadható, mire
+  Hírek oldalán nem. Beállítás nélkül a `.notify/.env` értékei
+  (`NOTIFY_BIG_MOVE_PCT`, `NOTIFY_POSITION_MOVE_PCT`,
+  `NOTIFY_MOVE_PCT_OVERRIDES="WBIT:4,XYZ:2"` tickerre, ISIN-re vagy névre)
+  érvényesek; az appban papírra adott küszöb ezeket felülírja. Egy mögöttes
+  eszközt követő papírnál megadható, mire
   keressen a „Miért?” (`NOTIFY_WHY_SUBJECT="WBIT=Bitcoin (BTC)"`, több
   pontosvesszővel elválasztva; alapból ez). A hibás bejegyzéseket kihagyja.
 - **Tervek és mutatók a botban** – `/terv`: az e havi Havi terv (mit vegyél,

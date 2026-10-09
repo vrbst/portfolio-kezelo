@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Wallet, Landmark, ArrowRight } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
-import HoldingsPanel from "../components/HoldingsPanel";
 import {
   PageHeader,
   Card,
@@ -98,7 +97,6 @@ export default function Accounts() {
         totalHuf={summary.totalValueHuf}
       />
 
-      <HoldingsPanel expandable />
     </div>
   );
 }
