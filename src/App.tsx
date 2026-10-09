@@ -8,6 +8,7 @@ import {
 } from "motion/react";
 import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
+import MobileTopBar from "./components/MobileTopBar";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AlertsBanner from "./components/AlertsBanner";
@@ -91,7 +92,8 @@ export default function App() {
       <div className="flex min-h-screen">
         <Sidebar />
         <main className="flex-1 min-w-0">
-          <div className="relative mx-auto max-w-7xl px-5 py-8 pb-24 sm:px-8 md:pb-8 2xl:max-w-[1600px]">
+          <div className="relative mx-auto max-w-7xl px-4 pb-28 pt-0 md:px-8 md:py-8 2xl:max-w-[1600px]">
+            <MobileTopBar />
             {loaded && <AlertsBanner />}
             {!loaded ? (
               <LoadingSkeleton />

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   X,
   ArrowRight,
+  ChevronRight,
   RefreshCw,
   CloudOff,
 } from "lucide-react";
@@ -126,7 +127,7 @@ export function AlertRow({
  * Dashboard "Teendők" card: the active (non-dismissed) alerts, red-tinted.
  * Renders nothing when there's nothing to do.
  */
-export default function AlertsPanel() {
+export default function AlertsPanel({ compact = false }: { compact?: boolean }) {
   const active = useActiveAlerts();
   const alertState = usePortfolio((s) => s.alertState);
   const dismissAlert = usePortfolio((s) => s.dismissAlert);
@@ -139,6 +140,30 @@ export default function AlertsPanel() {
       </Card>
     );
   if (visible.length === 0) return null;
+
+  if (compact) {
+    const first = visible[0];
+    return (
+      <Link
+        to="/alerts"
+        className="card mobile-row mb-4 flex items-center gap-3 border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 px-4 py-3"
+      >
+        <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--color-negative)]/15 text-[var(--color-negative)]">
+          <AlertTriangle className="h-[18px] w-[18px]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">
+            {visible.length} teendő
+          </div>
+          <div className="truncate text-xs text-[var(--color-muted)]">
+            <PrivateText text={first.title} alertId={first.id} />
+            {visible.length > 1 && ` és még ${visible.length - 1}`}
+          </div>
+        </div>
+        <ChevronRight className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
+      </Link>
+    );
+  }
 
   return (
     <Card className="mb-6 border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 p-6">

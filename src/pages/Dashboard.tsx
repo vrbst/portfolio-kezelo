@@ -9,9 +9,8 @@ import {
   PiggyBank,
   Coins,
   ArrowRight,
+  ChevronRight,
   RefreshCw,
-  Eye,
-  EyeOff,
   Target,
 } from "lucide-react";
 import {
@@ -29,6 +28,7 @@ import {
   allocationByClass,
   allocationByCurrency,
   type ValuePoint,
+  type AccountSummary,
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
 import ValueChart, { type ChartMode } from "../components/ValueChart";
@@ -48,8 +48,8 @@ import LivePricesPanel from "../components/LivePricesPanel";
 import NewsCard from "../components/NewsCard";
 import NewsBanner from "../components/NewsBanner";
 import DayChangeBreakdown from "../components/DayChangeBreakdown";
-import UnlockDialog from "../components/UnlockDialog";
-import { hasLock } from "../lib/privacyLock";
+import PrivacyToggle from "../components/PrivacyToggle";
+import { useIsMobile } from "../lib/useIsMobile";
 import {
   PageHeader,
   StatCard,
@@ -60,6 +60,7 @@ import {
   Amt,
   Sparkline,
   AnimatedAmount,
+  NoCardEnter,
 } from "../components/ui";
 import {
   formatMoney,
@@ -99,14 +100,8 @@ export default function Dashboard() {
   const pricesLoading = usePortfolio((s) => s.pricesLoading);
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
-  const privacy = usePortfolio((s) => s.privacy);
-  const togglePrivacy = usePortfolio((s) => s.togglePrivacy);
-  // Hiding is free; revealing asks for the lock password / biometric if set.
-  const [unlocking, setUnlocking] = useState(false);
-  const onPrivacyClick = () => {
-    if (privacy && hasLock()) setUnlocking(true);
-    else togglePrivacy();
-  };
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState<MobileTab>("holdings");
 
   const valueSeries = useValueSeries();
 
@@ -281,7 +276,7 @@ export default function Dashboard() {
       mo.disconnect();
       mq.removeEventListener("change", update);
     };
-  }, []);
+  }, [isMobile]);
 
   if (accounts.length === 0) {
     return (
@@ -299,6 +294,503 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  const heroCard = (
+    <StatCard
+      variant={isMobile ? "bare" : undefined}
+      label={
+        scrub ? `Érték · ${formatDate(scrub.date)}` : "Teljes érték"
+      }
+      numericValue={scrub ? scrub.value : summary.totalValueHuf}
+      format={(n) => formatMoney(n)}
+      sub={
+        <>
+          {eurEquivalent(
+            scrub ? scrub.value : summary.totalValueHuf,
+            eurHuf,
+          )}
+          {!scrub && dayChange?.eurPct != null && (
+            <span
+              className={`ml-1.5 ${
+                dayChange.eurPct >= 0
+                  ? "text-[var(--color-positive)]"
+                  : "text-[var(--color-negative)]"
+              }`}
+              title="Mai változás EUR-ban"
+            >
+              {formatPercent(dayChange.eurPct)}
+            </span>
+          )}
+        </>
+      }
+      delta={scrub ? scrubDelta?.abs : dayChange?.abs}
+      deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
+      deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}
+      deltaDetail={
+        !scrub && dayChange?.breakdown?.length ? (
+          <DayChangeBreakdown change={dayChange} />
+        ) : undefined
+      }
+      scrubbing={scrub != null}
+      icon={<Wallet className="h-5 w-5" />}
+      index={0}
+      hero
+      aurora
+      flashOnChange
+      sparkline={valueSpark}
+      sparkStroke={
+        sparkUp ? "var(--color-positive)" : "var(--color-negative)"
+      }
+    />
+  );
+
+  const returnCard = (
+    <StatCard
+      variant={isMobile ? "compact" : undefined}
+      label="Teljes hozam"
+      numericValue={summary.totalPlHuf}
+      format={(n) => formatMoney(n, "HUF", { sign: true })}
+      sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
+      deltaPct={summary.totalReturnPct}
+      icon={<TrendingUp className="h-5 w-5" />}
+      index={1}
+    />
+  );
+
+  const investedCard = (
+    <StatCard
+      variant={isMobile ? "compact" : undefined}
+      label="Befektetett tőke"
+      numericValue={summary.netDepositedHuf}
+      format={(n) => formatMoney(n)}
+      icon={<PiggyBank className="h-5 w-5" />}
+      index={2}
+    />
+  );
+
+  const realizedCard = (
+    <StatCard
+      variant={isMobile ? "compact" : undefined}
+      label="Realizált eredmény összesen"
+      numericValue={summary.totalPlHuf - summary.unrealizedPlHuf}
+      format={(n) => formatMoney(n, "HUF", { sign: true })}
+      sub={
+        summary.interestHuf > 0.5
+          ? `kamattal, díjak után · ebből kamat: ${formatMoney(
+              summary.interestHuf,
+              "HUF",
+              { sign: true },
+            )}`
+          : "kamattal, díjak után"
+      }
+      icon={<Coins className="h-5 w-5" />}
+      index={3}
+    />
+  );
+
+  const chartCard =
+    valueSeries.length > 1 && (
+      <Card className="p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              {chartMode === "profit"
+                ? "Hozam az időben"
+                : "Érték az időben"}
+              <InfoTip>
+                {chartMode === "profit"
+                  ? range === "max"
+                    ? "Napi hozam (érték − befektetett tőke)."
+                    : "Hozam az időszak eleje óta (érték − befektetett tőke, a kezdőnaphoz képest; a be- és kifizetések nem számítanak bele)."
+                  : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)."}
+              </InfoTip>
+            </h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+              {(
+                [
+                  { key: "value", label: "Érték" },
+                  { key: "profit", label: "Hozam" },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setChartMode(m.key)}
+                  className={`rounded-md px-2.5 py-1 transition ${
+                    chartMode === m.key
+                      ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                      : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  disabled={!rangeAvail[r.key]}
+                  title={r.title}
+                  aria-label={r.title}
+                  aria-pressed={range === r.key}
+                  className={`rounded-md px-1.5 py-1 transition sm:px-2.5 disabled:cursor-not-allowed disabled:opacity-30 ${
+                    range === r.key
+                      ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                      : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <ValueChart
+          data={rangedSeries}
+          mode={chartMode}
+          profitBase={rangedProfitBase}
+          onScrub={setScrub}
+        />
+      </Card>
+    );
+
+  const accountsCard = (
+    <Card className="p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Számláim</h2>
+        <Link
+          to="/accounts"
+          className="inline-flex items-center gap-1 text-sm text-[var(--color-brand)] hover:underline"
+        >
+          Összes <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+      {/* auto-fit: the cards always fill the row, however many accounts. Min
+          20rem keeps the full name readable (wraps to a new row instead of
+          cramming); min(100%,…) lets it shrink on a phone. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-3">
+        {/* Empty accounts are noise here — the Számlák page still lists them. */}
+        {summary.accounts
+          .filter((a) => !isEmptyAccount(a))
+          .map((a) => (
+            <Link
+              key={a.account.id}
+              to={`/accounts/${a.account.id}`}
+              className="block min-w-0"
+            >
+              <div className="card-hover h-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="truncate font-medium"
+                    title={a.account.name}
+                  >
+                    {a.account.name}
+                  </span>
+                  <Badge tone="neutral">
+                    {accountKindLabel(a.account)}
+                  </Badge>
+                </div>
+                <div className="mt-2 flex items-end gap-3">
+                  <div className="min-w-0 flex-1 text-xs text-[var(--color-muted)]">
+                    <div>{a.holdings.length} pozíció</div>
+                    <div>
+                      készpénz <Amt>{formatMoney(a.cashValueHuf)}</Amt>
+                    </div>
+                  </div>
+                  {accountSparks.has(a.account.id) && (
+                    <div className="hidden h-8 w-16 shrink-0 sm:block">
+                      <Sparkline
+                        data={accountSparks.get(a.account.id)!}
+                        stroke={
+                          (accountReturn(a) ?? 0) >= 0
+                            ? "var(--color-positive)"
+                            : "var(--color-negative)"
+                        }
+                        className="h-full w-full"
+                      />
+                    </div>
+                  )}
+                  <div className="text-right">
+                    <div className="amt font-semibold tabular-nums">
+                      {formatMoney(a.totalValueHuf)}
+                    </div>
+                    {accountReturn(a) != null && (
+                      <Delta pct={accountReturn(a)} className="text-xs" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))}
+      </div>
+    </Card>
+  );
+
+  const allocationCard = (
+    <Card className="p-5">
+      <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
+      <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+        {(
+          [
+            ["class", "Eszköztípus"],
+            ["currency", "Deviza"],
+            ["account", "Számla"],
+          ] as const
+        ).map(([mode, label]) => (
+          <button
+            key={mode}
+            onClick={() => setAllocMode(mode)}
+            className={`rounded-md px-2.5 py-1 transition ${
+              allocMode === mode
+                ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="relative h-56">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={allocation}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={70}
+              outerRadius={100}
+              paddingAngle={3}
+              stroke="none"
+              isAnimationActive={!reduceMotion}
+              animationDuration={900}
+              animationEasing="ease-out"
+              onMouseEnter={(_, i) => setActiveSlice(i)}
+              onMouseLeave={() => setActiveSlice(null)}
+              onClick={(_, i) =>
+                setActiveSlice((cur) => (cur === i ? null : i))
+              }
+            >
+              {allocation.map((_, i) => (
+                <Cell
+                  key={i}
+                  fill={COLORS[i % COLORS.length]}
+                  fillOpacity={
+                    activeSlice == null || activeSlice === i ? 1 : 0.3
+                  }
+                  style={{ transition: "fill-opacity 0.2s" }}
+                />
+              ))}
+            </Pie>
+            {/* Pop-out ring for the active slice: the same data gives the
+                same angles, only the active cell is painted. */}
+            {activeSlice != null && (
+              <Pie
+                data={allocation}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={98}
+                outerRadius={106}
+                paddingAngle={3}
+                stroke="none"
+                isAnimationActive={false}
+                style={{ pointerEvents: "none" }}
+              >
+                {allocation.map((_, i) => (
+                  <Cell
+                    key={i}
+                    fill={
+                      i === activeSlice
+                        ? COLORS[i % COLORS.length]
+                        : "transparent"
+                    }
+                  />
+                ))}
+              </Pie>
+            )}
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
+          {(() => {
+            const slice =
+              activeSlice != null ? allocation[activeSlice] : undefined;
+            return (
+              <>
+                {/* Keyed: the new label swaps in at once and fades up, so
+                    it can never lag behind the amount below it. */}
+                <motion.span
+                  key={slice?.name ?? "__total"}
+                  initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="max-w-full truncate text-xs text-[var(--color-muted)]"
+                >
+                  {slice?.name ?? "Összesen"}
+                </motion.span>
+                <span
+                  className={`amt donut-amount font-display font-semibold ${
+                    slice ? "text-lg" : "text-xl"
+                  }`}
+                >
+                  <AnimatedAmount
+                    value={slice?.value ?? summary.totalValueHuf}
+                    format={(n) => formatMoney(n)}
+                    duration={0.35}
+                  />
+                </span>
+                {slice && (
+                  <span className="text-xs font-medium text-[var(--color-brand)]">
+                    {formatPercent(
+                      slice.value / summary.totalValueHuf,
+                    ).replace("+", "")}
+                  </span>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
+      <div className="mt-4 space-y-2">
+        {allocation.map((a, i) => (
+          <div
+            key={a.name}
+            className={`flex cursor-default items-center gap-2 rounded-lg px-1 py-0.5 text-sm transition-colors ${
+              activeSlice === i ? "bg-[var(--color-surface-2)]/60" : ""
+            }`}
+            onMouseEnter={() => setActiveSlice(i)}
+            onMouseLeave={() => setActiveSlice(null)}
+          >
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ background: COLORS[i % COLORS.length] }}
+            />
+            <span className="flex-1 truncate text-[var(--color-muted)]">
+              {a.name}
+            </span>
+            <span className="tabular-nums">
+              {formatPercent(a.value / summary.totalValueHuf).replace(
+                "+",
+                "",
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  const goalsCard =
+    goalProgress.length > 0 && (
+      <Card className="p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <Target className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">Célok</h2>
+        </div>
+        <div className="space-y-3">
+          {goalProgress.map((p) => {
+            const pct = Math.min(Math.max(p.ratio, 0), 1) * 100;
+            const color = p.done
+              ? "var(--color-positive)"
+              : "var(--color-brand)";
+            return (
+              <Link
+                key={p.goal.id}
+                to="/goals"
+                className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 card-hover"
+              >
+                <div className="relative h-12 w-12 shrink-0">
+                  <div
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background: `conic-gradient(${color} ${pct}%, var(--color-surface-2) 0)`,
+                    }}
+                  />
+                  <div className="absolute inset-[3px] grid place-items-center rounded-full bg-[var(--color-surface)] text-[11px] font-semibold tabular-nums">
+                    {Math.round(p.ratio * 100)}%
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">
+                      {p.instrumentName}
+                    </span>
+                    {p.done && (
+                      <Badge tone="positive">Teljesítve</Badge>
+                    )}
+                  </div>
+                  <div className="amt mt-0.5 text-xs tabular-nums text-[var(--color-muted)]">
+                    {formatMoney(p.investedHuf)} /{" "}
+                    {formatMoney(p.targetHuf)}
+                    {!p.done && p.remainingHuf > 0 && (
+                      <> · még {formatMoney(p.remainingHuf)}</>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </Card>
+    );
+
+  const eventsCard =
+    events.length > 0 && (
+      <Card
+        id={UPCOMING_EVENTS_ID}
+        className="flex flex-col p-5 xl:min-h-0 xl:flex-1"
+      >
+        <div className="mb-4 flex items-center gap-2">
+          <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
+          <h2 className="text-lg font-semibold">Közelgő események</h2>
+        </div>
+        {/* Mobilon fix magasságú (max-h) és görgethető; xl-en a kártya
+            flex-1-e adja a magasságot, a lista kitölti és görget. */}
+        <div className="max-h-[17rem] min-h-0 space-y-2 overflow-y-auto pr-1 xl:max-h-none xl:flex-1">
+          {events.map((e) => {
+            const key = `${e.date}:${e.kind}:${e.title}`;
+            const Icon = EVENT_ICON[e.kind];
+            const inner = (
+              <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {e.title}
+                  </div>
+                  <div className="text-xs text-[var(--color-muted)]">
+                    {formatDate(e.date)} ·{" "}
+                    {e.daysUntil === 0
+                      ? "ma"
+                      : `${e.daysUntil} nap múlva`}
+                    {e.detail ? ` · ${e.detail}` : ""}
+                  </div>
+                </div>
+                {e.amountHuf != null && (
+                  <div className="amt text-right text-sm font-semibold tabular-nums">
+                    {e.kind === "coupon" ? "+" : ""}
+                    {formatMoney(e.amountHuf)}
+                  </div>
+                )}
+              </div>
+            );
+            return e.accountId ? (
+              <Link
+                key={key}
+                to={`/accounts/${e.accountId}`}
+                className="block card-hover rounded-xl"
+              >
+                {inner}
+              </Link>
+            ) : (
+              <div key={key}>{inner}</div>
+            );
+          })}
+        </div>
+      </Card>
+    );
 
   return (
     <div>
@@ -325,32 +817,11 @@ export default function Dashboard() {
                 </span>
               </span>
             )}
-            <button
-              className="btn-ghost"
-              onClick={onPrivacyClick}
-              title={privacy ? "Összegek megjelenítése" : "Összegek elrejtése"}
-            >
-              {privacy ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">
-                {privacy ? "Megmutat" : "Elrejt"}
-              </span>
-            </button>
-            {unlocking && (
-              <UnlockDialog
-                onClose={() => setUnlocking(false)}
-                onSuccess={() => {
-                  setUnlocking(false);
-                  if (usePortfolio.getState().privacy) togglePrivacy();
-                }}
-              />
-            )}
+            <PrivacyToggle className="btn-ghost hidden md:inline-flex" />
             <button
               className="btn-ghost"
               onClick={() => refreshPrices()}
+              aria-label="Árfolyamok frissítése"
               disabled={pricesLoading}
               title={
                 priceUpdatedAt
@@ -361,522 +832,185 @@ export default function Dashboard() {
               <RefreshCw
                 className={`h-4 w-4 ${pricesLoading ? "animate-spin" : ""}`}
               />
-              Árfolyamok
+              <span className="hidden sm:inline">Árfolyamok</span>
             </button>
           </div>
         }
       />
 
       <NewsBanner />
-      <AlertsPanel />
+      <AlertsPanel compact={isMobile} />
 
-      <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-start">
-        {/* Bal fő-oszlop: kártyák + grafikon + eszközeim */}
-        <div
-          ref={leftColRef}
-          className="flex min-w-0 flex-1 flex-col gap-4"
-          style={colH ? { height: colH } : undefined}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
-            <StatCard
-              label={
-                scrub ? `Érték · ${formatDate(scrub.date)}` : "Teljes érték"
-              }
-              numericValue={scrub ? scrub.value : summary.totalValueHuf}
-              format={(n) => formatMoney(n)}
-              sub={
-                <>
-                  {eurEquivalent(
-                    scrub ? scrub.value : summary.totalValueHuf,
-                    eurHuf,
-                  )}
-                  {!scrub && dayChange?.eurPct != null && (
-                    <span
-                      className={`ml-1.5 ${
-                        dayChange.eurPct >= 0
-                          ? "text-[var(--color-positive)]"
-                          : "text-[var(--color-negative)]"
-                      }`}
-                      title="Mai változás EUR-ban"
-                    >
-                      {formatPercent(dayChange.eurPct)}
-                    </span>
-                  )}
-                </>
-              }
-              delta={scrub ? scrubDelta?.abs : dayChange?.abs}
-              deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
-              deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}
-              deltaDetail={
-                !scrub && dayChange?.breakdown?.length ? (
-                  <DayChangeBreakdown change={dayChange} />
-                ) : undefined
-              }
-              scrubbing={scrub != null}
-              icon={<Wallet className="h-5 w-5" />}
-              index={0}
-              hero
-              aurora
-              flashOnChange
-              sparkline={valueSpark}
-              sparkStroke={
-                sparkUp ? "var(--color-positive)" : "var(--color-negative)"
-              }
-            />
-            <StatCard
-              label="Teljes hozam"
-              numericValue={summary.totalPlHuf}
-              format={(n) => formatMoney(n, "HUF", { sign: true })}
-              sub={eurEquivalent(summary.totalPlHuf, eurHuf, { sign: true })}
-              deltaPct={summary.totalReturnPct}
-              icon={<TrendingUp className="h-5 w-5" />}
-              index={1}
-            />
-            <StatCard
-              label="Befektetett tőke"
-              numericValue={summary.netDepositedHuf}
-              format={(n) => formatMoney(n)}
-              icon={<PiggyBank className="h-5 w-5" />}
-              index={2}
-            />
-            <StatCard
-              label="Realizált eredmény összesen"
-              numericValue={summary.totalPlHuf - summary.unrealizedPlHuf}
-              format={(n) => formatMoney(n, "HUF", { sign: true })}
-              sub={
-                summary.interestHuf > 0.5
-                  ? `kamattal, díjak után · ebből kamat: ${formatMoney(
-                      summary.interestHuf,
-                      "HUF",
-                      { sign: true },
-                    )}`
-                  : "kamattal, díjak után"
-              }
-              icon={<Coins className="h-5 w-5" />}
-              index={3}
-            />
+      {isMobile ? (
+        <div className="mt-1 flex flex-col gap-4">
+          {heroCard}
+          <div className="mobile-swipe -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1">
+            {[returnCard, investedCard, realizedCard].map((c, i) => (
+              <div key={i} className="w-[72%] shrink-0 snap-start">
+                {c}
+              </div>
+            ))}
+          </div>
+          {chartCard}
+          <MobileAccounts accounts={summary.accounts} />
+          <div
+            role="tablist"
+            aria-label="Áttekintés részletei"
+            className="mobile-segments sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 -mx-4 flex gap-1.5 px-4 py-1.5"
+          >
+            {DASH_TABS.filter((t) => t.key !== "events" || events.length > 0).map(
+              (t) => (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={mobileTab === t.key}
+                  onClick={() => setMobileTab(t.key)}
+                  className={`min-w-0 flex-1 rounded-full border px-2 py-1.5 text-[13px] font-medium transition-colors ${
+                    mobileTab === t.key
+                      ? "border-[var(--color-brand)]/50 bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                      : "border-[var(--color-border)] bg-[var(--color-surface-2)]/40 text-[var(--color-muted)]"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ),
+            )}
+          </div>
+          <NoCardEnter>
+            <div
+              key={mobileTab === "holdings" ? "holdings-on" : "holdings-off"}
+              role="tabpanel"
+              hidden={mobileTab !== "holdings"}
+            >
+              <HoldingsPanel maxBodyHeight="26rem" />
+            </div>
+            <div
+              key={mobileTab === "market" ? "market-on" : "market-off"}
+              role="tabpanel"
+              hidden={mobileTab !== "market"}
+              className="flex-col gap-4 [&:not([hidden])]:flex"
+            >
+              <LivePricesPanel />
+              <NewsCard />
+            </div>
+            <div
+              key={mobileTab === "allocation" ? "allocation-on" : "allocation-off"}
+              role="tabpanel"
+              hidden={mobileTab !== "allocation"}
+            >
+              {allocationCard}
+            </div>
+            <div
+              key={mobileTab === "events" ? "events-on" : "events-off"}
+              role="tabpanel"
+              hidden={mobileTab !== "events"}
+            >
+              {eventsCard}
+            </div>
+          </NoCardEnter>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-start">
+          {/* Bal fő-oszlop: kártyák + grafikon + eszközeim */}
+          <div
+            ref={leftColRef}
+            className="flex min-w-0 flex-1 flex-col gap-4"
+            style={colH ? { height: colH } : undefined}
+          >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+              {heroCard}
+              {returnCard}
+              {investedCard}
+              {realizedCard}
+            </div>
+
+            {chartCard}
+
+            {/* Számláim — közvetlenül az Eszközeim fölött */}
+            {accountsCard}
+
+            {/* Cap the holdings list so a long portfolio scrolls instead of
+                stretching the column (and dragging the right rail down with it). */}
+            <HoldingsPanel maxBodyHeight="26rem" fill />
           </div>
 
-          {valueSeries.length > 1 && (
-            <Card className="p-5">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="flex items-center gap-2 text-lg font-semibold">
-                    {chartMode === "profit"
-                      ? "Hozam az időben"
-                      : "Érték az időben"}
-                    <InfoTip>
-                      {chartMode === "profit"
-                        ? range === "max"
-                          ? "Napi hozam (érték − befektetett tőke)."
-                          : "Hozam az időszak eleje óta (érték − befektetett tőke, a kezdőnaphoz képest; a be- és kifizetések nem számítanak bele)."
-                        : "Portfólió érték (kitöltött) vs. befektetett tőke (szaggatott)."}
-                    </InfoTip>
-                  </h2>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
-                    {(
-                      [
-                        { key: "value", label: "Érték" },
-                        { key: "profit", label: "Hozam" },
-                      ] as const
-                    ).map((m) => (
-                      <button
-                        key={m.key}
-                        onClick={() => setChartMode(m.key)}
-                        className={`rounded-md px-2.5 py-1 transition ${
-                          chartMode === m.key
-                            ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
-                            : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                        }`}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
-                    {RANGES.map((r) => (
-                      <button
-                        key={r.key}
-                        onClick={() => setRange(r.key)}
-                        disabled={!rangeAvail[r.key]}
-                        title={r.title}
-                        aria-label={r.title}
-                        aria-pressed={range === r.key}
-                        className={`rounded-md px-1.5 py-1 transition sm:px-2.5 disabled:cursor-not-allowed disabled:opacity-30 ${
-                          range === r.key
-                            ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
-                            : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <ValueChart
-                data={rangedSeries}
-                mode={chartMode}
-                profitBase={rangedProfitBase}
-                onScrub={setScrub}
-              />
-            </Card>
-          )}
+          {/* Jobb oldalsáv: élő árfolyamok → hírek → allokáció → események. Its height is
+              sized with the left column (colH, measured above); overflow-hidden
+              keeps the flex-1 events card inside that cap, its list scrolling — so
+              the card ends flush with the Eszközeim card's bottom. */}
+          <div
+            ref={railRef}
+            className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0 xl:overflow-hidden"
+            style={colH ? { height: colH } : undefined}
+          >
+            <LivePricesPanel />
+            <NewsCard />
+            {allocationCard}
 
-          {/* Számláim — közvetlenül az Eszközeim fölött */}
-          <Card className="p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Számláim</h2>
-              <Link
-                to="/accounts"
-                className="inline-flex items-center gap-1 text-sm text-[var(--color-brand)] hover:underline"
-              >
-                Összes <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-            {/* auto-fit: the cards always fill the row, however many accounts. Min
-                20rem keeps the full name readable (wraps to a new row instead of
-                cramming); min(100%,…) lets it shrink on a phone. */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-3">
-              {/* Empty accounts are noise here — the Számlák page still lists them. */}
-              {summary.accounts
-                .filter((a) => !isEmptyAccount(a))
-                .map((a) => (
-                  <Link
-                    key={a.account.id}
-                    to={`/accounts/${a.account.id}`}
-                    className="block min-w-0"
-                  >
-                    <div className="card-hover h-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="truncate font-medium"
-                          title={a.account.name}
-                        >
-                          {a.account.name}
-                        </span>
-                        <Badge tone="neutral">
-                          {accountKindLabel(a.account)}
-                        </Badge>
-                      </div>
-                      <div className="mt-2 flex items-end gap-3">
-                        <div className="min-w-0 flex-1 text-xs text-[var(--color-muted)]">
-                          <div>{a.holdings.length} pozíció</div>
-                          <div>
-                            készpénz <Amt>{formatMoney(a.cashValueHuf)}</Amt>
-                          </div>
-                        </div>
-                        {accountSparks.has(a.account.id) && (
-                          <div className="hidden h-8 w-16 shrink-0 sm:block">
-                            <Sparkline
-                              data={accountSparks.get(a.account.id)!}
-                              stroke={
-                                (accountReturn(a) ?? 0) >= 0
-                                  ? "var(--color-positive)"
-                                  : "var(--color-negative)"
-                              }
-                              className="h-full w-full"
-                            />
-                          </div>
-                        )}
-                        <div className="text-right">
-                          <div className="amt font-semibold tabular-nums">
-                            {formatMoney(a.totalValueHuf)}
-                          </div>
-                          {accountReturn(a) != null && (
-                            <Delta pct={accountReturn(a)} className="text-xs" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-            </div>
-          </Card>
+            {/* Havi célok (DCA) — kompakt haladás-gyűrűk. Csak ha van cél. */}
+            {goalsCard}
 
-          {/* Cap the holdings list so a long portfolio scrolls instead of
-              stretching the column (and dragging the right rail down with it). */}
-          <HoldingsPanel maxBodyHeight="26rem" fill />
+            {/* Közelgő események — a jobb oszlop alján; xl-en kitölti a maradék
+                magasságot, hogy az alja az Eszközeim aljához érjen. */}
+            {eventsCard}
+          </div>
         </div>
-
-        {/* Jobb oldalsáv: élő árfolyamok → hírek → allokáció → események. Its height is
-            sized with the left column (colH, measured above); overflow-hidden
-            keeps the flex-1 events card inside that cap, its list scrolling — so
-            the card ends flush with the Eszközeim card's bottom. */}
-        <div
-          ref={railRef}
-          className="flex w-full flex-col gap-4 xl:w-[400px] xl:shrink-0 xl:overflow-hidden"
-          style={colH ? { height: colH } : undefined}
-        >
-          <LivePricesPanel />
-          <NewsCard />
-          {/* Allocation donut */}
-          <Card className="p-5">
-            <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
-            <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
-              {(
-                [
-                  ["class", "Eszköztípus"],
-                  ["currency", "Deviza"],
-                  ["account", "Számla"],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  onClick={() => setAllocMode(mode)}
-                  className={`rounded-md px-2.5 py-1 transition ${
-                    allocMode === mode
-                      ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
-                      : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="relative h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={allocation}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={70}
-                    outerRadius={100}
-                    paddingAngle={3}
-                    stroke="none"
-                    isAnimationActive={!reduceMotion}
-                    animationDuration={900}
-                    animationEasing="ease-out"
-                    onMouseEnter={(_, i) => setActiveSlice(i)}
-                    onMouseLeave={() => setActiveSlice(null)}
-                    onClick={(_, i) =>
-                      setActiveSlice((cur) => (cur === i ? null : i))
-                    }
-                  >
-                    {allocation.map((_, i) => (
-                      <Cell
-                        key={i}
-                        fill={COLORS[i % COLORS.length]}
-                        fillOpacity={
-                          activeSlice == null || activeSlice === i ? 1 : 0.3
-                        }
-                        style={{ transition: "fill-opacity 0.2s" }}
-                      />
-                    ))}
-                  </Pie>
-                  {/* Pop-out ring for the active slice: the same data gives the
-                      same angles, only the active cell is painted. */}
-                  {activeSlice != null && (
-                    <Pie
-                      data={allocation}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={98}
-                      outerRadius={106}
-                      paddingAngle={3}
-                      stroke="none"
-                      isAnimationActive={false}
-                      style={{ pointerEvents: "none" }}
-                    >
-                      {allocation.map((_, i) => (
-                        <Cell
-                          key={i}
-                          fill={
-                            i === activeSlice
-                              ? COLORS[i % COLORS.length]
-                              : "transparent"
-                          }
-                        />
-                      ))}
-                    </Pie>
-                  )}
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
-                {(() => {
-                  const slice =
-                    activeSlice != null ? allocation[activeSlice] : undefined;
-                  return (
-                    <>
-                      {/* Keyed: the new label swaps in at once and fades up, so
-                          it can never lag behind the amount below it. */}
-                      <motion.span
-                        key={slice?.name ?? "__total"}
-                        initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.18 }}
-                        className="max-w-full truncate text-xs text-[var(--color-muted)]"
-                      >
-                        {slice?.name ?? "Összesen"}
-                      </motion.span>
-                      <span
-                        className={`amt donut-amount font-display font-semibold ${
-                          slice ? "text-lg" : "text-xl"
-                        }`}
-                      >
-                        <AnimatedAmount
-                          value={slice?.value ?? summary.totalValueHuf}
-                          format={(n) => formatMoney(n)}
-                          duration={0.35}
-                        />
-                      </span>
-                      {slice && (
-                        <span className="text-xs font-medium text-[var(--color-brand)]">
-                          {formatPercent(
-                            slice.value / summary.totalValueHuf,
-                          ).replace("+", "")}
-                        </span>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {allocation.map((a, i) => (
-                <div
-                  key={a.name}
-                  className={`flex cursor-default items-center gap-2 rounded-lg px-1 py-0.5 text-sm transition-colors ${
-                    activeSlice === i ? "bg-[var(--color-surface-2)]/60" : ""
-                  }`}
-                  onMouseEnter={() => setActiveSlice(i)}
-                  onMouseLeave={() => setActiveSlice(null)}
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ background: COLORS[i % COLORS.length] }}
-                  />
-                  <span className="flex-1 truncate text-[var(--color-muted)]">
-                    {a.name}
-                  </span>
-                  <span className="tabular-nums">
-                    {formatPercent(a.value / summary.totalValueHuf).replace(
-                      "+",
-                      "",
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Havi célok (DCA) — kompakt haladás-gyűrűk. Csak ha van cél. */}
-          {goalProgress.length > 0 && (
-            <Card className="p-5">
-              <div className="mb-4 flex items-center gap-2">
-                <Target className="h-5 w-5 text-[var(--color-brand)]" />
-                <h2 className="text-lg font-semibold">Célok</h2>
-              </div>
-              <div className="space-y-3">
-                {goalProgress.map((p) => {
-                  const pct = Math.min(Math.max(p.ratio, 0), 1) * 100;
-                  const color = p.done
-                    ? "var(--color-positive)"
-                    : "var(--color-brand)";
-                  return (
-                    <Link
-                      key={p.goal.id}
-                      to="/goals"
-                      className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 card-hover"
-                    >
-                      <div className="relative h-12 w-12 shrink-0">
-                        <div
-                          className="absolute inset-0 rounded-full"
-                          style={{
-                            background: `conic-gradient(${color} ${pct}%, var(--color-surface-2) 0)`,
-                          }}
-                        />
-                        <div className="absolute inset-[3px] grid place-items-center rounded-full bg-[var(--color-surface)] text-[11px] font-semibold tabular-nums">
-                          {Math.round(p.ratio * 100)}%
-                        </div>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {p.instrumentName}
-                          </span>
-                          {p.done && (
-                            <Badge tone="positive">Teljesítve</Badge>
-                          )}
-                        </div>
-                        <div className="amt mt-0.5 text-xs tabular-nums text-[var(--color-muted)]">
-                          {formatMoney(p.investedHuf)} /{" "}
-                          {formatMoney(p.targetHuf)}
-                          {!p.done && p.remainingHuf > 0 && (
-                            <> · még {formatMoney(p.remainingHuf)}</>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-
-          {/* Közelgő események — a jobb oszlop alján; xl-en kitölti a maradék
-              magasságot, hogy az alja az Eszközeim aljához érjen. */}
-          {events.length > 0 && (
-            <Card
-              id={UPCOMING_EVENTS_ID}
-              className="flex flex-col p-5 xl:min-h-0 xl:flex-1"
-            >
-              <div className="mb-4 flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" />
-                <h2 className="text-lg font-semibold">Közelgő események</h2>
-              </div>
-              {/* Mobilon fix magasságú (max-h) és görgethető; xl-en a kártya
-                  flex-1-e adja a magasságot, a lista kitölti és görget. */}
-              <div className="max-h-[17rem] min-h-0 space-y-2 overflow-y-auto pr-1 xl:max-h-none xl:flex-1">
-                {events.map((e) => {
-                  const key = `${e.date}:${e.kind}:${e.title}`;
-                  const Icon = EVENT_ICON[e.kind];
-                  const inner = (
-                    <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--color-brand)]/15 text-[var(--color-brand)]">
-                        <Icon className="h-[18px] w-[18px]" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">
-                          {e.title}
-                        </div>
-                        <div className="text-xs text-[var(--color-muted)]">
-                          {formatDate(e.date)} ·{" "}
-                          {e.daysUntil === 0
-                            ? "ma"
-                            : `${e.daysUntil} nap múlva`}
-                          {e.detail ? ` · ${e.detail}` : ""}
-                        </div>
-                      </div>
-                      {e.amountHuf != null && (
-                        <div className="amt text-right text-sm font-semibold tabular-nums">
-                          {e.kind === "coupon" ? "+" : ""}
-                          {formatMoney(e.amountHuf)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                  return e.accountId ? (
-                    <Link
-                      key={key}
-                      to={`/accounts/${e.accountId}`}
-                      className="block card-hover rounded-xl"
-                    >
-                      {inner}
-                    </Link>
-                  ) : (
-                    <div key={key}>{inner}</div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-        </div>
-      </div>
+      )}
     </div>
+  );
+}
+
+type MobileTab = "holdings" | "market" | "allocation" | "events";
+
+const DASH_TABS: { key: MobileTab; label: string }[] = [
+  { key: "holdings", label: "Eszközök" },
+  { key: "market", label: "Piac" },
+  { key: "allocation", label: "Allokáció" },
+  { key: "events", label: "Események" },
+];
+
+function MobileAccounts({ accounts }: { accounts: AccountSummary[] }) {
+  return (
+    <Card className="overflow-hidden !p-0">
+      <div className="flex items-center justify-between px-4 pb-1 pt-4">
+        <h2 className="text-base font-semibold">Számláim</h2>
+        <Link
+          to="/accounts"
+          className="inline-flex items-center gap-1 text-sm text-[var(--color-brand)]"
+        >
+          Összes <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
+      <div className="divide-y divide-[var(--color-border)]/60">
+        {accounts
+          .filter((a) => !isEmptyAccount(a))
+          .map((a) => (
+            <Link
+              key={a.account.id}
+              to={`/accounts/${a.account.id}`}
+              className="mobile-row flex items-center gap-3 px-4 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {a.account.name}
+                </div>
+                <div className="text-xs text-[var(--color-muted)]">
+                  {accountKindLabel(a.account)} · {a.holdings.length} pozíció
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="amt text-sm font-semibold tabular-nums">
+                  {formatMoney(a.totalValueHuf)}
+                </div>
+                {accountReturn(a) != null && (
+                  <Delta pct={accountReturn(a)} className="text-xs" />
+                )}
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
+            </Link>
+          ))}
+      </div>
+    </Card>
   );
 }
 

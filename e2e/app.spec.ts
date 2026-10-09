@@ -246,7 +246,11 @@ test("the app shows the same total the bot computes", async ({ page }) => {
   await show(page, "/");
   // Compare digits only (the app groups with narrow spaces).
   await expect
-    .poll(async () => (await page.locator("main").innerText()).replace(/[\s\u00a0\u202f.]/g, ""))
+    .poll(async () => {
+      const main = page.locator("main");
+      const labels = await main.locator("[aria-label]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")).join(" "));
+      return `${await main.innerText()} ${labels}`.replace(/[\s\u00a0\u202f.]/g, "");
+    })
     .toContain(`${digits}Ft`);
 });
 
@@ -341,7 +345,7 @@ test.describe("market news (Hírek)", () => {
     });
   }
 
-  test("the page lists the latest digest; the dashboard card links to it", async ({ page }) => {
+  test("the page lists the latest digest; the dashboard card links to it", async ({ page }, info) => {
     const errors = await openSeeded(page, { sync: true });
     await withNews(page);
     await show(page, "/hirek");
@@ -355,6 +359,7 @@ test.describe("market news (Hírek)", () => {
 
     await show(page, "/");
     await expect(main).toContainText("Piaci hírek");
+    if (info.project.name === "mobile") await main.getByRole("tab", { name: "Piac" }).click();
     await main.getByRole("link", { name: /Összes hír/ }).click();
     await expect(page).toHaveURL(/#\/hirek$/);
     expect(errors, "console / page errors").toEqual([]);

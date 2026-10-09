@@ -1,5 +1,7 @@
 import InfoTip from "./InfoTip";
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -12,7 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { motion, animate, useReducedMotion } from "motion/react";
 import { useLocation } from "react-router-dom";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, X } from "lucide-react";
 import { formatMoney, formatPercent } from "../lib/format";
 import { useSkin } from "../lib/skin";
 
@@ -269,7 +271,7 @@ export function PageHeader({
   const terminal = useSkin((s) => s.skin) === "terminal";
   const { pathname } = useLocation();
   return (
-    <div className="page-header mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="page-header mb-5 flex flex-wrap items-end justify-between gap-3 md:mb-8 md:gap-4">
       <div>
         {terminal && (
           <div className="mb-1 text-xs text-[var(--color-muted)]">
@@ -296,6 +298,14 @@ export function PageHeader({
   );
 }
 
+const CardEnterContext = createContext(true);
+
+export function NoCardEnter({ children }: { children: ReactNode }) {
+  return (
+    <CardEnterContext.Provider value={false}>{children}</CardEnterContext.Provider>
+  );
+}
+
 export function Card({
   children,
   className = "",
@@ -308,12 +318,13 @@ export function Card({
   id?: string;
 }) {
   const reduce = useReducedMotion();
+  const enter = useContext(CardEnterContext);
   // Glide in the first time the card scrolls into view.
   return (
     <motion.div
       id={id}
       className={`card ${hover ? "card-hover" : ""} ${className}`}
-      initial={reduce ? false : { opacity: 0, y: 14 }}
+      initial={reduce || !enter ? false : { opacity: 0, y: 14 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "0px 0px -40px 0px" }}
       transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
@@ -543,6 +554,7 @@ export function StatCard({
   scrubbing = false,
   sparkline,
   sparkStroke = "var(--color-brand)",
+  variant = "card",
 }: {
   label: string;
   /** Static value; ignored when numericValue + format are given (count-up). */
@@ -575,8 +587,11 @@ export function StatCard({
   /** Tiny trend line drawn at the bottom of the card. */
   sparkline?: number[];
   sparkStroke?: string;
+  variant?: "card" | "compact" | "bare";
 }) {
   const reduce = useReducedMotion();
+  const bare = variant === "bare";
+  const compact = variant === "compact";
   // Ticker-style flash: when a fresh value arrives (e.g. after a price refresh)
   // the number briefly glows up/down. Skipped on first mount and reduced-motion.
   const [flash, setFlash] = useState<null | "up" | "down">(null);
@@ -598,9 +613,13 @@ export function StatCard({
     prevNum.current = numericValue;
   }, [numericValue, flashOnChange, reduce, scrubbing]);
 
-  const numberCls = hero
-    ? "font-display mt-2 text-3xl font-bold tracking-tight"
-    : "font-display mt-2 text-2xl font-semibold tracking-tight";
+  const numberCls = bare
+    ? "font-display mt-1 text-4xl font-bold tracking-tight"
+    : compact
+      ? "font-display mt-1.5 text-xl font-semibold tracking-tight"
+      : hero
+        ? "font-display mt-2 text-3xl font-bold tracking-tight"
+        : "font-display mt-2 text-2xl font-semibold tracking-tight";
   const flashCls = flash === "up" ? "flash-up" : flash === "down" ? "flash-down" : "";
   const showValue =
     numericValue != null && format ? (
@@ -608,7 +627,7 @@ export function StatCard({
         value={numericValue}
         format={format}
         instant={scrubbing}
-        gradient={hero}
+        gradient={hero || bare}
       />
     ) : (
       value
@@ -622,11 +641,15 @@ export function StatCard({
         duration: 0.4,
         ease: [0.22, 1, 0.36, 1],
       }}
-      className={`card card-hover relative overflow-hidden p-5 ${
-        accent || hero ? "ring-1 ring-[var(--color-brand)]/30" : ""
-      }`}
+      className={
+        bare
+          ? "stat-bare relative px-1 pb-1 pt-2"
+          : `card card-hover relative overflow-hidden ${compact ? "h-full p-4" : "p-5"} ${
+              accent || hero ? "ring-1 ring-[var(--color-brand)]/30" : ""
+            }`
+      }
     >
-      {aurora && (
+      {aurora && !bare && (
         <div
           className={`pointer-events-none absolute inset-0 opacity-70 ${
             reduce ? "" : "aurora"
@@ -634,7 +657,7 @@ export function StatCard({
           aria-hidden="true"
         />
       )}
-      {(accent || hero) && (
+      {(accent || hero) && !bare && (
         <div
           className={`pointer-events-none absolute -right-8 -top-10 rounded-full bg-[var(--color-brand)]/20 blur-2xl ${
             hero ? "h-40 w-40 bg-[var(--color-brand)]/25" : "h-32 w-32"
@@ -645,16 +668,20 @@ export function StatCard({
           while scrubbing the value chart) truncates instead of wrapping, so
           the card — and the whole column beside it — never changes height. */}
       <div className="relative flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sm text-[var(--color-muted)]">
+        <span
+          className={`min-w-0 truncate text-[var(--color-muted)] ${compact ? "text-xs" : "text-sm"}`}
+        >
           {label}
         </span>
-        {icon && (
+        {icon && !bare && (
           <span className="shrink-0 text-[var(--color-muted)]">{icon}</span>
         )}
       </div>
       <div className={`amt relative ${numberCls} ${flashCls}`}>{showValue}</div>
       {sub != null && (
-        <div className="amt relative mt-0.5 text-sm tabular-nums text-[var(--color-muted)]">
+        <div
+          className={`amt relative mt-0.5 tabular-nums text-[var(--color-muted)] ${compact ? "truncate text-xs" : "text-sm"}`}
+        >
           {sub}
         </div>
       )}
@@ -677,7 +704,7 @@ export function StatCard({
         </div>
       )}
       {sparkline && sparkline.length >= 2 && (
-        <div className="relative mt-3 h-8 w-full">
+        <div className={`relative w-full ${bare ? "mt-4 h-14" : "mt-3 h-8"}`}>
           <Sparkline
             data={sparkline}
             stroke={sparkStroke}
@@ -732,5 +759,45 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+export function BottomSheet({
+  label,
+  onClose,
+  children,
+  className = "",
+}: {
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className={`sheet-up absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-2xl ${className}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--color-border)]" />
+        <button
+          className="btn-ghost absolute right-3 top-3"
+          onClick={onClose}
+          aria-label="Bezárás"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        {children}
+      </div>
+    </div>,
+    document.body,
   );
 }

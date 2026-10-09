@@ -10,48 +10,13 @@ import { categorizeAlerts } from "../lib/alerts";
 import { useTodayUnread } from "../lib/news";
 import { formatMoney, formatPercent } from "../lib/format";
 import {
-  LayoutDashboard,
-  Wallet,
-  Upload,
-  Settings as SettingsIcon,
   TrendingUp,
-  Receipt,
-  CalendarDays,
-  LineChart,
-  Target,
-  Bell,
-  Sparkles,
-  Newspaper,
   ChevronsLeft,
   ChevronsRight,
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
-
-// Nav grouped by intent: overview | what happened/happens | planning |
-// attention | maintenance. Rendered with a thin separator between groups so
-// the 10 entries read as 5 small clusters instead of one long list.
-const linkGroups = [
-  [{ to: "/", label: "Áttekintés", icon: LayoutDashboard, end: true }],
-  [
-    { to: "/accounts", label: "Számlák", icon: Wallet, end: false },
-    { to: "/income", label: "Hozam", icon: Receipt, end: false },
-    { to: "/calendar", label: "Naptár", icon: CalendarDays, end: false },
-  ],
-  [
-    { to: "/forecast", label: "Előrejelzés", icon: LineChart, end: false },
-    { to: "/goals", label: "Célok", icon: Target, end: false },
-  ],
-  [
-    { to: "/alerts", label: "Figyelmeztetések", icon: Bell, end: false },
-    { to: "/hirek", label: "Hírek", icon: Newspaper, end: false },
-    { to: "/ai", label: "AI elemzés", icon: Sparkles, end: false },
-  ],
-  [
-    { to: "/import", label: "Importálás", icon: Upload, end: false },
-    { to: "/settings", label: "Beállítások", icon: SettingsIcon, end: false },
-  ],
-];
+import { SIDEBAR_GROUPS as linkGroups } from "./navLinks";
 
 const KEY = "pf-sidebar-collapsed";
 

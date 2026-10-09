@@ -242,6 +242,50 @@ body::before {
   }
 }
 
+.mobile-tab-pill {
+  background: color-mix(in oklab, var(--color-brand) 22%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--color-brand) 35%, transparent);
+}
+.mobile-tab:active,
+.mobile-tile:active,
+.mobile-row:active {
+  transform: scale(0.96);
+}
+.mobile-tab,
+.mobile-tile,
+.mobile-row {
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
+}
+.mobile-row:active {
+  transform: none;
+  background: color-mix(in oklab, var(--color-surface-2) 70%, transparent);
+}
+.mobile-swipe,
+.mobile-segments {
+  scrollbar-width: none;
+}
+.mobile-swipe::-webkit-scrollbar,
+.mobile-segments::-webkit-scrollbar {
+  display: none;
+}
+.mobile-segments {
+  background: color-mix(in oklab, var(--color-bg) 80%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+@media (max-width: 767px) {
+  .card.p-5,
+  .card.p-6 {
+    padding: 1rem;
+  }
+  .card h2.text-lg {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+}
+
 /* Ticker-style value flash: a brief coloured glow around the number when it
  * changes (works on gradient text via drop-shadow). */
 .flash-up {

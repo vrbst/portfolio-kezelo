@@ -1,7 +1,4 @@
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
-import { Badge } from "../ui";
+import { Badge, BottomSheet } from "../ui";
 import { formatMoney } from "../../lib/format";
 import {
   CAT_COLOR,
@@ -124,31 +121,9 @@ export function DaySheet({
   privacy: boolean;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return createPortal(
-    <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="A nap tételei"
-        className="sheet-up absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-8 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[var(--color-border)]" />
-        <button
-          className="btn-ghost absolute right-3 top-3"
-          onClick={onClose}
-          aria-label="Bezárás"
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <DayBody {...props} />
-      </div>
-    </div>,
-    document.body,
+  return (
+    <BottomSheet label="A nap tételei" onClose={onClose}>
+      <DayBody {...props} />
+    </BottomSheet>
   );
 }
