@@ -124,11 +124,17 @@ export function sectorKey(sector: string): string {
 
 export const sectorLabel = (key: string) => SECTOR_LABEL[key] ?? key;
 
-export function sectorExposure(
+/** Which holdings (and how many HUF of each) make up every sector. */
+export function sectorContributions(
   holdings: { key: string; valueHuf: number }[],
   file: FundamentalsFile | null,
-): { sectors: Weight[]; coveredHuf: number; totalHuf: number } {
-  const acc = new Map<string, number>();
+): { bySector: Map<string, { key: string; valueHuf: number }[]>; coveredHuf: number; totalHuf: number } {
+  const bySector = new Map<string, { key: string; valueHuf: number }[]>();
+  const add = (sector: string, key: string, valueHuf: number) => {
+    const list = bySector.get(sector) ?? [];
+    list.push({ key, valueHuf });
+    bySector.set(sector, list);
+  };
   let covered = 0;
   let total = 0;
   for (const h of holdings) {
@@ -138,18 +144,28 @@ export function sectorExposure(
     if (f?.sectors?.length) {
       const sum = f.sectors.reduce((s, w) => s + w.weight, 0);
       if (sum <= 0) continue;
-      for (const w of f.sectors) acc.set(w.name, (acc.get(w.name) ?? 0) + (h.valueHuf * w.weight) / sum);
+      for (const w of f.sectors) add(w.name, h.key, (h.valueHuf * w.weight) / sum);
       covered += h.valueHuf;
     } else if (f?.sector) {
-      const k = sectorKey(f.sector);
-      acc.set(k, (acc.get(k) ?? 0) + h.valueHuf);
+      add(sectorKey(f.sector), h.key, h.valueHuf);
       covered += h.valueHuf;
     }
   }
-  const sectors = [...acc]
-    .map(([name, v]) => ({ name, weight: covered > 0 ? v / covered : 0 }))
+  return { bySector, coveredHuf: covered, totalHuf: total };
+}
+
+export function sectorExposure(
+  holdings: { key: string; valueHuf: number }[],
+  file: FundamentalsFile | null,
+): { sectors: Weight[]; coveredHuf: number; totalHuf: number } {
+  const { bySector, coveredHuf, totalHuf } = sectorContributions(holdings, file);
+  const sectors = [...bySector]
+    .map(([name, items]) => ({
+      name,
+      weight: coveredHuf > 0 ? items.reduce((s, c) => s + c.valueHuf, 0) / coveredHuf : 0,
+    }))
     .sort((a, b) => b.weight - a.weight);
-  return { sectors, coveredHuf: covered, totalHuf: total };
+  return { sectors, coveredHuf, totalHuf };
 }
 
 export function staleErrors(file: FundamentalsFile | null, now: Date): [string, FetchError][] {

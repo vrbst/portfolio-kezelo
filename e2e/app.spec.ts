@@ -284,8 +284,21 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
     await show(page, "/");
     const main = page.locator("main");
     if (await main.getByRole("tab", { name: "Allokáció" }).count()) await main.getByRole("tab", { name: "Allokáció" }).click();
-    await expect(main).toContainText("Szektor-kitettség");
-    await expect(main).toContainText("Technológia");
+    const donut = main.getByTestId("alloc-donut");
+    const detail = page.getByTestId("slice-detail");
+    // A slice's legend row lists what it is made of: on hover (desktop) or tap (touch).
+    const point = async (name: string) => {
+      const row = donut.getByText(name, { exact: true });
+      if (await main.getByRole("tab", { name: "Allokáció" }).count()) await row.click();
+      else await row.hover();
+    };
+    await point("Állampapír");
+    await expect(detail).toContainText("Állampapír");
+    await donut.getByRole("button", { name: "Szektor" }).click();
+    await expect(donut).toContainText("Technológia");
+    await expect(donut).toContainText("alapján");
+    await point("Technológia");
+    await expect(detail).toContainText("VWCE");
     if (await main.getByRole("tab", { name: "Eszközök" }).count()) await main.getByRole("tab", { name: "Eszközök" }).click();
     await main.getByRole("button", { name: "VWCE" }).first().click();
     const sheet = page.getByRole("dialog", { name: /VWCE/ });

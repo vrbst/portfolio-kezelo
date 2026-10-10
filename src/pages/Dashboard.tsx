@@ -25,8 +25,6 @@ import {
   accountReturn,
   isEmptyAccount,
   buildValueSeries,
-  allocationByClass,
-  allocationByCurrency,
   type ValuePoint,
   type AccountSummary,
 } from "../lib/portfolio";
@@ -43,7 +41,15 @@ import {
   type RangeKey,
 } from "../lib/chartRange";
 import HoldingsTable, { HOLDINGS_PANEL_ID } from "../components/holdings/HoldingsTable";
-import SectorExposureCard from "../components/SectorExposureCard";
+import AllocationPopover, { SliceDetail } from "../components/AllocationPopover";
+import {
+  detailByAccount,
+  detailByClass,
+  detailByCurrency,
+  detailBySector,
+  type DetailMode,
+} from "../lib/allocationDetail";
+import { useFundamentalsFile } from "../lib/fundamentalsStore";
 import AlertsPanel from "../components/AlertsPanel";
 import LivePricesPanel from "../components/LivePricesPanel";
 import NewsCard from "../components/NewsCard";
@@ -68,9 +74,10 @@ import {
   formatPercent,
   formatDateTime,
   formatDate,
+  formatNumber,
   eurEquivalent,
 } from "../lib/format";
-import { accountKindLabel, assetClassLabel } from "../lib/labels";
+import { accountKindLabel } from "../lib/labels";
 import { CalendarClock, Landmark, Coins as CoinsIcon } from "lucide-react";
 import { SERIES_COLORS } from "../lib/skin";
 
@@ -186,25 +193,24 @@ export default function Dashboard() {
     return { abs, pct: stake > 0 ? abs / stake : undefined };
   }, [scrub, rangedSeries]);
 
-  const [allocMode, setAllocMode] = useState<"class" | "currency" | "account">(
-    "class",
+  const [allocMode, setAllocMode] = useState<DetailMode>("class");
+  const fundamentals = useFundamentalsFile();
+  const sectors = useMemo(
+    () => detailBySector(summary, fundamentals),
+    [summary, fundamentals],
   );
+  const hasSectors = sectors.slices.length > 0 && sectors.coveredHuf > 0;
+  // The sector view disappears with its data (e.g. sync turned off).
+  const mode: DetailMode = allocMode === "sector" && !hasSectors ? "class" : allocMode;
   const allocation = useMemo(() => {
-    if (allocMode === "account")
-      return summary.accounts
-        .filter((a) => a.totalValueHuf > 0)
-        .map((a) => ({ name: a.account.name, value: a.totalValueHuf }))
-        .sort((a, b) => b.value - a.value);
-    if (allocMode === "currency")
-      return allocationByCurrency(summary, fx).map((s) => ({
-        name: s.key,
-        value: s.value,
-      }));
-    return allocationByClass(summary).map((s) => ({
-      name: assetClassLabel[s.key as keyof typeof assetClassLabel] ?? s.key,
-      value: s.value,
-    }));
-  }, [summary, allocMode, fx]);
+    if (mode === "sector") return sectors.slices;
+    if (mode === "account") return detailByAccount(summary);
+    if (mode === "currency") return detailByCurrency(summary, fx);
+    return detailByClass(summary);
+  }, [summary, mode, fx, sectors]);
+  // Percentages: of the whole portfolio, or — for sectors — of the covered part.
+  const allocBase = mode === "sector" ? sectors.coveredHuf : summary.totalValueHuf;
+  const allocCardRef = useRef<HTMLDivElement>(null);
 
   const events = useMemo(
     () => upcomingEvents(summary, undefined, transactions).slice(0, 12),
@@ -537,20 +543,35 @@ export default function Dashboard() {
 
   const allocationCard = (
     <Card className="p-5">
-      <h2 className="mb-3 text-lg font-semibold">Eszközallokáció</h2>
+      <div ref={allocCardRef} data-testid="alloc-donut" className="relative">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-lg font-semibold">Eszközallokáció</h2>
+        {mode === "sector" && (
+          <InfoTip>
+            Az ETF-eken átnézve: minden alapot a saját szektor-súlyai szerint,
+            minden részvényt a saját szektorában számol, a pozíciók értékével
+            súlyozva. Az állampapír, a készpénz és az adat nélküli papír (pl.
+            kripto-ETP) kimarad. Forrás: Yahoo Finance, a bot naponta frissíti.
+          </InfoTip>
+        )}
+      </div>
       <div className="mb-4 inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
         {(
           [
             ["class", "Eszköztípus"],
             ["currency", "Deviza"],
             ["account", "Számla"],
-          ] as const
-        ).map(([mode, label]) => (
+            ...(hasSectors ? [["sector", "Szektor"] as const] : []),
+          ] as (readonly [DetailMode, string])[]
+        ).map(([m, label]) => (
           <button
-            key={mode}
-            onClick={() => setAllocMode(mode)}
+            key={m}
+            onClick={() => {
+              setAllocMode(m);
+              setActiveSlice(null);
+            }}
             className={`rounded-md px-2.5 py-1 transition ${
-              allocMode === mode
+              mode === m
                 ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
                 : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
             }`}
@@ -633,7 +654,7 @@ export default function Dashboard() {
                   transition={{ duration: 0.18 }}
                   className="max-w-full truncate text-xs text-[var(--color-muted)]"
                 >
-                  {slice?.name ?? "Összesen"}
+                  {slice?.name ?? (mode === "sector" ? "Besorolt" : "Összesen")}
                 </motion.span>
                 <span
                   className={`amt donut-amount font-display font-semibold ${
@@ -641,16 +662,14 @@ export default function Dashboard() {
                   }`}
                 >
                   <AnimatedAmount
-                    value={slice?.value ?? summary.totalValueHuf}
+                    value={slice?.value ?? allocBase}
                     format={(n) => formatMoney(n)}
                     duration={0.35}
                   />
                 </span>
                 {slice && (
                   <span className="text-xs font-medium text-[var(--color-brand)]">
-                    {formatPercent(
-                      slice.value / summary.totalValueHuf,
-                    ).replace("+", "")}
+                    {formatPercent(slice.value / allocBase).replace("+", "")}
                   </span>
                 )}
               </>
@@ -661,7 +680,7 @@ export default function Dashboard() {
       <div className="mt-4 space-y-2">
         {allocation.map((a, i) => (
           <div
-            key={a.name}
+            key={a.key}
             className={`flex cursor-default items-center gap-2 rounded-lg px-1 py-0.5 text-sm transition-colors ${
               activeSlice === i ? "bg-[var(--color-surface-2)]/60" : ""
             }`}
@@ -676,13 +695,32 @@ export default function Dashboard() {
               {a.name}
             </span>
             <span className="tabular-nums">
-              {formatPercent(a.value / summary.totalValueHuf).replace(
-                "+",
-                "",
-              )}
+              {formatPercent(a.value / allocBase).replace("+", "")}
             </span>
           </div>
         ))}
+      </div>
+      {mode === "sector" && summary.totalValueHuf > 0 && (
+        <p className="mt-3 text-xs text-[var(--color-muted)]">
+          A portfólió{" "}
+          {formatNumber((sectors.coveredHuf / summary.totalValueHuf) * 100, 0)}
+          %-a alapján.
+        </p>
+      )}
+      {activeSlice != null && allocation[activeSlice] && (
+        isMobile ? (
+          // No hover on touch: the tapped slice's breakdown sits under the list.
+          <div data-testid="slice-detail" className="mt-3 rounded-xl border border-[var(--color-border)] p-3">
+            <SliceDetail slice={allocation[activeSlice]} base={allocBase} />
+          </div>
+        ) : (
+          <AllocationPopover
+            slice={allocation[activeSlice]}
+            base={allocBase}
+            containerRef={allocCardRef}
+          />
+        )
+      )}
       </div>
     </Card>
   );
@@ -904,7 +942,6 @@ export default function Dashboard() {
             {activeTab === "allocation" && (
               <div key="allocation" role="tabpanel" className="flex flex-col gap-4">
                 {allocationCard}
-                <SectorExposureCard />
                 {goalsCard}
               </div>
             )}
@@ -952,7 +989,6 @@ export default function Dashboard() {
             <LivePricesPanel />
             <NewsCard />
             {allocationCard}
-            <SectorExposureCard />
 
             {/* Havi célok (DCA) — kompakt haladás-gyűrűk. Csak ha van cél. */}
             {goalsCard}
