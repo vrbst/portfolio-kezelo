@@ -61,6 +61,8 @@ export function claudeCodeEngine(opts: {
   bin: string;
   model: string;
   schema?: object;
+  /** Claude Code tools to allow; "" = none (default: the web research tools). */
+  tools?: string;
   onRun?: (run: EngineRun) => void;
 }): NewsEngine {
   return {
@@ -93,13 +95,14 @@ export function claudeCodeEngine(opts: {
           report(false, e.message.slice(0, 200));
           rejectRun(e);
         };
+        const tools = opts.tools ?? "WebSearch,WebFetch";
         const args = [
           "-p",
           "--output-format", "json",
           "--model", opts.model,
-          // Only reading the web: nothing that touches this machine.
-          "--tools", "WebSearch,WebFetch",
-          "--allowedTools", "WebSearch,WebFetch",
+          // Only reading the web (or nothing): nothing that touches this machine.
+          "--tools", tools,
+          ...(tools ? ["--allowedTools", tools] : []),
           "--json-schema", JSON.stringify(opts.schema ?? NEWS_JSON_SCHEMA),
         ];
         // Outside the repo: the project's CLAUDE.md is about coding, not news.

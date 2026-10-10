@@ -36,26 +36,18 @@ import {
   useValuedInstruments,
 } from "../lib/store";
 import {
-  computeReturns,
   futureBondCashflows,
-  isInternalTransfer,
-  toHuf,
   toLocalDay,
   consolidatedHoldings,
 } from "../lib/portfolio";
 import { bondAdvice, bondMarket } from "../lib/bondSwitch";
-import { upcomingEvents } from "../lib/events";
-import { tbszStatus } from "../lib/tbsz";
-import { computeSavingsProgress, savingsGoalExpenses } from "../lib/savings";
-import { effectiveMonthKey } from "../lib/goals";
-import { forecastMilestones, projectFromSettings } from "../lib/forecast";
+import { savingsGoalExpenses } from "../lib/savings";
 import { Card } from "./ui";
 import {
   loadAiKey,
   loadAiModel,
   modelLabel,
   modelInfo,
-  buildAiPortfolioContext,
   runClaude,
   loadSpend,
   loadAiLimits,
@@ -70,6 +62,7 @@ import {
   STRUCTURED_ANALYSIS_PROMPT,
   loadAnalyses,
   loadLegacyAnalysis,
+  newestAnalysis,
   parseAnalysis,
   previousForPrompt,
   saveAnalysis,
@@ -86,6 +79,8 @@ import {
   type DisplayTurn,
 } from "../lib/aiChat";
 import { txDay } from "../lib/day";
+import { buildFullAiContext } from "../lib/aiContext";
+import { useNightlyAnalysis } from "../lib/aiNightly";
 
 const usd = (n: number) =>
   n < 0.01 ? `${(n * 100).toFixed(2)} cent` : `$${n.toFixed(2)}`;
@@ -153,119 +148,41 @@ export default function AiPanel() {
   }, [summary, bondRates, savingsGoals]);
 
   // The live snapshot. A conversation freezes its own copy when it starts.
-  const context = useMemo(() => {
-    const instMap = new Map(instruments.map((i) => [i.key, i]));
-    const returns = computeReturns(
+  const context = useMemo(
+    () =>
+      buildFullAiContext({
+        summary,
+        accounts,
+        transactions,
+        instruments,
+        prices,
+        fx,
+        historyFile,
+        bondRates,
+        series,
+        dayChange,
+        goals,
+        alerts,
+        savingsGoals,
+        glide,
+      }),
+    [
+      summary,
       accounts,
       transactions,
-      instMap,
+      instruments,
       prices,
       fx,
       historyFile,
-    );
-    const { assumptions, result } = projectFromSettings(
-      summary,
-      transactions,
-      fx,
-      goalExpenses,
-    );
-    const now = new Date();
-    // The effective month: payday deposits count toward the next month.
-    const monthKey = effectiveMonthKey(now);
-    const yearAgo = new Date(now);
-    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-    const yearAgoIso = toLocalDay(yearAgo);
-    const inYear = new Date(now);
-    inYear.setFullYear(inYear.getFullYear() + 1);
-    const inYearIso = toLocalDay(inYear);
-    let thisMonthNet = 0;
-    let last12 = 0;
-    for (const t of transactions) {
-      if (t.internal || isInternalTransfer(t)) continue;
-      const huf = toHuf(Math.abs(t.grossAmount ?? t.netAmount ?? 0), t.currency, fx);
-      if (effectiveMonthKey(t.date) === monthKey) {
-        if (t.type === "deposit") thisMonthNet += huf;
-        if (t.type === "withdrawal") thisMonthNet -= huf;
-      }
-      if ((t.type === "interest" || t.type === "dividend") && txDay(t.date) >= yearAgoIso)
-        last12 += huf;
-    }
-    const next12 = cashflows.filter((c) => txDay(c.date) < inYearIso);
-    return buildAiPortfolioContext(summary, fx, returns, {
-      dayChange,
+      bondRates,
       series,
+      dayChange,
       goals,
       alerts,
-      events: upcomingEvents(summary, undefined, transactions),
-      // Every TBSZ account on its own (two can share a vintage), oldest first.
-      tbsz: summary.accounts
-        .filter(
-          (a) =>
-            a.account.kind === "tbsz" &&
-            a.account.tbszYear &&
-            Math.abs(a.totalValueHuf) >= 1,
-        )
-        .sort((a, b) => a.account.tbszYear! - b.account.tbszYear!)
-        .map((a) => ({
-          name: a.account.name,
-          status: tbszStatus(a.account.tbszYear!, now),
-          grossHuf: a.totalValueHuf,
-          gainHuf: a.totalValueHuf - a.capitalBasisHuf,
-        })),
-      savings: computeSavingsProgress(
-        savingsGoals,
-        accounts,
-        transactions,
-        instMap,
-        prices,
-        fx,
-      ),
-      forecast: {
-        monthlySavingHuf: assumptions.monthlySavingHuf,
-        milestones: forecastMilestones(result)
-          .filter((m) => [1, 5, 10].includes(m.years))
-          .map((m) => ({
-            years: m.years,
-            real: m.point.real,
-            pess: m.point.pess,
-            opt: m.point.opt,
-          })),
-        shortfall: result.shortfall.real ?? result.shortfall.pess,
-      },
+      savingsGoals,
       glide,
-      bonds,
-      budget: {
-        monthlyHuf: assumptions.monthlySavingHuf,
-        thisMonthNetHuf: thisMonthNet,
-      },
-      passive: {
-        last12Huf: last12,
-        next12CouponHuf: next12
-          .filter((c) => c.kind === "coupon")
-          .reduce((s, c) => s + c.amountHuf, 0),
-        next12MaturityHuf: next12
-          .filter((c) => c.kind === "maturity")
-          .reduce((s, c) => s + c.amountHuf, 0),
-      },
-    });
-  }, [
-    summary,
-    accounts,
-    transactions,
-    instruments,
-    prices,
-    fx,
-    historyFile,
-    series,
-    dayChange,
-    goals,
-    alerts,
-    savingsGoals,
-    goalExpenses,
-    cashflows,
-    glide,
-    bonds,
-  ]);
+    ],
+  );
 
   const toolEnv: ToolEnv = {
     summary,
@@ -298,7 +215,11 @@ export default function AiPanel() {
   const [aThinking, setAThinking] = useState("");
   const [aError, setAError] = useState<string | null>(null);
   const aAbort = useRef<AbortController | null>(null);
-  const latest = analyses.at(-1);
+  // The nightly one (made on the owner's machine, synced) or this device's own
+  // — whichever is newer; it is also what a new analysis compares to.
+  const nightly = useNightlyAnalysis();
+  const latest: StoredAnalysis | undefined = newestAnalysis(analyses.at(-1), nightly ?? undefined);
+  const latestIsNightly = !!nightly && latest === nightly;
 
   async function runAnalysis() {
     setARunning(true);
@@ -465,7 +386,7 @@ export default function AiPanel() {
     return s.slice(0, 5);
   }, [savingsGoals, cashflows, bonds, toggles.tools, toggles.web]);
 
-  if (!apiKey)
+  if (!apiKey && !latest)
     return (
       <Card className="p-6">
         <p className="text-sm text-[var(--color-muted)]">
@@ -483,6 +404,7 @@ export default function AiPanel() {
   return (
     <div className="space-y-4">
       {/* Status strip: model, monthly spend vs. limit, opt-in switches */}
+{apiKey && (
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
         <div className="min-w-44 flex-1">
           <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-muted)]">
@@ -522,6 +444,7 @@ export default function AiPanel() {
           hint={`Friss piaci információ a webről, forrásokkal. Keresésenként kb. 1 cent, kérdésenként legfeljebb ${limits.webSearchMaxUses} keresés.`}
         />
       </Card>
+      )}
 
       {/* Analysis */}
       <Card className="p-5 sm:p-6">
@@ -533,8 +456,8 @@ export default function AiPanel() {
             </h2>
             {latest && !aRunning && (
               <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-                {formatWhen(latest.at)} · {modelLabel(latest.model)} ·{" "}
-                {usd(latest.costUsd)}
+                {formatWhen(latest.at)} · {modelLabel(latest.model)}
+                {latestIsNightly ? " · éjszakai, az előfizetésből" : ` · ${usd(latest.costUsd)}`}
               </p>
             )}
           </div>
@@ -543,12 +466,12 @@ export default function AiPanel() {
               <Square className="h-4 w-4" />
               Leállítás
             </button>
-          ) : (
+          ) : apiKey ? (
             <button className="btn-primary" onClick={runAnalysis}>
               <Sparkles className="h-4 w-4" />
               {latest || legacy ? "Új elemzés" : "Elemzés indítása"}
             </button>
-          )}
+          ) : null}
         </div>
 
         {aRunning && <ThinkingBox text={aThinking} label="Elemzés készül…" />}
@@ -619,6 +542,7 @@ export default function AiPanel() {
       </Card>
 
       {/* Chat */}
+{apiKey && (
       <Card className="p-5 sm:p-6">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Beszélgess a portfóliódról</h2>
@@ -727,6 +651,7 @@ export default function AiPanel() {
           </InfoTip>
         </p>
       </Card>
+      )}
     </div>
   );
 }

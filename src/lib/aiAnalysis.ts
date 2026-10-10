@@ -147,3 +147,49 @@ export function loadLegacyAnalysis(): { text: string; at: string } | null {
     return null;
   }
 }
+
+// ---- the nightly analysis (made on the owner's machine) -----------------------
+// The local notifier (scripts/notify/analysis/) runs the same analysis with
+// Claude Code on the owner's subscription and writes it to the private sync
+// repo, where every device's AI page reads it back.
+
+export const ANALYSIS_DIR = "analysis";
+export const ANALYSIS_LATEST_PATH = `${ANALYSIS_DIR}/latest.json`;
+export const analysisDayPath = (day: string) => `${ANALYSIS_DIR}/${day}.json`;
+
+/** The stored file: a StoredAnalysis plus where and for which day it was made. */
+export interface NightlyAnalysis extends StoredAnalysis {
+  version: 1;
+  /** Local day (YYYY-MM-DD) it was made. */
+  day: string;
+  engine: string;
+}
+
+export function validateNightly(x: unknown): NightlyAnalysis {
+  if (!x || typeof x !== "object") throw new Error("Sérült elemzésfájl: nem objektum.");
+  const o = x as Record<string, unknown>;
+  if (typeof o.version === "number" && o.version > 1)
+    throw new Error("Az elemzésfájl újabb verzióval készült — frissítsd az appot.");
+  if (typeof o.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(o.day))
+    throw new Error("Sérült elemzésfájl: hiányzó nap.");
+  const data = parseAnalysis(JSON.stringify(o.data));
+  if (!data) throw new Error("Sérült elemzésfájl: az elemzés nem értelmezhető.");
+  return {
+    version: 1,
+    day: o.day,
+    at: String(o.at ?? ""),
+    model: String(o.model ?? ""),
+    engine: String(o.engine ?? ""),
+    costUsd: typeof o.costUsd === "number" ? o.costUsd : 0,
+    data,
+  };
+}
+
+/** The newer of two analyses (by time); either may be missing. */
+export function newestAnalysis<T extends StoredAnalysis>(
+  a: T | undefined,
+  b: T | undefined,
+): T | undefined {
+  if (!a || !b) return a ?? b;
+  return Date.parse(b.at) > Date.parse(a.at) ? b : a;
+}

@@ -18,7 +18,9 @@ import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
 import { portfolioExposure } from "./news/prompt";
+import { makeAnalysis, type AnalysisDeps } from "./analysis/job";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
+import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
 import { loadContext, withGlideAlerts, type Context } from "./data";
 import { loadState, updateState, type State } from "./state";
@@ -42,6 +44,7 @@ import {
   liquidationText,
   mft,
   monthlyText,
+  analysisText,
   newsText,
   pct,
   planText,
@@ -98,6 +101,8 @@ export interface Deps {
   /** The daily news digest's AI and storage (built only when needed). */
   news?: (job?: string) => NewsDeps;
   why?: () => NewsEngine;
+  /** The nightly AI analysis's AI and storage (built only when needed). */
+  analysis?: () => AnalysisDeps;
   fundamentals?: () => FundamentalsDeps;
   aiUsageFile?: string;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
@@ -118,6 +123,18 @@ export function defaultDeps(): Deps {
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
+    }),
+    analysis: () => ({
+      // No tools: it reasons over the snapshot alone, nothing to look up.
+      engine: claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.analysisModel,
+        schema: ANALYSIS_SCHEMA,
+        tools: "",
+        onRun: logRun(ANALYSIS_JOB, env.analysisModel),
+      }),
+      store: repoStore(env.syncRepo, newsGithubToken),
+      cacheDir: resolve(NOTIFY_DIR, "analysis"),
     }),
     why: () =>
       claudeCodeEngine({
@@ -248,6 +265,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === "tick") return tick(deps);
       if (req.job === "news-morning") return news(deps, "morning", req.manual === true);
       if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
+      if (req.job === ANALYSIS_JOB) return analysisJob(deps, req.manual === true);
       if (req.job === WHY_JOB) return whyMoved(deps);
       if (req.job === FUNDAMENTALS_JOB) return fundamentalsJob(deps);
       return fail(`Ismeretlen job: ${req.job}`);
@@ -458,6 +476,35 @@ async function latestNews(deps: Deps): Promise<HubResponse> {
       messages: [msg("📰 Még nincs hírösszefoglaló. Hétköznap kettő készül: 7:45 körül (a Xetra nyitása előtt) és 18:15 körül (a zárása után).")],
     };
   return { v: 1, messages: [msg(newsText(digest, ctx, nd.appUrl))] };
+}
+
+// ---- the nightly AI analysis --------------------------------------------
+
+export const ANALYSIS_JOB = "analysis";
+
+/**
+ * Job "analysis" (Tue–Sat in the small hours, so every weekday's close is in
+ * it, tg-hub.app.json): the app's AI analysis, run with Claude Code on the
+ * subscription → the sync repo and one message (the hub holds it back until
+ * the quiet hours end). Once a day by schedule; a manual run sends today's
+ * again from the local copy (this also retries a failed upload).
+ */
+async function analysisJob(deps: Deps, manual: boolean): Promise<HubResponse> {
+  if (!deps.analysis) return fail("Az éjszakai AI-elemzés nincs beállítva.");
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const today = toLocalDay(ctx.at);
+  if (!manual && loadState(deps.stateFile).analysis === today) {
+    console.error(`analysis: ${today} done already`);
+    return { v: 1, messages: [] };
+  }
+  const run = await makeAnalysis(ctx, deps.analysis(), { reuseLocal: manual });
+  if (!manual)
+    updateState(deps.stateFile, (cur) => ({ ...cur, analysis: run.analysis.day }));
+  return {
+    v: 1,
+    messages: [msg(analysisText(run.analysis, loadEnv().appUrl, run.uploadError))],
+  };
 }
 
 // ---- the 5-minute tick ----------------------------------------------------

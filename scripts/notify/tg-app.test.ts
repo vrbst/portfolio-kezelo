@@ -758,3 +758,67 @@ describe("Miért mozdult?", () => {
     expect(article("VWCE")).toBe("a");
   });
 });
+
+describe("nightly AI analysis", () => {
+  const NIGHT: [number, number, number, number, number] = [2026, 10, 15, 3, 30];
+  const analysisAnswer = () => ({
+    headline: "Minden rendben.",
+    overall: "rendben",
+    changes: "Nőtt a készpénz aránya.",
+    sections: [{ topic: "egyeb", title: "Egyéb", status: "rendben", text: "Semmi különös." }],
+  });
+  const analysisDeps = (engine = fakeEngine([analysisAnswer()]), store = memoryStore()) => ({
+    deps: {
+      ...depsFor(() => contextAt(NIGHT)),
+      analysis: () => ({ engine, store, cacheDir: join(dir, "analysis") }),
+    } satisfies Deps,
+    engine,
+    store,
+  });
+  const manual = JSON.stringify({ ...JSON.parse(jobReq("analysis")), manual: true });
+
+  it("one normal message with what changed, uploaded, once a day", async () => {
+    const { deps, engine, store } = analysisDeps();
+    const r = await call(jobReq("analysis"), deps);
+    expect(r.ok).toBeUndefined();
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].priority).toBe("normal");
+    expect(r.messages![0].html).toContain("AI-elemzés kész");
+    expect(r.messages![0].html).toContain("Nőtt a készpénz aránya.");
+    expect(store.writes).toEqual(["analysis/2026-10-15.json", "analysis/latest.json"]);
+    expect(readState().analysis).toBe("2026-10-15");
+
+    expect(await call(jobReq("analysis"), deps)).toEqual({ v: 1, messages: [] });
+    expect(engine.prompts).toHaveLength(1);
+  });
+
+  it("a manual run sends it again from the local copy", async () => {
+    const { deps, engine } = analysisDeps();
+    await call(jobReq("analysis"), deps);
+    expect((await call(manual, deps)).messages).toHaveLength(1);
+    expect(engine.prompts).toHaveLength(1);
+  });
+
+  it("an AI failure is a job error and does not count as done", async () => {
+    const { deps } = analysisDeps(fakeEngine([]));
+    const r = await call(jobReq("analysis"), deps);
+    expect(r.ok).toBe(false);
+    expect(existsSync(stateFile) ? readState().analysis : undefined).toBeUndefined();
+  });
+
+  it("is not set up without the dependency", async () => {
+    const r = await call(jobReq("analysis"), depsFor(() => contextAt(NIGHT)));
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("tg-hub.app.json: the analysis job", () => {
+  it("runs Tuesday to Saturday in the small hours (Monday's would be Sunday night's)", () => {
+    const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {
+      jobs: { id: string; at?: string; days?: string[] }[];
+    };
+    const job = app.jobs.find((j) => j.id === "analysis")!;
+    expect(job.days).toEqual(["tue", "wed", "thu", "fri", "sat"]);
+    expect(job.at).toBe("03:30");
+  });
+});

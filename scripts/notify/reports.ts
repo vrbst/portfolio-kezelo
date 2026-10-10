@@ -58,6 +58,7 @@ import { effectiveMonthLabel } from "../../src/lib/goals";
 import { loadSavingsGoals } from "../../src/lib/savings";
 import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
+import type { NightlyAnalysis } from "../../src/lib/aiAnalysis";
 import { weeklyAiLine } from "./aiUsage";
 
 // ---- formatting -----------------------------------------------------------
@@ -1030,6 +1031,35 @@ export function newsText(
     "",
     `<a href="${esc(appUrl)}#/hirek">Részletek az appban</a>${more > 0 ? ` (+${more} hír)` : ""}`,
   );
+  if (uploadError)
+    lines.push("", `⚠️ A felhőbe nem sikerült feltölteni, ezért az appban még nem látszik: ${esc(uploadError.slice(0, 200))}`);
+  return lines.join("\n");
+}
+
+const ANALYSIS_STATUS_ICON = { rendben: "🟢", figyelj: "🟡", teendo: "🔴" } as const;
+
+/**
+ * The nightly AI analysis, short: the headline and what changed since the
+ * last one. The cards are in the app (AI page).
+ */
+export function analysisText(a: NightlyAnalysis, appUrl: string, uploadError?: string): string {
+  const d = a.data;
+  const todo = d.sections.filter((s) => s.status === "teendo").length;
+  const watch = d.sections.filter((s) => s.status === "figyelj").length;
+  const lines = [
+    `🧠 <b>AI-elemzés kész – ${dayLabel(a.day)}</b>`,
+    `${ANALYSIS_STATUS_ICON[d.overall]} <i>${esc(d.headline)}</i>`,
+    "",
+    d.changes
+      ? `<b>Mi változott:</b> ${esc(d.changes)}`
+      : "<b>Mi változott:</b> nincs előző elemzés, amihez viszonyíthatnánk.",
+  ];
+  if (todo || watch)
+    lines.push(
+      "",
+      [todo ? `🔴 ${todo} teendő` : "", watch ? `🟡 ${watch} figyelendő` : ""].filter(Boolean).join(" · "),
+    );
+  lines.push("", `<a href="${esc(appUrl)}#/ai">A teljes elemzés az appban</a>`);
   if (uploadError)
     lines.push("", `⚠️ A felhőbe nem sikerült feltölteni, ezért az appban még nem látszik: ${esc(uploadError.slice(0, 200))}`);
   return lines.join("\n");

@@ -39,6 +39,8 @@ export interface State {
    */
   loadFailingSince?: string;
   news?: NewsState;
+  /** Local day (YYYY-MM-DD) of the last scheduled nightly AI analysis. */
+  analysis?: string;
   goalLevels?: Record<string, number>;
   wealth?: WealthState;
   planReminded?: string;

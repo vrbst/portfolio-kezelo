@@ -55,6 +55,16 @@
       "expectSuccessWithin": "4d"
     },
     {
+      "id": "analysis",
+      "description": "Éjszakai AI-elemzés (Claude Code, előfizetésből): a szinkron-repóba kerül, az appban látszik, a Telegramra a „mi változott” megy; kedd–szombat hajnalban",
+      "at": "03:30",
+      "days": ["tue", "wed", "thu", "fri", "sat"],
+      "catchUp": "run",
+      "catchUpWindow": "12h",
+      "timeout": "20m",
+      "expectSuccessWithin": "4d"
+    },
+    {
       "id": "fundamentals",
       "description": "Papír-adatok (P/E, szektorok, top tételek) a tartott papírokra a Yahoo-ról; 3 nap folyamatos hiba után szól",
       "at": "06:40",
