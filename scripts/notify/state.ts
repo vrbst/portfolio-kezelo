@@ -52,6 +52,8 @@ export interface State {
   };
   why?: WhyState;
   whyTaken?: string;
+  /** `at` of the request whose last search failed; cleared by the next success. */
+  whyFailing?: string;
 }
 
 export interface WealthState {

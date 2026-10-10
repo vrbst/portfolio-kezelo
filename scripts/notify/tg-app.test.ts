@@ -646,11 +646,24 @@ describe("Miért mozdult?", () => {
     expect(s.started).toHaveLength(2);
   });
 
-  it("a failed search is a job error and is not retried", async () => {
+  it("a failed search is a job error and keeps failing (no false recovery) until it is answered", async () => {
     const s = setup();
     await call(jobReq(), s.deps);
     expect(await call(jobReq("news-why"), s.deps)).toMatchObject({ ok: false, error: "no more answers" });
+    expect(await call(jobReq("news-why"), s.deps)).toMatchObject({ ok: false });
+    s.answerAll();
+    expect((await call(jobReq("news-why"), s.deps)).messages).toHaveLength(1);
     expect(await call(jobReq("news-why"), s.deps)).toEqual({ v: 1, messages: [] });
+  });
+
+  it("an expired failed request is no recovery: the idle run says keepFailing", async () => {
+    const s = setup();
+    await call(jobReq(), s.deps);
+    await call(jobReq("news-why"), s.deps);
+    const st = readState();
+    const why = st.why as WhyState;
+    writeFileSync(stateFile, JSON.stringify({ ...st, why: { ...why, request: { ...why.request!, at: "2000-01-01T00:00:00.000Z" } } }));
+    expect(await call(jobReq("news-why"), s.deps)).toEqual({ v: 1, messages: [], keepFailing: true });
   });
 
   it("without a move alert nothing is searched", async () => {

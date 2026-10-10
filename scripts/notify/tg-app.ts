@@ -86,6 +86,8 @@ export interface HubResponse {
   error?: string;
   messages?: HubMessage[];
   expectText?: { context: string; ttl: string };
+  /** Job did nothing: an earlier failure stays open (no "recovered" message). */
+  keepFailing?: true;
 }
 
 export interface Deps {
@@ -521,6 +523,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
     news: cur.news,
     priceAlerts: (cur.priceAlerts ?? []).filter((a) => kept.has(a.id) || !alertIds.has(a.id)),
     whyTaken: cur.whyTaken,
+    whyFailing: cur.whyFailing,
   }));
   const request = st.why?.request?.at;
   if (request && request !== asked && deps.runJob)
@@ -562,7 +565,8 @@ async function whyMoved(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile);
   const req = st.why?.request;
   if (!req || st.whyTaken === req.at || now.getTime() - Date.parse(req.at) > WHY_REQUEST_TTL_MS)
-    return { v: 1, messages: [] };
+    // Nothing to do — but after a failed search that is no recovery.
+    return { v: 1, messages: [], ...(st.whyFailing ? { keepFailing: true as const } : {}) };
   updateState(deps.stateFile, (cur) => ({ ...cur, whyTaken: req.at }));
   const [y, m, d] = st.why!.day.split("-").map(Number);
   const prompt = buildWhyPrompt({
@@ -572,7 +576,19 @@ async function whyMoved(deps: Deps): Promise<HubResponse> {
     exposure: req.exposure,
   });
   const started = Date.now();
-  const { answer, costUsd } = await askWhy(deps.why(), prompt, req.factors);
+  let result: Awaited<ReturnType<typeof askWhy>>;
+  try {
+    result = await askWhy(deps.why(), prompt, req.factors);
+  } catch (e) {
+    // Release the request: the next run (every 30 min, until the request
+    // expires) tries again. Otherwise that run would find it taken and
+    // finish "successfully" with nothing done — the hub would announce a
+    // recovery that never happened.
+    updateState(deps.stateFile, (cur) => (cur.whyTaken === req.at ? { ...cur, whyTaken: undefined, whyFailing: req.at } : cur));
+    throw e;
+  }
+  updateState(deps.stateFile, (cur) => ({ ...cur, whyFailing: undefined }));
+  const { answer, costUsd } = result;
   console.error(
     `why: ${answer.items.length} explained in ${Math.round((Date.now() - started) / 1000)} s` +
       (costUsd != null ? `, ~$${costUsd.toFixed(2)} at API prices` : ""),
