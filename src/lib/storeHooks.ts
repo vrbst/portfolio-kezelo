@@ -82,11 +82,13 @@ import {
   loadBrokerFees,
   loadLeftoverSettings,
   loadMoveAlertSettings,
+  loadNotifySettings,
   loadPlanOrder,
   loadPurchaseAccounts,
   type BrokerFees,
   type LeftoverSettings,
   type MoveAlertSettings,
+  type NotifySettings,
   type PlanOrder,
 } from "./planPrefs";
 import {
@@ -805,6 +807,11 @@ export function useLeftoverSettings(): LeftoverSettings {
 
 export function useMoveAlertSettings(): MoveAlertSettings {
   return usePref(loadMoveAlertSettings);
+}
+
+/** Telegram notification settings (Beállítások). */
+export function useNotifySettings(): NotifySettings {
+  return usePref(loadNotifySettings);
 }
 
 /** Per-account limits (Számla oldal). */

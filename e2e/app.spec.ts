@@ -232,6 +232,12 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
     await expect(sheet).toContainText("Piaci adatok (1 év)");
     await expect(sheet).toContainText("Nagy mozgás riasztás");
     expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+    if (test.info().project.name === "desktop") {
+      const scrolling = await sheet.locator("table").evaluateAll((tables) =>
+        tables.filter((t) => t.parentElement && t.parentElement.scrollWidth > t.parentElement.clientWidth + 1).length,
+      );
+      expect(scrolling, "purchase table scrolls sideways in the desktop sheet").toBe(0);
+    }
     await page.keyboard.press("Escape");
     await expect(sheet).toHaveCount(0);
   });
@@ -600,4 +606,22 @@ test("the sidebar marker sits on the active page (clicks, back button)", async (
   await page.goBack();
   await onLink("Előrejelzés");
   expect(await page.locator(".nav-marker").count()).toBe(1);
+});
+
+test.describe("Telegram notification settings", () => {
+  test("a switch, a time and an AI mode are kept after a reload; nothing spills out sideways", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/settings");
+    await expect(page.getByRole("heading", { name: "Telegram-értesítések" })).toBeVisible();
+    const weekly = page.getByLabel("Heti jelentés", { exact: true });
+    await expect(weekly).toBeChecked();
+    await weekly.uncheck();
+    await page.getByLabel("Éjszakai AI-elemzés", { exact: true }).selectOption("silent");
+    await page.getByLabel("Csendes órák kezdete").fill("23:00");
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+    await reopen(page, "/settings");
+    await expect(page.getByLabel("Heti jelentés", { exact: true })).not.toBeChecked();
+    await expect(page.getByLabel("Éjszakai AI-elemzés", { exact: true })).toHaveValue("silent");
+    await expect(page.getByLabel("Csendes órák kezdete")).toHaveValue("23:00");
+  });
 });

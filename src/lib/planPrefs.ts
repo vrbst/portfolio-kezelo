@@ -88,7 +88,7 @@ function loadObject<T>(key: string): T {
 
 function saveObject(
   key: string,
-  kind: "accountLimits" | "purchaseAccounts" | "leftover" | "moveAlerts",
+  kind: "accountLimits" | "purchaseAccounts" | "leftover" | "moveAlerts" | "notify",
   v: unknown,
 ) {
   try {
@@ -195,4 +195,107 @@ export function loadMoveAlertSettings(): MoveAlertSettings {
 
 export function saveMoveAlertSettings(v: MoveAlertSettings) {
   saveObject(MOVE_ALERTS_KEY, "moveAlerts", v);
+}
+
+/** The Telegram message types that can be switched off one by one. */
+export const NOTIFY_KINDS = [
+  "alerts",
+  "deepGlide",
+  "portfolioMove",
+  "positionMove",
+  "stale",
+  "stalePrices",
+  "bondNotices",
+  "weekly",
+  "monthly",
+  "yearly",
+  "tax",
+  "planReminder",
+  "goalMilestones",
+  "wealthPeak",
+  "drawdown",
+  "priceAlerts",
+  "fundamentals",
+] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
+
+/** AI jobs: don't run / run, no message (the result stays in the app) / run and message. */
+export type AiMode = "off" | "silent" | "notify";
+export const AI_MODES: AiMode[] = ["off", "silent", "notify"];
+
+export interface NotifySettings {
+  /** Only the switched-off types; a missing one is on. */
+  off: Partial<Record<NotifyKind, true>>;
+  ai: {
+    newsMorning: AiMode;
+    newsEvening: AiMode;
+    analysis: AiMode;
+    /** "Miért mozdult?" — its result is a message only, so on / off. */
+    why: "off" | "notify";
+  };
+  /** Wealth milestone step (HUF) / drawdown step (%); empty → the bot's .env → default. */
+  wealthStepHuf?: number;
+  drawdownStepPct?: number;
+  /** From this hour on Friday the weekly report is due. */
+  weeklyHour: number;
+  /** From this hour on the 1st the monthly (and the year's first) report is due. */
+  monthlyHour: number;
+  /** From this day of the month the monthly plan reminder is due. */
+  planReminderDay: number;
+  /** Quiet hours ("HH:MM", local time) the hub holds normal messages in; null = none. */
+  quietHours: { from: string; to: string } | null;
+}
+
+export const DEFAULT_NOTIFY: NotifySettings = {
+  off: {},
+  ai: { newsMorning: "notify", newsEvening: "notify", analysis: "notify", why: "notify" },
+  weeklyHour: 18,
+  monthlyHour: 8,
+  planReminderDay: 10,
+  quietHours: { from: "22:00", to: "07:30" },
+};
+
+const NOTIFY_KEY = "pf-notify";
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const intIn = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Number(v);
+  return v != null && v !== "" && Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+};
+
+export function loadNotifySettings(): NotifySettings {
+  const v = loadObject<Partial<NotifySettings>>(NOTIFY_KEY);
+  const off: NotifySettings["off"] = {};
+  if (v.off && typeof v.off === "object" && !Array.isArray(v.off))
+    for (const k of NOTIFY_KINDS) if ((v.off as Record<string, unknown>)[k] === true) off[k] = true;
+  const ai = (v.ai && typeof v.ai === "object" ? v.ai : {}) as Partial<NotifySettings["ai"]>;
+  const mode = (x: unknown, d: AiMode) => (AI_MODES.includes(x as AiMode) ? (x as AiMode) : d);
+  const q = v.quietHours as { from?: unknown; to?: unknown } | null | undefined;
+  const quietHours =
+    q === null
+      ? null
+      : q && typeof q.from === "string" && typeof q.to === "string" && HHMM.test(q.from) && HHMM.test(q.to)
+        ? { from: q.from, to: q.to }
+        : DEFAULT_NOTIFY.quietHours;
+  const wealth = positivePct(v.wealthStepHuf);
+  const drawdown = positivePct(v.drawdownStepPct);
+  return {
+    off,
+    ai: {
+      newsMorning: mode(ai.newsMorning, DEFAULT_NOTIFY.ai.newsMorning),
+      newsEvening: mode(ai.newsEvening, DEFAULT_NOTIFY.ai.newsEvening),
+      analysis: mode(ai.analysis, DEFAULT_NOTIFY.ai.analysis),
+      why: ai.why === "off" ? "off" : "notify",
+    },
+    ...(wealth !== undefined ? { wealthStepHuf: wealth } : {}),
+    ...(drawdown !== undefined ? { drawdownStepPct: drawdown } : {}),
+    weeklyHour: intIn(v.weeklyHour, 0, 23, DEFAULT_NOTIFY.weeklyHour),
+    monthlyHour: intIn(v.monthlyHour, 0, 23, DEFAULT_NOTIFY.monthlyHour),
+    planReminderDay: intIn(v.planReminderDay, 1, 28, DEFAULT_NOTIFY.planReminderDay),
+    quietHours,
+  };
+}
+
+export function saveNotifySettings(v: NotifySettings) {
+  saveObject(NOTIFY_KEY, "notify", v);
 }

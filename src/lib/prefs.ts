@@ -24,11 +24,13 @@ import {
   loadBrokerFees,
   loadLeftoverSettings,
   loadMoveAlertSettings,
+  loadNotifySettings,
   loadPlanOrder,
   loadPurchaseAccounts,
   type BrokerFees,
   type LeftoverSettings,
   type MoveAlertSettings,
+  type NotifySettings,
   type PlanOrder,
 } from "./planPrefs";
 import type { AccountLimits, PurchaseAccounts } from "./accountRules";
@@ -66,6 +68,8 @@ export interface SyncedPrefs {
   /** Market-news digests already read (any device) — merged as a union. */
   newsSeen?: StampedPref<string[]>;
   moveAlerts?: StampedPref<MoveAlertSettings>;
+  /** Telegram notifications: which, how and when (the bot reads it too). */
+  notify?: StampedPref<NotifySettings>;
 }
 
 export type PrefKind =
@@ -82,7 +86,8 @@ export type PrefKind =
   | "purchaseAccounts"
   | "leftover"
   | "newsSeen"
-  | "moveAlerts";
+  | "moveAlerts"
+  | "notify";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -99,6 +104,7 @@ const KINDS: PrefKind[] = [
   "leftover",
   "newsSeen",
   "moveAlerts",
+  "notify",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -116,6 +122,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   leftover: "pf-leftover",
   newsSeen: "pf-news-seen",
   moveAlerts: "pf-move-alerts",
+  notify: "pf-notify",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -132,6 +139,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   leftover: "pf-leftover-updated",
   newsSeen: "pf-news-seen-updated",
   moveAlerts: "pf-move-alerts-updated",
+  notify: "pf-notify-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -150,6 +158,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   leftover: loadLeftoverSettings,
   newsSeen: loadNewsSeen,
   moveAlerts: loadMoveAlertSettings,
+  notify: loadNotifySettings,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

@@ -61,9 +61,14 @@ import {
   yearlyText,
 } from "./reports";
 import { priceAlertCommand, priceAlertMessages } from "./priceAlerts";
-import { goalMilestoneMessages, stalePriceMessage, wealthMessages } from "./watch";
+import { goalMilestoneMessages, stalePriceMessage, wealthEvents } from "./watch";
 import { effectiveMonthKey } from "../../src/lib/goals";
-import { loadLeftoverSettings, loadMoveAlertSettings } from "../../src/lib/planPrefs";
+import {
+  loadLeftoverSettings,
+  loadMoveAlertSettings,
+  loadNotifySettings,
+  type NotifyKind,
+} from "../../src/lib/planPrefs";
 import { FX_MOVE_KEY } from "../../src/lib/moveAlerts";
 import { leftoverMonth, parseLeftoverAmount } from "../../src/lib/leftover";
 import { isLastWorkdayOfMonth } from "../../src/lib/huCalendar";
@@ -91,6 +96,8 @@ export interface HubResponse {
   expectText?: { context: string; ttl: string };
   /** Job did nothing: an earlier failure stays open (no "recovered" message). */
   keepFailing?: true;
+  /** The app's quiet hours (null = none); the hub keeps the latest. */
+  quietHours?: { from: string; to: string } | null;
 }
 
 export interface Deps {
@@ -388,6 +395,13 @@ async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<
     console.error(`news: ${today} ${edition} done already`);
     return { v: 1, messages: [] };
   }
+  // Switched off in the app: no search at all (a manual run or /hirkereses is a request).
+  const mode = loadNotifySettings().ai[edition === "morning" ? "newsMorning" : "newsEvening"];
+  const scheduled = !onDemand && !manual;
+  if (scheduled && mode === "off") {
+    console.error(`news: ${edition} switched off`);
+    return { v: 1, messages: [] };
+  }
   const nd = deps.news(onDemand ? "hirkereses" : `news-${edition}`);
   let run;
   try {
@@ -405,6 +419,7 @@ async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<
       ...cur,
       news: { ...cur.news, [edition]: run.digest.day },
     }));
+  if (scheduled && mode === "silent") return { v: 1, messages: [] };
   return { v: 1, messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError), onDemand)] };
 }
 
@@ -498,9 +513,15 @@ async function analysisJob(deps: Deps, manual: boolean): Promise<HubResponse> {
     console.error(`analysis: ${today} done already`);
     return { v: 1, messages: [] };
   }
+  const mode = loadNotifySettings().ai.analysis;
+  if (!manual && mode === "off") {
+    console.error("analysis: switched off");
+    return { v: 1, messages: [] };
+  }
   const run = await makeAnalysis(ctx, deps.analysis(), { reuseLocal: manual });
   if (!manual)
     updateState(deps.stateFile, (cur) => ({ ...cur, analysis: run.analysis.day }));
+  if (!manual && mode === "silent") return { v: 1, messages: [] };
   return {
     v: 1,
     messages: [msg(analysisText(run.analysis, loadEnv().appUrl, run.uploadError))],
@@ -579,10 +600,9 @@ async function tick(deps: Deps): Promise<HubResponse> {
     } catch (e) {
       console.error("why: job start failed:", (e as Error).message);
     }
-  return { v: 1, messages };
+  return { v: 1, messages, quietHours: loadNotifySettings().quietHours };
 }
 
-export const PLAN_REMINDER_DAY = 10;
 export const WHY_JOB = "news-why";
 export const FUNDAMENTALS_JOB = "fundamentals";
 
@@ -600,6 +620,7 @@ async function fundamentalsJob(deps: Deps): Promise<HubResponse> {
       currency: h.currency,
     }));
   const { messages } = await refreshFundamentals(targets, deps.fundamentals(), ctx.at);
+  if (loadNotifySettings().off.fundamentals) return { v: 1, messages: [] };
   return { v: 1, messages: messages.map((m) => msg(m)) };
 }
 const FX_KEY = FX_MOVE_KEY;
@@ -648,18 +669,24 @@ export const WEEKLY_REPORT_HOUR = 18;
 
 /**
  * The Friday (YYYY-MM-DD) whose weekly report is due at `now`: that Friday
- * from WEEKLY_REPORT_HOUR through the weekend; Monday–Friday before it none.
+ * from the due hour (default WEEKLY_REPORT_HOUR, settable in the app) through the weekend; Monday–Friday before it none.
  */
-export function weeklyReportFriday(now: Date): string | null {
+export function weeklyReportFriday(now: Date, hour = WEEKLY_REPORT_HOUR): string | null {
   const back = { 5: 0, 6: 1, 0: 2 }[now.getDay()];
-  if (back === undefined || (back === 0 && now.getHours() < WEEKLY_REPORT_HOUR)) return null;
+  if (back === undefined || (back === 0 && now.getHours() < hour)) return null;
   return addDaysIso(toLocalDay(now), -back);
 }
 
 /** What's new since the last tick; advances `st` (pure apart from that). */
 export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMessage[] {
   const now = ctx.at;
+  const ns = loadNotifySettings();
   const out: HubMessage[] = [];
+  // Every message is built (so the state moves on) but a switched-off type
+  // is dropped: turning it back on must not replay what piled up meanwhile.
+  const send = (kind: NotifyKind, ...m: HubMessage[]) => {
+    if (!ns.off[kind]) out.push(...m);
+  };
   const today = toLocalDay(now);
   // Very first run: no report for the week we joined halfway.
   st.lastWeekly ??= today;
@@ -673,7 +700,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   // 1) New alerts (the app's own rules, dismissed ones skipped).
   const active = new Set(ctx.alerts.map((a) => a.id));
   const fresh = ctx.alerts.filter((a) => !st.sentAlerts[a.id]);
-  out.push(...alertMessages(fresh));
+  send("alerts", ...alertMessages(fresh.filter((a) => !isDeepGlideAlert(a))));
+  send("deepGlide", ...alertMessages(fresh.filter(isDeepGlideAlert)));
   for (const a of fresh) st.sentAlerts[a.id] = now.toISOString();
   // Resolved alerts are forgotten, so a later re-trigger is new again.
   for (const id of Object.keys(st.sentAlerts))
@@ -708,7 +736,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   if (dc?.pct != null && dc.note === "ma" && marketMovedToday) {
     if (crosses(dc.pct, moves.total, moveSettings.portfolioPct ?? env.bigMovePct)) {
       moves.total = Math.abs(dc.pct);
-      out.push(
+      send(
+        "portfolioMove",
         msg(
           `${dc.abs > 0 ? "🚀" : "🔻"} <b>Nagy mozgás ma: ${pct(dc.pct, 2)}</b> (${sft(dc.abs)})\nVagyon: ${ft(ctx.summary.totalValueHuf)}`,
         ),
@@ -758,7 +787,7 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     }
     if ((moves.pos[FX_KEY] ?? 0) > 0) moved.push({ key: FX_KEY, label: "EUR/HUF", pct: ch });
   }
-  if (posLines.length) out.push(msg(posLines.join("\n")));
+  if (posLines.length) send("positionMove", msg(posLines.join("\n")));
 
   if (st.why?.day !== today) st.why = { day: today, explained: [], runs: 0 };
   const why = st.why;
@@ -767,7 +796,7 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     why.request != null &&
     st.whyTaken !== why.request.at &&
     now.getTime() - Date.parse(why.request.at) < WHY_REQUEST_TTL_MS;
-  if (unexplained.length && !open && why.runs < WHY_MAX_RUNS_PER_DAY) {
+  if (ns.ai.why !== "off" && unexplained.length && !open && why.runs < WHY_MAX_RUNS_PER_DAY) {
     why.request = {
       at: now.toISOString(),
       factors: unexplained,
@@ -796,22 +825,22 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     const limit = key === "sync" ? 14 : 4;
     if (days > limit && hoursSince(st.warned[key], now) > 24 * 7) {
       st.warned[key] = now.toISOString();
-      out.push(msg(text));
+      send("stale", msg(text));
     } else if (days <= limit) delete st.warned[key];
   }
-  out.push(...bondNoticeMessages(ctx, st).map((html) => msg(html)));
+  send("bondNotices", ...bondNoticeMessages(ctx, st).map((html) => msg(html)));
 
   // 4) Weekly (Friday from 18:00, after the Xetra close; caught up on the
   //    weekend if the hub was down) and monthly (the 1st from 08:00) reports.
-  const friday = weeklyReportFriday(now);
+  const friday = weeklyReportFriday(now, ns.weeklyHour);
   if (friday && (st.lastWeekly ?? "") < friday) {
     st.lastWeekly = friday;
-    out.push(msg(weeklyText(ctx)));
+    send("weekly", msg(weeklyText(ctx)));
   }
   const ym = today.slice(0, 7);
-  if (now.getHours() >= 8 && st.lastMonthly !== ym) {
+  if (now.getHours() >= ns.monthlyHour && st.lastMonthly !== ym) {
     // First run ever: don't fire a report for a month we joined halfway.
-    if (st.lastMonthly) out.push(msg(monthlyText(ctx)));
+    if (st.lastMonthly) send("monthly", msg(monthlyText(ctx)));
     st.lastMonthly = ym;
   }
 
@@ -837,33 +866,37 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   }
 
   const year = today.slice(0, 4);
-  if (now.getHours() >= 8 && st.lastYearly !== year) {
-    if (st.lastYearly) out.push(msg(yearlyText(ctx)));
+  if (now.getHours() >= ns.monthlyHour && st.lastYearly !== year) {
+    if (st.lastYearly) send("yearly", msg(yearlyText(ctx)));
     st.lastYearly = year;
   }
   if (now.getMonth() === 4 && now.getDate() <= 20 && now.getHours() >= 9 && st.taxReminded !== year) {
     st.taxReminded = year;
     const tax = taxReminderText(ctx);
-    if (tax) out.push(msg(tax));
+    if (tax) send("tax", msg(tax));
   }
 
   const planMonth = effectiveMonthKey(now);
   if (
-    now.getDate() >= PLAN_REMINDER_DAY &&
+    now.getDate() >= ns.planReminderDay &&
     planMonth === ym &&
     now.getHours() >= 9 &&
     st.planReminded !== planMonth
   ) {
     st.planReminded = planMonth;
     const text = planReminderText(ctx);
-    if (text) out.push(msg(text));
+    if (text) send("planReminder", msg(text));
   }
 
   const goals = goalMilestoneMessages(ctx, st);
-  if (goals.length) out.push(msg(goals.join("\n")));
-  for (const text of wealthMessages(ctx, st, env)) out.push(msg(text));
-  for (const text of priceAlertMessages(ctx, st)) out.push(msg(text));
+  if (goals.length) send("goalMilestones", msg(goals.join("\n")));
+  const wealthEnv = {
+    wealthStepHuf: ns.wealthStepHuf ?? env.wealthStepHuf,
+    drawdownStepPct: ns.drawdownStepPct ?? env.drawdownStepPct,
+  };
+  for (const e of wealthEvents(ctx, st, wealthEnv)) send(e.kind, msg(e.text));
+  for (const text of priceAlertMessages(ctx, st)) send("priceAlerts", msg(text));
   const stalePrices = stalePriceMessage(ctx, st);
-  if (stalePrices) out.push(msg(stalePrices));
+  if (stalePrices) send("stalePrices", msg(stalePrices));
   return out;
 }

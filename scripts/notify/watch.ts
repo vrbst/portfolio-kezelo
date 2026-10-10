@@ -27,11 +27,22 @@ export function goalMilestoneMessages(ctx: Context, st: State): string[] {
   return out;
 }
 
+export type WealthKind = "wealthPeak" | "drawdown";
+
 export function wealthMessages(
   ctx: Context,
   st: State,
   env: { wealthStepHuf: number; drawdownStepPct: number },
 ): string[] {
+  return wealthEvents(ctx, st, env).map((e) => e.text);
+}
+
+/** The wealth messages with their type (so each can be switched off); advances `st` either way. */
+export function wealthEvents(
+  ctx: Context,
+  st: State,
+  env: { wealthStepHuf: number; drawdownStepPct: number },
+): { kind: WealthKind; text: string }[] {
   const s = ctx.summary;
   if (s.missingFxCcys.length || !(s.totalValueHuf > 0)) return [];
   const value = s.totalValueHuf;
@@ -43,16 +54,20 @@ export function wealthMessages(
     st.wealth = { step, peakPl: pl, peakValue: value, peakDay: today, drawdown: 0 };
     return [];
   }
-  const out: string[] = [];
+  const out: { kind: WealthKind; text: string }[] = [];
   if (step > w.step) {
     w.step = step;
-    out.push(`🎉 <b>Átlépted a ${ft(step * env.wealthStepHuf)}-ot</b>\nVagyon: ${ft(value)}`);
+    out.push({
+      kind: "wealthPeak",
+      text: `🎉 <b>Átlépted a ${ft(step * env.wealthStepHuf)}-ot</b>\nVagyon: ${ft(value)}`,
+    });
   }
   if (pl >= w.peakPl) {
     if (w.drawdown > 0)
-      out.push(
-        `🏔 <b>Visszajött a visszaesés</b>: az összes eredmény (${sft(pl)}) ismét csúcson van.\nVagyon: ${ft(value)}`,
-      );
+      out.push({
+        kind: "drawdown",
+        text: `🏔 <b>Visszajött a visszaesés</b>: az összes eredmény (${sft(pl)}) ismét csúcson van.\nVagyon: ${ft(value)}`,
+      });
     Object.assign(w, { peakPl: pl, peakValue: value, peakDay: today, drawdown: 0 });
     return out;
   }
@@ -61,9 +76,10 @@ export function wealthMessages(
   const lv = Math.floor((ddPct * 100 + 1e-9) / env.drawdownStepPct);
   if (lv > w.drawdown) {
     w.drawdown = lv;
-    out.push(
-      `📉 <b>Visszaesés a csúcstól: −${(ddPct * 100).toFixed(1).replace(".", ",")}%</b> (−${ft(lossHuf)} piaci eredmény a csúcs, ${dayLabel(w.peakDay)} óta)\nVagyon: ${ft(value)}`,
-    );
+    out.push({
+      kind: "drawdown",
+      text: `📉 <b>Visszaesés a csúcstól: −${(ddPct * 100).toFixed(1).replace(".", ",")}%</b> (−${ft(lossHuf)} piaci eredmény a csúcs, ${dayLabel(w.peakDay)} óta)\nVagyon: ${ft(value)}`,
+    });
   }
   return out;
 }

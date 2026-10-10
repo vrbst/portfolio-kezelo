@@ -111,6 +111,18 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   eszközt követő papírnál megadható, mire
   keressen a „Miért?” (`NOTIFY_WHY_SUBJECT="WBIT=Bitcoin (BTC)"`, több
   pontosvesszővel elválasztva; alapból ez). A hibás bejegyzéseket kihagyja.
+- **Telegram-értesítések a Beállításokban** – a Beállítások → Telegram-értesítések
+  kártyán minden üzenettípus külön ki-be kapcsolható (teendők, mozgások,
+  célok, vagyon-mérföldkő és visszaesés, heti/havi/éves jelentés, adó- és
+  terv-emlékeztető, árriasztás…). Állítható még a vagyon-mérföldkő és a
+  visszaesés lépcsője (üresen a `.env` érvényes), a heti jelentés órája, a
+  havi/éves jelentés órája, a havi terv emlékeztető napja és a csendes órák
+  (a bot minden `tick`-ben visszaküldi a tg-hubnak, az megjegyzi). Az AI-feladatok
+  (reggeli/esti hírek, éjszakai elemzés) háromállásúak: Ki (el sem indul, nem
+  fogyaszt az előfizetésből), Csak az appba, vagy Telegramra is; a „Miért
+  mozdult?” ki-be. A kikapcsolt típus állapota tovább halad, így visszakapcsolva
+  nem jön a felgyűlt múlt. Szinkronizálódik, a bot ugyanazt olvassa; amit te
+  kérsz a boton (parancs, `/hirkereses`), az mindig megjön.
 - **Tervek és mutatók a botban** – `/terv`: az e havi Havi terv (mit vegyél,
   melyik számlán); `/palya`: célpálya-súlyok a sávokkal, végcél, sávon kívül
   a javasolt lépések; `/hozam`: XIRR, TWR, VWCE-összevetés, időszakos és

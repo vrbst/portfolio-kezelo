@@ -15,7 +15,7 @@ import { fixtureNewsBody } from "../../src/test/newsFixture";
 import { VWCE, WBIT } from "../../src/test/fixture";
 import { article } from "./news/why";
 import type { WhyState } from "./state";
-import type { MoveAlertSettings } from "../../src/lib/planPrefs";
+import type { MoveAlertSettings, NotifySettings } from "../../src/lib/planPrefs";
 
 // The tg-hub handler at the protocol level: a request JSON in, a response
 // JSON out, on the invented portfolio (src/test/fixture.ts), no network.
@@ -820,5 +820,134 @@ describe("tg-hub.app.json: the analysis job", () => {
     const job = app.jobs.find((j) => j.id === "analysis")!;
     expect(job.days).toEqual(["tue", "wed", "thu", "fri", "sat"]);
     expect(job.at).toBe("03:30");
+  });
+});
+
+describe("notification settings (Beállítások → Telegram-értesítések)", () => {
+  const withNotify = (value: Partial<NotifySettings>) => (s: PortfolioSnapshot) => {
+    s.prefs = { ...s.prefs, notify: { updatedAt: "2026-10-01T08:00:00.000Z", value: value as NotifySettings } };
+  };
+  const tickAt = async (at: [number, number, number, number, number?], value: Partial<NotifySettings> = {}) =>
+    call(jobReq(), depsFor(() => contextAt(at, withNotify(value))));
+  const alertHtml = (r: HubResponse) => (r.messages ?? []).filter((m) => /új teendő/i.test(m.html));
+
+  it("a switched-off type sends nothing but the state moves on: switching it back on replays nothing", async () => {
+    const off = await tickAt(WED, { off: { alerts: true } });
+    expect(alertHtml(off)).toHaveLength(0);
+    expect(Object.keys(readState().sentAlerts as object).length).toBeGreaterThan(0);
+
+    const on = await tickAt(WED, { off: {} });
+    expect(alertHtml(on)).toHaveLength(0);
+  });
+
+  it("the weekly report: switch and due hour", async () => {
+    const stale = () =>
+      writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-10-09", lastMonthly: "2026-10" }));
+    const weekly = (r: HubResponse) => (r.messages ?? []).filter((m) => m.html.includes("Heti"));
+    stale();
+    expect(weekly(await tickAt([2026, 10, 16, 18, 0], { weeklyHour: 20 }))).toHaveLength(0);
+    expect(weekly(await tickAt([2026, 10, 16, 20, 0], { weeklyHour: 20 }))).toHaveLength(1);
+    stale();
+    expect(weekly(await tickAt([2026, 10, 16, 18, 0], { off: { weekly: true } }))).toHaveLength(0);
+    expect(readState().lastWeekly).toBe("2026-10-16");
+  });
+
+  it("the monthly report waits for the set hour", async () => {
+    const stale = () =>
+      writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, lastWeekly: "2026-09-25", lastMonthly: "2026-09" }));
+    stale();
+    await tickAt([2026, 10, 1, 9, 0], { monthlyHour: 10 });
+    expect(readState().lastMonthly).toBe("2026-09");
+    await tickAt([2026, 10, 1, 10, 0], { monthlyHour: 10 });
+    expect(readState().lastMonthly).toBe("2026-10");
+  });
+
+  it("the quiet hours go back to the hub with every tick; null means none", async () => {
+    expect((await tickAt(WED)).quietHours).toEqual({ from: "22:00", to: "07:30" });
+    expect((await tickAt(WED, { quietHours: { from: "23:00", to: "06:00" } })).quietHours).toEqual({ from: "23:00", to: "06:00" });
+    expect((await tickAt(WED, { quietHours: null })).quietHours).toBeNull();
+  });
+
+  it("“Miért mozdult?” off: a big move is reported but no search is requested", async () => {
+    const run = async (value: Partial<NotifySettings>) => {
+      rmSync(stateFile, { force: true });
+      const deps: Deps = {
+        load: async () => {
+          const ctx = contextAt([2026, 10, 14, 10, 5], withNotify(value));
+          const q = ctx.liveQuotes[WBIT];
+          q.price = Math.round(q.prevClose! * 0.95 * 10_000) / 10_000;
+          return ctx;
+        },
+        stateFile,
+        env: { bigMovePct: 1, positionMovePct: 1, wealthStepHuf: 1_000_000, drawdownStepPct: 5 },
+        runJob: async () => "started",
+      };
+      const r = await call(jobReq(), deps);
+      expect(r.messages!.some((m) => m.html.includes("<b>WBIT: −5,0%</b> ma"))).toBe(true);
+      return (readState().why as WhyState).request;
+    };
+    expect(await run({})).toBeDefined();
+    expect(await run({ ai: { why: "off" } as NotifySettings["ai"] })).toBeUndefined();
+  });
+
+  describe("AI jobs", () => {
+    const EVENING: [number, number, number, number, number] = [2026, 10, 14, 18, 15];
+    const NIGHT: [number, number, number, number, number] = [2026, 10, 15, 3, 30];
+    const analysisAnswer = {
+      headline: "Minden rendben.",
+      overall: "rendben",
+      changes: "Nőtt a készpénz aránya.",
+      sections: [{ topic: "egyeb", title: "Egyéb", status: "rendben", text: "Semmi különös." }],
+    };
+    const newsSetup = (ai: Partial<NotifySettings["ai"]>) => {
+      const engine = fakeEngine([fixtureNewsBody()]);
+      const deps: Deps = {
+        ...depsFor(() => contextAt(EVENING, withNotify({ ai: ai as NotifySettings["ai"] }))),
+        news: () => ({ engine, store: memoryStore(), cacheDir: join(dir, "news"), appUrl: "https://example.com/app/" }),
+      };
+      return { deps, engine };
+    };
+    const analysisSetup = (ai: Partial<NotifySettings["ai"]>) => {
+      const engine = fakeEngine([analysisAnswer]);
+      const deps: Deps = {
+        ...depsFor(() => contextAt(NIGHT, withNotify({ ai: ai as NotifySettings["ai"] }))),
+        analysis: () => ({ engine, store: memoryStore(), cacheDir: join(dir, "analysis") }),
+      };
+      return { deps, engine };
+    };
+    const manualReq = (job: string) => JSON.stringify({ ...JSON.parse(jobReq(job)), manual: true });
+
+    it("news off: no search, the day isn't marked done; a manual run still works", async () => {
+      const { deps, engine } = newsSetup({ newsEvening: "off" });
+      expect(await call(jobReq("news-evening"), deps)).toEqual({ v: 1, messages: [] });
+      expect(engine.prompts).toHaveLength(0);
+      expect(existsSync(stateFile)).toBe(false);
+      expect((await call(manualReq("news-evening"), deps)).messages).toHaveLength(1);
+    });
+
+    it("news silent: the search runs and is marked done, but no message", async () => {
+      const { deps, engine } = newsSetup({ newsEvening: "silent" });
+      expect(await call(jobReq("news-evening"), deps)).toEqual({ v: 1, messages: [] });
+      expect(engine.prompts).toHaveLength(1);
+      expect(readState().news).toEqual({ evening: "2026-10-14" });
+    });
+
+    it("the morning and the evening edition have their own setting", async () => {
+      const { deps, engine } = newsSetup({ newsMorning: "off", newsEvening: "notify" });
+      expect((await call(jobReq("news-evening"), deps)).messages).toHaveLength(1);
+      expect(engine.prompts).toHaveLength(1);
+    });
+
+    it("analysis off: no AI run; silent: runs, no message", async () => {
+      const off = analysisSetup({ analysis: "off" });
+      expect(await call(jobReq("analysis"), off.deps)).toEqual({ v: 1, messages: [] });
+      expect(off.engine.prompts).toHaveLength(0);
+      expect(existsSync(stateFile)).toBe(false);
+
+      const silent = analysisSetup({ analysis: "silent" });
+      expect(await call(jobReq("analysis"), silent.deps)).toEqual({ v: 1, messages: [] });
+      expect(silent.engine.prompts).toHaveLength(1);
+      expect(readState().analysis).toBe("2026-10-15");
+    });
   });
 });
