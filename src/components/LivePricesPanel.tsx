@@ -89,8 +89,18 @@ export default function LivePricesPanel() {
       });
   }, [summary, prices, livePrices, manualPrices, fx, liveQuotes]);
 
-  // The exchange status follows the largest held security's listing.
-  const session = tiles.find((t) => t.quote?.session)?.quote;
+  // One status pill per distinct exchange the shown quotes come from (the
+  // first tile of an exchange, i.e. the largest holding, supplies its session).
+  const sessions = useMemo(() => {
+    const byExchange = new Map<string, LiveQuote>();
+    for (const t of tiles) {
+      const q = t.quote;
+      if (!q?.session) continue;
+      const name = q.exchange ?? "Tőzsde";
+      if (!byExchange.has(name)) byExchange.set(name, q);
+    }
+    return [...byExchange.entries()];
+  }, [tiles]);
 
   if (!eurHuf && tiles.length === 0) return null;
 
@@ -149,12 +159,11 @@ export default function LivePricesPanel() {
           </button>
         </div>
 
-        {session?.session && (
-          <div className="-mt-2 mb-3">
-            <MarketStatus
-              session={session.session}
-              exchange={session.exchange}
-            />
+        {sessions.length > 0 && (
+          <div className="-mt-2 mb-3 flex flex-wrap gap-1.5">
+            {sessions.map(([name, q]) => (
+              <MarketStatus key={name} session={q.session!} exchange={name} />
+            ))}
           </div>
         )}
 
