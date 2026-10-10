@@ -29,17 +29,16 @@ export function LotsTable({ instrumentKey, accountId }: { instrumentKey: string;
   return (
     <div className="overflow-x-auto">
       <div className="mb-2 text-xs font-medium text-[var(--color-muted)]">
-        Vásárlásaim ({lots.length} db)
+        {lots.length} vétel
       </div>
-      <table className="w-full min-w-[560px] table-fixed text-xs">
+      <table className="w-full min-w-[460px] table-fixed text-xs">
         <colgroup>
-          <col className="w-[14%]" />
-          <col className={foreign ? "w-[15%]" : "w-[18%]"} />
-          <col className={foreign ? "w-[12%]" : "w-[14%]"} />
-          {foreign && <col className="w-[9%]" />}
-          <col className={foreign ? "w-[15%]" : "w-[16%]"} />
-          <col className={foreign ? "w-[15%]" : "w-[18%]"} />
-          <col className="w-[20%]" />
+          <col className="w-[16%]" />
+          <col className="w-[13%]" />
+          <col className="w-[17%]" />
+          <col className="w-[18%]" />
+          <col className="w-[18%]" />
+          <col className="w-[18%]" />
         </colgroup>
         <thead className="text-left text-[var(--color-muted)]">
           <tr>
@@ -48,9 +47,6 @@ export function LotsTable({ instrumentKey, accountId }: { instrumentKey: string;
             <th className="py-1.5 pr-3 text-right font-medium">
               Vételár{foreign ? ` (${currency})` : ""}
             </th>
-            {foreign && (
-              <th className="py-1.5 pr-3 text-right font-medium">Árf. (Ft)</th>
-            )}
             <th className="py-1.5 pr-3 text-right font-medium">
               Bekerülés (Ft)
             </th>
@@ -81,12 +77,12 @@ export function LotsTable({ instrumentKey, accountId }: { instrumentKey: string;
                   {formatMoney(lot.unitCostCcy, currency, {
                     decimals: foreign ? 2 : 0,
                   })}
+                  {foreign && (
+                    <div className="text-[10px] text-[var(--color-muted)]">
+                      {formatNumber(lot.fxAtBuy, 1)} Ft/{currency}
+                    </div>
+                  )}
                 </td>
-                {foreign && (
-                  <td className="amt py-1.5 pr-3 text-right text-[var(--color-muted)]">
-                    {formatNumber(lot.fxAtBuy, 1)}
-                  </td>
-                )}
                 <td className="amt py-1.5 pr-3 text-right">
                   {formatMoney(lot.costHuf)}
                 </td>
@@ -108,9 +104,9 @@ export function LotsTable({ instrumentKey, accountId }: { instrumentKey: string;
                         {formatMoney(lot.plHuf, "HUF", { sign: true })}
                       </span>
                       {lot.plPct != null && (
-                        <span className="ml-1">
+                        <div className="text-[10px]">
                           ({formatPercent(lot.plPct)})
-                        </span>
+                        </div>
                       )}
                     </span>
                   ) : (
@@ -156,21 +152,21 @@ export function BondLotsTable({ instrumentKey, accountId }: { instrumentKey: str
   return (
     <div className="overflow-x-auto">
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-        <span className="font-medium">Vásárlásaim ({lots.length} db)</span>
+        <span className="font-medium">{lots.length} vétel</span>
         {maturity && <span>Lejárat: {formatDate(maturity)}</span>}
         {couponRate != null && (
           <span>Kamat: {(couponRate * 100).toFixed(2)}% / év</span>
         )}
         {nextCoupon && <span>Köv. kamat: {formatDate(nextCoupon)}</span>}
       </div>
-      <table className="w-full min-w-[560px] table-fixed text-xs">
+      <table className="w-full min-w-[460px] table-fixed text-xs">
         <colgroup>
-          <col className="w-[14%]" />
-          <col className="w-[18%]" />
-          <col className="w-[12%]" />
           <col className="w-[16%]" />
+          <col className="w-[17%]" />
+          <col className="w-[13%]" />
           <col className="w-[18%]" />
-          <col className="w-[22%]" />
+          <col className="w-[18%]" />
+          <col className="w-[18%]" />
         </colgroup>
         <thead className="text-left text-[var(--color-muted)]">
           <tr>
@@ -231,7 +227,7 @@ export function BondLotsTable({ instrumentKey, accountId }: { instrumentKey: str
                     <span className="amt">
                       {formatMoney(lot.gainHuf, "HUF", { sign: true })}
                     </span>
-                    <span className="ml-1">({formatPercent(lot.gainPct)})</span>
+                    <div className="text-[10px]">({formatPercent(lot.gainPct)})</div>
                   </span>
                 </td>
               </tr>
