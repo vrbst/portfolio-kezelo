@@ -91,6 +91,26 @@ export function loadChartMode(): ChartMode {
   }
 }
 
+export type ChartCurrency = "HUF" | "EUR";
+
+const CHART_CURRENCY_KEY = "pf-value-chart-currency";
+
+export function loadChartCurrency(): ChartCurrency {
+  try {
+    return localStorage.getItem(CHART_CURRENCY_KEY) === "EUR" ? "EUR" : "HUF";
+  } catch {
+    return "HUF";
+  }
+}
+
+export function saveChartCurrency(c: ChartCurrency) {
+  try {
+    localStorage.setItem(CHART_CURRENCY_KEY, c);
+  } catch {
+    return;
+  }
+}
+
 export function saveChartMode(mode: ChartMode) {
   try {
     localStorage.setItem(CHART_MODE_KEY, mode);

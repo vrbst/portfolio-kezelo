@@ -190,3 +190,36 @@ describe("eurDayPct", () => {
     expect(eurDayPct({ value: 1, invested: 0 }, { value: 1, invested: 0 }, undefined, 390)).toBeUndefined();
   });
 });
+
+describe("buildValueSeries — EUR view", () => {
+  const history = {
+    prices: { X: [["2026-09-01", 1] as [string, number]] },
+    fx: {
+      EUR: [
+        ["2026-09-01", 390],
+        ["2026-09-02", 400],
+        ["2026-09-03", 410],
+        ["2026-09-04", 420],
+      ] as [string, number][],
+    },
+  };
+
+  it("values each day at its own EUR/HUF and converts each flow at its own day's rate", () => {
+    const s = buildValueSeries(
+      [BANK],
+      [flow("a", "bank", 1, 390_000), flow("b", "bank", 3, 410_000)],
+      new Map(),
+      new Map(),
+      { EUR: 420 },
+      history,
+      new Date(2026, 8, 4, 12),
+    );
+    const at = (day: string) => s.find((p) => p.date === day)!;
+    expect(at("2026-09-02").valueEur).toBeCloseTo(390_000 / 400);
+    expect(at("2026-09-02").investedEur).toBeCloseTo(1000);
+    // The second deposit adds 1000 EUR (410 000 / 410); the first is not re-priced.
+    expect(at("2026-09-03").investedEur).toBeCloseTo(2000);
+    expect(at("2026-09-04").investedEur).toBeCloseTo(2000);
+    expect(at("2026-09-04").valueEur).toBeCloseTo(800_000 / 420);
+  });
+});

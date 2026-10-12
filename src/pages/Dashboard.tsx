@@ -33,11 +33,14 @@ import ValueChart, { type ChartMode } from "../components/ValueChart";
 import {
   RANGES,
   effectiveRange,
+  loadChartCurrency,
   loadChartMode,
   profitBase,
   rangeAvailability,
+  saveChartCurrency,
   saveChartMode,
   sliceRange,
+  type ChartCurrency,
   type RangeKey,
 } from "../lib/chartRange";
 import HoldingsTable, { HOLDINGS_PANEL_ID } from "../components/holdings/HoldingsTable";
@@ -166,16 +169,37 @@ export default function Dashboard() {
     saveChartMode(mode);
   };
 
+  // EUR view: every day's value at that day's EUR/HUF (EUR holdings stay flat).
+  const hasEurSeries = valueSeries.every((p) => p.valueEur != null);
+  const [wantedCurrency, setCurrencyState] =
+    useState<ChartCurrency>(loadChartCurrency);
+  const chartCurrency: ChartCurrency = hasEurSeries ? wantedCurrency : "HUF";
+  const setChartCurrency = (c: ChartCurrency) => {
+    setCurrencyState(c);
+    saveChartCurrency(c);
+  };
+  const displaySeries = useMemo(
+    () =>
+      chartCurrency === "EUR"
+        ? valueSeries.map((p) => ({
+            ...p,
+            value: p.valueEur ?? p.value,
+            invested: p.investedEur ?? p.invested,
+          }))
+        : valueSeries,
+    [valueSeries, chartCurrency],
+  );
+
   // Which ranges actually contain ≥2 points (others are disabled, not silent).
   const rangeAvail = useMemo(
-    () => rangeAvailability(valueSeries),
-    [valueSeries],
+    () => rangeAvailability(displaySeries),
+    [displaySeries],
   );
   const range = effectiveRange(wantedRange, rangeAvail);
 
   const rangedSeries = useMemo(
-    () => sliceRange(valueSeries, range),
-    [valueSeries, range],
+    () => sliceRange(displaySeries, range),
+    [displaySeries, range],
   );
   const rangedProfitBase = profitBase(rangedSeries, range);
 
@@ -314,13 +338,15 @@ export default function Dashboard() {
         scrub ? `Érték · ${formatDate(scrub.date)}` : "Teljes érték"
       }
       numericValue={scrub ? scrub.value : summary.totalValueHuf}
-      format={(n) => formatMoney(n)}
+      format={(n) => formatMoney(n, scrub ? chartCurrency : "HUF")}
       sub={
         <>
-          {eurEquivalent(
-            scrub ? scrub.value : summary.totalValueHuf,
-            eurHuf,
-          )}
+          {scrub && chartCurrency === "EUR"
+            ? undefined
+            : eurEquivalent(
+                scrub ? scrub.value : summary.totalValueHuf,
+                eurHuf,
+              )}
           {!scrub && dayChange?.eurPct != null && (
             <span
               className={`ml-1.5 ${
@@ -439,6 +465,24 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+            {hasEurSeries && (
+              <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
+                {(["HUF", "EUR"] as const).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setChartCurrency(c)}
+                    aria-pressed={chartCurrency === c}
+                    className={`rounded-md px-2.5 py-1 transition ${
+                      chartCurrency === c
+                        ? "bg-[var(--color-brand)]/20 text-[var(--color-text)]"
+                        : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                    }`}
+                  >
+                    {c === "HUF" ? "Ft" : "€"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5 text-xs">
               {RANGES.map((r) => (
                 <button
@@ -465,6 +509,7 @@ export default function Dashboard() {
           mode={chartMode}
           profitBase={rangedProfitBase}
           onScrub={setScrub}
+          currency={chartCurrency}
         />
       </Card>
     );

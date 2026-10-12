@@ -18,6 +18,7 @@ import { CHART } from "../lib/skin";
 import { localDayMs } from "../lib/day";
 import { formatTimeTick, timeTicks } from "../lib/timeAxis";
 import type { ChartMode } from "../lib/chartRange";
+import type { Currency } from "../lib/model";
 
 export type { ChartMode };
 
@@ -35,6 +36,7 @@ function ChartTooltip({
   payload,
   label,
   privacy,
+  currency,
 }: {
   active?: boolean;
   payload?: {
@@ -45,6 +47,7 @@ function ChartTooltip({
   }[];
   label?: number;
   privacy?: boolean;
+  currency: Currency;
 }) {
   if (!active || !payload?.length) return null;
   return (
@@ -65,7 +68,7 @@ function ChartTooltip({
             {SERIES_LABEL[p.name ?? ""] ?? p.name}
           </span>
           <span className="amt font-medium tabular-nums">
-            {privacy ? MASK : formatMoney(Number(p.value))}
+            {privacy ? MASK : formatMoney(Number(p.value), currency)}
           </span>
         </div>
       ))}
@@ -94,8 +97,10 @@ export default function ValueChart({
   mode = "value",
   profitBase = 0,
   onScrub,
+  currency = "HUF",
 }: {
   data: ValuePoint[];
+  currency?: Currency;
   mode?: ChartMode;
   profitBase?: number;
   /** Hovered/touched sample while scrubbing the chart; null on release. */
@@ -177,7 +182,7 @@ export default function ValueChart({
           />
           <Tooltip
             cursor={{ stroke: CHART.cursor, strokeWidth: 1 }}
-            content={<ChartTooltip privacy={privacy} />}
+            content={<ChartTooltip privacy={privacy} currency={currency} />}
           />
           {mode === "profit" ? (
             <>

@@ -24,6 +24,13 @@ export interface ValuePoint {
   value: number;
   /** Cumulative net external capital (befektetett tőke) in HUF. */
   invested: number;
+  /**
+   * The same in EUR: the day's value at that day's EUR/HUF (so EUR holdings
+   * stay flat), and the invested capital with every flow converted at its own
+   * day's rate. Missing when no EUR rate is known.
+   */
+  valueEur?: number;
+  investedEur?: number;
 }
 
 /** Daily history series: ascending [YYYY-MM-DD, value] per key. */
@@ -299,29 +306,44 @@ export function buildValueSeries(
   const days = [...dayset].filter((d) => d <= todayIso).sort();
 
   const points: ValuePoint[] = [];
-  for (const day of days) {
-    const { summary: s } = markDay(day);
+  // EUR invested capital accumulates the HUF change of each step at that
+  // step's rate (a deposit years ago keeps its EUR worth of the time).
+  let investedEur = 0;
+  let prevInvestedHuf = 0;
+  const withEur = (p: ValuePoint, rate: number | undefined): ValuePoint => {
+    if (!rate || rate <= 0) return p;
+    investedEur += (p.invested - prevInvestedHuf) / rate;
+    prevInvestedHuf = p.invested;
+    return { ...p, valueEur: p.value / rate, investedEur };
+  };
+  // Today is the live point below, so it is not marked from history first.
+  for (const day of days.filter((d) => d !== todayIso)) {
+    const { summary: s, fx: fxD } = markDay(day);
     const transit = bridge ? inTransitOn(day) : 0;
-    points.push({
-      date: day,
-      value: s.totalValueHuf + transit,
-      invested: s.netDepositedHuf + transit,
-    });
+    points.push(
+      withEur(
+        {
+          date: day,
+          value: s.totalValueHuf + transit,
+          invested: s.netDepositedHuf + transit,
+        },
+        fxD["EUR"],
+      ),
+    );
   }
 
   // Final point: today, at live prices / FX (matches the dashboard total).
   const live = computePortfolio(accounts, sorted, instruments, prices, fx, now);
   const transitToday = bridge ? inTransitOn(todayIso) : 0;
-  const livePoint: ValuePoint = {
-    date: todayIso,
-    value: live.totalValueHuf + transitToday,
-    invested: live.netDepositedHuf + transitToday,
-  };
-  if (points.length && points[points.length - 1].date === todayIso) {
-    points[points.length - 1] = livePoint;
-  } else {
-    points.push(livePoint);
-  }
+  const livePoint = withEur(
+    {
+      date: todayIso,
+      value: live.totalValueHuf + transitToday,
+      invested: live.netDepositedHuf + transitToday,
+    },
+    fx["EUR"],
+  );
+  points.push(livePoint);
   return points;
 }
 
