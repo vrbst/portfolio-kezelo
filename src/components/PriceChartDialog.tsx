@@ -15,16 +15,7 @@ import {
 import { lastSessionLabel, type LiveQuote } from "../lib/prices";
 import { formatPercent } from "../lib/format";
 import { CHART } from "../lib/skin";
-
-const BAR_MS = 5 * 60_000;
-
-interface Row {
-  /** Sequential slot: yesterday's bars, then today's session (padded). */
-  i: number;
-  t: number;
-  prev?: number;
-  today?: number;
-}
+import { buildChartRows, type ChartRow as Row } from "../lib/priceChart";
 
 const hhmm = (t: number) =>
   new Intl.DateTimeFormat("hu-HU", {
@@ -92,35 +83,7 @@ export default function PriceChartDialog({
   // Not traded today: the last session's move, labelled with its day.
   const session = lastSessionLabel(quote, new Date());
 
-  const { rows, split, ticks } = useMemo(() => {
-    const rows: Row[] = [];
-    const prev = quote.prevDay ?? [];
-    const prevT = quote.prevDayT ?? [];
-    prev.forEach((c, k) =>
-      rows.push({ i: rows.length, t: prevT[k], prev: c }),
-    );
-    const split = rows.length;
-    const today = quote.intraday ?? [];
-    const todayT = quote.intradayT ?? [];
-    today.forEach((c, k) =>
-      rows.push({ i: rows.length, t: todayT[k], today: c }),
-    );
-    // Pad today to the end of its session (or to as long as yesterday was),
-    // so the chart shows the part of the day that is still ahead.
-    // A borrowed 24/7 curve doesn't follow the listing's session.
-    const session = quote.intradayFrom ? undefined : quote.session;
-    const start = todayT[0];
-    const full = session
-      ? Math.round((session.end - (start ?? session.start)) / BAR_MS)
-      : Math.max(prev.length, 1);
-    for (let k = today.length; k < full && start != null; k++)
-      rows.push({ i: rows.length, t: start + k * BAR_MS });
-    // Ticks on round hours, thinned to ~8 labels.
-    const hourly = rows.filter((r) => r.t && new Date(r.t).getMinutes() === 0);
-    const step = Math.max(1, Math.ceil(hourly.length / 8));
-    const ticks = hourly.filter((_, k) => k % step === 0).map((r) => r.i);
-    return { rows, split, ticks };
-  }, [quote]);
+  const { rows, split, ticks } = useMemo(() => buildChartRows(quote), [quote]);
 
   const fmt = (v: number) =>
     v.toLocaleString("hu-HU", {

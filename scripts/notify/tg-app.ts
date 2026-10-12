@@ -22,6 +22,8 @@ import { makeAnalysis, type AnalysisDeps } from "./analysis/job";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
 import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
+import { CHART_PREFIX, chartButtons, chartCaption, chartCard, chartMenuText, chartTargets, chartText, findTarget, type ChartTarget } from "./chart";
+import { chartSvg, svgToPng } from "./chartImage";
 import { loadContext, withGlideAlerts, type Context } from "./data";
 import { loadState, updateState, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
@@ -34,6 +36,7 @@ import {
   alertLine,
   alertsText,
   appRecordedLeftover,
+  esc,
   eventsText,
   forecastText,
   ft,
@@ -86,6 +89,9 @@ export type HubRequest = { v: number; id: string; app: string; now: string } & (
 export interface HubMessage {
   html: string;
   priority: "urgent" | "normal";
+  buttons?: { text: string; data: string }[][];
+  /** A picture (PNG/JPEG); `html` becomes its caption. */
+  photo?: { base64: string; name?: string };
 }
 
 export interface HubResponse {
@@ -94,6 +100,8 @@ export interface HubResponse {
   error?: string;
   messages?: HubMessage[];
   expectText?: { context: string; ttl: string };
+  /** Answer a button press by replacing the pressed message. */
+  editOriginal?: true;
   /** Job did nothing: an earlier failure stays open (no "recovered" message). */
   keepFailing?: true;
   /** The app's quiet hours (null = none); the hub keeps the latest. */
@@ -112,6 +120,8 @@ export interface Deps {
   analysis?: () => AnalysisDeps;
   fundamentals?: () => FundamentalsDeps;
   aiUsageFile?: string;
+  /** SVG → PNG for /chart (default: headless Chromium); a test seam. */
+  renderPng?: (svg: string) => Promise<Buffer>;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
   runJob?: (job: string) => Promise<"started" | "running">;
 }
@@ -260,6 +270,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.command === "hirkereses") return searchNews(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
       if (req.command === "koltseg") return aiCost(deps);
+      if (req.command === "chart") return chart(req.args, deps, false);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -267,6 +278,9 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       // Only the amount after a bare /maradek is expected (expectText).
       if (req.context === "maradek") return leftover(req.text, deps);
       return { v: 1, messages: [msg("Ehhez most nem tudok mit kezdeni. A parancsokat a /help sorolja fel.")] };
+    case "callback":
+      if (req.data.startsWith(CHART_PREFIX)) return chart(req.data.slice(CHART_PREFIX.length), deps, true);
+      return { v: 1, messages: [] };
     case "job":
       console.error(`job ${req.job}`);
       if (req.job === "tick") return tick(deps);
@@ -349,6 +363,56 @@ async function leftover(arg: string, deps: Deps): Promise<HubResponse> {
     messages: [msg(r.html + hint)],
     expectText: { context: "maradek", ttl: "10m" },
   };
+}
+
+/**
+ * /chart [papír]: the price cards' two-session curve as text. Without a (known)
+ * name a button menu; a button press swaps the pressed message for that chart,
+ * keeping the buttons so the next asset is one tap away.
+ */
+async function chart(query: string, deps: Deps, fromButton: boolean): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const targets = chartTargets(ctx);
+  const target = findTarget(targets, query);
+  const edit = fromButton ? ({ editOriginal: true } as const) : {};
+  if (!target) {
+    const note = query.trim() && !fromButton ? `Nem találom: <code>${esc(query.trim())}</code>.\n\n` : "";
+    return {
+      v: 1,
+      messages: [{ ...msg(note + chartMenuText(targets)), buttons: chartButtons(targets) }],
+      ...edit,
+    };
+  }
+  return {
+    v: 1,
+    messages: [await chartMessage(ctx, target, targets, deps)],
+    ...edit,
+  };
+}
+
+/** The chart as an image; any rendering failure falls back to the text chart. */
+async function chartMessage(
+  ctx: Context,
+  target: ChartTarget,
+  targets: ChartTarget[],
+  deps: Deps,
+): Promise<HubMessage> {
+  const buttons = chartButtons(targets, target.key);
+  const card = chartCard(ctx, target);
+  if (card) {
+    try {
+      const png = await (deps.renderPng ?? svgToPng)(chartSvg(card));
+      return {
+        ...msg(chartCaption(card)),
+        buttons,
+        photo: { base64: png.toString("base64"), name: `${target.label.replace(/\W+/g, "-")}.png` },
+      };
+    } catch (e) {
+      console.error("chart image failed:", (e as Error).message);
+    }
+  }
+  return { ...msg(chartText(ctx, target)), buttons };
 }
 
 async function priceAlerts(args: string, deps: Deps): Promise<HubResponse> {

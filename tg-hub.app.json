@@ -8,6 +8,7 @@
   "commands": [
     { "name": "allas", "description": "Aktuális vagyon, napi változás" },
     { "name": "arfolyam", "description": "EUR/HUF és a tartott papírok árfolyama" },
+    { "name": "chart", "description": "Árfolyam-grafikon (tegnap + ma) a tartott papírokról, gombokkal" },
     { "name": "teendok", "description": "Aktív figyelmeztetések" },
     { "name": "esemenyek", "description": "Következő 30 nap eseményei" },
     { "name": "cel", "description": "Célok állása" },
