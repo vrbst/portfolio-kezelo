@@ -19,13 +19,14 @@ import PurchaseAccountSettings from "../components/settings/PurchaseAccountSetti
 import LeftoverSettings from "../components/settings/LeftoverSettings";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
 import PrivacyLockSettings from "../components/settings/PrivacyLockSettings";
+import RestoreBackup from "../components/settings/RestoreBackup";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
   const clearAll = usePortfolio((s) => s.clearAll);
-  const syncOn = usePortfolio((s) => s.syncConfig != null);
+  const syncOn = usePortfolio((s) => s.syncTarget != null);
   const [confirming, setConfirming] = useState(false);
 
   // Build stamp comes from a runtime-fetched version.json (see vite.config.ts)
@@ -88,6 +89,7 @@ export default function Settings() {
                 előrejelzés-beállítások. A szinkron-token és az API-kulcs nem
                 kerül bele.
               </InfoTip>
+              <RestoreBackup />
             </div>
           </div>
           <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">

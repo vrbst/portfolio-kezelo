@@ -5,7 +5,7 @@
 // across devices (the newsSeen pref).
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getRepoFile, type SyncConfig } from "./sync";
+import { readRemoteFile, type SyncTarget } from "./remote";
 import {
   NEWS_INDEX_PATH,
   newsDigestPath,
@@ -36,20 +36,20 @@ function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   return p;
 }
 
-export function loadNewsIndex(config: SyncConfig): Promise<NewsIndex | null> {
-  return cached(`index:${config.owner}/${config.repo}`, async () => {
-    const file = await getRepoFile(config, NEWS_INDEX_PATH);
+export function loadNewsIndex(target: SyncTarget): Promise<NewsIndex | null> {
+  return cached(`index:${target.id}`, async () => {
+    const file = await readRemoteFile(target, NEWS_INDEX_PATH);
     return file ? validateNewsIndex(JSON.parse(file.text)) : null;
   });
 }
 
 export function loadNewsDigest(
-  config: SyncConfig,
+  target: SyncTarget,
   day: string,
   edition: NewsEdition,
 ): Promise<NewsDigest | null> {
-  return cached(`digest:${config.owner}/${config.repo}:${day}-${edition}`, async () => {
-    const file = await getRepoFile(config, newsDigestPath(day, edition));
+  return cached(`digest:${target.id}:${day}-${edition}`, async () => {
+    const file = await readRemoteFile(target, newsDigestPath(day, edition));
     return file ? validateDigest(JSON.parse(file.text)) : null;
   });
 }
@@ -143,19 +143,19 @@ function useLoad<T>(base: string | null, version: number, load: () => Promise<T>
 
 /** The digest index of the sync repo (refreshed in the background). */
 export function useNewsIndex(): Loadable<NewsIndex | null> {
-  const config = usePortfolio((s) => s.syncConfig);
+  const target = usePortfolio((s) => s.syncTarget);
   const v = useVersion();
-  const r = useLoad(config ? `${config.owner}/${config.repo}` : null, v, () => loadNewsIndex(config!));
-  return config ? r : { status: "off" };
+  const r = useLoad(target?.id ?? null, v, () => loadNewsIndex(target!));
+  return target ? r : { status: "off" };
 }
 
 /** One digest (null = none: ready with no data). */
 export function useNewsDigest(pick: { day: string; edition: NewsEdition } | null): Loadable<NewsDigest | null> {
-  const config = usePortfolio((s) => s.syncConfig);
+  const target = usePortfolio((s) => s.syncTarget);
   const v = useVersion();
-  const base = config && pick ? `${config.owner}/${config.repo}:${pick.day}-${pick.edition}` : null;
-  const r = useLoad(base, v, () => loadNewsDigest(config!, pick!.day, pick!.edition));
-  if (!config) return { status: "off" };
+  const base = target && pick ? `${target.id}:${pick.day}-${pick.edition}` : null;
+  const r = useLoad(base, v, () => loadNewsDigest(target!, pick!.day, pick!.edition));
+  if (!target) return { status: "off" };
   if (!pick) return { status: "ready", data: null };
   return r;
 }

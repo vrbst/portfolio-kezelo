@@ -638,3 +638,95 @@ test.describe("Telegram notification settings", () => {
     await expect(page.getByLabel("Csendes órák kezdete")).toHaveValue("23:00");
   });
 });
+
+test.describe("restore from a backup file", () => {
+  /** The "Tranzakciók" count in the Beállítások data card. */
+  const txCount = async (page: Page) =>
+    Number(await page.locator("dt", { hasText: "Tranzakciók" }).locator("xpath=following-sibling::dd").innerText());
+
+  const backupFile = (extra: boolean) => {
+    const snap = fixtureSnapshot();
+    const txs = extra ? [...snap.transactions, { ...snap.transactions[0], id: "mentes-extra-1" }] : snap.transactions;
+    return {
+      name: "mentes.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          kind: "portfolio-backup",
+          version: 1,
+          exportedAt: "2026-10-13T09:00:00.000Z",
+          accounts: snap.accounts,
+          instruments: snap.instruments,
+          transactions: txs,
+          alertState: {},
+          goals: [],
+          deletedGoalIds: [],
+          deletedAccounts: {},
+          reminders: [],
+          deletedReminderIds: [],
+          deletedAlertIds: [],
+          fx: {},
+        }),
+      ),
+    };
+  };
+
+  test("brings back what is missing, keeps the rest, and survives a reload", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/settings");
+    const before = await txCount(page);
+    await page.getByTestId("restore-input").setInputFiles(backupFile(true));
+    // The summary comes first; nothing has changed yet.
+    await expect(page.getByTestId("restore-confirm")).toContainText(`${before + 1} tranzakció`);
+    expect(await txCount(page)).toBe(before);
+    await page.getByRole("button", { name: "Visszatöltés", exact: true }).click();
+    await expect(page.getByText("Visszatöltve. 1 új tranzakció.")).toBeVisible();
+    await expect.poll(() => txCount(page)).toBe(before + 1);
+    await reopen(page, "/settings");
+    expect(await txCount(page)).toBe(before + 1);
+    expect(errors).toEqual([]);
+  });
+
+  test("a security the backup brings gets its live price right away, not at the next poll", async ({ page }) => {
+    await openSeeded(page);
+    const proxyCalls: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("workers.dev")) proxyCalls.push(r.url());
+    });
+    await show(page, "/settings");
+    // Let the startup round settle, then count only what the restore causes.
+    await page.waitForTimeout(1500);
+    const before = proxyCalls.length;
+    const snap = fixtureSnapshot();
+    const etf = snap.instruments.find((i) => i.type === "etf")!;
+    const fresh = { ...etf, key: "IE00UJETF0001", isin: "IE00UJETF0001", name: "Új ETF" };
+    const file = backupFile(false);
+    const body = JSON.parse(file.buffer.toString());
+    body.instruments.push(fresh);
+    await page.getByTestId("restore-input").setInputFiles({ ...file, buffer: Buffer.from(JSON.stringify(body)) });
+    await page.getByRole("button", { name: "Visszatöltés", exact: true }).click();
+    await expect(page.getByText(/^Visszatöltve./)).toBeVisible();
+    // The new security's quote is looked up by its ISIN (not merely "some request").
+    await expect
+      .poll(() => proxyCalls.slice(before).some((u) => u.includes("IE00UJETF0001")), {
+        message: "a price request for the restored security",
+      })
+      .toBe(true);
+  });
+
+  test("Mégse changes nothing; a file that is not a backup is refused with a reason", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/settings");
+    const before = await txCount(page);
+    await page.getByTestId("restore-input").setInputFiles(backupFile(true));
+    await page.getByRole("button", { name: "Mégse", exact: true }).click();
+    await expect(page.getByTestId("restore-confirm")).toHaveCount(0);
+    expect(await txCount(page)).toBe(before);
+
+    await page.getByTestId("restore-input").setInputFiles({ name: "x.json", mimeType: "application/json", buffer: Buffer.from("nem json") });
+    await expect(page.getByText("A fájl nem érvényes JSON.")).toBeVisible();
+    await page.getByTestId("restore-input").setInputFiles({ name: "y.json", mimeType: "application/json", buffer: Buffer.from('{"version":1}') });
+    await expect(page.getByText(/nem portfólió-mentés/)).toBeVisible();
+    expect(await txCount(page)).toBe(before);
+  });
+});

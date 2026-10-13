@@ -9,8 +9,11 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
 
 > Az adatok alapból helyben, a böngésző IndexedDB tárolójában maradnak. Külső
 > szolgáltatás csak akkor kap adatot, ha bekapcsolod:
-> - **Szinkron** – a portfólió egy JSON-fájlként a *saját, privát* GitHub
->   repódba kerül (a token csak az adott eszközön tárolódik).
+> - **Szinkron** – a portfólió egy JSON-fájlként a *saját Google Drive-od*
+>   rejtett appmappájába kerül (Google-belépéssel; csak ez az app látja, a
+>   hozzáférés csak az adott eszközön tárolódik), vagy a *saját, privát*
+>   GitHub repódba (token). Ha mindkettő be van állítva, a Drive az
+>   elsődleges, a GitHub tartalék tükör.
 > - **AI elemzés** – a saját Claude API-kulcsoddal csak aggregált pillanatkép
 >   megy az Anthropic API-nak, tranzakció soha.
 >
@@ -153,8 +156,12 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   költséggel.
 - **Élő árfolyamok** – ETF-ek Yahoo-ról (Cloudflare Worker proxyn át),
   EUR/HUF a frankfurter.app-ról; ideiglenes kézi ár és szimbólum-felülírás.
-- **Szinkron és mentés** – eszközök közti szinkron privát GitHub-repón át,
-  teljes helyi mentés JSON-fájlba.
+- **Szinkron és mentés** – eszközök közti szinkron Google Drive-on (belépés
+  a Beállításokban; egy óra után a „Kapcsolódj újra” gombbal újítható) vagy
+  privát GitHub-repón át; teljes helyi mentés JSON-fájlba, és annak
+  visszatöltése (a mentésben szereplőt visszaállítja, a későbbit nem törli).
+  A Google-belépéshez a buildben kell a `VITE_GOOGLE_CLIENT_ID` (OAuth Web
+  kliens, scope: `drive.appdata`); nélküle a gomb nem jelenik meg.
 - **Adatvédelmi mód** – egy kattintással elmossa az összegeket.
 - **Skinek** – a Beállítások → Megjelenés alatt választható kinézetek a
   klasszikus mellett: **Terminál** (zöld foszfor, monospace, szögletes dobozok,
