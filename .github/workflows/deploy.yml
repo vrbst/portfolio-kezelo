@@ -47,10 +47,6 @@ jobs:
           enablement: true # kapcsolja be a Pages-t, ha még nincs
       - run: npm ci
       - run: npm run build
-        env:
-          # A Google-belépés OAuth kliens-azonosítója (Web application, scope:
-          # drive.appdata). Nem titok: a kliens-oldali kódban úgyis benne van.
-          VITE_GOOGLE_CLIENT_ID: 1054830377841-ujrj2ap9u4l3rhdjjvfa2opt54t2564h.apps.googleusercontent.com
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

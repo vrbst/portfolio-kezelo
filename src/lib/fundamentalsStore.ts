@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { readRemoteFile, type SyncTarget } from "./remote";
+import type { SyncTarget } from "./remote";
 import { FUNDAMENTALS_PATH, validateFundamentalsFile, type FundamentalsFile } from "./fundamentals";
 import { usePortfolio } from "./store";
 
@@ -9,7 +9,7 @@ let cache: { key: string; at: number; file: Promise<FundamentalsFile | null> } |
 export function loadFundamentalsFile(target: SyncTarget): Promise<FundamentalsFile | null> {
   const key = target.id;
   if (cache && cache.key === key && Date.now() - cache.at < TTL_MS) return cache.file;
-  const file = readRemoteFile(target, FUNDAMENTALS_PATH).then((f) =>
+  const file = target.store.read(FUNDAMENTALS_PATH).then((f) =>
     f ? validateFundamentalsFile(JSON.parse(f.text)) : null,
   );
   const entry = { key, at: Date.now(), file };

@@ -26,7 +26,7 @@ export default function Settings() {
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = usePortfolio((s) => s.instruments);
   const clearAll = usePortfolio((s) => s.clearAll);
-  const syncOn = usePortfolio((s) => s.syncTarget != null);
+  const syncOn = usePortfolio((s) => s.syncConfig != null);
   const [confirming, setConfirming] = useState(false);
 
   // Build stamp comes from a runtime-fetched version.json (see vite.config.ts)
