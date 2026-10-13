@@ -75,6 +75,35 @@
       "expectSuccessWithin": "4d"
     },
     {
+      "id": "outlook",
+      "description": "Árfolyam-kilátások AI nélkül: elemzői célár (Yahoo) és a BTC-opciókból számolt sáv (Deribit) a tartott papírokra; 3 nap folyamatos hiba után szól",
+      "at": "06:50",
+      "catchUp": "run",
+      "catchUpWindow": "12h",
+      "timeout": "5m",
+      "expectSuccessWithin": "4d"
+    },
+    {
+      "id": "outlook-ai",
+      "description": "Heti kilátás-gyűjtés (Claude Code, előfizetésből): besorolás és névvel jelölt banki előrejelzések forrással; szombat hajnalban, 8 előtt, mert 8-kor nullázódik a keret",
+      "at": "04:30",
+      "days": ["sat"],
+      "catchUp": "run",
+      "catchUpWindow": "3h",
+      "timeout": "20m",
+      "expectSuccessWithin": "8d"
+    },
+    {
+      "id": "outlook-ai-retry",
+      "description": "A heti kilátás-gyűjtés újrapróbája 8 után (ha 4:30-kor elfogyott a keret vagy nem sikerült); ha a hét már kész, nem csinál semmit; kikapcsolt gépnél vasárnap pótol",
+      "at": "08:15",
+      "days": ["sat"],
+      "catchUp": "run",
+      "catchUpWindow": "36h",
+      "timeout": "20m",
+      "expectSuccessWithin": "8d"
+    },
+    {
       "id": "news-why",
       "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
       "every": "30m",

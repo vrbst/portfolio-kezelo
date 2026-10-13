@@ -25,6 +25,8 @@ import { ReturnRows } from "./ReturnBreakdown";
 import { BondLotsTable, LotsTable } from "./LotsTables";
 import FundamentalsSection from "./FundamentalsSection";
 import { useFundamentalsFile } from "../../lib/fundamentalsStore";
+import OutlookSection from "./OutlookSection";
+import { useOutlookFile } from "../../lib/outlookStore";
 
 const QUOTED = new Set(["etf", "stock", "fund"]);
 
@@ -67,6 +69,7 @@ export default function InstrumentSheet({
   const moveSettings = useMoveAlertSettings();
   const today = useToday();
   const fundamentals = useFundamentalsFile();
+  const outlook = useOutlookFile();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -225,6 +228,16 @@ export default function InstrumentSheet({
             )}
 
             <FundamentalsSection f={fundamentals?.items[instrumentKey]} error={fundamentals?.errors[instrumentKey]} />
+
+            {quoted && (
+              <OutlookSection
+                profile={outlook?.profiles[instrumentKey]}
+                outlook={outlook?.items[instrumentKey]}
+                error={outlook?.errors[instrumentKey]}
+                price={price}
+                currency={row.currency}
+              />
+            )}
 
             {series && series.length >= 2 && (
               <Section title="Árfolyam és vételeid">

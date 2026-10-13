@@ -35,6 +35,8 @@ export interface NotifyEnv {
   newsModel: string;
   /** Nightly AI analysis (analysis/): the model Claude Code runs it with. */
   analysisModel: string;
+  /** Weekly outlook run (outlook/): the model Claude Code runs it with. */
+  outlookModel: string;
   /** Path / name of the Claude Code CLI. */
   newsClaudeBin: string;
   /** The app's address, linked from the Telegram digest. */
@@ -102,6 +104,7 @@ export function loadEnv(): NotifyEnv {
     whyModel: e.NEWS_WHY_MODEL || "sonnet",
     newsModel: e.NEWS_MODEL || "opus",
     analysisModel: e.ANALYSIS_MODEL || "opus",
+    outlookModel: e.OUTLOOK_MODEL || "opus",
     newsClaudeBin: e.NEWS_CLAUDE_BIN || "claude",
     appUrl: e.APP_URL || "https://vrbst.github.io/portfolio-kezelo/",
   };

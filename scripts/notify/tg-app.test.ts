@@ -812,6 +812,144 @@ describe("nightly AI analysis", () => {
   });
 });
 
+describe("outlook jobs", () => {
+  const SAT_EARLY: [number, number, number, number, number] = [2026, 10, 17, 4, 30];
+  const SAT_RETRY: [number, number, number, number, number] = [2026, 10, 17, 8, 15];
+  const aiState = () => join(dir, "outlook", "ai-state.json");
+  // The fixture portfolio holds VWCE and WBIT (and a few more quoted papers).
+  const answer = {
+    assets: [
+      {
+        key: VWCE,
+        assetClass: "equity_fund",
+        views: [
+          { house: "Vanguard", kind: "annualReturn", value: 0.059, unit: "%/év", horizon: "10 év", publishedAt: "2026-01-22", url: "https://example.com/vcmm" },
+        ],
+      },
+    ],
+  };
+  const limitHit = { name: "f", model: "m", run: async () => Promise.reject(new Error("Claude usage limit reached, resets at 8am")) };
+  const aiDeps = (at: [number, number, number, number, number], engine: ReturnType<typeof fakeEngine> | typeof limitHit, store = memoryStore()) => ({
+    deps: {
+      ...depsFor(() => contextAt(at)),
+      outlookAi: () => ({ engine, store, stateFile: aiState() }),
+    } satisfies Deps,
+    store,
+  });
+
+  it("the 04:30 run is silent, writes the file, and makes the 08:15 retry a no-op", async () => {
+    const early = aiDeps(SAT_EARLY, fakeEngine([answer]));
+    expect(await call(jobReq("outlook-ai"), early.deps)).toEqual({ v: 1, messages: [] });
+    expect(early.store.writes).toEqual(["market/outlook.json"]);
+
+    const engine = fakeEngine([answer]);
+    const retry = aiDeps(SAT_RETRY, engine, early.store);
+    expect(await call(jobReq("outlook-ai-retry"), retry.deps)).toEqual({ v: 1, messages: [] });
+    expect(engine.prompts).toEqual([]);
+    expect(early.store.writes).toHaveLength(1);
+  });
+
+  it("the usage limit at 04:30 is quiet; the retry after 08:00 then does the work", async () => {
+    const early = aiDeps(SAT_EARLY, limitHit);
+    expect(await call(jobReq("outlook-ai"), early.deps)).toEqual({ v: 1, messages: [] });
+    expect(early.store.writes).toEqual([]);
+
+    const retry = aiDeps(SAT_RETRY, fakeEngine([answer]), early.store);
+    const r = await call(jobReq("outlook-ai-retry"), retry.deps);
+    expect(r.ok).toBeUndefined();
+    expect(early.store.writes).toEqual(["market/outlook.json"]);
+  });
+
+  it("only a failed retry is reported, with the reason", async () => {
+    const retry = aiDeps(SAT_RETRY, limitHit);
+    const r = await call(jobReq("outlook-ai-retry"), retry.deps);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("keret");
+    expect(retry.store.writes).toEqual([]);
+  });
+
+  it("is not set up without the dependency", async () => {
+    expect((await call(jobReq("outlook-ai"), depsFor(() => contextAt(SAT_EARLY)))).ok).toBe(false);
+  });
+
+  it("the daily job keeps a newly found issuer consensus document as pending, without any AI", async () => {
+    const { miniPdf } = await import("./outlook/pdfFixture");
+    const rows: [number, number, string][] = Array.from({ length: 12 }, (_, i) => [50, 780 - i * 20, `Celar sor ${i} HUF 45.888 atlag`]);
+    const url = "https://example.com/Consensus_20261001.pdf";
+    // The AI named a consensus document for the fixture's VWCE (any asset will do).
+    const store = memoryStore({
+      "market/outlook.json": JSON.stringify({
+        v: 1,
+        updatedAt: "2026-10-10T00:00:00Z",
+        profiles: { [VWCE]: { assetClass: "equity", consensusUrl: url, source: "ai", checkedAt: "2026-10-10" } },
+        items: {},
+        errors: {},
+      }),
+    });
+    const r = await call(jobReq("outlook"), {
+      ...depsFor(() => contextAt(SAT_EARLY)),
+      outlook: () => ({
+        resolve: async (t) => t.key,
+        fetch: async () => ({ quoteSummary: { result: [{ price: { quoteType: "EQUITY", currency: "EUR" } }] } }),
+        bands: async () => null,
+        store,
+      }),
+      outlookDocs: () => ({
+        dir: join(dir, "outlook"),
+        head: async (u) => u === url,
+        get: async () => ({ ok: true, contentType: "application/pdf", bytes: miniPdf(rows) }),
+      }),
+    });
+    expect(r.ok).toBeUndefined();
+    const { listPending } = await import("./outlook/issuerDocs");
+    expect(listPending(join(dir, "outlook")).map((d) => [d.key, d.url])).toEqual([[VWCE, url]]);
+  });
+
+  it("the daily job profiles every held paper from its own data, nothing hard-wired", async () => {
+    const store = memoryStore();
+    const r = await call(jobReq("outlook"), {
+      ...depsFor(() => contextAt(SAT_EARLY)),
+      outlook: () => ({
+        resolve: async (t) => t.key,
+        fetch: async (symbol) => ({
+          quoteSummary: {
+            result: [{ price: { quoteType: "ETF", currency: "EUR", longName: symbol === WBIT ? "WisdomTree Physical Bitcoin" : "Vanguard FTSE All-World" } }],
+          },
+        }),
+        bands: async (underlying) => [
+          { underlying, horizonDays: 90, expiry: "2027-01-15", spot: 80_000, forward: 81_000, p10: 60_000, p50: 80_000, p90: 105_000, probUp: 0.49, asOf: "2026-10-17" },
+        ],
+        store,
+      }),
+    });
+    expect(r.ok).toBeUndefined();
+    const file = JSON.parse(store.files["market/outlook.json"]) as {
+      profiles: Record<string, { assetClass: string; underlying?: string }>;
+      items: Record<string, { implied?: unknown[] }>;
+    };
+    expect(file.profiles[WBIT]).toMatchObject({ assetClass: "crypto", underlying: "BTC" });
+    expect(file.profiles[VWCE].assetClass).toBe("equity_fund");
+    expect(file.items[WBIT].implied).toHaveLength(1);
+    expect(file.items[VWCE]).toBeUndefined();
+  });
+});
+
+describe("tg-hub.app.json: the outlook jobs", () => {
+  it("the weekly AI run is on Saturday before 08:00, its retry after, and the retry may catch up on Sunday", () => {
+    const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {
+      jobs: { id: string; at?: string; days?: string[]; catchUp?: string; catchUpWindow?: string }[];
+    };
+    const job = (id: string) => app.jobs.find((j) => j.id === id)!;
+    expect(job("outlook-ai")).toMatchObject({ days: ["sat"], at: "04:30" });
+    expect(job("outlook-ai-retry")).toMatchObject({ days: ["sat"], at: "08:15", catchUp: "run", catchUpWindow: "36h" });
+    // A late catch-up of the first run must still land before the 08:00 reset.
+    const [h, m] = job("outlook-ai").at!.split(":").map(Number);
+    const windowH = Number(job("outlook-ai").catchUpWindow!.replace("h", ""));
+    expect(h * 60 + m + windowH * 60).toBeLessThanOrEqual(8 * 60);
+    expect(job("outlook").days).toBeUndefined();
+  });
+});
+
 describe("tg-hub.app.json: the analysis job", () => {
   it("runs Tuesday to Saturday in the small hours (Monday's would be Sunday night's)", () => {
     const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {

@@ -31,6 +31,12 @@ import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { quotedToday, resolveYahooSymbol } from "../../src/lib/prices";
 import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
+import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
+import { fetchImpliedBands } from "./outlook/optionsImplied";
+import { OUTLOOK_AI_SCHEMA } from "./outlook/aiViews";
+import { CONSENSUS_SCHEMA } from "./outlook/aiDocs";
+import { collectIssuerDocs, defaultIssuerFetch, type IssuerDocsDeps } from "./outlook/issuerDocs";
+import { weeklyOutlookAi, type WeeklyOutlookDeps } from "./outlook/weekly";
 import { addDaysIso, toLocalDay } from "../../src/lib/day";
 import {
   alertLine,
@@ -119,6 +125,12 @@ export interface Deps {
   /** The nightly AI analysis's AI and storage (built only when needed). */
   analysis?: () => AnalysisDeps;
   fundamentals?: () => FundamentalsDeps;
+  /** The daily, AI-free outlook sources (Yahoo targets, Deribit bands). */
+  outlook?: () => OutlookDeps;
+  /** The issuers' consensus documents (found daily, read by the weekly run). */
+  outlookDocs?: () => IssuerDocsDeps;
+  /** The weekly outlook run: Claude Code on the subscription. */
+  outlookAi?: () => WeeklyOutlookDeps;
   aiUsageFile?: string;
   /** SVG → PNG for /chart (default: headless Chromium); a test seam. */
   renderPng?: (svg: string) => Promise<Buffer>;
@@ -170,6 +182,35 @@ export function defaultDeps(): Deps {
         store: repoStore(env.syncRepo, newsGithubToken),
       };
     },
+    outlook: () => {
+      let session: ReturnType<typeof yahooFetcher> | undefined;
+      return {
+        resolve: (t) => resolveYahooSymbol({ key: t.key, isin: t.isin, currency: t.currency }),
+        fetch: async (symbol) => (await (session ??= yahooFetcher()))(symbol),
+        bands: (underlying, nowMs) => fetchImpliedBands(underlying, nowMs),
+        store: repoStore(env.syncRepo, newsGithubToken),
+      };
+    },
+    outlookAi: () => ({
+      engine: claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.outlookModel,
+        schema: OUTLOOK_AI_SCHEMA,
+        onRun: logRun(OUTLOOK_AI_JOB, env.outlookModel),
+      }),
+      store: repoStore(env.syncRepo, newsGithubToken),
+      stateFile: resolve(NOTIFY_DIR, "outlook", "ai-state.json"),
+      // No tools: it reads only the document text it is handed.
+      docEngine: claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.outlookModel,
+        schema: CONSENSUS_SCHEMA,
+        tools: "",
+        onRun: logRun(OUTLOOK_AI_JOB, env.outlookModel),
+      }),
+      docsDir: resolve(NOTIFY_DIR, "outlook"),
+    }),
+    outlookDocs: () => ({ dir: resolve(NOTIFY_DIR, "outlook"), ...defaultIssuerFetch() }),
   };
 }
 
@@ -289,6 +330,9 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === ANALYSIS_JOB) return analysisJob(deps, req.manual === true);
       if (req.job === WHY_JOB) return whyMoved(deps);
       if (req.job === FUNDAMENTALS_JOB) return fundamentalsJob(deps);
+      if (req.job === OUTLOOK_JOB) return outlookJob(deps);
+      if (req.job === OUTLOOK_AI_JOB) return outlookAiJob(deps, "primary", req.manual === true);
+      if (req.job === OUTLOOK_AI_RETRY_JOB) return outlookAiJob(deps, "retry", req.manual === true);
       return fail(`Ismeretlen job: ${req.job}`);
     default:
       return { v: 1, messages: [] };
@@ -672,8 +716,8 @@ export const FUNDAMENTALS_JOB = "fundamentals";
 
 const QUOTED_TYPES = new Set(["etf", "stock", "fund"]);
 
-async function fundamentalsJob(deps: Deps): Promise<HubResponse> {
-  if (!deps.fundamentals) return { v: 1, messages: [] };
+/** The held, quoted papers (what fundamentals and the outlook look at). */
+async function heldTargets(deps: Deps): Promise<{ targets: OutlookTarget[]; at: Date }> {
   const ctx = await deps.load();
   const targets = consolidatedHoldings(ctx.summary)
     .filter((h) => h.quantity > 1e-9 && h.instrument && QUOTED_TYPES.has(h.instrument.type))
@@ -682,10 +726,71 @@ async function fundamentalsJob(deps: Deps): Promise<HubResponse> {
       name: shortName(h.instrument!.name),
       isin: h.instrument!.isin ?? h.instrumentKey,
       currency: h.currency,
+      type: h.instrument!.type as OutlookTarget["type"],
     }));
-  const { messages } = await refreshFundamentals(targets, deps.fundamentals(), ctx.at);
+  return { targets, at: ctx.at };
+}
+
+async function fundamentalsJob(deps: Deps): Promise<HubResponse> {
+  if (!deps.fundamentals) return { v: 1, messages: [] };
+  const { targets, at } = await heldTargets(deps);
+  const { messages } = await refreshFundamentals(targets, deps.fundamentals(), at);
   if (loadNotifySettings().off.fundamentals) return { v: 1, messages: [] };
   return { v: 1, messages: messages.map((m) => msg(m)) };
+}
+
+// ---- the outlook: analyst targets and market-implied ranges ---------------
+
+export const OUTLOOK_JOB = "outlook";
+export const OUTLOOK_AI_JOB = "outlook-ai";
+export const OUTLOOK_AI_RETRY_JOB = "outlook-ai-retry";
+
+/** Job "outlook" (daily, no AI): profiles, Yahoo targets, option-implied bands. */
+async function outlookJob(deps: Deps): Promise<HubResponse> {
+  if (!deps.outlook) return { v: 1, messages: [] };
+  const { targets, at } = await heldTargets(deps);
+  const { file, messages } = await refreshOutlook(targets, deps.outlook(), at);
+  if (deps.outlookDocs) {
+    // The issuers' own consensus documents: only found and kept here (no AI);
+    // the weekly run reads them. A failure costs nothing but today's check.
+    try {
+      const { saved, errors } = await collectIssuerDocs(file, deps.outlookDocs(), at);
+      if (saved.length) console.error(`outlook: new consensus document for ${saved.join(", ")}`);
+      for (const [k, e] of Object.entries(errors)) console.error(`outlook: consensus document ${k}: ${e}`);
+    } catch (e) {
+      console.error("outlook: consensus documents failed:", (e as Error).message);
+    }
+  }
+  return { v: 1, messages: messages.map((m) => msg(m)) };
+}
+
+/**
+ * Jobs "outlook-ai" (Saturday 04:30, before the 08:00 usage-limit reset) and
+ * "outlook-ai-retry" (Saturday 08:15): the weekly run on the subscription. Both
+ * run only while this week has no successful run. A failure of the first one is
+ * quiet, because the retry follows; only the failure of the retry is reported.
+ */
+async function outlookAiJob(deps: Deps, kind: "primary" | "retry", manual: boolean): Promise<HubResponse> {
+  if (!deps.outlookAi) return fail("A heti kilátás-gyűjtés nincs beállítva.");
+  const { targets, at } = await heldTargets(deps);
+  if (!targets.length) return { v: 1, messages: [] };
+  const out = await weeklyOutlookAi(targets, deps.outlookAi(), at, { manual });
+  if (out.status === "skipped") {
+    console.error("outlook-ai: this week is done already");
+    return { v: 1, messages: [] };
+  }
+  if (out.status === "failed") {
+    console.error(`outlook-ai: failed (${out.reason}): ${out.message}`);
+    if (kind === "primary" && !manual) return { v: 1, messages: [] };
+    return fail(
+      `A heti kilátás-gyűjtés nem sikerült${out.reason === "limit" ? " (az előfizetési keret kimerült)" : ""}: ${out.message}. Az előző heti adatok maradnak.`,
+    );
+  }
+  console.error(`outlook-ai: ${out.result.views} nézet ${out.result.assets} eszközhöz`);
+  return {
+    v: 1,
+    messages: manual ? [msg(`📈 Kilátások frissítve: ${out.result.views} nézet ${out.result.assets} eszközhöz.`)] : [],
+  };
 }
 const FX_KEY = FX_MOVE_KEY;
 export const WHY_MAX_RUNS_PER_DAY = 3;

@@ -13,7 +13,7 @@ import { toLocalDay, utcDay } from "../../src/lib/day";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
-const MODULES = "price,summaryDetail,summaryProfile,defaultKeyStatistics,topHoldings,fundProfile,calendarEvents";
+const MODULES = "price,summaryDetail,summaryProfile,defaultKeyStatistics,topHoldings,fundProfile,calendarEvents,financialData,recommendationTrend";
 const NOTIFY_EVERY_MS = 7 * 86_400_000;
 
 export interface FundamentalsTarget {
