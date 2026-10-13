@@ -37,7 +37,7 @@ import {
   saveGoogleSync,
   type GoogleSyncConfig,
 } from "./googleAuth";
-import { pushSnapshot, readSnapshot } from "./remote/snapshot";
+import { pushWithMirror, readSnapshot } from "./remote/snapshot";
 import {
   loadAlertConfig,
   saveIdleCashThreshold,
@@ -180,6 +180,8 @@ interface PortfolioState {
   autoSync: boolean;
   /** Message from the last failed auto-push, if any. */
   syncError?: string;
+  /** The GitHub mirror's last push failed (the Drive push itself went fine). */
+  mirrorError?: string;
   setSyncConfig: (config: SyncConfig | null) => void;
   setGoogleSync: (config: GoogleSyncConfig | null) => void;
   setAutoSync: (enabled: boolean) => void;
@@ -993,9 +995,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // another device's data (goals, txs…). Local wins on conflicts. A version
       // conflict (another device pushed between our read and write) is retried
       // with a fresh read + merge instead of surfacing as an error.
-      const pushed = await pushSnapshot(
-        syncTarget.store,
-        syncTarget.path,
+      const pushed = await pushWithMirror(
+        syncTarget,
         () => buildSnapshot(get()),
         unionSnapshots,
       );
@@ -1014,6 +1015,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       set({
         lastSyncedAt: pushed.snapshot.exportedAt,
         syncError: undefined,
+        mirrorError: pushed.mirrorError,
         cloudChecked: true,
       });
     } finally {
@@ -1119,6 +1121,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       syncTarget: null,
       lastSyncedAt: undefined,
       syncError: undefined,
+      mirrorError: undefined,
     });
   },
 

@@ -3,6 +3,7 @@
 // stored JSON is the same for every backend.
 
 import { validateSnapshot, type PortfolioSnapshot } from "../sync";
+import type { SyncTarget } from "./index";
 import { RemoteConflictError, type RemoteStore } from "./types";
 
 /** Read and validate the snapshot. Null if it doesn't exist yet. */
@@ -52,5 +53,38 @@ export async function pushSnapshot(
     } catch (e) {
       if (!(e instanceof RemoteConflictError) || attempt >= 2) throw e;
     }
+  }
+}
+
+type Merge = (remote: PortfolioSnapshot, local: PortfolioSnapshot) => PortfolioSnapshot;
+
+/**
+ * Push to the target; if it has a mirror, push there too. The primary decides
+ * success — a failing mirror is only reported (`mirrorError`), never thrown,
+ * so the safety net can't block the real sync. The mirror gets what the
+ * primary ended up with, merged with the local state of the moment.
+ */
+export async function pushWithMirror(
+  target: SyncTarget,
+  local: () => PortfolioSnapshot,
+  merge: Merge,
+): Promise<{
+  snapshot: PortfolioSnapshot;
+  sha: string;
+  hadRemote: boolean;
+  mirrorError?: string;
+}> {
+  const primary = await pushSnapshot(target.store, target.path, local, merge);
+  if (!target.mirror) return primary;
+  try {
+    await pushSnapshot(
+      target.mirror.store,
+      target.mirror.path,
+      () => merge(primary.snapshot, local()),
+      merge,
+    );
+    return primary;
+  } catch (e) {
+    return { ...primary, mirrorError: e instanceof Error ? e.message : String(e) };
   }
 }

@@ -5,7 +5,7 @@
 // across devices (the newsSeen pref).
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { SyncTarget } from "./remote";
+import { readRemoteFile, type SyncTarget } from "./remote";
 import {
   NEWS_INDEX_PATH,
   newsDigestPath,
@@ -38,7 +38,7 @@ function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
 
 export function loadNewsIndex(target: SyncTarget): Promise<NewsIndex | null> {
   return cached(`index:${target.id}`, async () => {
-    const file = await target.store.read(NEWS_INDEX_PATH);
+    const file = await readRemoteFile(target, NEWS_INDEX_PATH);
     return file ? validateNewsIndex(JSON.parse(file.text)) : null;
   });
 }
@@ -49,7 +49,7 @@ export function loadNewsDigest(
   edition: NewsEdition,
 ): Promise<NewsDigest | null> {
   return cached(`digest:${target.id}:${day}-${edition}`, async () => {
-    const file = await target.store.read(newsDigestPath(day, edition));
+    const file = await readRemoteFile(target, newsDigestPath(day, edition));
     return file ? validateDigest(JSON.parse(file.text)) : null;
   });
 }

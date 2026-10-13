@@ -12,6 +12,7 @@ import { usePortfolio } from "../../lib/store";
 import { Card, Badge } from "../ui";
 import { formatDateTime } from "../../lib/format";
 import { verifyAccess, type SyncConfig } from "../../lib/sync";
+import { downloadBackup } from "../../lib/backup";
 import {
   googleClientId,
   hasValidGoogleToken,
@@ -33,11 +34,13 @@ export default function SyncSettings() {
   const googleSync = usePortfolio((s) => s.googleSync);
   const setGoogleSync = usePortfolio((s) => s.setGoogleSync);
   const syncTarget = usePortfolio((s) => s.syncTarget);
+  const mirrorError = usePortfolio((s) => s.mirrorError);
 
   const [form, setForm] = useState<SyncConfig>(
     syncConfig ?? { token: "", owner: "", repo: "", path: "data.json" },
   );
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [backupFirst, setBackupFirst] = useState(true);
 
   const connected = !!syncTarget;
   // Without a client id baked into the build the Google button stays hidden.
@@ -61,12 +64,32 @@ export default function SyncSettings() {
   async function googleSignIn() {
     setMsg(null);
     try {
+      // A restore point of this device's data, before anything moves.
+      if (backupFirst) downloadBackup();
       const cfg = await signInWithGoogle();
+      try {
+        // Migration: take in everything the GitHub copy holds BEFORE Drive
+        // becomes the primary, so nothing that only lives there is left behind.
+        if (syncConfig) await pullFromCloud();
+      } catch (e) {
+        // Back out completely: GitHub stays the active sync, as it was.
+        await signOutGoogle();
+        throw new Error(
+          `A GitHub-adatok beolvasása nem sikerült, a Google-belépést visszavontam: ${(e as Error).message}`,
+          { cause: e },
+        );
+      }
       setGoogleSync(cfg);
-      // Reflect what Drive already holds first, then put this device's data up.
+      // Reflect what Drive already holds, then put this device's data up
+      // (the push also refreshes the GitHub mirror).
       await pullFromCloud();
       await pushToCloud();
-      setMsg({ ok: true, text: "Kapcsolódva a Google Drive-hoz." });
+      setMsg({
+        ok: true,
+        text: syncConfig
+          ? "Kapcsolódva a Google Drive-hoz; a GitHub tartalékként frissül tovább."
+          : "Kapcsolódva a Google Drive-hoz.",
+      });
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
     }
@@ -150,9 +173,20 @@ export default function SyncSettings() {
               </button>
             </>
           ) : (
-            <button className="btn-primary" onClick={googleSignIn} disabled={syncing}>
-              Belépés Google-lal
-            </button>
+            <>
+              <button className="btn-primary" onClick={googleSignIn} disabled={syncing}>
+                Belépés Google-lal
+              </button>
+              <label className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
+                <input
+                  type="checkbox"
+                  checked={backupFirst}
+                  onChange={(e) => setBackupFirst(e.target.checked)}
+                  className="h-4 w-4 accent-[var(--color-brand)]"
+                />
+                Előtte biztonsági mentés letöltése
+              </label>
+            </>
           )}
         </div>
       )}
@@ -235,6 +269,12 @@ export default function SyncSettings() {
         <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-negative)]">
           <AlertTriangle className="h-4 w-4" />
           Auto-szinkron hiba: {syncError}
+        </p>
+      )}
+      {mirrorError && googleSync && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-negative)]">
+          <AlertTriangle className="h-4 w-4" />
+          A GitHub-tartalék nem frissült: {mirrorError}
         </p>
       )}
       {msg && (
