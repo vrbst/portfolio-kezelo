@@ -32,12 +32,7 @@ import {
   type PortfolioSnapshot,
 } from "./sync";
 import { buildSyncTarget, type SyncTarget } from "./remote";
-import {
-  loadGoogleSync,
-  saveGoogleSync,
-  type GoogleSyncConfig,
-} from "./googleAuth";
-import { pushWithMirror, readSnapshot } from "./remote/snapshot";
+import { pushSnapshot, readSnapshot } from "./remote/snapshot";
 import type { BackupFile } from "./backup";
 import { backupToSnapshot } from "./backupRestore";
 import {
@@ -167,12 +162,9 @@ interface PortfolioState {
   refreshHistory: () => Promise<void>;
   clearAll: () => Promise<void>;
 
-  // ---- Cross-device sync (Google Drive, or a private GitHub repo) ----
-  /** The GitHub-repo sync config (original format; also the fallback). */
+  // ---- Cross-device sync (private GitHub repo) ----
   syncConfig: SyncConfig | null;
-  /** Signed in with Google on this device — then Drive is the sync target. */
-  googleSync: GoogleSyncConfig | null;
-  /** Where this device syncs, derived from the two configs; null = no sync. */
+  /** Where this device syncs, derived from the config; null = no sync. */
   syncTarget: SyncTarget | null;
   syncing: boolean;
   lastSyncedAt?: string;
@@ -187,10 +179,7 @@ interface PortfolioState {
   autoSync: boolean;
   /** Message from the last failed auto-push, if any. */
   syncError?: string;
-  /** The GitHub mirror's last push failed (the Drive push itself went fine). */
-  mirrorError?: string;
   setSyncConfig: (config: SyncConfig | null) => void;
-  setGoogleSync: (config: GoogleSyncConfig | null) => void;
   setAutoSync: (enabled: boolean) => void;
   pushToCloud: () => Promise<void>;
   pullFromCloud: () => Promise<{ added: number }>;
@@ -508,11 +497,10 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({ privacy: v });
   },
   syncConfig: loadSyncConfig(),
-  googleSync: loadGoogleSync(),
-  syncTarget: buildSyncTarget(loadSyncConfig(), loadGoogleSync()),
+  syncTarget: buildSyncTarget(loadSyncConfig()),
   syncing: false,
   lastSyncedAt: undefined,
-  cloudChecked: loadSyncConfig() == null && loadGoogleSync() == null,
+  cloudChecked: loadSyncConfig() == null,
   autoSync: loadAutoSync(),
   syncError: undefined,
 
@@ -557,7 +545,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     } catch {
       /* ignore */
     }
-    const fx = { ...deriveFx(transactions), ...(savedFx ?? {}) };
+    // The removed Google Drive sync left a sign-in and an access token behind
+    // on the devices that had tried it: nothing reads them any more.
+    try {
+      localStorage.removeItem("portfolio.googleSync");
+      localStorage.removeItem("portfolio.googleToken");
+    } catch {
+      /* ignore */
+    }
+    const fx ={ ...deriveFx(transactions), ...(savedFx ?? {}) };
     set({
       accounts,
       instruments,
@@ -988,15 +984,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   setSyncConfig: (config) => {
     saveSyncConfig(config);
     // A newly connected device must pull before seeding anything.
-    const syncTarget = buildSyncTarget(config, get().googleSync);
+    const syncTarget = buildSyncTarget(config);
     set({ syncConfig: config, syncTarget, cloudChecked: syncTarget == null });
-  },
-
-  setGoogleSync: (config) => {
-    saveGoogleSync(config);
-    // The target (and its cloud copy) may differ: pull before seeding anything.
-    const syncTarget = buildSyncTarget(get().syncConfig, config);
-    set({ googleSync: config, syncTarget, cloudChecked: syncTarget == null });
   },
 
   setAutoSync: (enabled) => {
@@ -1014,8 +1003,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // another device's data (goals, txs…). Local wins on conflicts. A version
       // conflict (another device pushed between our read and write) is retried
       // with a fresh read + merge instead of surfacing as an error.
-      const pushed = await pushWithMirror(
-        syncTarget,
+      const pushed = await pushSnapshot(
+        syncTarget.store,
+        syncTarget.path,
         () => buildSnapshot(get()),
         unionSnapshots,
       );
@@ -1034,7 +1024,6 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       set({
         lastSyncedAt: pushed.snapshot.exportedAt,
         syncError: undefined,
-        mirrorError: pushed.mirrorError,
         cloudChecked: true,
       });
     } finally {
@@ -1115,7 +1104,6 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       autoSyncTimer = null;
     }
     saveSyncConfig(null);
-    saveGoogleSync(null);
     await Promise.all([
       db.accounts.clear(),
       db.instruments.clear(),
@@ -1146,11 +1134,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       priceFile: null,
       priceUpdatedAt: undefined,
       syncConfig: null,
-      googleSync: null,
       syncTarget: null,
       lastSyncedAt: undefined,
       syncError: undefined,
-      mirrorError: undefined,
     });
   },
 

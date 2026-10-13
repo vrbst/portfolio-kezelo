@@ -756,3 +756,20 @@ test.describe("delete all data", () => {
     expect((await ls(page, ["pf-skin"]))["pf-skin"]).toBe("terminal");
   });
 });
+
+test.describe("leftovers of the removed Google sync", () => {
+  test("a stored sign-in and access token are cleared when the app starts", async ({ page }) => {
+    await openSeeded(page);
+    await page.evaluate(() => {
+      localStorage.setItem("portfolio.googleSync", JSON.stringify({ email: "teszt@example.com", path: "data.json" }));
+      localStorage.setItem("portfolio.googleToken", JSON.stringify({ accessToken: "t", expiresAt: Date.now() + 3_000_000 }));
+    });
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    // The app's own data is untouched by the cleanup.
+    await show(page, "/settings");
+    await expect(page.locator("dt", { hasText: "Tranzakciók" }).locator("xpath=following-sibling::dd")).not.toHaveText("0");
+    const keys = await page.evaluate(() => [localStorage.getItem("portfolio.googleSync"), localStorage.getItem("portfolio.googleToken")]);
+    expect(keys).toEqual([null, null]);
+  });
+});

@@ -3,7 +3,6 @@
 // only; looked up when the AI page opens and every 10 minutes after.
 
 import { useEffect, useState } from "react";
-import { readRemoteFile } from "./remote";
 import { ANALYSIS_LATEST_PATH, validateNightly, type NightlyAnalysis } from "./aiAnalysis";
 import { usePortfolio } from "./store";
 
@@ -18,7 +17,7 @@ export function useNightlyAnalysis(): NightlyAnalysis | null {
     if (!target) return;
     let live = true;
     const load = () =>
-      readRemoteFile(target, ANALYSIS_LATEST_PATH).then(
+      target.store.read(ANALYSIS_LATEST_PATH).then(
         (file) => {
           if (live) setFound(file ? validateNightly(JSON.parse(file.text)) : null);
         },
