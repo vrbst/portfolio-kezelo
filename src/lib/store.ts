@@ -429,6 +429,13 @@ async function mergeSnapshot(
     prices: buildPriceMap(s.priceFile, s.livePrices, s.manualPrices),
     fx: { ...deriveFx(transactions), ...s.fx },
   });
+  // A security this device hasn't seen has no live quote or chart history yet —
+  // fetch them now (as after an import) instead of at the next 5-minute poll.
+  const known = new Set(s.instruments.map((i) => i.key));
+  if (instruments.some((i) => !known.has(i.key))) {
+    void get().refreshPrices();
+    void get().refreshHistory();
+  }
   return added;
 }
 

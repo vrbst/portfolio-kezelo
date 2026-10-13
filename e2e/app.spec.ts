@@ -687,6 +687,33 @@ test.describe("restore from a backup file", () => {
     expect(errors).toEqual([]);
   });
 
+  test("a security the backup brings gets its live price right away, not at the next poll", async ({ page }) => {
+    await openSeeded(page);
+    const proxyCalls: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("workers.dev")) proxyCalls.push(r.url());
+    });
+    await show(page, "/settings");
+    // Let the startup round settle, then count only what the restore causes.
+    await page.waitForTimeout(1500);
+    const before = proxyCalls.length;
+    const snap = fixtureSnapshot();
+    const etf = snap.instruments.find((i) => i.type === "etf")!;
+    const fresh = { ...etf, key: "IE00UJETF0001", isin: "IE00UJETF0001", name: "Új ETF" };
+    const file = backupFile(false);
+    const body = JSON.parse(file.buffer.toString());
+    body.instruments.push(fresh);
+    await page.getByTestId("restore-input").setInputFiles({ ...file, buffer: Buffer.from(JSON.stringify(body)) });
+    await page.getByRole("button", { name: "Visszatöltés", exact: true }).click();
+    await expect(page.getByText(/^Visszatöltve./)).toBeVisible();
+    // The new security's quote is looked up by its ISIN (not merely "some request").
+    await expect
+      .poll(() => proxyCalls.slice(before).some((u) => u.includes("IE00UJETF0001")), {
+        message: "a price request for the restored security",
+      })
+      .toBe(true);
+  });
+
   test("Mégse changes nothing; a file that is not a backup is refused with a reason", async ({ page }) => {
     await openSeeded(page);
     await show(page, "/settings");
