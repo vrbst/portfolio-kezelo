@@ -31,7 +31,12 @@ import {
   type SyncConfig,
   type PortfolioSnapshot,
 } from "./sync";
-import { remoteStoreFor } from "./remote";
+import { buildSyncTarget, type SyncTarget } from "./remote";
+import {
+  loadGoogleSync,
+  saveGoogleSync,
+  type GoogleSyncConfig,
+} from "./googleAuth";
 import { pushSnapshot, readSnapshot } from "./remote/snapshot";
 import {
   loadAlertConfig,
@@ -155,8 +160,13 @@ interface PortfolioState {
   refreshHistory: () => Promise<void>;
   clearAll: () => Promise<void>;
 
-  // ---- Cross-device sync (private GitHub repo) ----
+  // ---- Cross-device sync (Google Drive, or a private GitHub repo) ----
+  /** The GitHub-repo sync config (original format; also the fallback). */
   syncConfig: SyncConfig | null;
+  /** Signed in with Google on this device — then Drive is the sync target. */
+  googleSync: GoogleSyncConfig | null;
+  /** Where this device syncs, derived from the two configs; null = no sync. */
+  syncTarget: SyncTarget | null;
   syncing: boolean;
   lastSyncedAt?: string;
   /**
@@ -171,6 +181,7 @@ interface PortfolioState {
   /** Message from the last failed auto-push, if any. */
   syncError?: string;
   setSyncConfig: (config: SyncConfig | null) => void;
+  setGoogleSync: (config: GoogleSyncConfig | null) => void;
   setAutoSync: (enabled: boolean) => void;
   pushToCloud: () => Promise<void>;
   pullFromCloud: () => Promise<{ added: number }>;
@@ -423,12 +434,12 @@ function scheduleAutoSync(
   get: () => PortfolioState,
 ) {
   const s = get();
-  if (!s.syncConfig || !s.autoSync) return;
+  if (!s.syncTarget || !s.autoSync) return;
   if (autoSyncTimer) clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(async () => {
     autoSyncTimer = null;
     const st = get();
-    if (!st.syncConfig || !st.autoSync) return;
+    if (!st.syncTarget || !st.autoSync) return;
     if (st.syncing) {
       scheduleAutoSync(set, get); // a push is in flight — try again shortly
       return;
@@ -476,9 +487,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({ privacy: v });
   },
   syncConfig: loadSyncConfig(),
+  googleSync: loadGoogleSync(),
+  syncTarget: buildSyncTarget(loadSyncConfig(), loadGoogleSync()),
   syncing: false,
   lastSyncedAt: undefined,
-  cloudChecked: loadSyncConfig() == null,
+  cloudChecked: loadSyncConfig() == null && loadGoogleSync() == null,
   autoSync: loadAutoSync(),
   syncError: undefined,
 
@@ -954,7 +967,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   setSyncConfig: (config) => {
     saveSyncConfig(config);
     // A newly connected device must pull before seeding anything.
-    set({ syncConfig: config, cloudChecked: config == null });
+    const syncTarget = buildSyncTarget(config, get().googleSync);
+    set({ syncConfig: config, syncTarget, cloudChecked: syncTarget == null });
+  },
+
+  setGoogleSync: (config) => {
+    saveGoogleSync(config);
+    // The target (and its cloud copy) may differ: pull before seeding anything.
+    const syncTarget = buildSyncTarget(get().syncConfig, config);
+    set({ googleSync: config, syncTarget, cloudChecked: syncTarget == null });
   },
 
   setAutoSync: (enabled) => {
@@ -964,8 +985,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   pushToCloud: async () => {
-    const { syncConfig } = get();
-    if (!syncConfig) throw new Error("Nincs beállítva szinkron.");
+    const { syncTarget } = get();
+    if (!syncTarget) throw new Error("Nincs beállítva szinkron.");
     set({ syncing: true });
     try {
       // Merge with whatever is on the remote FIRST, so a push never overwrites
@@ -973,8 +994,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // conflict (another device pushed between our read and write) is retried
       // with a fresh read + merge instead of surfacing as an error.
       const pushed = await pushSnapshot(
-        remoteStoreFor(syncConfig),
-        syncConfig.path,
+        syncTarget.store,
+        syncTarget.path,
         () => buildSnapshot(get()),
         unionSnapshots,
       );
@@ -1001,11 +1022,11 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   pullFromCloud: async () => {
-    const { syncConfig } = get();
-    if (!syncConfig) throw new Error("Nincs beállítva szinkron.");
+    const { syncTarget } = get();
+    if (!syncTarget) throw new Error("Nincs beállítva szinkron.");
     set({ syncing: true });
     try {
-      const remote = await readSnapshot(remoteStoreFor(syncConfig), syncConfig.path);
+      const remote = await readSnapshot(syncTarget.store, syncTarget.path);
       if (!remote) {
         set({ cloudChecked: true });
         return { added: 0 };
@@ -1019,10 +1040,10 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   },
 
   startupSync: async () => {
-    const { syncConfig } = get();
-    if (!syncConfig) return; // not "logged in" to the cloud on this device
+    const { syncTarget } = get();
+    if (!syncTarget) return; // not "logged in" to the cloud on this device
     try {
-      const remote = await readSnapshot(remoteStoreFor(syncConfig), syncConfig.path);
+      const remote = await readSnapshot(syncTarget.store, syncTarget.path);
       if (!remote) {
         set({ cloudChecked: true });
         return;
@@ -1066,6 +1087,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       autoSyncTimer = null;
     }
     saveSyncConfig(null);
+    saveGoogleSync(null);
     await Promise.all([
       db.accounts.clear(),
       db.instruments.clear(),
@@ -1093,6 +1115,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       priceFile: null,
       priceUpdatedAt: undefined,
       syncConfig: null,
+      googleSync: null,
+      syncTarget: null,
       lastSyncedAt: undefined,
       syncError: undefined,
     });
