@@ -34,6 +34,8 @@ import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fund
 import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
 import { fetchImpliedBands } from "./outlook/optionsImplied";
 import { OUTLOOK_AI_SCHEMA } from "./outlook/aiViews";
+import { CONSENSUS_SCHEMA } from "./outlook/aiDocs";
+import { collectIssuerDocs, defaultIssuerFetch, type IssuerDocsDeps } from "./outlook/issuerDocs";
 import { weeklyOutlookAi, type WeeklyOutlookDeps } from "./outlook/weekly";
 import { addDaysIso, toLocalDay } from "../../src/lib/day";
 import {
@@ -125,6 +127,8 @@ export interface Deps {
   fundamentals?: () => FundamentalsDeps;
   /** The daily, AI-free outlook sources (Yahoo targets, Deribit bands). */
   outlook?: () => OutlookDeps;
+  /** The issuers' consensus documents (found daily, read by the weekly run). */
+  outlookDocs?: () => IssuerDocsDeps;
   /** The weekly outlook run: Claude Code on the subscription. */
   outlookAi?: () => WeeklyOutlookDeps;
   aiUsageFile?: string;
@@ -196,7 +200,17 @@ export function defaultDeps(): Deps {
       }),
       store: repoStore(env.syncRepo, newsGithubToken),
       stateFile: resolve(NOTIFY_DIR, "outlook", "ai-state.json"),
+      // No tools: it reads only the document text it is handed.
+      docEngine: claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.outlookModel,
+        schema: CONSENSUS_SCHEMA,
+        tools: "",
+        onRun: logRun(OUTLOOK_AI_JOB, env.outlookModel),
+      }),
+      docsDir: resolve(NOTIFY_DIR, "outlook"),
     }),
+    outlookDocs: () => ({ dir: resolve(NOTIFY_DIR, "outlook"), ...defaultIssuerFetch() }),
   };
 }
 
@@ -735,7 +749,18 @@ export const OUTLOOK_AI_RETRY_JOB = "outlook-ai-retry";
 async function outlookJob(deps: Deps): Promise<HubResponse> {
   if (!deps.outlook) return { v: 1, messages: [] };
   const { targets, at } = await heldTargets(deps);
-  const { messages } = await refreshOutlook(targets, deps.outlook(), at);
+  const { file, messages } = await refreshOutlook(targets, deps.outlook(), at);
+  if (deps.outlookDocs) {
+    // The issuers' own consensus documents: only found and kept here (no AI);
+    // the weekly run reads them. A failure costs nothing but today's check.
+    try {
+      const { saved, errors } = await collectIssuerDocs(file, deps.outlookDocs(), at);
+      if (saved.length) console.error(`outlook: new consensus document for ${saved.join(", ")}`);
+      for (const [k, e] of Object.entries(errors)) console.error(`outlook: consensus document ${k}: ${e}`);
+    } catch (e) {
+      console.error("outlook: consensus documents failed:", (e as Error).message);
+    }
+  }
   return { v: 1, messages: messages.map((m) => msg(m)) };
 }
 

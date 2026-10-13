@@ -77,7 +77,7 @@ export function buildOutlookPrompt(targets: OutlookTarget[], prev: OutlookFile |
     assets.join("\n"),
     [
       "Minden eszközre:",
-      "1. Határozd meg, mi az (assetClass): equity (egyedi részvény), equity_fund (részvény-ETF/alap), bond_fund, crypto (kriptó-ETP; az underlying a mögöttes érme, pl. BTC), commodity (pl. arany, underlying XAU), other. Ha a kibocsátó (részvénynél) állandó URL-en közli az elemzői konszenzust, add meg a consensusUrl-ben; különben hagyd ki.",
+      "1. Határozd meg, mi az (assetClass): equity (egyedi részvény), equity_fund (részvény-ETF/alap), bond_fund, crypto (kriptó-ETP; az underlying a mögöttes érme, pl. BTC), commodity (pl. arany, underlying XAU), other. Ha a kibocsátó (részvénynél) maga közli az elemzői konszenzusát dokumentumban (pl. a befektetői kapcsolatok oldalán PDF-ben), add meg a legfrissebb dokumentum közvetlen URL-jét a consensusUrl-ben (a dátumot tartalmazó fájlnév jó: a rendszer onnan keresi a későbbi kiadásokat); különben hagyd ki.",
       "2. Gyűjts névvel jelölt, a MÚLT 12 HÓNAPBÓL származó előrejelzéseket (views):",
       "   - egyedi részvény: neves bankok/brókerek célárai (kind=target, unit = a részvény jegyzési pénzneme, pl. HUF) és a hiteles konszenzus-hírek (house = a konszenzus forrása, pl. LSEG);",
       "   - kriptó-ETP: neves bankok/kutatóházak célárai a MÖGÖTTES érmére (kind=target, unit=USD; a note-ba írd, hogy az érme árfolyamára vonatkozik);",

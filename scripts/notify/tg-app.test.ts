@@ -872,6 +872,39 @@ describe("outlook jobs", () => {
     expect((await call(jobReq("outlook-ai"), depsFor(() => contextAt(SAT_EARLY)))).ok).toBe(false);
   });
 
+  it("the daily job keeps a newly found issuer consensus document as pending, without any AI", async () => {
+    const { miniPdf } = await import("./outlook/pdfFixture");
+    const rows: [number, number, string][] = Array.from({ length: 12 }, (_, i) => [50, 780 - i * 20, `Celar sor ${i} HUF 45.888 atlag`]);
+    const url = "https://example.com/Consensus_20261001.pdf";
+    // The AI named a consensus document for the fixture's VWCE (any asset will do).
+    const store = memoryStore({
+      "market/outlook.json": JSON.stringify({
+        v: 1,
+        updatedAt: "2026-10-10T00:00:00Z",
+        profiles: { [VWCE]: { assetClass: "equity", consensusUrl: url, source: "ai", checkedAt: "2026-10-10" } },
+        items: {},
+        errors: {},
+      }),
+    });
+    const r = await call(jobReq("outlook"), {
+      ...depsFor(() => contextAt(SAT_EARLY)),
+      outlook: () => ({
+        resolve: async (t) => t.key,
+        fetch: async () => ({ quoteSummary: { result: [{ price: { quoteType: "EQUITY", currency: "EUR" } }] } }),
+        bands: async () => null,
+        store,
+      }),
+      outlookDocs: () => ({
+        dir: join(dir, "outlook"),
+        head: async (u) => u === url,
+        get: async () => ({ ok: true, contentType: "application/pdf", bytes: miniPdf(rows) }),
+      }),
+    });
+    expect(r.ok).toBeUndefined();
+    const { listPending } = await import("./outlook/issuerDocs");
+    expect(listPending(join(dir, "outlook")).map((d) => [d.key, d.url])).toEqual([[VWCE, url]]);
+  });
+
   it("the daily job profiles every held paper from its own data, nothing hard-wired", async () => {
     const store = memoryStore();
     const r = await call(jobReq("outlook"), {

@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { weeklyOutlookAi } from "./weekly";
 import { readAiState } from "./aiState";
+import { listPending } from "./issuerDocs";
 import type { OutlookTarget } from "./refresh";
 import { fakeEngine, memoryStore } from "../news/testFakes";
 import { OUTLOOK_PATH } from "../../../src/lib/outlook";
@@ -73,5 +74,68 @@ describe("weeklyOutlookAi", () => {
     const out = await weeklyOutlookAi(targets, { engine, store, stateFile }, sat0815, { manual: true });
     expect(out.status).toBe("ok");
     expect(engine.prompts).toHaveLength(1);
+  });
+});
+
+describe("weeklyOutlookAi: the issuers' consensus documents", () => {
+  const consensus = {
+    price: 46_700,
+    currency: "HUF",
+    asOf: "2026-08-03",
+    target: { min: 29_000, avg: 45_888, max: 58_667, count: 17 },
+  };
+  const putPending = () => {
+    mkdirSync(join(dir, "outlook", "pending"), { recursive: true });
+    writeFileSync(
+      join(dir, "outlook", "pending", "S.json"),
+      JSON.stringify({ key: "S", url: "https://example.com/c_20260803.pdf", fetchedAt: "2026-10-13T04:50:00Z", text: "Célár HUF 45.888" }),
+    );
+  };
+  const docsOf = (engine: ReturnType<typeof fakeEngine> | { name: string; model: string; run: () => Promise<never> }) => ({
+    docEngine: engine,
+    docsDir: join(dir, "outlook"),
+  });
+  const consensusOf = (store: ReturnType<typeof memoryStore>) =>
+    (JSON.parse(store.files[OUTLOOK_PATH]) as { items: Record<string, { consensus?: { source: string; target: { avg: number } }[] }> }).items.S?.consensus;
+
+  it("after the week's run the waiting document is read too", async () => {
+    putPending();
+    const store = memoryStore();
+    const out = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile, ...docsOf(fakeEngine([consensus])) }, sat0430);
+    expect(out).toMatchObject({ status: "ok", docs: { done: ["S"], failed: {} } });
+    expect(consensusOf(store)).toEqual([expect.objectContaining({ source: "issuer", target: expect.objectContaining({ avg: 45_888 }) })]);
+    expect(listPending(join(dir, "outlook"))).toEqual([]);
+  });
+
+  it("the usage limit on the document does not fail the week; the retry reads it later", async () => {
+    putPending();
+    const store = memoryStore();
+    const limit = { name: "f", model: "m", run: () => Promise.reject(new Error("usage limit reached")) };
+    const first = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile, ...docsOf(limit) }, sat0430);
+    expect(first).toMatchObject({ status: "ok", docs: { done: [] } });
+    expect(readAiState(stateFile)?.lastSuccessWeek).toBe("2026-W42");
+    expect(listPending(join(dir, "outlook"))).toHaveLength(1);
+
+    const mainEngine = fakeEngine([answer]);
+    const retry = await weeklyOutlookAi(targets, { engine: mainEngine, store, stateFile, ...docsOf(fakeEngine([consensus])) }, sat0815);
+    expect(retry).toMatchObject({ status: "ok", docs: { done: ["S"] } });
+    expect(mainEngine.prompts).toEqual([]); // the week is done: only the document was read
+    expect(consensusOf(store)?.[0].source).toBe("issuer");
+  });
+
+  it("a finished week with nothing waiting stays a no-op (no AI call at all)", async () => {
+    const store = memoryStore();
+    await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile }, sat0430);
+    const docEngine = fakeEngine([consensus]);
+    const out = await weeklyOutlookAi(targets, { engine: fakeEngine([]), store, stateFile, docEngine, docsDir: join(dir, "outlook") }, sat0815);
+    expect(out).toEqual({ status: "skipped" });
+    expect(docEngine.prompts).toEqual([]);
+  });
+
+  it("without a document engine the documents just wait", async () => {
+    putPending();
+    const out = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store: memoryStore(), stateFile }, sat0430);
+    expect(out).toMatchObject({ status: "ok" });
+    expect(listPending(join(dir, "outlook"))).toHaveLength(1);
   });
 });
