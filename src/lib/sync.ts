@@ -138,7 +138,7 @@ export async function verifyAccess(config: SyncConfig): Promise<string> {
  * Minimal shape/version gate so a corrupt or newer-versioned cloud file can't
  * poison local state (the merge writes straight into IndexedDB).
  */
-function validateSnapshot(x: unknown): PortfolioSnapshot {
+export function validateSnapshot(x: unknown): PortfolioSnapshot {
   const s = x as Partial<PortfolioSnapshot> | null;
   if (!s || typeof s !== "object")
     throw new Error("Sérült felhő-mentés: nem objektum.");

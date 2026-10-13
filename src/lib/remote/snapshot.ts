@@ -1,0 +1,56 @@
+// The portfolio snapshot on top of any RemoteStore (GitHub or Drive): read +
+// validate, write, and the merge-then-push loop with conflict retry. The
+// stored JSON is the same for every backend.
+
+import { validateSnapshot, type PortfolioSnapshot } from "../sync";
+import { RemoteConflictError, type RemoteStore } from "./types";
+
+/** Read and validate the snapshot. Null if it doesn't exist yet. */
+export async function readSnapshot(
+  store: RemoteStore,
+  path: string,
+): Promise<{ snapshot: PortfolioSnapshot; sha: string } | null> {
+  const file = await store.read(path);
+  if (!file) return null;
+  return { snapshot: validateSnapshot(JSON.parse(file.text)), sha: file.version };
+}
+
+/** Write the snapshot; `expected` as in RemoteStore.write. Returns the version. */
+export function writeSnapshot(
+  store: RemoteStore,
+  path: string,
+  snapshot: PortfolioSnapshot,
+  expected?: string | null,
+): Promise<string> {
+  return store.write(
+    path,
+    JSON.stringify(snapshot, null, 2),
+    `portfólió mentés ${snapshot.exportedAt}`,
+    expected,
+  );
+}
+
+/**
+ * Merge with whatever is on the remote FIRST, so a push never overwrites
+ * another device's data. If another device wrote between our read and our
+ * write (RemoteConflictError), re-read + re-merge — up to two retries.
+ * `local` is called afresh on every attempt so edits made meanwhile are kept.
+ */
+export async function pushSnapshot(
+  store: RemoteStore,
+  path: string,
+  local: () => PortfolioSnapshot,
+  merge: (remote: PortfolioSnapshot, local: PortfolioSnapshot) => PortfolioSnapshot,
+): Promise<{ snapshot: PortfolioSnapshot; sha: string; hadRemote: boolean }> {
+  for (let attempt = 0; ; attempt++) {
+    const existing = await readSnapshot(store, path);
+    const mine = local();
+    const snapshot = existing ? merge(existing.snapshot, mine) : mine;
+    try {
+      const sha = await writeSnapshot(store, path, snapshot, existing?.sha ?? null);
+      return { snapshot, sha, hadRemote: existing != null };
+    } catch (e) {
+      if (!(e instanceof RemoteConflictError) || attempt >= 2) throw e;
+    }
+  }
+}

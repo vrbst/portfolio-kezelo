@@ -28,11 +28,11 @@ import {
   saveSyncConfig,
   loadAutoSync,
   saveAutoSync,
-  getRemoteSnapshot,
-  putRemoteSnapshot,
   type SyncConfig,
   type PortfolioSnapshot,
 } from "./sync";
+import { remoteStoreFor } from "./remote";
+import { pushSnapshot, readSnapshot } from "./remote/snapshot";
 import {
   loadAlertConfig,
   saveIdleCashThreshold,
@@ -969,30 +969,15 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     set({ syncing: true });
     try {
       // Merge with whatever is on the remote FIRST, so a push never overwrites
-      // another device's data (goals, txs…). Local wins on conflicts. A sha
-      // conflict (another device pushed between our GET and PUT) is retried
-      // with a fresh GET + merge instead of surfacing as an error.
-      const pushed = await (async () => {
-        for (let attempt = 0; ; attempt++) {
-          const existing = await getRemoteSnapshot(syncConfig);
-          const local = buildSnapshot(get());
-          const snapshot = existing
-            ? unionSnapshots(existing.snapshot, local)
-            : local;
-          try {
-            const sha = await putRemoteSnapshot(
-              syncConfig,
-              snapshot,
-              existing?.sha,
-            );
-            return { snapshot, sha, hadRemote: existing != null };
-          } catch (e) {
-            const conflict =
-              e instanceof Error && /HTTP 409/.test(e.message) && attempt < 2;
-            if (!conflict) throw e;
-          }
-        }
-      })();
+      // another device's data (goals, txs…). Local wins on conflicts. A version
+      // conflict (another device pushed between our read and write) is retried
+      // with a fresh read + merge instead of surfacing as an error.
+      const pushed = await pushSnapshot(
+        remoteStoreFor(syncConfig),
+        syncConfig.path,
+        () => buildSnapshot(get()),
+        unionSnapshots,
+      );
       // Reflect any remote-only items locally too — but union with the CURRENT
       // state first, so an edit made while the upload was in flight is kept
       // (it goes up with the next auto-push) instead of being reverted.
@@ -1020,7 +1005,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     if (!syncConfig) throw new Error("Nincs beállítva szinkron.");
     set({ syncing: true });
     try {
-      const remote = await getRemoteSnapshot(syncConfig);
+      const remote = await readSnapshot(remoteStoreFor(syncConfig), syncConfig.path);
       if (!remote) {
         set({ cloudChecked: true });
         return { added: 0 };
@@ -1037,7 +1022,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const { syncConfig } = get();
     if (!syncConfig) return; // not "logged in" to the cloud on this device
     try {
-      const remote = await getRemoteSnapshot(syncConfig);
+      const remote = await readSnapshot(remoteStoreFor(syncConfig), syncConfig.path);
       if (!remote) {
         set({ cloudChecked: true });
         return;
