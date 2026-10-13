@@ -1,6 +1,6 @@
 // Invented market-news digests for the tests (no real news, no real data).
 
-import type { NewsDigest, NewsDigestBody, NewsEdition } from "../lib/newsSchema";
+import type { EventsFile, NewsDigest, NewsDigestBody, NewsEdition } from "../lib/newsSchema";
 
 export function fixtureNewsBody(): NewsDigestBody {
   return {
@@ -79,7 +79,15 @@ export function fixtureNewsBody(): NewsDigestBody {
     ],
     upcoming: [
       { date: "2026-10-20", event: "Teszt kamatdöntés", why: "A forintot mozgathatja." },
-      { date: "2026-10-15", event: "Teszt inflációs adat", why: "A PMÁP kamatát befolyásolja." },
+      {
+        date: "2026-10-15",
+        event: "Teszt inflációs adat",
+        why: "A PMÁP kamatát befolyásolja.",
+        time: "14:30",
+        followUp: true,
+        kind: "US_CPI",
+        expected: "3,0% é/é",
+      },
       { date: "2026-10-14", event: "Teszt aukció", why: "A DKJ-hozamokat mutatja." },
       { date: "2026-10-16", event: "Teszt GDP-adat", why: "Háttér." },
     ],
@@ -96,5 +104,48 @@ export function fixtureDigest(day = "2026-10-14", edition: NewsEdition = "evenin
     model: "opus",
     costUsd: 0.42,
     ...fixtureNewsBody(),
+  };
+}
+
+/** The followed announcements: one waiting, one done with its result (invented). */
+export function fixtureEventsFile(): EventsFile {
+  return {
+    version: 1,
+    results: [
+      {
+        key: "release|2026-10-14|14:30#0",
+        phase: "release",
+        date: "2026-10-14",
+        time: "14:30",
+        kind: "US_CPI",
+        event: "Teszt amerikai infláció",
+        actual: "3,2% é/é",
+        expected: "3,0% é/é",
+        surprise: "above",
+        reaction: "A dollár erősödött, a hozamok emelkedtek.",
+        outlook: "Kisebb az esély a kamatvágásra, ami a forintot gyengítheti.",
+        impact: "mixed",
+        affects: ["EUR/HUF"],
+        sources: [{ title: "Példa Hírügynökség", url: "https://example.com/cpi" }],
+        latencyMin: 4,
+        generatedAt: "2026-10-14T12:40:00.000Z",
+        engine: "claude-code",
+        model: "opus",
+      },
+    ],
+    subscriptions: [
+      {
+        key: "release|2026-10-20|14:00",
+        phase: "release",
+        date: "2026-10-20",
+        time: "14:00",
+        kind: "MNB_RATE",
+        events: [{ event: "Teszt kamatdöntés", expected: "6,50%" }],
+        status: "waiting",
+        expectedRunAt: "2026-10-20T13:00:00.000Z",
+        tries: 0,
+      },
+    ],
+    latency: { US_CPI: { samples: 4, delayMin: 7 } },
   };
 }

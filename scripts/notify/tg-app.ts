@@ -16,7 +16,26 @@ import { resolve } from "node:path";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
-import { latestDigest, makeDigest, repoStore, type NewsDeps } from "./news/job";
+import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
+import {
+  EVENT_JSON_SCHEMA,
+  RETRY_MIN,
+  advanceSlots,
+  askEvent,
+  buildEventPrompt,
+  eventText,
+  followUpsText,
+  nextDue,
+  patchSlot,
+  publishEvents,
+  publishSignature,
+  registerFollowUps,
+  slotStart,
+  slotsToProbe,
+  toResults,
+  watchLine,
+} from "./news/events";
+import { probeCoverage, type Coverage } from "./news/rss";
 import { portfolioExposure } from "./news/prompt";
 import { makeAnalysis, type AnalysisDeps } from "./analysis/job";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
@@ -25,7 +44,7 @@ import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
 import { CHART_PREFIX, chartButtons, chartCaption, chartCard, chartMenuText, chartTargets, chartText, findTarget, type ChartTarget } from "./chart";
 import { chartSvg, svgToPng } from "./chartImage";
 import { loadContext, withGlideAlerts, type Context } from "./data";
-import { loadState, updateState, type State } from "./state";
+import { loadState, updateState, type EventSlot, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
@@ -122,6 +141,10 @@ export interface Deps {
   /** The daily news digest's AI and storage (built only when needed). */
   news?: (job?: string) => NewsDeps;
   why?: () => NewsEngine;
+  /** The AI of the announcement follow-up searches (news/events.ts). */
+  events?: () => NewsEngine;
+  /** Whether the news already cover an announcement (default: Google News RSS); a test seam. */
+  probe?: typeof probeCoverage;
   /** The nightly AI analysis's AI and storage (built only when needed). */
   analysis?: () => AnalysisDeps;
   fundamentals?: () => FundamentalsDeps;
@@ -171,6 +194,13 @@ export function defaultDeps(): Deps {
         model: env.whyModel,
         schema: WHY_JSON_SCHEMA,
         onRun: logRun(WHY_JOB, env.whyModel),
+      }),
+    events: () =>
+      claudeCodeEngine({
+        bin: env.newsClaudeBin,
+        model: env.newsModel,
+        schema: EVENT_JSON_SCHEMA,
+        onRun: logRun(EVENT_JOB, env.newsModel),
       }),
     aiUsageFile,
     runJob: hubRunJob,
@@ -309,6 +339,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       console.error(`/${req.command} ${req.args}`.trim());
       if (req.command === "hirek") return latestNews(deps);
       if (req.command === "hirkereses") return searchNews(deps);
+      if (req.command === "bejelentesek") return followUps(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
       if (req.command === "koltseg") return aiCost(deps);
       if (req.command === "chart") return chart(req.args, deps, false);
@@ -329,6 +360,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
       if (req.job === ANALYSIS_JOB) return analysisJob(deps, req.manual === true);
       if (req.job === WHY_JOB) return whyMoved(deps);
+      if (req.job === EVENT_JOB) return eventsJob(deps);
       if (req.job === FUNDAMENTALS_JOB) return fundamentalsJob(deps);
       if (req.job === OUTLOOK_JOB) return outlookJob(deps);
       if (req.job === OUTLOOK_AI_JOB) return outlookAiJob(deps, "primary", req.manual === true);
@@ -527,8 +559,195 @@ async function news(deps: Deps, edition: NewsEdition, manual: boolean): Promise<
       ...cur,
       news: { ...cur.news, [edition]: run.digest.day },
     }));
+  // The announcements the digest lists with a time become follow-ups (also
+  // when the digest itself stays silent).
+  let watching: string | undefined;
+  if (loadNotifySettings().ai.events !== "off") {
+    const ev = updateState(deps.stateFile, (cur) => {
+      const events = registerFollowUps(cur.events, run.digest, ctx.at);
+      // Nothing to follow and nothing followed before: leave the state alone.
+      return events.slots.length || cur.events ? { ...cur, events } : cur;
+    }).events;
+    if (run.digest.edition === "morning") watching = watchLine(ev, today);
+    await publishEventsSafe(deps, nd.store);
+  }
   if (scheduled && mode === "silent") return { v: 1, messages: [] };
-  return { v: 1, messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError), onDemand)] };
+  return {
+    v: 1,
+    messages: [msg(newsText(run.digest, ctx, nd.appUrl, run.uploadError, watching), onDemand)],
+  };
+}
+
+// ---- following up the announcements ---------------------------------------
+
+export const EVENT_JOB = "news-event";
+
+/** news/events.json brought up to date with the state (a failure is logged, the next change retries). */
+async function publishEventsSafe(deps: Deps, store: NewsStore): Promise<void> {
+  const ev = loadState(deps.stateFile).events;
+  if (!ev || (!ev.pending?.length && ev.published === publishSignature(ev))) return;
+  // Never followed anything: no file to keep current.
+  if (!ev.slots.length && !ev.pending?.length && ev.published === undefined) return;
+  const sent = ev.pending ?? [];
+  try {
+    const published = await publishEvents(store, ev, sent);
+    updateState(deps.stateFile, (cur) =>
+      cur.events
+        ? {
+            ...cur,
+            events: {
+              ...cur.events,
+              published,
+              pending: (cur.events.pending ?? []).filter((p) => !sent.some((q) => q.key === p.key)),
+            },
+          }
+        : cur,
+    );
+  } catch (e) {
+    console.error("news-event: events.json upload failed:", (e as Error).message);
+  }
+}
+
+/** /bejelentesek: what is followed, in what state, and the learned delays. */
+function followUps(deps: Deps): HubResponse {
+  return { v: 1, messages: [msg(followUpsText(loadState(deps.stateFile).events, new Date()))] };
+}
+
+/**
+ * The tick's part: probe the news for the announcements that are out, move
+ * the slots on, keep news/events.json current, and start the job when a
+ * search is due. Never throws (the tick has other work).
+ */
+async function followEvents(deps: Deps): Promise<void> {
+  try {
+    if (loadNotifySettings().ai.events === "off") return;
+    const now = new Date();
+    const before = loadState(deps.stateFile).events;
+    if (!before?.slots.length) return;
+    const probe = deps.probe ?? probeCoverage;
+    const probes: Record<string, Coverage | null> = {};
+    for (const s of slotsToProbe(before, now))
+      probes[s.key] = await probe(s.kind, s.events[0]?.event ?? s.kind, slotStart(s.date, s.time));
+    const after = updateState(deps.stateFile, (cur) =>
+      cur.events ? { ...cur, events: advanceSlots(cur.events, now, probes).ev } : cur,
+    ).events;
+    if (deps.news) await publishEventsSafe(deps, deps.news(EVENT_JOB).store);
+    if (nextDue(after, now) && deps.runJob) await deps.runJob(EVENT_JOB);
+  } catch (e) {
+    console.error("news-event: follow-up step failed:", (e as Error).message);
+  }
+}
+
+/**
+ * Job "news-event": the first announcement whose search is due → one AI
+ * search for the result, the expectation, the reaction and the outlook → the
+ * sync repo and one message. The tick starts it as soon as the news cover an
+ * announcement; every 15 minutes (tg-hub.app.json) it also picks up retries
+ * (the result wasn't out yet) and a start the tick missed.
+ */
+async function eventsJob(deps: Deps): Promise<HubResponse> {
+  if (!deps.events || !deps.news) return fail("Az esemény-utókövetés nincs beállítva.");
+  const now = new Date();
+  // Expired slots and the ones a crashed search held are settled first.
+  updateState(deps.stateFile, (cur) =>
+    cur.events ? { ...cur, events: advanceSlots(cur.events, now).ev } : cur,
+  );
+  const settled = loadState(deps.stateFile).events;
+  if (!nextDue(settled, now)) {
+    // Nothing to do — but after a failed search that is no recovery.
+    const live = settled?.slots.some((s) => s.status === "due" || s.status === "searching");
+    if (settled?.failing && !live)
+      updateState(deps.stateFile, (cur) =>
+        cur.events ? { ...cur, events: { ...cur.events, failing: false } } : cur,
+      );
+    return { v: 1, messages: [], ...(settled?.failing && live ? { keepFailing: true as const } : {}) };
+  }
+
+  // The app's settings (ai.events) come into this process with the context.
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const mode = loadNotifySettings().ai.events;
+  if (mode === "off") return { v: 1, messages: [] };
+
+  const holder: { slot?: EventSlot } = {};
+  updateState(deps.stateFile, (cur) => {
+    const due = nextDue(cur.events, now);
+    if (!cur.events || !due) return cur;
+    holder.slot = due;
+    return {
+      ...cur,
+      events: patchSlot(cur.events, due.key, (s) => ({
+        ...s,
+        status: "searching",
+        takenAt: now.toISOString(),
+        tries: s.tries + 1,
+      })),
+    };
+  });
+  const slot = holder.slot;
+  if (!slot) return { v: 1, messages: [] };
+
+  const release = (failing: boolean) =>
+    updateState(deps.stateFile, (cur) =>
+      cur.events
+        ? {
+            ...cur,
+            events: {
+              ...patchSlot(cur.events, slot.key, (s) => ({
+                ...s,
+                status: "due",
+                takenAt: undefined,
+                dueAt: new Date(now.getTime() + RETRY_MIN * 60_000).toISOString(),
+              })),
+              failing,
+            },
+          }
+        : cur,
+    );
+
+  const engine = deps.events();
+  const started = Date.now();
+  let result: Awaited<ReturnType<typeof askEvent>>;
+  try {
+    result = await askEvent(engine, buildEventPrompt({ slot, now, exposure: portfolioExposure(ctx) }));
+  } catch (e) {
+    release(true);
+    throw e;
+  }
+  const { answer, costUsd } = result;
+  console.error(
+    `news-event: ${slot.key} ${answer.released ? `${answer.items.length} result(s)` : "not out yet"} in ${Math.round((Date.now() - started) / 1000)} s` +
+      (costUsd != null ? `, ~$${costUsd.toFixed(2)} at API prices` : ""),
+  );
+  if (!answer.released) {
+    release(false);
+    return { v: 1, messages: [] };
+  }
+  const latencyMin = slot.firstSeenAt
+    ? Math.max(0, Math.round((Date.parse(slot.firstSeenAt) - Date.parse(slot.startsAt)) / 60_000))
+    : undefined;
+  const results = toResults(slot, answer, {
+    engine: engine.name,
+    model: engine.model,
+    at: now,
+    ...(costUsd != null ? { costUsd } : {}),
+    ...(latencyMin != null ? { latencyMin } : {}),
+  });
+  updateState(deps.stateFile, (cur) =>
+    cur.events
+      ? {
+          ...cur,
+          events: {
+            ...patchSlot(cur.events, slot.key, (s) => ({ ...s, status: "done", takenAt: undefined })),
+            pending: [...(cur.events.pending ?? []), ...results],
+            failing: false,
+          },
+        }
+      : cur,
+  );
+  await publishEventsSafe(deps, deps.news(EVENT_JOB).store);
+  if (mode === "silent") return { v: 1, messages: [] };
+  return { v: 1, messages: [msg(eventText(results))] };
 }
 
 /**
@@ -684,6 +903,9 @@ async function tick(deps: Deps): Promise<HubResponse> {
     // (tg-hub.app.json), and says when it recovers.
     return fail(`${loadErrorText(e)} (${Math.round(failingMs / 60_000)} perce)`);
   }
+  // After the load: that is what brings the app's settings (ai.events) into
+  // this process.
+  await followEvents(deps);
   const st = loadState(deps.stateFile);
   delete st.loadFailingSince;
   const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
@@ -697,6 +919,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
     ...st,
     leftover: { ...st.leftover, answered: cur.leftover?.answered },
     news: cur.news,
+    events: cur.events,
     priceAlerts: (cur.priceAlerts ?? []).filter((a) => kept.has(a.id) || !alertIds.has(a.id)),
     whyTaken: cur.whyTaken,
     whyFailing: cur.whyFailing,

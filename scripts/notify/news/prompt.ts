@@ -5,6 +5,7 @@
 import { consolidatedHoldings, currentRate } from "../../../src/lib/portfolio";
 import { txDay } from "../../../src/lib/day";
 import {
+  EVENT_KINDS,
   NEWS_EDITION_LABEL,
   type NewsEdition,
   type NewsIndexEntry,
@@ -110,7 +111,12 @@ ${already.length ? already.join("\n") : "- (nincs korábbi)"}
 - affects: a portfólió érintett elemei rövid névvel (pl. "VWCE", "WBIT", "EUR/HUF", "FixMÁP", "DKJ", "PMÁP").
 - title: legfeljebb ~80 karakter; summary: 1–3 mondat, és mondja ki, miért számít ennek a portfóliónak.
 - headline: egyetlen mondat, a nap lényege.
-- upcoming: ${morning ? "a mai nap és " : ""}a következő ~7 nap fontos eseményei (kamatdöntés, inflációs adat, aukció, választás), dátummal és hogy miért számít.
+- upcoming: ${morning ? "a mai nap és " : ""}a következő ~7 nap fontos eseményei (kamatdöntés, inflációs adat, aukció, választás), dátummal és hogy miért számít. Minden eseményhez mind a nyolc mezőt add meg:
+  - time: a bejelentés pontos ideje "HH:MM" alakban, BUDAPESTI idő szerint — csak ha hivatalos naptárból tudod (KSH, MNB, Fed, BLS, Eurostat, EKB, ÁKK); különben null. Ne becsülj. (Az USA-beli időpontokat váltsd át budapesti időre.)
+  - followUp: true csak akkor, ha az esemény ütemezett, a pontos ideje (time) ismert, az eredménye számszerű vagy döntés, és a lenti portfóliót érdemben mozgathatja (pl. inflációs adat, kamatdöntés, foglalkoztatási adat, GDP, ÁKK-aukció eredménye); egyébként false. Naponta legfeljebb 3 ilyen legyen.
+  - kind: a fajtája a listából: ${EVENT_KINDS.join(", ")}; ha egyik sem illik, OTHER; ha nincs követés, null.
+  - pressTime: kamatdöntésnél a sajtótájékoztató kezdete "HH:MM" budapesti idő szerint, ha hivatalosan ismert; különben null.
+  - expected: a várakozás/konszenzus rövid szöveggel (pl. "3,0% é/é"), ha megbízható forrásból ismert; különben null.
 - Minden szöveg magyarul.
 
 A válasz kizárólag a megadott JSON-séma szerinti objektum legyen.`;
