@@ -52,7 +52,12 @@ import {
   type AlertConfig,
   type Reminder,
 } from "./alerts";
-import { collectPrefs, applyRemotePrefs, PREFS_EVENT } from "./prefs";
+import {
+  collectPrefs,
+  applyRemotePrefs,
+  clearSyncedPrefs,
+  PREFS_EVENT,
+} from "./prefs";
 import { type Goal } from "./goals";
 import type { GlideSignals } from "./rebalance";
 import {
@@ -1118,6 +1123,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       db.prices.clear(),
       db.meta.clear(),
     ]);
+    // The planning prefs (goals, glide path…) live in localStorage, not in the
+    // database — they are data too (goal names, amounts).
+    clearSyncedPrefs();
     set({
       accounts: [],
       instruments: [],

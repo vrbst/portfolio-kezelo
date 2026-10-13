@@ -182,6 +182,26 @@ function emit(source: PrefsEventSource) {
   }
 }
 
+/** localStorage keys (value + stamp) of every synced planning pref. */
+export function syncedPrefKeys(): string[] {
+  return KINDS.flatMap((kind) => [VALUE_KEY[kind], STAMP_KEY[kind]]);
+}
+
+/**
+ * Remove every synced planning pref from this device (goals, glide path,
+ * allocation targets, forecast…): part of "delete all data". Settings that
+ * aren't data (look, privacy mode) and secrets stay. Fires the change event as
+ * a "remote" one so open views reload — and nothing is pushed anywhere.
+ */
+export function clearSyncedPrefs() {
+  try {
+    for (const key of syncedPrefKeys()) localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+  emit("remote");
+}
+
 /** Called by the save functions after a real local change. */
 export function touchPref(kind: PrefKind) {
   try {

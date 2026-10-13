@@ -730,3 +730,29 @@ test.describe("restore from a backup file", () => {
     expect(await txCount(page)).toBe(before);
   });
 });
+
+test.describe("delete all data", () => {
+  const ls = (page: Page, keys: string[]) =>
+    page.evaluate((ks) => Object.fromEntries(ks.map((k) => [k, localStorage.getItem(k)])), keys);
+
+  test("the database and the planning prefs (goals…) are gone; look and privacy settings stay", async ({ page }) => {
+    await openSeeded(page);
+    await page.evaluate(() => localStorage.setItem("pf-skin", "terminal"));
+    const synced = ["pf-savings", "pf-savings-updated", "pf-glidepath", "pf-glidepath-updated", "pf-income", "pf-broker-fees"];
+    const before = await ls(page, synced);
+    for (const k of ["pf-savings", "pf-glidepath"]) expect(before[k], `${k} is seeded`).not.toBeNull();
+
+    await show(page, "/settings");
+    await page.getByRole("button", { name: "Összes adat törlése" }).click();
+    await page.getByRole("button", { name: "Igen, töröljem mindet" }).click();
+    await expect(page.locator("dt", { hasText: "Tranzakciók" }).locator("xpath=following-sibling::dd")).toHaveText("0");
+
+    // Gone right away, and still gone after a reload (nothing re-seeds on an empty app).
+    const gone = Object.fromEntries(synced.map((k) => [k, null]));
+    expect(await ls(page, synced)).toEqual(gone);
+    await reopen(page, "/settings");
+    expect(await ls(page, synced)).toEqual(gone);
+    // Not data: the look stays.
+    expect((await ls(page, ["pf-skin"]))["pf-skin"]).toBe("terminal");
+  });
+});
