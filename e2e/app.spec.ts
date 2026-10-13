@@ -308,6 +308,56 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
     await expect(sheet).toContainText("NVIDIA Corp");
   });
 
+  test("outlook from the sync repo: market-implied band and named views in the sheets, nothing personal", async ({ page }) => {
+    await openSeeded(page, { sync: true, privacy: true });
+    const at = "2026-10-14T05:00:00.000Z";
+    const file = {
+      v: 1,
+      updatedAt: at,
+      profiles: {
+        GB00BJYDH287: { assetClass: "crypto", underlying: "BTC", source: "rule", checkedAt: at },
+        IE00BK5BQT80: { assetClass: "equity_fund", source: "ai", checkedAt: at },
+      },
+      items: {
+        GB00BJYDH287: {
+          implied: [
+            { underlying: "BTC", horizonDays: 163, expiry: "2027-03-26", spot: 83_000, forward: 84_000, p10: 59_000, p50: 82_500, p90: 115_000, probUp: 0.485, asOf: "2026-10-14" },
+          ],
+        },
+        IE00BK5BQT80: {
+          views: [
+            { house: "Vanguard", kind: "annualReturn", value: 0.059, unit: "%/év", horizon: "10 év", publishedAt: "2026-01-22", url: "https://example.com/vcmm" },
+          ],
+        },
+      },
+      errors: {},
+    };
+    await page.route(/api\.github\.com\/repos\/teszt\/adat\/contents\//, (r) =>
+      new URL(r.request().url()).pathname.endsWith("market/outlook.json")
+        ? r.fulfill({ json: { sha: "s", content: Buffer.from(JSON.stringify(file), "utf8").toString("base64") } })
+        : r.fulfill({ status: 404, body: "" }),
+    );
+    await show(page, "/accounts/ly-tbsz25");
+    const goalNames = savingsGoals().map((g) => g.name);
+
+    await page.locator("main").getByRole("button", { name: "VWCE" }).first().click();
+    const vwce = page.getByRole("dialog", { name: /VWCE/ });
+    await expect(vwce).toContainText("Kilátások");
+    await expect(vwce).toContainText("Nevesített előrejelzések");
+    await expect(vwce).toContainText("Vanguard");
+    await expect(vwce).toContainText("5,9%/év");
+    await expect(vwce).toContainText("Nem befektetési tanács");
+    expect(await readableSecrets(page, goalNames, '[role="dialog"]')).toEqual([]);
+    await page.keyboard.press("Escape");
+
+    await page.locator("main").getByRole("button", { name: "WBIT" }).first().click();
+    const wbit = page.getByRole("dialog", { name: /WBIT/ });
+    await expect(wbit).toContainText("Az opciós piac várakozása (BTC-opciók, Deribit)");
+    await expect(wbit).toContainText("~5 hó");
+    await expect(wbit).toContainText("49%");
+    expect(await readableSecrets(page, goalNames, '[role="dialog"]')).toEqual([]);
+  });
+
   test("privacy mode: nothing personal is readable in the sheet", async ({ page }) => {
     await openSeeded(page, { privacy: true });
     await show(page, "/accounts/ly-tbsz25");

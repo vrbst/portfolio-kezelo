@@ -17,6 +17,17 @@ describe("classifyForOutlook", () => {
     expect(c("Példa Staked Ethereum ETP", "etf")).toEqual({ assetClass: "crypto", underlying: "ETH" });
   });
 
+  it("a bare ticker as the imported name: Yahoo's long name decides", () => {
+    expect(c("WBIT", "etf")).toEqual({ assetClass: "equity_fund" });
+    expect(classifyForOutlook({ name: "WBIT", type: "etf" }, { quoteType: "ETF", names: ["WisdomTree Physical Bitcoin"] })).toEqual({
+      assetClass: "crypto",
+      underlying: "BTC",
+    });
+    expect(classifyForOutlook({ name: "XYZ", type: "etf" }, { quoteType: "ETF", names: ["Global Government Bond Fund"] })).toEqual({
+      assetClass: "bond_fund",
+    });
+  });
+
   it("gold, bond and equity funds", () => {
     expect(c("Példa Physical Gold ETC", "etf")).toEqual({ assetClass: "commodity", underlying: "XAU" });
     expect(c("Példa Global Aggregate Bond UCITS ETF", "etf")).toEqual({ assetClass: "bond_fund" });

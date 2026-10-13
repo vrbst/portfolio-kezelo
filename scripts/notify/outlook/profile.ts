@@ -24,18 +24,19 @@ const BOND_FUND = /\bbonds?\b|treasur|govern?ment|aggregate|kötvény|\bcredit\b
  */
 export function classifyForOutlook(
   inst: Pick<Instrument, "name" | "type">,
-  f?: Pick<Fundamentals, "quoteType" | "family"> | null,
+  f?: (Pick<Fundamentals, "quoteType"> & { names?: string[] }) | null,
 ): RuleProfile | null {
   if (inst.type === "gov_bond" || inst.type === "tbill" || inst.type === "cash") return null;
-  const name = inst.name;
+  // The imported name can be just the ticker ("WBIT"): Yahoo's long name says more.
+  const names = [inst.name, ...(f?.names ?? [])].join(" | ");
   // Yahoo's quote type beats the imported one (a single stock is often filed as an ETF).
   const yahooFund = f?.quoteType === "ETF" || f?.quoteType === "MUTUALFUND";
   const isFund = f?.quoteType === "EQUITY" ? false : yahooFund || inst.type === "etf" || inst.type === "fund";
   if (isFund) {
-    const coin = COINS.find(([re]) => re.test(name));
+    const coin = COINS.find(([re]) => re.test(names));
     if (coin) return { assetClass: "crypto", underlying: coin[1] };
-    if (GOLD.test(name)) return { assetClass: "commodity", underlying: "XAU" };
-    if (BOND_FUND.test(name)) return { assetClass: "bond_fund" };
+    if (GOLD.test(names)) return { assetClass: "commodity", underlying: "XAU" };
+    if (BOND_FUND.test(names)) return { assetClass: "bond_fund" };
     return { assetClass: "equity_fund" };
   }
   if (inst.type === "stock" || f?.quoteType === "EQUITY") return { assetClass: "equity" };

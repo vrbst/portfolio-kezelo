@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { toLocalDay } from "../../../src/lib/day";
 
 export interface OutlookAiState {
@@ -41,4 +43,21 @@ export function recordAttempt(
     ...(state?.lastSuccessWeek ? { lastSuccessWeek: state.lastSuccessWeek } : {}),
     lastAttempt: { at, ok: false, reason: classifyAiFailure(message), message },
   };
+}
+
+/** The state file; missing or unreadable = no run yet. */
+export function readAiState(file: string): OutlookAiState | null {
+  try {
+    const o = JSON.parse(readFileSync(file, "utf8")) as OutlookAiState;
+    return o && typeof o === "object" ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAiState(file: string, state: OutlookAiState) {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  renameSync(tmp, file);
 }
