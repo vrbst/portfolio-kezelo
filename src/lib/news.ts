@@ -7,10 +7,13 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SyncTarget } from "./remote";
 import {
+  NEWS_EVENTS_PATH,
   NEWS_INDEX_PATH,
   newsDigestPath,
   validateDigest,
+  validateEventsFile,
   validateNewsIndex,
+  type EventsFile,
   type NewsDigest,
   type NewsEdition,
   type NewsIndex,
@@ -40,6 +43,14 @@ export function loadNewsIndex(target: SyncTarget): Promise<NewsIndex | null> {
   return cached(`index:${target.id}`, async () => {
     const file = await target.store.read(NEWS_INDEX_PATH);
     return file ? validateNewsIndex(JSON.parse(file.text)) : null;
+  });
+}
+
+/** The followed announcements and their results (news/events.json); null = none yet. */
+export function loadEventsFile(target: SyncTarget): Promise<EventsFile | null> {
+  return cached(`events:${target.id}`, async () => {
+    const file = await target.store.read(NEWS_EVENTS_PATH);
+    return file ? validateEventsFile(JSON.parse(file.text)) : null;
   });
 }
 
@@ -146,6 +157,14 @@ export function useNewsIndex(): Loadable<NewsIndex | null> {
   const target = usePortfolio((s) => s.syncTarget);
   const v = useVersion();
   const r = useLoad(target?.id ?? null, v, () => loadNewsIndex(target!));
+  return target ? r : { status: "off" };
+}
+
+/** The followed announcements, refreshed with the digests. */
+export function useEventsFile(): Loadable<EventsFile | null> {
+  const target = usePortfolio((s) => s.syncTarget);
+  const v = useVersion();
+  const r = useLoad(target?.id ?? null, v, () => loadEventsFile(target!));
   return target ? r : { status: "off" };
 }
 

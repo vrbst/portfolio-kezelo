@@ -16,7 +16,7 @@ describe("notify settings", () => {
       "pf-notify",
       JSON.stringify({
         off: { weekly: true, nonsense: true, yearly: "yes" },
-        ai: { newsMorning: "off", newsEvening: "maybe", analysis: "silent", why: "silent" },
+        ai: { newsMorning: "off", newsEvening: "maybe", analysis: "silent", events: "sometimes", why: "silent" },
         wealthStepHuf: -5,
         drawdownStepPct: "3",
         weeklyHour: 24,
@@ -28,7 +28,7 @@ describe("notify settings", () => {
     expect(loadNotifySettings()).toEqual({
       ...DEFAULT_NOTIFY,
       off: { weekly: true },
-      ai: { newsMorning: "off", newsEvening: "notify", analysis: "silent", why: "notify" },
+      ai: { newsMorning: "off", newsEvening: "notify", analysis: "silent", events: "notify", why: "notify" },
     });
     localStorage.setItem("pf-notify", "[1]");
     expect(loadNotifySettings()).toEqual(DEFAULT_NOTIFY);
@@ -37,7 +37,7 @@ describe("notify settings", () => {
   it("valid values are kept; null quiet hours mean none", () => {
     const v: NotifySettings = {
       off: { drawdown: true },
-      ai: { newsMorning: "silent", newsEvening: "off", analysis: "notify", why: "off" },
+      ai: { newsMorning: "silent", newsEvening: "off", analysis: "notify", events: "silent", why: "off" },
       wealthStepHuf: 500_000,
       drawdownStepPct: 3,
       weeklyHour: 20,

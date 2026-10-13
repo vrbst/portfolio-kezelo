@@ -477,7 +477,7 @@ test.describe("market news (Hírek)", () => {
    * After openSeeded: the route registered last wins over its network cut.
    */
   async function withNews(page: Page) {
-    const { fixtureDigest } = await import("../src/test/newsFixture");
+    const { fixtureDigest, fixtureEventsFile } = await import("../src/test/newsFixture");
     const { withIndexEntry } = await import("../src/lib/newsSchema");
     const evening = fixtureDigest("2026-10-13", "evening");
     const morning = fixtureDigest("2026-10-14", "morning");
@@ -490,6 +490,7 @@ test.describe("market news (Hírek)", () => {
       if (path === "news/index.json") return r.fulfill(file(index));
       if (path === "news/2026-10-14-morning.json") return r.fulfill(file(morning));
       if (path === "news/2026-10-13-evening.json") return r.fulfill(file(evening));
+      if (path === "news/events.json") return r.fulfill(file(fixtureEventsFile()));
       return r.fulfill({ status: 404, body: "" });
     });
   }
@@ -502,6 +503,16 @@ test.describe("market news (Hírek)", () => {
     await expect(main).toContainText("Reggeli előzetes");
     await expect(main).toContainText("Gyengült a forint <az euróval> szemben");
     await expect(main).toContainText("Következő napok");
+    // the announcements followed, and what came out of the earlier ones
+    await expect(main).toContainText("Teszt inflációs adat");
+    await expect(main.getByTitle("Az eredményét a bejelentés után automatikusan megkeresi")).toHaveCount(1);
+    const followUps = page.getByTestId("follow-ups");
+    await expect(followUps).toContainText("Figyelt bejelentések");
+    await expect(followUps).toContainText("Teszt kamatdöntés");
+    await expect(followUps).toContainText("vár a bejelentésre");
+    await expect(followUps).toContainText("Bejelentések eredménye");
+    await expect(followUps).toContainText("3,2% é/é");
+    await expect(followUps).toContainText("a várakozás felett");
     await page.selectOption("#news-pick", { index: 1 });
     await expect(main).toContainText("Napzárta");
     expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);

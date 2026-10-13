@@ -183,6 +183,7 @@ const JOB_LABEL: Record<string, string> = {
   "news-evening": "Esti hírek",
   hirkereses: "/hirkereses",
   "news-why": "Miért mozdult?",
+  "news-event": "Bejelentések",
 };
 
 const tokens = (n: number) =>

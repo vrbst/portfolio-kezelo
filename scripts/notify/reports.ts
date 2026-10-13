@@ -994,6 +994,8 @@ export function newsText(
   ctx: Context,
   appUrl: string,
   uploadError?: string,
+  /** The announcements followed today (events.ts watchLine), morning edition. */
+  watching?: string,
 ): string {
   const lines = [
     `${EDITION_ICON[digest.edition]} <b>${NEWS_EDITION_LABEL[digest.edition]} – ${dayLabel(digest.day)}</b>`,
@@ -1025,6 +1027,8 @@ export function newsText(
       lines.push(`🗓 ${when}: ${esc(u.event)}`);
     }
   }
+
+  if (watching) lines.push("", `🔔 Ma figyelem: ${esc(watching)}`);
 
   const more = digest.items.length - shown.length;
   lines.push(

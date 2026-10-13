@@ -230,6 +230,8 @@ export interface NotifySettings {
     newsMorning: AiMode;
     newsEvening: AiMode;
     analysis: AiMode;
+    /** Follow-up of the announcements (CPI, rate decisions…) once they are out. */
+    events: AiMode;
     /** "Miért mozdult?" — its result is a message only, so on / off. */
     why: "off" | "notify";
   };
@@ -248,7 +250,7 @@ export interface NotifySettings {
 
 export const DEFAULT_NOTIFY: NotifySettings = {
   off: {},
-  ai: { newsMorning: "notify", newsEvening: "notify", analysis: "notify", why: "notify" },
+  ai: { newsMorning: "notify", newsEvening: "notify", analysis: "notify", events: "notify", why: "notify" },
   weeklyHour: 18,
   monthlyHour: 8,
   planReminderDay: 10,
@@ -285,6 +287,7 @@ export function loadNotifySettings(): NotifySettings {
       newsMorning: mode(ai.newsMorning, DEFAULT_NOTIFY.ai.newsMorning),
       newsEvening: mode(ai.newsEvening, DEFAULT_NOTIFY.ai.newsEvening),
       analysis: mode(ai.analysis, DEFAULT_NOTIFY.ai.analysis),
+      events: mode(ai.events, DEFAULT_NOTIFY.ai.events),
       why: ai.why === "off" ? "off" : "notify",
     },
     ...(wealth !== undefined ? { wealthStepHuf: wealth } : {}),

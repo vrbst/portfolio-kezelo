@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GlideSignals } from "../../src/lib/rebalance";
-import type { NewsEdition } from "../../src/lib/newsSchema";
+import type { EventKind, EventPhase, EventResult, NewsEdition } from "../../src/lib/newsSchema";
 import type { WhyFactor } from "./news/why";
 
 export interface State {
@@ -53,6 +53,8 @@ export interface State {
     switches?: Record<string, string>;
   };
   why?: WhyState;
+  /** Announcements followed up after the release (news/events.ts). */
+  events?: EventsState;
   whyTaken?: string;
   /** `at` of the request whose last search failed; cleared by the next success. */
   whyFailing?: string;
@@ -82,6 +84,39 @@ export interface WhyState {
   explained: string[];
   runs: number;
   request?: { at: string; factors: WhyFactor[]; exposure?: string[] };
+}
+
+/** One watched announcement (news/events.ts): from the digest to the result. */
+export interface EventSlot {
+  /** `${phase}|${date}|${time}` */
+  key: string;
+  phase: EventPhase;
+  date: string;
+  time: string;
+  kind: EventKind;
+  /** ISO of the announcement (the digest's Budapest time as a local instant). */
+  startsAt: string;
+  events: { event: string; expected?: string }[];
+  status: "waiting" | "watching" | "due" | "searching" | "done" | "expired";
+  tries: number;
+  /** ISO: the earliest the next AI search may start (a retry waits). */
+  dueAt?: string;
+  /** ISO: the AI search that holds the slot started. */
+  takenAt?: string;
+  /** ISO: the first news about it (RSS). */
+  firstSeenAt?: string;
+}
+
+export interface EventsState {
+  slots: EventSlot[];
+  /** Per kind: minutes from the announcement to the first news, last few. */
+  latency: Record<string, number[]>;
+  /** Signature of what was last uploaded to news/events.json. */
+  published?: string;
+  /** Results not uploaded yet (the upload failed); retried with the next change. */
+  pending?: EventResult[];
+  /** The last search failed: a job that finds nothing to do must not announce a recovery. */
+  failing?: boolean;
 }
 
 export type NewsState = {

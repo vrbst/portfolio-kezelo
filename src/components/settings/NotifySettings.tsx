@@ -80,7 +80,7 @@ export default function NotifySettings() {
     set({ off });
   };
   const setAi = (patch: Partial<Settings["ai"]>) => set({ ai: { ...s.ai, ...patch } });
-  const aiSelect = (label: string, key: "newsMorning" | "newsEvening" | "analysis") => (
+  const aiSelect = (label: string, key: "newsMorning" | "newsEvening" | "analysis" | "events") => (
     <label className="flex flex-wrap items-center gap-2">
       <span className="min-w-48">{label}</span>
       <select
@@ -202,6 +202,7 @@ export default function NotifySettings() {
         {aiSelect("Reggeli piaci előzetes", "newsMorning")}
         {aiSelect("Esti piaci napzárta", "newsEvening")}
         {aiSelect("Éjszakai AI-elemzés", "analysis")}
+        {aiSelect("Bejelentések utókövetése (CPI, kamatdöntés…)", "events")}
         <label className="flex items-center gap-2">
           <input
             type="checkbox"

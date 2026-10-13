@@ -111,6 +111,27 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   eszközt követő papírnál megadható, mire
   keressen a „Miért?” (`NOTIFY_WHY_SUBJECT="WBIT=Bitcoin (BTC)"`, több
   pontosvesszővel elválasztva; alapból ez). A hibás bejegyzéseket kihagyja.
+- **Bejelentések utókövetése** – a reggeli/esti hírkeresés a következő napok
+  eseményeinél megadja a pontos időpontot (hivatalos naptárból, budapesti idő),
+  a fajtáját (`US_CPI`, `MNB_RATE`…), a konszenzust, és megjelöli, melyiknek
+  érdemes megnézni az eredményét (naponta legfeljebb 3). A bot ezeket
+  feliratkozásként tartja (`.notify/state.json` → `events`). A bejelentés
+  után az ötperces `tick` AI nélkül figyeli a Google News RSS-t; amint legalább
+  2 cikk megjelent, elindul a `news-event` job (alapból `opus`,
+  `NEWS_MODEL`): megkeresi a tényleges eredményt, a várakozást, a meglepetés
+  irányát, az első piaci reakciót és azt, mi várható ezután a portfóliónak,
+  forrásokkal. A bejelentés és az első cikk közti késést fajtánként méri
+  (utolsó 10), és 3 mérés után (80. percentilis + 3 perc, 5–60 perc) ebből
+  időzít; mérés híján vagy ha az RSS nem érhető el, legkésőbb a bejelentés után
+  60 perccel indul. Ha az eredmény még nincs kint, 15 percenként újrapróbál,
+  3 óra után feladja. Kamatdöntésnél a sajtótájékoztatóról külön, második
+  üzenet jön (kezdete + 45 perc). Telegramra megy, és a szinkron-repóba is
+  (`news/events.json`): az app Hírek oldalán a „Figyelt bejelentések” (állapot,
+  várható indítás, tanult késések) és a „Bejelentések eredménye” kártya
+  látszik, a „Következő napok” listában 🔔 jelzi a figyeltet. A reggeli
+  üzenet végén „🔔 Ma figyelem: …” sor, `/bejelentesek` a teljes listát adja.
+  A Beállítások → Telegram-értesítések kártyán háromállású (Ki / Csak az
+  appba / Telegramra is).
 - **Telegram-értesítések a Beállításokban** – a Beállítások → Telegram-értesítések
   kártyán minden üzenettípus külön ki-be kapcsolható (teendők, mozgások,
   célok, vagyon-mérföldkő és visszaesés, heti/havi/éves jelentés, adó- és

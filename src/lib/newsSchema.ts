@@ -57,11 +57,40 @@ export interface NewsItem {
   sources: NewsSource[];
 }
 
+/** Kinds of scheduled announcements the follow-up learns its timing per. */
+export const EVENT_KINDS = [
+  "US_CPI",
+  "US_JOBS",
+  "US_GDP",
+  "FED_RATE",
+  "ECB_RATE",
+  "MNB_RATE",
+  "HU_CPI",
+  "HU_GDP",
+  "EZ_CPI",
+  "PMI",
+  "AKK_AUCTION",
+  "OTHER",
+] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+/** Central banks: the decision and, later, the press conference. */
+export const RATE_KINDS: readonly EventKind[] = ["FED_RATE", "ECB_RATE", "MNB_RATE"];
+
 export interface NewsUpcoming {
   /** YYYY-MM-DD */
   date: string;
   event: string;
   why: string;
+  /** HH:MM Budapest time, only when an official calendar gives it. */
+  time?: string;
+  /** Worth a look for the result once it is out (scheduled, portfolio-moving). */
+  followUp?: boolean;
+  kind?: EventKind;
+  /** HH:MM Budapest time of the press conference (rate decisions). */
+  pressTime?: string;
+  /** The consensus, if known. */
+  expected?: string;
 }
 
 /** What the model returns (NEWS_JSON_SCHEMA). */
@@ -167,11 +196,16 @@ export const NEWS_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["date", "event", "why"],
+        required: ["date", "event", "why", "time", "followUp", "kind", "pressTime", "expected"],
         properties: {
           date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
           event: { type: "string" },
           why: { type: "string" },
+          time: { type: ["string", "null"] },
+          followUp: { type: "boolean" },
+          kind: { type: ["string", "null"], enum: [...EVENT_KINDS, null] },
+          pressTime: { type: ["string", "null"] },
+          expected: { type: ["string", "null"] },
         },
       },
     },
@@ -216,6 +250,26 @@ function checkItem(x: unknown, i: number): NewsItem {
   };
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** The optional follow-up fields: a bad one is dropped, never an error. */
+function checkUpcoming(u: Record<string, unknown> & { date: string; event: string; why: string }): NewsUpcoming {
+  const time = typeof u.time === "string" && TIME_RE.test(u.time.trim()) ? u.time.trim() : undefined;
+  const pressTime =
+    typeof u.pressTime === "string" && TIME_RE.test(u.pressTime.trim()) ? u.pressTime.trim() : undefined;
+  const kind = u.kind == null ? undefined : oneOf(EVENT_KINDS, u.kind) ? u.kind : "OTHER";
+  return {
+    date: u.date,
+    event: u.event.trim(),
+    why: u.why.trim(),
+    ...(time ? { time } : {}),
+    ...(u.followUp === true ? { followUp: true } : {}),
+    ...(kind ? { kind } : {}),
+    ...(pressTime ? { pressTime } : {}),
+    ...(text(u.expected) ? { expected: u.expected.trim() } : {}),
+  };
+}
+
 /** The model's answer → a clean body, or an error saying what's wrong. */
 export function validateDigestBody(x: unknown): NewsDigestBody {
   if (!isObj(x)) throw new Error("A válasz nem JSON-objektum.");
@@ -225,7 +279,7 @@ export function validateDigestBody(x: unknown): NewsDigestBody {
   const upcoming = x.upcoming.map((u, i) => {
     if (!isObj(u) || !text(u.date) || !DAY_RE.test(u.date) || !text(u.event) || !text(u.why))
       throw new Error(`upcoming[${i}]: dátum (YYYY-MM-DD), esemény és indok kell`);
-    return { date: u.date, event: u.event.trim(), why: u.why.trim() };
+    return checkUpcoming(u as Record<string, unknown> & { date: string; event: string; why: string });
   });
   return {
     headline: x.headline.trim(),
@@ -317,4 +371,207 @@ export function rankedItems(items: NewsItem[]): NewsItem[] {
     .map((it, i) => ({ it, i }))
     .sort((a, b) => b.it.importance - a.it.importance || a.i - b.i)
     .map((x) => x.it);
+}
+
+// ---- event follow-ups (news/events.json) ---------------------------------------
+
+export const NEWS_EVENTS_PATH = `${NEWS_DIR}/events.json`;
+/** How many results the file keeps. */
+export const EVENT_RESULTS_SIZE = 120;
+
+/** A rate decision comes out as "release", its press conference as "press". */
+export const EVENT_PHASES = ["release", "press"] as const;
+export type EventPhase = (typeof EVENT_PHASES)[number];
+
+export const EVENT_PHASE_LABEL: Record<EventPhase, string> = {
+  release: "Bejelentés",
+  press: "Sajtótájékoztató",
+};
+
+export const SURPRISES = ["above", "below", "inline", "unknown"] as const;
+export type Surprise = (typeof SURPRISES)[number];
+
+export const SURPRISE_LABEL: Record<Surprise, string> = {
+  above: "a várakozás felett",
+  below: "a várakozás alatt",
+  inline: "a várakozásnak megfelelő",
+  unknown: "a várakozás nem ismert",
+};
+
+export interface EventResult {
+  /** Slot key, `${phase}|${date}|${time}`. */
+  key: string;
+  phase: EventPhase;
+  date: string;
+  time: string;
+  kind: EventKind;
+  event: string;
+  actual: string;
+  expected: string;
+  surprise: Surprise;
+  reaction: string;
+  outlook: string;
+  impact: NewsImpact;
+  affects: string[];
+  sources: NewsSource[];
+  /** Minutes from the announcement to the first news coverage, if measured. */
+  latencyMin?: number;
+  generatedAt: string;
+  engine: string;
+  model: string;
+  costUsd?: number;
+}
+
+/** Where a watched announcement stands. */
+export const SUBSCRIPTION_STATUSES = ["waiting", "watching", "searching", "done", "expired"] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+export const SUBSCRIPTION_STATUS_LABEL: Record<SubscriptionStatus, string> = {
+  waiting: "vár a bejelentésre",
+  watching: "híreket figyel",
+  searching: "keres",
+  done: "kész",
+  expired: "lejárt",
+};
+
+export interface EventSubscription {
+  key: string;
+  phase: EventPhase;
+  date: string;
+  time: string;
+  kind: EventKind;
+  events: { event: string; expected?: string }[];
+  status: SubscriptionStatus;
+  /** ISO: when the search is expected to start (learned delay or fallback). */
+  expectedRunAt?: string;
+  /** ISO: when the first news about it was seen. */
+  firstSeenAt?: string;
+  tries: number;
+}
+
+export interface EventLatency {
+  samples: number;
+  /** The learned delay (minutes) once there are enough samples. */
+  delayMin?: number;
+}
+
+export interface EventsFile {
+  version: 1;
+  /** Newest first. */
+  results: EventResult[];
+  subscriptions: EventSubscription[];
+  latency: Record<string, EventLatency>;
+}
+
+export const emptyEventsFile = (): EventsFile => ({ version: 1, results: [], subscriptions: [], latency: {} });
+
+const strList = (x: unknown): string[] => (Array.isArray(x) ? x.filter(text).map((a) => a.trim()) : []);
+
+function checkSources(x: unknown): NewsSource[] {
+  return (Array.isArray(x) ? x : []).flatMap((s) =>
+    isObj(s) && text(s.title) && text(s.url) && /^https?:\/\//.test(s.url)
+      ? [{ title: s.title.trim(), url: s.url.trim() }]
+      : [],
+  );
+}
+
+function checkResult(x: unknown): EventResult[] {
+  if (
+    !isObj(x) ||
+    !text(x.key) ||
+    !oneOf(EVENT_PHASES, x.phase) ||
+    !text(x.date) ||
+    !DAY_RE.test(x.date) ||
+    !text(x.time) ||
+    !TIME_RE.test(x.time) ||
+    !text(x.event) ||
+    !text(x.actual)
+  )
+    return [];
+  return [
+    {
+      key: x.key,
+      phase: x.phase,
+      date: x.date,
+      time: x.time,
+      kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
+      event: x.event.trim(),
+      actual: x.actual.trim(),
+      expected: typeof x.expected === "string" ? x.expected.trim() : "",
+      surprise: oneOf(SURPRISES, x.surprise) ? x.surprise : "unknown",
+      reaction: typeof x.reaction === "string" ? x.reaction.trim() : "",
+      outlook: typeof x.outlook === "string" ? x.outlook.trim() : "",
+      impact: oneOf(NEWS_IMPACTS, x.impact) ? x.impact : "neutral",
+      affects: strList(x.affects),
+      sources: checkSources(x.sources),
+      ...(typeof x.latencyMin === "number" ? { latencyMin: x.latencyMin } : {}),
+      generatedAt: String(x.generatedAt ?? ""),
+      engine: String(x.engine ?? ""),
+      model: String(x.model ?? ""),
+      ...(typeof x.costUsd === "number" ? { costUsd: x.costUsd } : {}),
+    },
+  ];
+}
+
+function checkSubscription(x: unknown): EventSubscription[] {
+  if (
+    !isObj(x) ||
+    !text(x.key) ||
+    !oneOf(EVENT_PHASES, x.phase) ||
+    !text(x.date) ||
+    !DAY_RE.test(x.date) ||
+    !text(x.time) ||
+    !TIME_RE.test(x.time) ||
+    !oneOf(SUBSCRIPTION_STATUSES, x.status)
+  )
+    return [];
+  const events = (Array.isArray(x.events) ? x.events : []).flatMap((e) =>
+    isObj(e) && text(e.event)
+      ? [{ event: e.event.trim(), ...(text(e.expected) ? { expected: e.expected.trim() } : {}) }]
+      : [],
+  );
+  return [
+    {
+      key: x.key,
+      phase: x.phase,
+      date: x.date,
+      time: x.time,
+      kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
+      events,
+      status: x.status,
+      ...(text(x.expectedRunAt) ? { expectedRunAt: x.expectedRunAt } : {}),
+      ...(text(x.firstSeenAt) ? { firstSeenAt: x.firstSeenAt } : {}),
+      tries: typeof x.tries === "number" ? x.tries : 0,
+    },
+  ];
+}
+
+/** A stored news/events.json (bad entries are dropped, a newer version refused). */
+export function validateEventsFile(x: unknown): EventsFile {
+  if (!isObj(x)) throw new Error("Sérült eseményfájl: nem objektum.");
+  if (typeof x.version === "number" && x.version > 1)
+    throw new Error("Az eseményfájl újabb verzióval készült — frissítsd az appot.");
+  const latency: Record<string, EventLatency> = {};
+  if (isObj(x.latency))
+    for (const [k, v] of Object.entries(x.latency))
+      if (isObj(v) && typeof v.samples === "number")
+        latency[k] = { samples: v.samples, ...(typeof v.delayMin === "number" ? { delayMin: v.delayMin } : {}) };
+  return {
+    version: 1,
+    results: (Array.isArray(x.results) ? x.results : []).flatMap(checkResult).slice(0, EVENT_RESULTS_SIZE),
+    subscriptions: (Array.isArray(x.subscriptions) ? x.subscriptions : []).flatMap(checkSubscription),
+    latency,
+  };
+}
+
+/** The file with `result` added (a rerun of the same slot replaces it), newest first. */
+export function withEventResult(file: EventsFile | null, result: EventResult): EventsFile {
+  const base = file ?? emptyEventsFile();
+  const rest = base.results.filter((r) => r.key !== result.key);
+  return {
+    ...base,
+    results: [result, ...rest]
+      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))
+      .slice(0, EVENT_RESULTS_SIZE),
+  };
 }

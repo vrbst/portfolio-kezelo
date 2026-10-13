@@ -23,6 +23,7 @@
     { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" },
     { "name": "hirek", "description": "Legutóbbi piaci hírösszefoglaló" },
     { "name": "hirkereses", "description": "Friss hírkeresés most (2–4 perc, félóránként egyszer)" },
+    { "name": "bejelentesek", "description": "Figyelt bejelentések (CPI, kamatdöntés…): állapot, tanult késés" },
     { "name": "riasztas", "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett)" },
     { "name": "koltseg", "description": "AI-futások token- és $-felhasználása (7 és 30 nap)" }
   ],
@@ -102,6 +103,13 @@
       "catchUpWindow": "36h",
       "timeout": "20m",
       "expectSuccessWithin": "8d"
+    },
+    {
+      "id": "news-event",
+      "description": "Bejelentés-utókövetés (AI): az eredmény, a várakozás, a piaci reakció és a kilátások, amint a hírekben megjelent (a tick indítja; ez csak pótlás és újrapróba)",
+      "every": "15m",
+      "timeout": "15m",
+      "expectSuccessWithin": "1d"
     },
     {
       "id": "news-why",
