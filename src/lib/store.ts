@@ -38,6 +38,8 @@ import {
   type GoogleSyncConfig,
 } from "./googleAuth";
 import { pushWithMirror, readSnapshot } from "./remote/snapshot";
+import type { BackupFile } from "./backup";
+import { backupToSnapshot } from "./backupRestore";
 import {
   loadAlertConfig,
   saveIdleCashThreshold,
@@ -187,6 +189,11 @@ interface PortfolioState {
   setAutoSync: (enabled: boolean) => void;
   pushToCloud: () => Promise<void>;
   pullFromCloud: () => Promise<{ added: number }>;
+  /**
+   * Merge a backup file into the current data: what it holds is restored
+   * (accounts, transactions, goals, prefs…), nothing added since is deleted.
+   */
+  restoreBackup: (backup: BackupFile) => Promise<{ added: number }>;
   /** On startup: pull automatically if the cloud copy is newer than ours. */
   startupSync: () => Promise<void>;
 
@@ -1021,6 +1028,13 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     } finally {
       set({ syncing: false });
     }
+  },
+
+  restoreBackup: async (backup) => {
+    const added = await mergeSnapshot(set, get, backupToSnapshot(backup));
+    // Reaches the other devices like any other edit.
+    scheduleAutoSync(set, get);
+    return { added };
   },
 
   pullFromCloud: async () => {

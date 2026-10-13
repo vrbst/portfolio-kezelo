@@ -19,6 +19,7 @@ import PurchaseAccountSettings from "../components/settings/PurchaseAccountSetti
 import LeftoverSettings from "../components/settings/LeftoverSettings";
 import AppearanceSettings from "../components/settings/AppearanceSettings";
 import PrivacyLockSettings from "../components/settings/PrivacyLockSettings";
+import RestoreBackup from "../components/settings/RestoreBackup";
 
 export default function Settings() {
   const accounts = usePortfolio((s) => s.accounts);
@@ -88,6 +89,7 @@ export default function Settings() {
                 előrejelzés-beállítások. A szinkron-token és az API-kulcs nem
                 kerül bele.
               </InfoTip>
+              <RestoreBackup />
             </div>
           </div>
           <p className="mt-4 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-muted)]">

@@ -638,3 +638,68 @@ test.describe("Telegram notification settings", () => {
     await expect(page.getByLabel("Csendes órák kezdete")).toHaveValue("23:00");
   });
 });
+
+test.describe("restore from a backup file", () => {
+  /** The "Tranzakciók" count in the Beállítások data card. */
+  const txCount = async (page: Page) =>
+    Number(await page.locator("dt", { hasText: "Tranzakciók" }).locator("xpath=following-sibling::dd").innerText());
+
+  const backupFile = (extra: boolean) => {
+    const snap = fixtureSnapshot();
+    const txs = extra ? [...snap.transactions, { ...snap.transactions[0], id: "mentes-extra-1" }] : snap.transactions;
+    return {
+      name: "mentes.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          kind: "portfolio-backup",
+          version: 1,
+          exportedAt: "2026-10-13T09:00:00.000Z",
+          accounts: snap.accounts,
+          instruments: snap.instruments,
+          transactions: txs,
+          alertState: {},
+          goals: [],
+          deletedGoalIds: [],
+          deletedAccounts: {},
+          reminders: [],
+          deletedReminderIds: [],
+          deletedAlertIds: [],
+          fx: {},
+        }),
+      ),
+    };
+  };
+
+  test("brings back what is missing, keeps the rest, and survives a reload", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/settings");
+    const before = await txCount(page);
+    await page.getByTestId("restore-input").setInputFiles(backupFile(true));
+    // The summary comes first; nothing has changed yet.
+    await expect(page.getByTestId("restore-confirm")).toContainText(`${before + 1} tranzakció`);
+    expect(await txCount(page)).toBe(before);
+    await page.getByRole("button", { name: "Visszatöltés", exact: true }).click();
+    await expect(page.getByText("Visszatöltve. 1 új tranzakció.")).toBeVisible();
+    await expect.poll(() => txCount(page)).toBe(before + 1);
+    await reopen(page, "/settings");
+    expect(await txCount(page)).toBe(before + 1);
+    expect(errors).toEqual([]);
+  });
+
+  test("Mégse changes nothing; a file that is not a backup is refused with a reason", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/settings");
+    const before = await txCount(page);
+    await page.getByTestId("restore-input").setInputFiles(backupFile(true));
+    await page.getByRole("button", { name: "Mégse", exact: true }).click();
+    await expect(page.getByTestId("restore-confirm")).toHaveCount(0);
+    expect(await txCount(page)).toBe(before);
+
+    await page.getByTestId("restore-input").setInputFiles({ name: "x.json", mimeType: "application/json", buffer: Buffer.from("nem json") });
+    await expect(page.getByText("A fájl nem érvényes JSON.")).toBeVisible();
+    await page.getByTestId("restore-input").setInputFiles({ name: "y.json", mimeType: "application/json", buffer: Buffer.from('{"version":1}') });
+    await expect(page.getByText(/nem portfólió-mentés/)).toBeVisible();
+    expect(await txCount(page)).toBe(before);
+  });
+});

@@ -138,20 +138,23 @@ export async function verifyAccess(config: SyncConfig): Promise<string> {
  * Minimal shape/version gate so a corrupt or newer-versioned cloud file can't
  * poison local state (the merge writes straight into IndexedDB).
  */
-export function validateSnapshot(x: unknown): PortfolioSnapshot {
+export function validateSnapshot(
+  x: unknown,
+  what = "felhő-mentés",
+): PortfolioSnapshot {
   const s = x as Partial<PortfolioSnapshot> | null;
   if (!s || typeof s !== "object")
-    throw new Error("Sérült felhő-mentés: nem objektum.");
+    throw new Error(`Sérült ${what}: nem objektum.`);
   if (typeof s.version === "number" && s.version > 1)
     throw new Error(
-      "A felhő-mentés újabb app-verzióval készült — frissítsd az appot ezen az eszközön.",
+      `A ${what} újabb app-verzióval készült — frissítsd az appot ezen az eszközön.`,
     );
   if (
     !Array.isArray(s.accounts) ||
     !Array.isArray(s.instruments) ||
     !Array.isArray(s.transactions)
   )
-    throw new Error("Sérült felhő-mentés: hiányzó listák.");
+    throw new Error(`Sérült ${what}: hiányzó listák.`);
   for (const t of s.transactions as unknown as Array<Record<string, unknown>>) {
     if (
       !t ||
@@ -159,7 +162,7 @@ export function validateSnapshot(x: unknown): PortfolioSnapshot {
       typeof t.accountId !== "string" ||
       typeof t.date !== "string"
     )
-      throw new Error("Sérült felhő-mentés: hibás tranzakció-bejegyzés.");
+      throw new Error(`Sérült ${what}: hibás tranzakció-bejegyzés.`);
   }
   return s as PortfolioSnapshot;
 }
