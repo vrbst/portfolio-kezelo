@@ -60,10 +60,12 @@ export default function RestoreBackup() {
       />
       <InfoTip>
         Egy korábban letöltött „Teljes mentés” fájl beolvasztása a mostani
-        adatba: visszaállítja, ami a mentésben van (számlák, tranzakciók a
-        nyers sorokkal, célok, beállítások), de a mentés után hozzáadott
-        adatot nem törli. Ha a szinkron be van kapcsolva, a visszaállított
-        adat felkerül a felhőbe is.
+        adatba. Ami a mentésben van, az a mentés változatára áll vissza:
+        számlák, értékpapírok (kötvény-paraméterek), célok és emlékeztetők
+        azóta történt módosítását is felülírja. A mentés után hozzáadott
+        adatot nem törli, és a már meglévő tranzakciókat nem cseréli le (a
+        nyers kivonatsorok csak az új tranzakcióknál kerülnek vissza). Ha a
+        szinkron be van kapcsolva, az eredmény felkerül a felhőbe is.
       </InfoTip>
 
       {pending && (
@@ -75,6 +77,10 @@ export default function RestoreBackup() {
             Mentés ekkorról: <strong>{formatDateTime(pending.exportedAt)}</strong> —{" "}
             {pending.accounts.length} számla, {pending.transactions.length} tranzakció,{" "}
             {pending.instruments.length} értékpapír.
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Az egyező számlák, papírok, célok és emlékeztetők a mentés
+            változatára állnak vissza; a mentés utáni új adatot nem töröljük.
           </p>
           <div className="mt-2 flex gap-2">
             <button className="btn-primary" onClick={confirm} disabled={busy}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSyncTarget, readRemoteFile, type SyncTarget } from "./index";
-import { pushWithMirror } from "./snapshot";
+import { pushWithMirror, readSnapshotWithFallback } from "./snapshot";
 import {
   RemoteAuthError,
   RemoteConflictError,
@@ -150,5 +150,77 @@ describe("pushWithMirror", () => {
     const r = await pushWithMirror(target(drive), () => withTx("mine"), unionSnapshots);
     expect(r.mirrorError).toBeUndefined();
     expect(ids(drive)).toContain("mine");
+  });
+});
+
+describe("pushWithMirror when the Google token lapsed", () => {
+  const snap = fixtureSnapshot();
+  const ids = (store: { files: Record<string, string> }) =>
+    (JSON.parse(store.files["data.json"]) as PortfolioSnapshot).transactions.map((t) => t.id);
+
+  it("the mirror still takes the data, and the auth error is what surfaces", async () => {
+    const drive = mapStore({}, () => new RemoteAuthError());
+    const gh = mapStore();
+    await expect(pushWithMirror(target(drive, gh), () => snap, unionSnapshots)).rejects.toBeInstanceOf(
+      RemoteAuthError,
+    );
+    expect(ids(gh)).toEqual(snap.transactions.map((t) => t.id));
+  });
+
+  it("a mirror that fails too doesn't replace the original error", async () => {
+    const drive = mapStore({}, () => new RemoteAuthError());
+    const gh = mapStore({}, () => new Error("HTTP 500"));
+    await expect(pushWithMirror(target(drive, gh), () => snap, unionSnapshots)).rejects.toBeInstanceOf(
+      RemoteAuthError,
+    );
+  });
+
+  it("without a mirror it's just the auth error", async () => {
+    const drive = mapStore({}, () => new RemoteAuthError());
+    await expect(pushWithMirror(target(drive), () => snap, unionSnapshots)).rejects.toBeInstanceOf(
+      RemoteAuthError,
+    );
+  });
+});
+
+describe("readSnapshotWithFallback", () => {
+  const snap = fixtureSnapshot();
+  const file = JSON.stringify(snap);
+
+  it("reads the primary when it works", async () => {
+    const r = await readSnapshotWithFallback(
+      target(mapStore({ "data.json": file }), mapStore({ "data.json": "{}" })),
+    );
+    expect(r?.fromMirror).toBe(false);
+    expect(r?.snapshot.transactions).toHaveLength(snap.transactions.length);
+  });
+
+  it("a lapsed token reads the GitHub mirror instead, marked as such", async () => {
+    const r = await readSnapshotWithFallback(
+      target(
+        mapStore({}, () => new RemoteAuthError()),
+        mapStore({ "data.json": file }),
+      ),
+    );
+    expect(r?.fromMirror).toBe(true);
+    expect(r?.snapshot.transactions).toHaveLength(snap.transactions.length);
+  });
+
+  it("no snapshot on the primary is null, not a reason to look elsewhere", async () => {
+    expect(await readSnapshotWithFallback(target(mapStore(), mapStore({ "data.json": file })))).toBeNull();
+  });
+
+  it("a lapsed token without a mirror, and other errors, surface", async () => {
+    await expect(
+      readSnapshotWithFallback(target(mapStore({}, () => new RemoteAuthError()))),
+    ).rejects.toBeInstanceOf(RemoteAuthError);
+    await expect(
+      readSnapshotWithFallback(
+        target(
+          mapStore({}, () => new Error("HTTP 500")),
+          mapStore({ "data.json": file }),
+        ),
+      ),
+    ).rejects.toThrow(/500/);
   });
 });

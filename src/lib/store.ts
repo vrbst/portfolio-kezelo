@@ -34,10 +34,16 @@ import {
 import { buildSyncTarget, type SyncTarget } from "./remote";
 import {
   loadGoogleSync,
+  reconnectGoogle,
   saveGoogleSync,
+  signOutGoogle,
   type GoogleSyncConfig,
 } from "./googleAuth";
-import { pushWithMirror, readSnapshot } from "./remote/snapshot";
+import {
+  pushWithMirror,
+  readSnapshot,
+  readSnapshotWithFallback,
+} from "./remote/snapshot";
 import type { BackupFile } from "./backup";
 import { backupToSnapshot } from "./backupRestore";
 import {
@@ -191,6 +197,11 @@ interface PortfolioState {
   mirrorError?: string;
   setSyncConfig: (config: SyncConfig | null) => void;
   setGoogleSync: (config: GoogleSyncConfig | null) => void;
+  /**
+   * After the Google token lapsed: sign in again (from a click), catch up with
+   * the cloud and send what was edited meanwhile.
+   */
+  reconnectGoogleSession: () => Promise<void>;
   setAutoSync: (enabled: boolean) => void;
   pushToCloud: () => Promise<void>;
   pullFromCloud: () => Promise<{ added: number }>;
@@ -990,6 +1001,10 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // A newly connected device must pull before seeding anything.
     const syncTarget = buildSyncTarget(config, get().googleSync);
     set({ syncConfig: config, syncTarget, cloudChecked: syncTarget == null });
+    // Dropping one of two syncs leaves the other as the target — which this
+    // device hasn't been checked against yet. Check it now (else the alerts
+    // and signals wait for the next reload).
+    if (config == null && syncTarget) void get().startupSync();
   },
 
   setGoogleSync: (config) => {
@@ -997,6 +1012,14 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     // The target (and its cloud copy) may differ: pull before seeding anything.
     const syncTarget = buildSyncTarget(get().syncConfig, config);
     set({ googleSync: config, syncTarget, cloudChecked: syncTarget == null });
+    if (config == null && syncTarget) void get().startupSync();
+  },
+
+  reconnectGoogleSession: async () => {
+    await reconnectGoogle();
+    // The target's store reads the fresh token on its next call.
+    await get().pullFromCloud();
+    if (get().autoSync) await get().pushToCloud();
   },
 
   setAutoSync: (enabled) => {
@@ -1071,7 +1094,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const { syncTarget } = get();
     if (!syncTarget) return; // not "logged in" to the cloud on this device
     try {
-      const remote = await readSnapshot(syncTarget.store, syncTarget.path);
+      // With the Google token lapsed this reads the GitHub mirror instead, so
+      // the device isn't stuck "offline" until the user reconnects.
+      const remote = await readSnapshotWithFallback(syncTarget);
       if (!remote) {
         set({ cloudChecked: true });
         return;
@@ -1081,7 +1106,8 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       // reflect. Content (sha) comparison, not timestamps — device clocks can
       // disagree, and exportedAt is the OTHER device's wall clock.
       const lastPulledSha = await getMeta<string>("lastPulledSha");
-      if (lastPulledSha && remote.sha === lastPulledSha) {
+      // (A mirror copy's version marker isn't the primary's: always merge.)
+      if (!remote.fromMirror && lastPulledSha && remote.sha === lastPulledSha) {
         // Same cloud version we already reflect — but still (re)apply planning
         // prefs. An app update can ADD a synced pref kind (e.g. savings goals)
         // that an older build silently dropped when it pulled this very sha;
@@ -1092,7 +1118,12 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
         return;
       }
       set({ syncing: true });
-      await mergeSnapshot(set, get, remote.snapshot, remote.sha);
+      await mergeSnapshot(
+        set,
+        get,
+        remote.snapshot,
+        remote.fromMirror ? undefined : remote.sha,
+      );
       set({
         lastSyncedAt: remoteAt ?? new Date().toISOString(),
         cloudChecked: true,
@@ -1115,7 +1146,9 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       autoSyncTimer = null;
     }
     saveSyncConfig(null);
-    saveGoogleSync(null);
+    // Forget the Google sign-in AND its access token (valid for up to an hour,
+    // it would otherwise stay readable in localStorage) and revoke it.
+    void signOutGoogle();
     await Promise.all([
       db.accounts.clear(),
       db.instruments.clear(),

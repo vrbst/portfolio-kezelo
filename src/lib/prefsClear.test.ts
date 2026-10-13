@@ -34,7 +34,7 @@ describe("clearSyncedPrefs", () => {
 
   it("removes every synced pref and nothing else", () => {
     for (const k of syncedPrefKeys()) store.set(k, "x");
-    const keep = ["pf-skin", "pf-privacy", "pf-privacy-lock", "pf-ai-key", "portfolio.googleToken", "portfolio.installDismissed"];
+    const keep = ["pf-skin", "pf-privacy", "pf-privacy-lock", "pf-ai-key", "portfolio.installDismissed"];
     for (const k of keep) store.set(k, "x");
     clearSyncedPrefs();
     for (const k of syncedPrefKeys()) expect(store.has(k), k).toBe(false);

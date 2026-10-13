@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  TOKEN_EVENT,
   getGoogleAccessToken,
+  googleTokenExpiresAt,
   hasValidGoogleToken,
   loadGoogleSync,
+  preloadGoogle,
   reconnectGoogle,
   saveGoogleSync,
   signInWithGoogle,
@@ -202,14 +205,70 @@ describe("buildSyncTarget", () => {
   it("Google wins over GitHub; dropping it falls back to the repo", () => {
     expect(buildSyncTarget(github, google)).toMatchObject({
       backend: "google",
-      id: "drive:me@example.com",
+      // The mirror is part of the id, so caches and refresh loops restart when it changes.
+      id: "drive:me@example.com+o/r",
       path: "data.json",
     });
+    expect(buildSyncTarget(null, google)?.id).toBe("drive:me@example.com");
     expect(buildSyncTarget(github, null)?.backend).toBe("github");
   });
 
   it("the Google target reads through the stored token (expired = auth error)", async () => {
     const target = buildSyncTarget(null, google)!;
     await expect(target.store.read("data.json")).rejects.toBeInstanceOf(RemoteAuthError);
+  });
+});
+
+describe("token expiry and change events", () => {
+  it("reports when the stored token lapses (null without one)", () => {
+    expect(googleTokenExpiresAt()).toBeNull();
+    storage.set(TOKEN_KEY, JSON.stringify({ accessToken: "t", expiresAt: 123456 }));
+    expect(googleTokenExpiresAt()).toBe(123456);
+  });
+
+  it("sign-in, reconnect and sign-out announce the change (views re-evaluate)", async () => {
+    const events: string[] = [];
+    vi.stubGlobal("window", { dispatchEvent: (e: Event) => events.push(e.type) });
+    fakeGoogle(() => ({ access_token: "at1", expires_in: 3600 }));
+    fakeDriveFetch();
+    await signInWithGoogle();
+    expect(events).toEqual([TOKEN_EVENT]);
+    await reconnectGoogle();
+    expect(events).toEqual([TOKEN_EVENT, TOKEN_EVENT]);
+    await signOutGoogle();
+    expect(events).toEqual([TOKEN_EVENT, TOKEN_EVENT, TOKEN_EVENT]);
+  });
+});
+
+describe("preloadGoogle", () => {
+  function fakeDocument() {
+    const scripts: { src?: string }[] = [];
+    vi.stubGlobal("document", {
+      createElement: () => ({}) as { src?: string },
+      head: { appendChild: (s: { src?: string }) => scripts.push(s) },
+    });
+    return scripts;
+  }
+
+  it("fetches the Google script ahead of the click, once", () => {
+    const scripts = fakeDocument();
+    preloadGoogle();
+    preloadGoogle();
+    expect(scripts.map((s) => s.src)).toEqual(["https://accounts.google.com/gsi/client"]);
+  });
+
+  it("does nothing when the build has no client id, or the script is already there", () => {
+    const scripts = fakeDocument();
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "");
+    preloadGoogle();
+    expect(scripts).toEqual([]);
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com");
+    fakeGoogle(() => ({ access_token: "x" }));
+    preloadGoogle();
+    expect(scripts).toEqual([]);
+  });
+
+  it("outside a browser it quietly does nothing", () => {
+    expect(() => preloadGoogle()).not.toThrow();
   });
 });

@@ -743,6 +743,11 @@ test.describe("delete all data", () => {
     for (const k of ["pf-savings", "pf-glidepath"]) expect(before[k], `${k} is seeded`).not.toBeNull();
 
     await show(page, "/settings");
+    // A Google sign-in with a live access token (as left by an hour-old login).
+    await page.evaluate(() => {
+      localStorage.setItem("portfolio.googleSync", JSON.stringify({ email: "teszt@example.com", path: "data.json" }));
+      localStorage.setItem("portfolio.googleToken", JSON.stringify({ accessToken: "t", expiresAt: Date.now() + 3_000_000 }));
+    });
     await page.getByRole("button", { name: "Összes adat törlése" }).click();
     await page.getByRole("button", { name: "Igen, töröljem mindet" }).click();
     await expect(page.locator("dt", { hasText: "Tranzakciók" }).locator("xpath=following-sibling::dd")).toHaveText("0");
@@ -752,7 +757,73 @@ test.describe("delete all data", () => {
     expect(await ls(page, synced)).toEqual(gone);
     await reopen(page, "/settings");
     expect(await ls(page, synced)).toEqual(gone);
+    // The Google sign-in and its access token are gone with it (the token would
+    // otherwise stay readable in localStorage for up to an hour).
+    expect(await ls(page, ["portfolio.googleSync", "portfolio.googleToken"])).toEqual({
+      "portfolio.googleSync": null,
+      "portfolio.googleToken": null,
+    });
     // Not data: the look stays.
     expect((await ls(page, ["pf-skin"]))["pf-skin"]).toBe("terminal");
+  });
+});
+
+test.describe("Google sign-in state", () => {
+  /** Seed a Google sign-in whose token lapses in `lifeMs` (page clock). */
+  async function withGoogle(page: Page, lifeMs: number, opts: { github?: boolean } = {}) {
+    await openSeeded(page, { sync: !!opts.github });
+    await page.evaluate((life) => {
+      localStorage.setItem("portfolio.googleSync", JSON.stringify({ email: "teszt@example.com", path: "data.json" }));
+      localStorage.setItem("portfolio.googleToken", JSON.stringify({ accessToken: "t", expiresAt: Date.now() + life }));
+    }, lifeMs);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+  }
+
+  test("a lapsed token shows the reconnect bar on every page; a live one doesn't", async ({ page }) => {
+    await withGoogle(page, -1000);
+    // (reopen: with the token lapsed the alerts sit in "syncing", which pulses forever)
+    for (const path of ["/", "/goals", "/settings"]) {
+      await reopen(page, path);
+      await expect(page.getByTestId("google-reconnect"), path).toBeVisible();
+      await expect(page.getByTestId("google-reconnect").getByRole("button", { name: "Kapcsolódj újra" })).toBeVisible();
+    }
+    await page.evaluate(() =>
+      localStorage.setItem("portfolio.googleToken", JSON.stringify({ accessToken: "t", expiresAt: Date.now() + 3_000_000 })),
+    );
+    await reopen(page, "/settings");
+    await expect(page.getByTestId("google-reconnect")).toHaveCount(0);
+  });
+
+  test("the bar appears by itself when a page sitting open reaches the token's expiry", async ({ page }) => {
+    // Live for 130 s; the app treats a token as lapsed 60 s early, so ~70 s remain.
+    await withGoogle(page, 130_000);
+    await show(page, "/settings");
+    await page.waitForTimeout(1000);
+    await expect(page.getByTestId("google-reconnect")).toHaveCount(0);
+    // Jump the page's clock past the expiry: only the timer set for it is due
+    // (the 5-minute price poll is not), so nothing else gives the page a reason
+    // to re-render — the bar has to come from the expiry timer itself.
+    await page.clock.fastForward(80_000);
+    await expect(page.getByTestId("google-reconnect")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "Kapcsolódj újra" }).first()).toBeVisible();
+  });
+
+  test("signing out of Google with a GitHub sync left checks that one against the cloud right away", async ({ page }) => {
+    await withGoogle(page, 3_000_000, { github: true });
+    const github: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("api.github.com")) github.push(r.url());
+    });
+    await show(page, "/settings");
+    await page.waitForTimeout(1500);
+    const before = github.length;
+    await page.getByRole("button", { name: "Kilépés" }).click();
+    await expect(page.getByText("a GitHub-szinkron lett az aktív")).toBeVisible();
+    await expect
+      .poll(() => github.slice(before).some((u) => u.includes("/repos/teszt/adat/contents/data.json")), {
+        message: "a GitHub read after the sign-out",
+      })
+      .toBe(true);
   });
 });

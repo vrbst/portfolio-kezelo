@@ -12,7 +12,18 @@ const SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 const CONFIG_KEY = "portfolio.googleSync";
 const TOKEN_KEY = "portfolio.googleToken";
 /** Treat a token as expired this long before it really is. */
-const EXPIRY_MARGIN_MS = 60_000;
+export const EXPIRY_MARGIN_MS = 60_000;
+
+/** Fired (on window) whenever the stored token or sign-in changes. */
+export const TOKEN_EVENT = "pf-google-token";
+
+function emitTokenChange() {
+  try {
+    window.dispatchEvent(new Event(TOKEN_EVENT));
+  } catch {
+    /* non-browser environment */
+  }
+}
 
 export interface GoogleSyncConfig {
   /** The signed-in account, shown in Settings. */
@@ -98,6 +109,12 @@ function saveToken(token: StoredToken | null) {
   } catch {
     // ignore storage failures
   }
+  emitTokenChange();
+}
+
+/** When the stored token lapses (epoch ms, safety margin NOT applied); null = none. */
+export function googleTokenExpiresAt(): number | null {
+  return loadToken()?.expiresAt ?? null;
 }
 
 /** Does a still-valid token exist (no popup needed)? */
@@ -129,6 +146,8 @@ const loaded = () => (globalThis as { google?: GoogleGlobal }).google?.accounts?
 function loadGsi(): Promise<Oauth2> {
   const ready = loaded();
   if (ready) return Promise.resolve(ready);
+  if (typeof document === "undefined")
+    return Promise.reject(new Error("A Google-belépés csak böngészőben érhető el."));
   gsi ??= new Promise<Oauth2>((resolve, reject) => {
     const fail = () => {
       gsi = null;
@@ -146,6 +165,16 @@ function loadGsi(): Promise<Oauth2> {
     document.head.appendChild(s);
   });
   return gsi;
+}
+
+/**
+ * Load the Google script ahead of the click. The sign-in popup must open
+ * inside the click's user activation; waiting for the script download first
+ * can use that up (Safari / iOS then blocks the popup).
+ */
+export function preloadGoogle() {
+  if (!googleClientId()) return;
+  loadGsi().catch(() => undefined);
 }
 
 async function requestToken(prompt: string, hint?: string): Promise<StoredToken> {

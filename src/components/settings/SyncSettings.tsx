@@ -1,5 +1,5 @@
 import InfoTip from "../InfoTip";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Cloud,
   RefreshCw,
@@ -15,11 +15,12 @@ import { verifyAccess, type SyncConfig } from "../../lib/sync";
 import { downloadBackup } from "../../lib/backup";
 import {
   googleClientId,
-  hasValidGoogleToken,
-  reconnectGoogle,
+  preloadGoogle,
   signInWithGoogle,
   signOutGoogle,
 } from "../../lib/googleAuth";
+import { migrateToGoogle } from "../../lib/googleMigration";
+import { useGoogleTokenValid } from "../../lib/useGoogleToken";
 
 export default function SyncSettings() {
   const syncConfig = usePortfolio((s) => s.syncConfig);
@@ -33,6 +34,7 @@ export default function SyncSettings() {
   const syncError = usePortfolio((s) => s.syncError);
   const googleSync = usePortfolio((s) => s.googleSync);
   const setGoogleSync = usePortfolio((s) => s.setGoogleSync);
+  const reconnectGoogleSession = usePortfolio((s) => s.reconnectGoogleSession);
   const syncTarget = usePortfolio((s) => s.syncTarget);
   const mirrorError = usePortfolio((s) => s.mirrorError);
 
@@ -45,7 +47,13 @@ export default function SyncSettings() {
   const connected = !!syncTarget;
   // Without a client id baked into the build the Google button stays hidden.
   const googleAvailable = googleClientId() !== "" || googleSync != null;
-  const googleTokenOk = googleSync != null && hasValidGoogleToken();
+  const googleTokenOk = useGoogleTokenValid();
+
+  // Load the Google script before the click: the sign-in popup must open
+  // inside the click itself (Safari / iOS blocks it after a download wait).
+  useEffect(() => {
+    if (googleAvailable && !googleSync) preloadGoogle();
+  }, [googleAvailable, googleSync]);
 
   const update = (patch: Partial<SyncConfig>) =>
     setForm((f) => ({ ...f, ...patch }));
@@ -66,24 +74,18 @@ export default function SyncSettings() {
     try {
       // A restore point of this device's data, before anything moves.
       if (backupFirst) downloadBackup();
-      const cfg = await signInWithGoogle();
-      try {
-        // Migration: take in everything the GitHub copy holds BEFORE Drive
-        // becomes the primary, so nothing that only lives there is left behind.
-        if (syncConfig) await pullFromCloud();
-      } catch (e) {
-        // Back out completely: GitHub stays the active sync, as it was.
-        await signOutGoogle();
-        throw new Error(
-          `A GitHub-adatok beolvasása nem sikerült, a Google-belépést visszavontam: ${(e as Error).message}`,
-          { cause: e },
-        );
-      }
-      setGoogleSync(cfg);
-      // Reflect what Drive already holds, then put this device's data up
-      // (the push also refreshes the GitHub mirror).
-      await pullFromCloud();
-      await pushToCloud();
+      await migrateToGoogle({
+        signIn: signInWithGoogle,
+        hasGithub: !!syncConfig,
+        pullGithub: pullFromCloud,
+        activate: setGoogleSync,
+        pullDrive: pullFromCloud,
+        pushAll: pushToCloud,
+        rollback: async (activated) => {
+          if (activated) setGoogleSync(null);
+          await signOutGoogle();
+        },
+      });
       setMsg({
         ok: true,
         text: syncConfig
@@ -98,10 +100,7 @@ export default function SyncSettings() {
   async function googleReconnect() {
     setMsg(null);
     try {
-      await reconnectGoogle();
-      // Re-render with the fresh token and catch up right away.
-      setGoogleSync(googleSync);
-      await pullFromCloud();
+      await reconnectGoogleSession();
       setMsg({ ok: true, text: "A Google-hozzáférés megújítva." });
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
@@ -111,6 +110,7 @@ export default function SyncSettings() {
   async function googleSignOut() {
     setMsg(null);
     await signOutGoogle();
+    // Another sync left? The store then checks it against the cloud right away.
     setGoogleSync(null);
     setMsg({
       ok: true,

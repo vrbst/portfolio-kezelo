@@ -4,7 +4,7 @@
 
 import { validateSnapshot, type PortfolioSnapshot } from "../sync";
 import type { SyncTarget } from "./index";
-import { RemoteConflictError, type RemoteStore } from "./types";
+import { RemoteAuthError, RemoteConflictError, type RemoteStore } from "./types";
 
 /** Read and validate the snapshot. Null if it doesn't exist yet. */
 export async function readSnapshot(
@@ -74,7 +74,21 @@ export async function pushWithMirror(
   hadRemote: boolean;
   mirrorError?: string;
 }> {
-  const primary = await pushSnapshot(target.store, target.path, local, merge);
+  let primary: Awaited<ReturnType<typeof pushSnapshot>>;
+  try {
+    primary = await pushSnapshot(target.store, target.path, local, merge);
+  } catch (e) {
+    // The Google token lapsed: the mirror can still take the data, so an edit
+    // made now isn't left on this device only. The auth error still surfaces.
+    if (e instanceof RemoteAuthError && target.mirror) {
+      try {
+        await pushSnapshot(target.mirror.store, target.mirror.path, local, merge);
+      } catch {
+        /* the original error is the one to report */
+      }
+    }
+    throw e;
+  }
   if (!target.mirror) return primary;
   try {
     await pushSnapshot(
@@ -86,5 +100,27 @@ export async function pushWithMirror(
     return primary;
   } catch (e) {
     return { ...primary, mirrorError: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Read the snapshot for the startup pull. If the primary can't be reached
+ * because the Google token lapsed, take the GitHub mirror's copy (a Google
+ * device keeps it fresh) instead of leaving the device without any cloud
+ * state until the user reconnects. `fromMirror` tells the caller not to
+ * treat the version marker as the primary's.
+ */
+export async function readSnapshotWithFallback(target: SyncTarget): Promise<{
+  snapshot: PortfolioSnapshot;
+  sha: string;
+  fromMirror: boolean;
+} | null> {
+  try {
+    const r = await readSnapshot(target.store, target.path);
+    return r ? { ...r, fromMirror: false } : null;
+  } catch (e) {
+    if (!(e instanceof RemoteAuthError) || !target.mirror) throw e;
+    const m = await readSnapshot(target.mirror.store, target.mirror.path);
+    return m ? { ...m, fromMirror: true } : null;
   }
 }

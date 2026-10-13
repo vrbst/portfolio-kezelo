@@ -39,7 +39,9 @@ export function buildSyncTarget(
   if (google)
     return {
       backend: "google",
-      id: `drive:${google.email}`,
+      // The mirror is part of the identity: adding or dropping it changes how
+      // files are read, so caches and refresh loops keyed by id must restart.
+      id: `drive:${google.email}${gh ? `+${gh.id}` : ""}`,
       path: google.path,
       store: driveStore(getGoogleAccessToken),
       ...(gh ? { mirror: gh } : {}),

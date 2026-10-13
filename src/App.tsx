@@ -13,6 +13,7 @@ import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import TouchTitles from "./components/TouchTitles";
 import AlertsBanner from "./components/AlertsBanner";
+import GoogleReconnectBanner from "./components/GoogleReconnectBanner";
 import { Skeleton } from "./components/ui";
 import {
   usePortfolio,
@@ -95,6 +96,7 @@ export default function App() {
         <main className="flex-1 min-w-0">
           <div className="relative mx-auto max-w-7xl px-4 pb-28 pt-0 md:px-8 md:py-8 2xl:max-w-[1600px]">
             <MobileTopBar />
+            {loaded && <GoogleReconnectBanner />}
             {loaded && <AlertsBanner />}
             {!loaded ? (
               <LoadingSkeleton />
