@@ -9,7 +9,7 @@ import { fixtureNewsBody } from "../../src/test/newsFixture";
 import { ROOT } from "./env";
 import { contextAt } from "./testContext";
 import { runHandler, type Deps, type HubResponse } from "./tg-app";
-import { PRESS_DELAY_MIN, RETRY_MIN } from "./news/events";
+import { MAX_SEARCH_TRIES, PRESS_DELAY_MIN, RETRY_MIN } from "./news/events";
 import { fakeEngine, memoryStore } from "./news/testFakes";
 import type { Coverage } from "./news/rss";
 import type { EventsState } from "./state";
@@ -201,7 +201,7 @@ describe("the tick", () => {
     expect(s.started).toEqual([]);
   });
 
-  it("coverage found → the search job starts at once; the gap is learned", async () => {
+  it("coverage found → the search job starts at once; the gap is no sample yet (it may be a preview)", async () => {
     const s = setup();
     await s.morning();
     s.setCoverage(cov(6));
@@ -209,9 +209,9 @@ describe("the tick", () => {
     await s.tick();
     expect(s.started).toEqual(["news-event"]);
     expect(slots()[0]).toMatchObject({ status: "due" });
-    expect(readState().events!.latency).toEqual({ US_CPI: [6] });
+    expect(readState().events!.latency).toEqual({});
     expect(s.eventsFile().subscriptions[0].status).toBe("searching");
-    expect(s.eventsFile().latency).toEqual({ US_CPI: { samples: 1 } });
+    expect(s.eventsFile().latency).toEqual({});
   });
 
   it("without any coverage the fallback delay starts the search", async () => {
@@ -390,6 +390,96 @@ describe("the news-event job", () => {
     expect(r.messages).toHaveLength(1);
     expect(r.messages![0].html).toContain("Heti munkanélküli");
     expect(s.eventsFile().results).toHaveLength(2);
+  });
+});
+
+describe("fixes of the code review", () => {
+  const ready = async (answers: unknown[], upcoming?: NewsUpcoming[]) => {
+    const s = setup({ answers, upcoming });
+    await s.morning();
+    s.setCoverage(cov(5));
+    s.at(14, 36);
+    await s.tick();
+    return s;
+  };
+
+  it("the delay is learned from a release that was really out, not from a search that found nothing", async () => {
+    const s = await ready([notReleased, released]);
+    s.at(14, 37);
+    await s.job();
+    expect(readState().events!.latency).toEqual({});
+    s.at(14, 37 + RETRY_MIN);
+    await s.job();
+    // counted from the first article (14:35), not from the failed search
+    expect(readState().events!.latency).toEqual({ US_CPI: [5] });
+    expect(s.eventsFile().latency).toEqual({ US_CPI: { samples: 1 } });
+  });
+
+  it("without coverage seen, the successful search is the (upper bound) sample", async () => {
+    const s = setup({ answers: [released] });
+    await s.morning();
+    s.at(15, 30);
+    await s.tick();
+    s.at(15, 31);
+    await s.job();
+    expect(readState().events!.latency).toEqual({ US_CPI: [61] });
+  });
+
+  it("a release that never comes out is given up after a few tries, not every 15 minutes for hours", async () => {
+    const s = await ready(Array.from({ length: 12 }, () => notReleased));
+    for (let i = 0; i < 12; i++) {
+      s.at(14, 37 + i * RETRY_MIN);
+      await s.job();
+    }
+    expect(s.events.prompts).toHaveLength(MAX_SEARCH_TRIES);
+    expect(slots()[0].status).toBe("expired");
+    expect(s.eventsFile().subscriptions[0].status).toBe("expired");
+  });
+
+  it("a group where only one release is out: that one is sent, the rest is left out", async () => {
+    const two = { released: true, items: [released.items[0], { ...released.items[0], event: "Core CPI", actual: "" }] };
+    const s = setup({ upcoming: [CPI, { ...CPI, event: "Core CPI" }], answers: [two] });
+    await s.morning();
+    s.setCoverage(cov(5));
+    s.at(14, 36);
+    await s.tick();
+    s.at(14, 37);
+    const r = await s.job();
+    expect(r.ok).toBeUndefined();
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages![0].html).not.toContain("Core CPI");
+    expect(s.eventsFile().results).toHaveLength(1);
+  });
+
+  it("every event of a slot is watched, in parallel: coverage of the second one is enough", async () => {
+    const s = setup({ upcoming: [CPI, { ...CPI, event: "Core CPI" }] });
+    await s.morning();
+    let running = 0;
+    let peak = 0;
+    const asked: string[] = [];
+    s.deps.probe = async (_kind, event) => {
+      asked.push(event);
+      peak = Math.max(peak, ++running);
+      await new Promise((r) => setTimeout(r, 10));
+      running--;
+      return event === "Core CPI" ? cov(4) : { count: 0, earliest: "" };
+    };
+    s.at(14, 36);
+    await s.tick();
+    expect(asked.sort()).toEqual(["Core CPI", "US CPI"]);
+    expect(peak).toBe(2);
+    expect(s.started).toEqual(["news-event"]);
+  });
+
+  it("an events.json from a newer version isn't overwritten: the result is kept and sent", async () => {
+    const s = await ready([released]);
+    const newer = JSON.stringify({ version: 2, results: [] });
+    s.store.files["news/events.json"] = newer;
+    s.at(14, 37);
+    const r = await s.job();
+    expect(r.messages).toHaveLength(1);
+    expect(s.store.files["news/events.json"]).toBe(newer);
+    expect(readState().events!.pending).toHaveLength(1);
   });
 });
 

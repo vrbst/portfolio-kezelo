@@ -51,6 +51,8 @@ export const MAX_DELAY_MIN = 60;
 export const LATENCY_KEEP = 10;
 /** Slots older than this many days are dropped. */
 export const KEEP_DAYS = 7;
+/** The search for a release that isn't out is repeated this many times, then the slot is given up. */
+export const MAX_SEARCH_TRIES = 5;
 /** A search that holds a slot for longer than this crashed: the slot is free again. */
 export const TAKEN_STALE_MIN = 20;
 
@@ -95,46 +97,79 @@ const newSlot = (
   tries: 0,
 });
 
+const norm = (name: string) => name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+type Upcoming = NewsDigest["upcoming"][number];
+
+/** An announcement of the same day already followed: same name, or the same (specific) kind. */
+function sameAnnouncement(slots: EventSlot[], date: string, time: string, items: Upcoming[]): EventSlot | undefined {
+  const names = new Set(items.map((u) => norm(u.event)));
+  const match = slots.filter(
+    (s) =>
+      s.phase === "release" &&
+      s.date === date &&
+      (s.events.some((e) => names.has(norm(e.event))) ||
+        items.some((u) => (u.kind ?? "OTHER") !== "OTHER" && u.kind === s.kind)),
+  );
+  return match.find((s) => s.time === time) ?? match[0];
+}
+
 /**
  * The digest's follow-up announcements added to `ev` as slots. Same time = one
- * slot (one search for several releases); a rate decision with a press
- * conference gets a second slot for it; at most MAX_SLOTS_PER_DAY a day; ones
- * long past or already known (re-listed by the next digest) are not touched.
+ * slot (one search for several releases); the same announcement listed again
+ * by a later digest (another time, another name of the same kind) is the same
+ * slot — new events join it while it is still open, otherwise they get a slot
+ * of their own; a rate decision with a press conference gets a second slot for
+ * it, also when a later digest brings the press time; at most MAX_SLOTS_PER_DAY
+ * a day; ones long past are not registered.
  */
 export function registerFollowUps(ev: EventsState | undefined, digest: NewsDigest, now: Date): EventsState {
   const cur = ev ?? emptyEvents();
   const oldest = addDaysIso(toLocalDay(now), -KEEP_DAYS);
   const slots = cur.slots.filter((s) => s.date >= oldest);
-  const byKey = new Map(slots.map((s) => [s.key, s]));
   const perDay = (date: string) => slots.filter((s) => s.phase === "release" && s.date === date).length;
+  const uniqueKey = (slot: EventSlot) => {
+    let key = slot.key;
+    for (let n = 2; slots.some((s) => s.key === key); n++) key = `${slot.key}+${n}`;
+    return key;
+  };
+  const add = (slot: EventSlot) => slots.push({ ...slot, key: uniqueKey(slot) });
+  const live = (date: string, time: string) => slotStart(date, time).getTime() + GIVE_UP_MIN * MIN > now.getTime();
 
-  const groups = new Map<string, NewsDigest["upcoming"]>();
+  const groups = new Map<string, Upcoming[]>();
   for (const u of digest.upcoming) {
-    if (!u.followUp || !u.time) continue;
-    if (slotStart(u.date, u.time).getTime() + GIVE_UP_MIN * MIN <= now.getTime()) continue;
-    const k = `release|${u.date}|${u.time}`;
+    if (!u.followUp || !u.time || !live(u.date, u.time)) continue;
+    const k = `${u.date}|${u.time}`;
     groups.set(k, [...(groups.get(k) ?? []), u]);
   }
-  for (const [key, items] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    const first = items[0];
-    const events = items.map((u) => ({ event: u.event, ...(u.expected ? { expected: u.expected } : {}) }));
-    const known = byKey.get(key);
-    if (known) {
-      for (const e of events) if (!known.events.some((k) => k.event === e.event)) known.events.push(e);
-      continue;
+  for (const [, items] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+    const date = items[0].date;
+    const time = items[0].time!;
+    const rate = items.find((u) => u.pressTime && RATE_KINDS.includes(u.kind ?? "OTHER"));
+    const entry = (u: Upcoming) => ({ event: u.event, ...(u.expected ? { expected: u.expected } : {}) });
+    const known = sameAnnouncement(slots, date, time, items);
+    if (known && (known.status === "waiting" || known.status === "watching" || known.status === "due")) {
+      for (const u of items)
+        if (!known.events.some((e) => norm(e.event) === norm(u.event))) known.events.push(entry(u));
+    } else {
+      // Closed (searched, done) or new: what the known slot doesn't cover is followed in a slot of its own.
+      const fresh = known
+        ? items.filter(
+            (u) =>
+              !known.events.some((e) => norm(e.event) === norm(u.event)) &&
+              !((u.kind ?? "OTHER") !== "OTHER" && u.kind === known.kind),
+          )
+        : items;
+      if (fresh.length && perDay(date) < MAX_SLOTS_PER_DAY)
+        add(newSlot("release", date, time, (rate ?? fresh[0]).kind ?? "OTHER", fresh.map(entry)));
     }
-    if (perDay(first.date) >= MAX_SLOTS_PER_DAY) continue;
-    const slot = newSlot("release", first.date, first.time!, first.kind ?? "OTHER", events);
-    slots.push(slot);
-    byKey.set(key, slot);
-    const press = items.find((u) => u.pressTime && RATE_KINDS.includes(u.kind ?? "OTHER"));
-    if (press?.pressTime && press.pressTime > first.time!) {
-      const p = newSlot("press", first.date, press.pressTime, slot.kind, events.map((e) => ({ event: e.event })));
-      if (!byKey.has(p.key)) {
-        slots.push(p);
-        byKey.set(p.key, p);
-      }
-    }
+    if (
+      rate?.pressTime &&
+      rate.pressTime > time &&
+      live(date, rate.pressTime) &&
+      !slots.some((s) => s.phase === "press" && s.date === date && s.kind === rate.kind)
+    )
+      add(newSlot("press", date, rate.pressTime, rate.kind ?? "OTHER", [{ event: rate.event }]));
   }
   slots.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   return { ...cur, slots };
@@ -172,7 +207,6 @@ export function advanceSlots(
   probes: Record<string, Coverage | null> = {},
 ): { ev: EventsState; becameDue: string[] } {
   const becameDue: string[] = [];
-  const latency = { ...ev.latency };
   const slots = ev.slots.map((s): EventSlot => {
     if (s.status === "done" || s.status === "expired") return s;
     const start = slotStart(s.date, s.time).getTime();
@@ -186,8 +220,6 @@ export function advanceSlots(
     const watching: EventSlot = { ...s, status: "watching" };
     const probe = probes[s.key];
     if (probe && probe.count >= RSS_MIN_HITS) {
-      const gap = Math.max(0, Math.round((Date.parse(probe.earliest) - start) / MIN));
-      latency[s.kind] = [...(latency[s.kind] ?? []), gap].slice(-LATENCY_KEEP);
       becameDue.push(s.key);
       return { ...watching, status: "due", firstSeenAt: probe.earliest, dueAt: now.toISOString() };
     }
@@ -197,7 +229,35 @@ export function advanceSlots(
     }
     return watching;
   });
-  return { ev: { ...ev, slots, latency }, becameDue };
+  return { ev: { ...ev, slots }, becameDue };
+}
+
+/**
+ * A release's result was found: the delay of its coverage becomes a sample —
+ * measured from the first article if the news were watched, else the time of
+ * the successful search (an upper bound: it can't make the learned delay
+ * shorter than the real one, and a slow case corrects a too short delay).
+ * Samples are taken only when the result was really out, so a preview that
+ * started a search too early never counts. Press conferences have none.
+ */
+export function recordLatency(ev: EventsState, slot: EventSlot, found: Date): EventsState {
+  if (slot.phase !== "release") return ev;
+  const end = slot.firstSeenAt ? Date.parse(slot.firstSeenAt) : found.getTime();
+  const gap = Math.max(0, Math.round((end - Date.parse(slot.startsAt)) / MIN));
+  return { ...ev, latency: { ...ev.latency, [slot.kind]: [...(ev.latency[slot.kind] ?? []), gap].slice(-LATENCY_KEEP) } };
+}
+
+/**
+ * What the news show for a slot whose announcements were probed one by one:
+ * the earliest of the covered ones, else the one with most articles, else
+ * unknown (null) if none could be read.
+ */
+export function combineCoverage(list: (Coverage | null)[]): Coverage | null {
+  const known = list.filter((c): c is Coverage => c != null);
+  if (!known.length) return null;
+  const covered = known.filter((c) => c.count >= RSS_MIN_HITS);
+  if (covered.length) return covered.reduce((a, b) => (Date.parse(b.earliest) < Date.parse(a.earliest) ? b : a));
+  return known.reduce((a, b) => (b.count > a.count ? b : a));
 }
 
 /** The first slot whose search may start now. */
@@ -274,15 +334,17 @@ export function validateEventAnswer(x: unknown): EventAnswer {
   if (!isObj(x) || typeof x.released !== "boolean") throw new Error("released: igaz/hamis kell");
   if (!x.released) return { released: false };
   if (!Array.isArray(x.items) || !x.items.length) throw new Error("items: legalább egy eredmény kell, ha a bejelentés kint van");
-  const items = x.items.map((it, i): EventAnswerItem => {
+  const items = x.items.flatMap((it, i): EventAnswerItem[] => {
     const at = `items[${i}]`;
-    if (!isObj(it) || !text(it.event) || !text(it.actual)) throw new Error(`${at}: esemény és tényleges eredmény kell`);
+    if (!isObj(it) || !text(it.event)) throw new Error(`${at}: esemény kell`);
+    // A release of a group that isn't out yet has no result: left out, the others stay.
+    if (!text(it.actual)) return [];
     const sources = (Array.isArray(it.sources) ? it.sources : []).map((s, j) => {
       if (!isObj(s) || !text(s.title) || !text(s.url) || !/^https?:\/\//.test(s.url))
         throw new Error(`${at}.sources[${j}]: cím és http(s) URL kell`);
       return { title: s.title.trim(), url: s.url.trim() };
     });
-    return {
+    return [{
       event: it.event.trim(),
       actual: it.actual.trim(),
       expected: typeof it.expected === "string" ? it.expected.trim() : "",
@@ -292,8 +354,9 @@ export function validateEventAnswer(x: unknown): EventAnswer {
       impact: NEWS_IMPACTS.includes(it.impact as never) ? (it.impact as EventAnswerItem["impact"]) : "neutral",
       affects: Array.isArray(it.affects) ? it.affects.filter(text).map((a) => a.trim()) : [],
       sources,
-    };
+    }];
   });
+  if (!items.length) throw new Error("items: legalább egy eredmény kell, ha a bejelentés kint van");
   return { released: true, items };
 }
 
@@ -505,15 +568,10 @@ export function followUpsText(ev: EventsState | undefined, now: Date, label = da
 export const publishSignature = (ev: EventsState) =>
   JSON.stringify([subscriptionsOf(ev), latencyOf(ev)]);
 
+/** The stored file; null = there is none. One that can't be read throws: it must not be overwritten. */
 async function readEventsFile(store: NewsStore): Promise<EventsFile | null> {
   const t = await store.read(NEWS_EVENTS_PATH);
-  if (!t) return null;
-  try {
-    return validateEventsFile(JSON.parse(t));
-  } catch (e) {
-    console.error("news-event: events.json unreadable, starting a new one:", (e as Error).message);
-    return null;
-  }
+  return t ? validateEventsFile(JSON.parse(t)) : null;
 }
 
 /**
@@ -526,6 +584,7 @@ export async function publishEvents(
   results: EventResult[] = [],
   message = "esemény-utókövetés",
 ): Promise<string> {
+  // Unreadable (damaged, or a newer version): fails and leaves the file as it is; the results wait in the state.
   let file = (await readEventsFile(store)) ?? emptyEventsFile();
   for (const r of results) file = withEventResult(file, r);
   file = { ...file, subscriptions: subscriptionsOf(ev), latency: latencyOf(ev) };
