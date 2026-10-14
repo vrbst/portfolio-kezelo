@@ -57,5 +57,7 @@ describe("bandChanges / horizonMonths / viewText", () => {
     const base = { house: "X", publishedAt: "2026-07-20", url: "https://example.com" };
     expect(viewText({ ...base, kind: "target", value: 52_900, unit: "HUF" }).replace(/\s/g, " ")).toMatch(/^52.900 HUF$/);
     expect(viewText({ ...base, kind: "annualReturn", value: 0.059, unit: "%/év" })).toMatch(/^5,9%\/év$/);
+    // a currency as the unit says what the return is in
+    expect(viewText({ ...base, kind: "annualReturn", value: 0.07, unit: "USD" })).toBe("7,0%/év (USD)");
   });
 });

@@ -39,5 +39,8 @@ export function bandChanges(b: ImpliedBand): { p10: number; p50: number; p90: nu
 export const horizonMonths = (days: number) => Math.max(1, Math.round(days / 30.44));
 
 export function viewText(v: AnalystView): string {
-  return v.kind === "annualReturn" ? `${formatNumber(v.value * 100, 1)}%/év` : `${formatNumber(v.value, 0)} ${v.unit}`;
+  if (v.kind !== "annualReturn") return `${formatNumber(v.value, 0)} ${v.unit}`;
+  const pct = `${formatNumber(v.value * 100, 1)}%/év`;
+  // A currency as the unit says what the return is in (e.g. USD for a global index).
+  return /^[A-Z]{3}$/.test(v.unit) ? `${pct} (${v.unit})` : pct;
 }
