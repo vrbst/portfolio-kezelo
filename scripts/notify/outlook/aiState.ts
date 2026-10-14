@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { toLocalDay } from "../../../src/lib/day";
+import { HUB_CODE } from "../hubClient";
 
 export interface OutlookAiState {
   /** ISO week ("2026-W42") of the last successful weekly run. */
@@ -24,24 +25,25 @@ export function shouldRunOutlookAi(state: OutlookAiState | null, now: Date): boo
   return state?.lastSuccessWeek !== isoWeekKey(now);
 }
 
-/** Usage-limit style failures of the Claude CLI (as opposed to a bad answer). */
-export function classifyAiFailure(message: string): "limit" | "error" {
-  return /usage limit|rate.?limit|quota|limit reached|limit will reset|\b429\b|overloaded|credit/i.test(message)
-    ? "limit"
-    : "error";
+/**
+ * Usage-limit failures (as opposed to a bad answer or any other error), by the
+ * my-claude-hub's error code — never by the CLI's text.
+ */
+export function classifyAiFailure(code?: string): "limit" | "error" {
+  return code === HUB_CODE.quotaExhausted ? "limit" : "error";
 }
 
 export function recordAttempt(
   state: OutlookAiState | null,
   now: Date,
-  result: { ok: true } | { ok: false; message: string },
+  result: { ok: true } | { ok: false; message: string; code?: string },
 ): OutlookAiState {
   const at = now.toISOString();
   if (result.ok) return { lastSuccessWeek: isoWeekKey(now), lastAttempt: { at, ok: true } };
   const message = result.message.slice(0, 300);
   return {
     ...(state?.lastSuccessWeek ? { lastSuccessWeek: state.lastSuccessWeek } : {}),
-    lastAttempt: { at, ok: false, reason: classifyAiFailure(message), message },
+    lastAttempt: { at, ok: false, reason: classifyAiFailure(result.code), message },
   };
 }
 

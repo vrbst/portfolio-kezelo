@@ -549,7 +549,7 @@ describe("tg-hub.app.json", () => {
   };
 
   it("has the news-event job (a retry and catch-up every 15 minutes) and the command", () => {
-    expect(app.jobs.find((j) => j.id === "news-event")).toMatchObject({ every: "15m", timeout: "15m" });
+    expect(app.jobs.find((j) => j.id === "news-event")).toMatchObject({ every: "15m", timeout: "25m" });
     expect(app.commands.map((c) => c.name)).toContain("bejelentesek");
   });
 });

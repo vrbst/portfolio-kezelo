@@ -43,7 +43,7 @@
       "days": ["mon", "tue", "wed", "thu", "fri"],
       "catchUp": "run",
       "catchUpWindow": "3h",
-      "timeout": "15m",
+      "timeout": "25m",
       "expectSuccessWithin": "4d"
     },
     {
@@ -53,7 +53,7 @@
       "days": ["mon", "tue", "wed", "thu", "fri"],
       "catchUp": "run",
       "catchUpWindow": "4h",
-      "timeout": "15m",
+      "timeout": "25m",
       "expectSuccessWithin": "4d"
     },
     {
@@ -63,7 +63,7 @@
       "days": ["tue", "wed", "thu", "fri", "sat"],
       "catchUp": "run",
       "catchUpWindow": "12h",
-      "timeout": "20m",
+      "timeout": "30m",
       "expectSuccessWithin": "4d"
     },
     {
@@ -91,7 +91,7 @@
       "days": ["sat"],
       "catchUp": "run",
       "catchUpWindow": "3h",
-      "timeout": "20m",
+      "timeout": "35m",
       "expectSuccessWithin": "8d"
     },
     {
@@ -101,21 +101,21 @@
       "days": ["sat"],
       "catchUp": "run",
       "catchUpWindow": "36h",
-      "timeout": "20m",
+      "timeout": "35m",
       "expectSuccessWithin": "8d"
     },
     {
       "id": "news-event",
       "description": "Bejelentés-utókövetés (AI): az eredmény, a várakozás, a piaci reakció és a kilátások, amint a hírekben megjelent (a tick indítja; ez csak pótlás és újrapróba)",
       "every": "15m",
-      "timeout": "15m",
+      "timeout": "25m",
       "expectSuccessWithin": "1d"
     },
     {
       "id": "news-why",
       "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
       "every": "30m",
-      "timeout": "15m",
+      "timeout": "25m",
       "expectSuccessWithin": "1d"
     }
   ],

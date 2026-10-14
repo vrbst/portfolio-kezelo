@@ -11,6 +11,7 @@ import { ROOT, parseMoveOverrides, parseWhySubjects } from "./env";
 import { contextAt } from "./testContext";
 import { alertMessages, runHandler, searchEdition, type Deps, type HubResponse } from "./tg-app";
 import { fakeEngine, memoryStore } from "./news/testFakes";
+import { HubError } from "./hubClient";
 import { fixtureNewsBody } from "../../src/test/newsFixture";
 import { VWCE, WBIT } from "../../src/test/fixture";
 import { article } from "./news/why";
@@ -880,7 +881,11 @@ describe("outlook jobs", () => {
       },
     ],
   };
-  const limitHit = { name: "f", model: "m", run: async () => Promise.reject(new Error("Claude usage limit reached, resets at 8am")) };
+  const limitHit = {
+    name: "f",
+    model: "m",
+    run: async () => Promise.reject(new HubError("quota_exhausted", 429, "A kvóta elfogyott, reset 8-kor", { resetAt: null })),
+  };
   const aiDeps = (at: [number, number, number, number, number], engine: ReturnType<typeof fakeEngine> | typeof limitHit, store = memoryStore()) => ({
     deps: {
       ...depsFor(() => contextAt(at)),
@@ -999,6 +1004,22 @@ describe("tg-hub.app.json: the outlook jobs", () => {
     const windowH = Number(job("outlook-ai").catchUpWindow!.replace("h", ""));
     expect(h * 60 + m + windowH * 60).toBeLessThanOrEqual(8 * 60);
     expect(job("outlook").days).toBeUndefined();
+  });
+});
+
+describe("the hub request binds the AI calls' run_id", () => {
+  it("runHandler hands every parsed request (its id is the run_id) to bindRequest before handling it", async () => {
+    const seen: { id: string; type: string; job?: string }[] = [];
+    const deps: Deps = {
+      ...depsFor(() => contextAt(WED)),
+      bindRequest: (r) => seen.push({ id: r.id, type: r.type, ...(r.type === "job" ? { job: r.job } : {}) }),
+    };
+    await call(JSON.stringify({ ...JSON.parse(jobReq("fundamentals")), id: "r_7f3a" }), deps);
+    await call(commandReq("teendok"), deps);
+    expect(seen).toEqual([
+      { id: "r_7f3a", type: "job", job: "fundamentals" },
+      { id: "r1", type: "command" },
+    ]);
   });
 });
 

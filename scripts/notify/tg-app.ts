@@ -15,6 +15,7 @@
 import { resolve } from "node:path";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
+import { deadlineForJob } from "./jobDeadline";
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
 import {
@@ -159,6 +160,8 @@ export interface Deps {
   /** The weekly outlook run: Claude Code on the subscription. */
   outlookAi?: () => WeeklyOutlookDeps;
   aiUsageFile?: string;
+  /** Called with each request before it is handled (run_id and job deadline of the AI calls). */
+  bindRequest?: (req: HubRequest) => void;
   /** SVG → PNG for /chart (default: headless Chromium); a test seam. */
   renderPng?: (svg: string) => Promise<Buffer>;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
@@ -170,40 +173,56 @@ export function defaultDeps(): Deps {
   const aiUsageFile = resolve(NOTIFY_DIR, "ai-usage.jsonl");
   const logRun = (job: string, model: string) => (run: EngineRun) =>
     appendAiUsage(aiUsageFile, aiUsageRecord(job, model, run));
+  // Every AI call goes to the my-claude-hub; this request's id is its run_id
+  // there, and a time-windowed job's calls share one start deadline.
+  const call: { runId?: string; deadline?: Date } = {};
+  const engine = (o: Pick<Parameters<typeof claudeCodeEngine>[0], "model" | "schema" | "tools" | "priority" | "onRun">) =>
+    claudeCodeEngine({
+      bin: env.newsClaudeBin,
+      hub: { baseUrl: env.hubUrl, apiKey: env.hubKey },
+      fallback: env.hubFallback,
+      runId: call.runId,
+      deadline: call.deadline,
+      ...o,
+    });
   return {
     load: () => loadContext(env, aiUsageFile),
     stateFile: resolve(NOTIFY_DIR, "state.json"),
     env,
+    bindRequest: (req) => {
+      call.runId = req.id;
+      call.deadline = req.type === "job" ? deadlineForJob(req.job, Date.now()) : undefined;
+    },
     news: (job = "news") => ({
-      engine: claudeCodeEngine({ bin: env.newsClaudeBin, model: env.newsModel, onRun: logRun(job, env.newsModel) }),
+      engine: engine({ model: env.newsModel, priority: "normal", onRun: logRun(job, env.newsModel) }),
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
     }),
     analysis: () => ({
       // No tools: it reasons over the snapshot alone, nothing to look up.
-      engine: claudeCodeEngine({
-        bin: env.newsClaudeBin,
+      engine: engine({
         model: env.analysisModel,
         schema: ANALYSIS_SCHEMA,
         tools: "",
+        priority: "background",
         onRun: logRun(ANALYSIS_JOB, env.analysisModel),
       }),
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "analysis"),
     }),
     why: () =>
-      claudeCodeEngine({
-        bin: env.newsClaudeBin,
+      engine({
         model: env.whyModel,
         schema: WHY_JSON_SCHEMA,
+        priority: "interactive",
         onRun: logRun(WHY_JOB, env.whyModel),
       }),
     events: () =>
-      claudeCodeEngine({
-        bin: env.newsClaudeBin,
+      engine({
         model: env.newsModel,
         schema: EVENT_JSON_SCHEMA,
+        priority: "normal",
         onRun: logRun(EVENT_JOB, env.newsModel),
       }),
     aiUsageFile,
@@ -226,20 +245,20 @@ export function defaultDeps(): Deps {
       };
     },
     outlookAi: () => ({
-      engine: claudeCodeEngine({
-        bin: env.newsClaudeBin,
+      engine: engine({
         model: env.outlookModel,
         schema: OUTLOOK_AI_SCHEMA,
+        priority: "background",
         onRun: logRun(OUTLOOK_AI_JOB, env.outlookModel),
       }),
       store: repoStore(env.syncRepo, newsGithubToken),
       stateFile: resolve(NOTIFY_DIR, "outlook", "ai-state.json"),
       // No tools: it reads only the document text it is handed.
-      docEngine: claudeCodeEngine({
-        bin: env.newsClaudeBin,
+      docEngine: engine({
         model: env.outlookModel,
         schema: CONSENSUS_SCHEMA,
         tools: "",
+        priority: "background",
         onRun: logRun(OUTLOOK_AI_JOB, env.outlookModel),
       }),
       docsDir: resolve(NOTIFY_DIR, "outlook"),
@@ -329,7 +348,9 @@ const hoursSince = (iso: string | undefined, now: Date) =>
 export async function runHandler(input: string, deps: Deps): Promise<string> {
   let res: HubResponse;
   try {
-    res = await handleRequest(JSON.parse(input) as HubRequest, deps);
+    const req = JSON.parse(input) as HubRequest;
+    deps.bindRequest?.(req);
+    res = await handleRequest(req, deps);
   } catch (e) {
     console.error((e as Error).stack ?? e);
     res = fail((e as Error).message);

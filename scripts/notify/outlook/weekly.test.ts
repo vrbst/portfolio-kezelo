@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { weeklyOutlookAi } from "./weekly";
+import { HubError } from "../hubClient";
 import { readAiState } from "./aiState";
 import { listPending } from "./issuerDocs";
 import type { OutlookTarget } from "./refresh";
@@ -22,7 +23,10 @@ const answer = {
 const sat0430 = new Date(2026, 9, 17, 4, 30);
 const sat0815 = new Date(2026, 9, 17, 8, 15);
 const sun = new Date(2026, 9, 18, 9, 0);
-const limitHit = { name: "f", model: "m", run: async () => Promise.reject(new Error("Claude usage limit reached, resets at 8am")) };
+const quotaError = () => new HubError("quota_exhausted", 429, "A kvóta elfogyott", { resetAt: null });
+const deadlineError = () => new HubError("deadline_missed", 409, "Nem fér bele a job idejébe");
+const limitHit = { name: "f", model: "m", run: async () => Promise.reject(quotaError()) };
+const deadlineHit = { name: "f", model: "m", run: async () => Promise.reject(deadlineError()) };
 
 let dir: string;
 let stateFile: string;
@@ -55,6 +59,21 @@ describe("weeklyOutlookAi", () => {
     const retry = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile }, sat0815);
     expect(retry.status).toBe("ok");
     expect(readAiState(stateFile)?.lastSuccessWeek).toBe("2026-W42");
+  });
+
+  it("only the hub's quota code counts as a limit, whatever the text says", async () => {
+    const lookalike = { name: "f", model: "m", run: async () => Promise.reject(new Error("Claude usage limit reached, HTTP 429")) };
+    const out = await weeklyOutlookAi(targets, { engine: lookalike, store: memoryStore(), stateFile }, sat0430);
+    expect(out).toMatchObject({ status: "failed", reason: "error" });
+  });
+
+  it("a view call that no longer fits the job's time leaves the week open for the retry", async () => {
+    const store = memoryStore();
+    const first = await weeklyOutlookAi(targets, { engine: deadlineHit, store, stateFile }, sat0430);
+    expect(first).toMatchObject({ status: "failed", reason: "error" });
+    expect(readAiState(stateFile)?.lastSuccessWeek).toBeUndefined();
+    const retry = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile }, sat0815);
+    expect(retry.status).toBe("ok");
   });
 
   it("Saturday off: the Sunday catch-up runs", async () => {
@@ -110,7 +129,7 @@ describe("weeklyOutlookAi: the issuers' consensus documents", () => {
   it("the usage limit on the document does not fail the week; the retry reads it later", async () => {
     putPending();
     const store = memoryStore();
-    const limit = { name: "f", model: "m", run: () => Promise.reject(new Error("usage limit reached")) };
+    const limit = { name: "f", model: "m", run: () => Promise.reject(quotaError()) };
     const first = await weeklyOutlookAi(targets, { engine: fakeEngine([answer]), store, stateFile, ...docsOf(limit) }, sat0430);
     expect(first).toMatchObject({ status: "ok", docs: { done: [] } });
     expect(readAiState(stateFile)?.lastSuccessWeek).toBe("2026-W42");
@@ -121,6 +140,30 @@ describe("weeklyOutlookAi: the issuers' consensus documents", () => {
     expect(retry).toMatchObject({ status: "ok", docs: { done: ["S"] } });
     expect(mainEngine.prompts).toEqual([]); // the week is done: only the document was read
     expect(consensusOf(store)?.[0].source).toBe("issuer");
+  });
+
+  it("when a document call no longer fits the job's time, the loop stops and every document stays pending", async () => {
+    const two: OutlookTarget[] = [...targets, { key: "T", name: "Másik Bank", isin: "HU0000000002", currency: "HUF", type: "stock" }];
+    const answerTwo = { assets: [answer.assets[0], { ...answer.assets[0], key: "T" }] };
+    mkdirSync(join(dir, "outlook", "pending"), { recursive: true });
+    for (const key of ["S", "T"])
+      writeFileSync(
+        join(dir, "outlook", "pending", `${key}.json`),
+        JSON.stringify({ key, url: `https://example.com/${key}_20260803.pdf`, fetchedAt: "2026-10-13T04:50:00Z", text: "Célár HUF 45.888" }),
+      );
+    let calls = 0;
+    const docEngine = {
+      name: "f",
+      model: "m",
+      run: () => {
+        calls++;
+        return Promise.reject(deadlineError());
+      },
+    };
+    const out = await weeklyOutlookAi(two, { engine: fakeEngine([answerTwo]), store: memoryStore(), stateFile, ...docsOf(docEngine) }, sat0430);
+    expect(out).toMatchObject({ status: "ok" }); // the week's run itself is done
+    expect(calls).toBe(1);
+    expect(listPending(join(dir, "outlook")).map((d) => d.key)).toEqual(["S", "T"]);
   });
 
   it("a finished week with nothing waiting stays a no-op (no AI call at all)", async () => {

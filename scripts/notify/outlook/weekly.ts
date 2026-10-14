@@ -1,4 +1,5 @@
 import type { NewsEngine } from "../news/engine";
+import { hubErrorCode } from "../hubClient";
 import type { NewsStore } from "../news/job";
 import { extractPendingDocs, type DocsResult } from "./aiDocs";
 import { listPending } from "./issuerDocs";
@@ -57,7 +58,7 @@ export async function weeklyOutlookAi(
     return { status: "ok", result, docs: await docs() };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    const next = recordAttempt(state, now, { ok: false, message });
+    const next = recordAttempt(state, now, { ok: false, message, code: hubErrorCode(e) });
     writeAiState(deps.stateFile, next);
     return { status: "failed", message, reason: next.lastAttempt?.reason ?? "error" };
   }

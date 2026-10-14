@@ -128,7 +128,7 @@ describe("weekly AI schedule", () => {
 
   it("a usage-limit failure at 04:30 lets the retry run, and keeps the old success", () => {
     const ok = recordAttempt(null, new Date(2026, 9, 10, 4, 30), { ok: true });
-    const failed = recordAttempt(ok, sat0430, { ok: false, message: "Claude usage limit reached. Your limit will reset at 8am" });
+    const failed = recordAttempt(ok, sat0430, { ok: false, message: "A kvóta elfogyott", code: "quota_exhausted" });
     expect(failed.lastAttempt).toMatchObject({ ok: false, reason: "limit" });
     expect(failed.lastSuccessWeek).toBe("2026-W41");
     expect(shouldRunOutlookAi(failed, sat0815)).toBe(true);
@@ -140,9 +140,13 @@ describe("weekly AI schedule", () => {
     expect(shouldRunOutlookAi(state, nextSat)).toBe(true);
   });
 
-  it("tells a limit from an ordinary error", () => {
-    expect(classifyAiFailure("5-hour limit reached ∙ resets 8am")).toBe("limit");
-    expect(classifyAiFailure("HTTP 429")).toBe("limit");
-    expect(classifyAiFailure("a válasz nem érvényes JSON")).toBe("error");
+  it("tells a limit from an ordinary error by the hub's error code, not the text", () => {
+    expect(classifyAiFailure("quota_exhausted")).toBe("limit");
+    // Look-alike texts without the code are ordinary errors now.
+    expect(recordAttempt(null, sat0430, { ok: false, message: "usage limit reached, HTTP 429" }).lastAttempt?.reason).toBe("error");
+    expect(classifyAiFailure("rate_limited")).toBe("error");
+    expect(classifyAiFailure("cli_error")).toBe("error");
+    expect(classifyAiFailure("deadline_missed")).toBe("error");
+    expect(classifyAiFailure(undefined)).toBe("error");
   });
 });

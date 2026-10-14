@@ -190,6 +190,20 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   címek és számok) és **Win95** (szürke domború ablakok kékeszöld asztalon,
   sötétkék címsorok, pixeles számok); eszközönként tárolódik.
 
+- **AI-hívások a my-claude-huban** – a Telegram-bot minden AI-hívása (hírek,
+  elemzés, „Miért mozdult?”, bejelentések, kilátások) a helyi my-claude-hubon
+  megy át (közös sor, kvótavédelem, napló), nem indít közvetlenül `claude -p`-t.
+  A `.notify/.env`-be: `MY_CLAUDE_HUB_URL` (alap `http://127.0.0.1:7420`),
+  `MY_CLAUDE_HUB_KEY` (`npm run hub -- keygen portfolio` a hub mappájában),
+  és opcionálisan `MY_CLAUDE_HUB_FALLBACK=1`: ha a hub nem érhető el, a hívás
+  a régi módon, közvetlenül indítja a `claude`-ot (`NEWS_CLAUDE_BIN`), és
+  figyelmeztetést ír. Kvóta, időtúllépés, határidő vagy más hiba esetén nincs
+  visszaesés. Az időablakos jobok (`news-*`, `analysis`, `outlook-ai*`) hívásai
+  határidőt kapnak: a `tg-hub.app.json`-beli job-timeout mínusz 12 perc futás
+  mínusz 3 perc tartalék; ami már nem fér bele, kimarad, és a következő futás
+  (vagy az `outlook-ai-retry`) pótolja. Az `scripts/notify/hubClient.ts` saját
+  kliens, nincs külön csomag.
+
 ## Technológia
 
 Vite · React 19 · TypeScript · Tailwind CSS v4 · Motion · Recharts · Dexie

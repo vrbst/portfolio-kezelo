@@ -1,12 +1,23 @@
 // The AI behind the daily news digest, behind an interface so the run can
 // switch to the API later (or a fake in the tests). Today: Claude Code in
 // print mode (`claude -p`) on the owner's subscription, with web search, and
-// its structured output bound to NEWS_JSON_SCHEMA.
+// its structured output bound to NEWS_JSON_SCHEMA — started by the local
+// my-claude-hub (one queue, quota guard, history), see hubClient.ts. Only when
+// the hub is unreachable and MY_CLAUDE_HUB_FALLBACK=1 does it start claude itself.
 
-import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
-import { usageFromClaudeOutput, type AiUsage } from "../aiUsage";
+import { usageFromClaudeOutput, usageFromClaudeResult, type AiUsage } from "../aiUsage";
+import {
+  HUB_CODE,
+  HubError,
+  hubAsk,
+  hubErrorCode,
+  toCliJson,
+  type HubAskOptions,
+  type HubAskResult,
+  type HubConnection,
+} from "../hubClient";
+import { runClaudeDirect, tagDirectError, type DirectOptions } from "./directClaude";
 
 export interface EngineResult {
   /** The structured answer (already parsed), or the raw text to parse. */
@@ -58,80 +69,112 @@ export interface EngineRun {
 }
 
 export function claudeCodeEngine(opts: {
-  bin: string;
+  /** Only for the fallback: the claude binary to start when the hub is unreachable. */
+  bin?: string;
   model: string;
   schema?: object;
   /** Claude Code tools to allow; "" = none (default: the web research tools). */
   tools?: string;
+  /** Searchable in the hub's history and logs (the tg-hub request id). */
+  runId?: string;
+  priority?: HubAskOptions["priority"];
+  /**
+   * The call must start before this (the hub answers deadline_missed otherwise).
+   * Absolute, so a job making several calls gives each only the time that is left.
+   */
+  deadline?: Date;
+  hub?: HubConnection;
+  /** Unreachable hub → start claude directly (MY_CLAUDE_HUB_FALLBACK=1). */
+  fallback?: boolean;
   onRun?: (run: EngineRun) => void;
+  /** Test seams. */
+  askImpl?: (o: HubAskOptions, c: HubConnection) => Promise<HubAskResult>;
+  directImpl?: (o: DirectOptions, prompt: string) => Promise<string>;
+  now?: () => number;
 }): NewsEngine {
   return {
     name: "claude-code",
     model: opts.model,
-    run: (prompt) =>
-      new Promise((resolveRun, rejectRun) => {
-        const started = Date.now();
-        let usage: AiUsage | undefined;
-        let reported = false;
-        const report = (ok: boolean, error?: string) => {
-          if (reported) return;
-          reported = true;
+    run: async (prompt) => {
+      const started = Date.now();
+      let usage: AiUsage | undefined;
+      let reported = false;
+      const report = (ok: boolean, error?: string) => {
+        if (reported) return;
+        reported = true;
+        try {
+          opts.onRun?.({
+            ok,
+            ...(error ? { error } : {}),
+            durationMs: Date.now() - started,
+            ...(usage ? { usage } : {}),
+          });
+        } catch (e) {
+          console.error("ai-usage:", (e as Error).message);
+        }
+      };
+      const toolsText = opts.tools ?? "WebSearch,WebFetch";
+      const tools = toolsText.split(",").map((t) => t.trim()).filter(Boolean);
+      const schema = (opts.schema ?? NEWS_JSON_SCHEMA) as Record<string, unknown>;
+      try {
+        let stdout: string;
+        let viaDirect = false;
+        try {
+          if (opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime())
+            throw new HubError(
+              HUB_CODE.deadlineMissed,
+              409,
+              "A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.",
+            );
+          const res = await (opts.askImpl ?? hubAsk)(
+            {
+              prompt,
+              model: opts.model,
+              // Only reading the web (or nothing): nothing that touches this machine.
+              // The empty list is an explicit "no tools".
+              tools,
+              ...(tools.length ? { allowed_tools: tools } : {}),
+              json_schema: schema,
+              timeout_s: ENGINE_TIMEOUT_MS / 1000,
+              priority: opts.priority ?? "normal",
+              ...(opts.runId ? { run_id: opts.runId } : {}),
+              ...(opts.deadline ? { deadline: opts.deadline } : {}),
+            },
+            opts.hub ?? { baseUrl: "", apiKey: "" },
+          );
+          // The same shape as the CLI's own stdout: the existing parsers stay as they are.
+          stdout = JSON.stringify(toCliJson(res));
+        } catch (e) {
+          if (hubErrorCode(e) !== HUB_CODE.unreachable || !opts.fallback) throw e;
+          console.warn(
+            `⚠ A my-claude-hub nem érhető el (${(e as Error).message}); MY_CLAUDE_HUB_FALLBACK=1: közvetlen claude -p hívás (a hub sorát és kvótavédelmét megkerüli).`,
+          );
+          viaDirect = true;
           try {
-            opts.onRun?.({
-              ok,
-              ...(error ? { error } : {}),
-              durationMs: Date.now() - started,
-              ...(usage ? { usage } : {}),
-            });
-          } catch (e) {
-            console.error("ai-usage:", (e as Error).message);
+            stdout = await (opts.directImpl ?? runClaudeDirect)(
+              { bin: opts.bin || "claude", model: opts.model, schema, tools: toolsText, timeoutMs: ENGINE_TIMEOUT_MS },
+              prompt,
+            );
+          } catch (d) {
+            throw tagDirectError(d);
           }
-        };
-        const resolve = (r: EngineResult) => {
-          report(true);
-          resolveRun(r);
-        };
-        const reject = (e: Error) => {
-          report(false, e.message.slice(0, 200));
-          rejectRun(e);
-        };
-        const tools = opts.tools ?? "WebSearch,WebFetch";
-        const args = [
-          "-p",
-          "--output-format", "json",
-          "--model", opts.model,
-          // Only reading the web (or nothing): nothing that touches this machine.
-          "--tools", tools,
-          ...(tools ? ["--allowedTools", tools] : []),
-          "--json-schema", JSON.stringify(opts.schema ?? NEWS_JSON_SCHEMA),
-        ];
-        // Outside the repo: the project's CLAUDE.md is about coding, not news.
-        const child = spawn(opts.bin, args, { cwd: tmpdir(), windowsHide: true });
-        let out = "";
-        let err = "";
-        const timer = setTimeout(() => {
-          child.kill();
-          reject(new Error(`A Claude Code nem végzett ${ENGINE_TIMEOUT_MS / 60_000} percen belül.`));
-        }, ENGINE_TIMEOUT_MS);
-        child.stdout.setEncoding("utf8").on("data", (d: string) => (out += d));
-        child.stderr.setEncoding("utf8").on("data", (d: string) => (err += d));
-        child.on("error", (e) => {
-          clearTimeout(timer);
-          reject(new Error(`A Claude Code nem indítható (${opts.bin}): ${e.message}`));
-        });
-        child.on("close", (code) => {
-          clearTimeout(timer);
-          usage = usageFromClaudeOutput(out);
-          if (code !== 0 && !out.trim())
-            return reject(new Error(`A Claude Code ${code} kóddal állt le: ${err.trim().slice(0, 300)}`));
-          try {
-            resolve(parseClaudeCodeOutput(out));
-          } catch (e) {
-            reject(e as Error);
-          }
-        });
-        // The prompt goes on stdin: no command-line length limit on Windows.
-        child.stdin.end(prompt, "utf8");
-      }),
+        }
+        usage = usageFromClaudeOutput(stdout);
+        let result: EngineResult;
+        try {
+          result = parseClaudeCodeOutput(stdout);
+        } catch (e) {
+          // Direct path only: no hub code there, so the CLI's text is read (directClaude.ts).
+          throw viaDirect ? tagDirectError(e) : e;
+        }
+        report(true);
+        return result;
+      } catch (e) {
+        // A CLI failure that still printed JSON carries its usage.
+        if (e instanceof HubError && e.code === HUB_CODE.cliError && e.cliJson) usage = usageFromClaudeResult(e.cliJson);
+        report(false, (e as Error).message.slice(0, 200));
+        throw e;
+      }
+    },
   };
 }

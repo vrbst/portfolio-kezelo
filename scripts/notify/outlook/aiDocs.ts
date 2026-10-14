@@ -11,6 +11,7 @@ import {
   type Consensus,
   type OutlookFile,
 } from "../../../src/lib/outlook";
+import { HUB_CODE, hubErrorCode } from "../hubClient";
 import type { NewsEngine } from "../news/engine";
 import { extractJson, type NewsStore } from "../news/job";
 import { listPending, removePending, type PendingDoc } from "./issuerDocs";
@@ -158,6 +159,8 @@ export async function extractPendingDocs(deps: DocsDeps, now: Date): Promise<Doc
       result.done.push(doc.key);
     } catch (e) {
       result.failed[doc.key] = (e as Error).message.slice(0, 200);
+      // No time left for any further call: the rest stays pending for the next run.
+      if (hubErrorCode(e) === HUB_CODE.deadlineMissed) break;
     }
   }
   if (finished.length) {
