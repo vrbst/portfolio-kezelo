@@ -22,17 +22,39 @@ export interface EffectiveForecast {
   status: ForecastReturnStatus;
 }
 
-/** For read-only consumers of the forecast settings (the glide path's expected line, …). */
-export function useEffectiveForecast(): EffectiveForecast {
-  const [settings, setSettings] = useState(loadForecastSettings);
+/** The current time, refreshed hourly and when the tab comes back: staleness and horizons must not freeze at page load. */
+function useNow(): Date {
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const reload = () => setSettings(loadForecastSettings());
+    const tick = () => setNow(new Date());
+    const id = window.setInterval(tick, 3_600_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+  return now;
+}
+
+/**
+ * The forecast's numbers as it runs with them. For read-only consumers (the
+ * glide path's expected line, …) it loads the saved settings itself; the
+ * Forecast page passes its own, editable settings in (`given`) so there is
+ * one definition of "what the forecast runs with" and of its status.
+ */
+export function useEffectiveForecast(given?: ForecastSettings): EffectiveForecast {
+  const [own, setOwn] = useState(loadForecastSettings);
+  useEffect(() => {
+    if (given) return;
+    const reload = () => setOwn(loadForecastSettings());
     window.addEventListener(PREFS_EVENT, reload);
     return () => window.removeEventListener(PREFS_EVENT, reload);
-  }, []);
+  }, [given]);
+  const settings = given ?? own;
   const summary = usePortfolioSummary();
   const outlook = useOutlookFile();
-  const [now] = useState(() => new Date());
+  const now = useNow();
   const estimate = useMemo(
     () => (outlook === undefined ? null : estimateFromSettings(settings, summary, outlook, now)),
     [settings, summary, outlook, now],

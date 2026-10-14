@@ -363,6 +363,66 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
     expect(await readableSecrets(page, goalNames, '[role="dialog"]')).toEqual([]);
   });
 
+  test("forecast: 'Kilátások alapján' derives the returns, shows where they come from, never overwrites the manual ones", async ({ page }) => {
+    await openSeeded(page, { sync: true, privacy: true });
+    const at = "2026-10-14T05:00:00.000Z";
+    const file = {
+      v: 1,
+      updatedAt: at,
+      profiles: {
+        IE00BK5BQT80: { assetClass: "equity_fund", source: "ai", checkedAt: at },
+        GB00BJYDH287: { assetClass: "crypto", underlying: "BTC", source: "ai", checkedAt: at },
+      },
+      items: {
+        IE00BK5BQT80: {
+          views: [
+            { house: "Vanguard", kind: "annualReturn", value: 0.051, unit: "USD", horizon: "10 év", publishedAt: "2026-06-30", url: "https://example.com/vanguard" },
+            { house: "Invesco", kind: "annualReturn", value: 0.06, unit: "USD", horizon: "10 év", publishedAt: "2026-06-30", url: "https://example.com/invesco" },
+            { house: "J.P. Morgan", kind: "annualReturn", value: 0.07, unit: "USD", horizon: "10–15 év", publishedAt: "2026-06-30", url: "https://example.com/jpm" },
+          ],
+        },
+      },
+      errors: {},
+    };
+    await page.route(/api\.github\.com\/repos\/teszt\/adat\/contents\//, (r) =>
+      new URL(r.request().url()).pathname.endsWith("market/outlook.json")
+        ? r.fulfill({ json: { sha: "s", content: Buffer.from(JSON.stringify(file), "utf8").toString("base64") } })
+        : r.fulfill({ status: 404, body: "" }),
+    );
+    await show(page, "/forecast");
+    const real = page.getByLabel("Reális (% / év)");
+    const source = page.getByTestId("return-source");
+
+    // Manual by default: the typed 6 %, and a preview of what the outlook would say.
+    await expect(real).toHaveValue("6");
+    await expect(real).not.toHaveAttribute("readonly", "");
+    await expect(source).toContainText("A Kilátások szerint:");
+
+    await source.getByRole("button", { name: "Kilátások alapján" }).click();
+    await expect(source).toContainText("A mezők a levezetett értékeket mutatják");
+    await expect(real).toHaveAttribute("readonly", "");
+    await expect(real).not.toHaveValue("6");
+    const derived = await real.inputValue();
+
+    // Where it comes from: the asset, its houses, the correction, the disclaimer.
+    await source.getByText("Honnan jön?").click();
+    const breakdown = page.getByTestId("return-breakdown");
+    await expect(breakdown).toContainText("VWCE");
+    await expect(breakdown).toContainText("Vanguard");
+    await expect(breakdown).toContainText("deviza-korr.");
+    await expect(breakdown).toContainText("nem befektetési tanács");
+    expect(await readableSecrets(page, savingsGoals().map((g) => g.name), "main")).toEqual([]);
+
+    // The choice stays across a reload, and so do the derived numbers…
+    await page.reload();
+    await expect(page.getByLabel("Reális (% / év)")).toHaveValue(derived);
+    // …and switching back finds the manual numbers untouched.
+    await page.getByTestId("return-source").getByRole("button", { name: "Kézi" }).click();
+    await expect(page.getByLabel("Reális (% / év)")).toHaveValue("6");
+    await expect(page.getByLabel("Pesszimista (% / év)")).toHaveValue("3");
+    await expect(page.getByLabel("Optimista (% / év)")).toHaveValue("9");
+  });
+
   test("privacy mode: nothing personal is readable in the sheet", async ({ page }) => {
     await openSeeded(page, { privacy: true });
     await show(page, "/accounts/ly-tbsz25");

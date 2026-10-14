@@ -108,8 +108,9 @@ describe("helpers", () => {
     expect(pppAdjust(0.06, "USD", 0.035)).toBeCloseTo((1.06 * 1.035) / 1.025 - 1, 12);
     expect(pppAdjust(0.06, "EUR", 0.035)).toBeCloseTo((1.06 * 1.035) / 1.02 - 1, 12);
     expect(pppAdjust(0.06, "HUF", 0.035)).toBe(0.06);
-    expect(pppAdjust(0.06, "CHF", 0.035)).toBe(0.06);
-    expect(Object.keys(INFLATION_BY_CURRENCY).sort()).toEqual(["EUR", "USD"]);
+    expect(pppAdjust(0.06, "CHF", 0.035)).toBeCloseTo((1.06 * 1.035) / 1.01 - 1, 12);
+    expect(pppAdjust(0.06, "SEK", 0.035)).toBe(0.06); // no inflation figure: left as is (and reported by outlookReturns)
+    expect(Object.keys(INFLATION_BY_CURRENCY).sort()).toEqual(["CAD", "CHF", "EUR", "GBP", "JPY", "USD"]);
   });
 
   it("σ from an option band is the inverse of the lognormal band", () => {
@@ -309,7 +310,8 @@ describe("WBIT: a bitcoin product", () => {
     const u = 113_000 / 83_000 - 1;
     expect(r.assets[0].basis).toBe("targets");
     expect(r.assets[0].sources.map((s) => s.label)).toEqual(["Citi"]);
-    expect(r.scenarios.real).toBeCloseTo(0.95 * 0.06 + 0.05 * u, 12);
+    // a dollar move carries the dollar–forint inflation gap, like the long-term views do
+    expect(r.scenarios.real).toBeCloseTo(0.95 * 0.06 + 0.05 * pppAdjust(u, "USD", 0.035), 12);
   });
 
   it("a target without an option-market spot to compare with is not used", () => {

@@ -46,6 +46,8 @@ import {
   type ReinvestTarget,
 } from "../lib/forecast";
 import { PREFS_EVENT } from "../lib/prefs";
+import ForecastReturnSource from "../components/ForecastReturnSource";
+import { useEffectiveForecast } from "../lib/useEffectiveForecast";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart, {
   type HistoryPoint,
@@ -221,6 +223,12 @@ export default function Forecast() {
     return () => window.removeEventListener(PREFS_EVENT, onPrefs);
   }, []);
 
+  // What the forecast runs with: the user's own numbers, or — in "Kilátások
+  // alapján" mode — the ones derived from the outlook. `settings` stays the
+  // user's and is the only thing ever saved; `eff` is read-only.
+  const { effective: eff, estimate, status: returnStatus } = useEffectiveForecast(settings);
+  const fromOutlook = eff !== settings;
+
   const detected = useMemo(
     () => detectRecurringSavings(transactions, fx),
     [transactions, fx],
@@ -254,7 +262,7 @@ export default function Forecast() {
 
   const assumptions = useMemo<ForecastAssumptions>(
     () => ({
-      annualReturn: settings.annualReturn,
+      annualReturn: eff.annualReturn,
       monthlySavingHuf: monthlySaving,
       savingGrowth: settings.savingGrowth,
       reinvestTarget: settings.reinvestTarget,
@@ -263,7 +271,7 @@ export default function Forecast() {
       withdrawal: settings.withdrawal,
       withdrawalIndex: settings.inflationPct,
     }),
-    [settings, monthlySaving],
+    [settings, eff, monthlySaving],
   );
 
   // Deterministic run in the SHOWN forint (nominal or today's) — the target
@@ -283,10 +291,10 @@ export default function Forecast() {
   const nominal = useMemo(() => {
     return settings.engine === "mc"
       ? projectMonteCarlo(summary, assumptions, allExpenses, {
-          sigma: settings.mcSigma,
+          sigma: eff.mcSigma,
         })
       : projectForecast(summary, assumptions, allExpenses);
-  }, [summary, settings.engine, settings.mcSigma, assumptions, allExpenses]);
+  }, [summary, settings.engine, eff.mcSigma, assumptions, allExpenses]);
 
   // Real-value view: everything the user sees is deflated to today's forint.
   const result = useMemo(
@@ -344,7 +352,7 @@ export default function Forecast() {
         value: today.value,
         invested: today.invested,
       });
-    const bt = backtest(samples, settings.annualReturn);
+    const bt = backtest(samples, eff.annualReturn);
     // The last backtest point sits on today's value → joins at the "ma" point.
     if (bt.length) bt[bt.length - 1] = { ...bt[bt.length - 1], ts: startTs };
     const btByTs = new Map(bt.map((b) => [b.ts, b]));
@@ -375,7 +383,7 @@ export default function Forecast() {
     settings.months,
     settings.realMode,
     settings.inflationPct,
-    settings.annualReturn,
+    eff.annualReturn,
     detected.oneOffs,
   ]);
 
@@ -426,7 +434,7 @@ export default function Forecast() {
     const endOf = (over: Partial<ForecastAssumptions>, i = n) =>
       runDet(over).points[i].real - base;
     const bump = monthlySaving > 0 ? Math.round(monthlySaving * 0.1) : 20_000;
-    const ret = settings.annualReturn;
+    const ret = eff.annualReturn;
     // `amount` is shown blurred in privacy mode: 10% of the monthly saving
     // would give the saving away.
     const rows: { label: string; amount?: string; delta: number }[] = [
@@ -465,7 +473,7 @@ export default function Forecast() {
     runDet,
     monthlySaving,
     settings.months,
-    settings.annualReturn,
+    eff.annualReturn,
     settings.savingGrowth,
     allExpenses,
   ]);
@@ -481,7 +489,10 @@ export default function Forecast() {
   // Once a month: store the nominal deterministic projection to compare with
   // reality later. Waits for loaded data so an empty portfolio isn't recorded.
   useEffect(() => {
-    if (!hasData) return;
+    // Not in "Kilátások alapján" mode until the derived returns are really in
+    // use (still loading, or the file could not be read): the month's snapshot
+    // would be stored with the manual returns and never replaced.
+    if (!hasData || returnStatus === "loading" || returnStatus === "missing") return;
     const month = currentMonthKey();
     if (loadForecastSnapshots().some((s) => s.month === month)) return;
     const nominalDet = projectForecast(
@@ -491,7 +502,7 @@ export default function Forecast() {
     );
     // The pref event it fires reloads `snapshots` via the listener above.
     recordForecastSnapshot(nominalDet);
-  }, [hasData, summary, assumptions, allExpenses]);
+  }, [hasData, returnStatus, summary, assumptions, allExpenses]);
   const comparisons = useMemo(() => {
     const curKey = currentMonthKey();
     return snapshots
@@ -554,7 +565,7 @@ export default function Forecast() {
   const [aiError, setAiError] = useState<string | null>(null);
 
   const aiContext = useMemo(() => {
-    const ret = settings.annualReturn;
+    const ret = eff.annualReturn;
     const ms = milestones
       .map(
         (m) =>
@@ -581,10 +592,10 @@ export default function Forecast() {
       target
         ? `Célösszeg: ${huf(targetHuf)} Ft${settings.targetMonth ? ` ${settings.targetMonth}-ig` : ""}; reális pályán elérve: ${target.reach.real ?? "a horizonton belül nem"}${target.required != null ? `; a határidőre szükséges havi megtakarítás: ${huf(target.required)} Ft` : ""}${target.prob != null ? `; valószínűség: ${pct(target.prob, 0)}` : ""}`
         : null,
-      `Feltételezett éves hozam — pesszimista ${(ret.pess * 100).toFixed(1)}%, reális ${(ret.real * 100).toFixed(1)}%, optimista ${(ret.opt * 100).toFixed(1)}%`,
+      `Feltételezett éves hozam — pesszimista ${(ret.pess * 100).toFixed(1)}%, reális ${(ret.real * 100).toFixed(1)}%, optimista ${(ret.opt * 100).toFixed(1)}%${fromOutlook ? ` (a Kilátásokból levezetve, a tartott értékpapírok ${Math.round((estimate?.coveredShare ?? 0) * 100)}%-ára van adat, a többire a kézi érték)` : ""}`,
       `Kötvény-kamatok és lejáró tőke iránya: ${reinvestContextLabel(settings.reinvestTarget, settings.reinvestBondRate)}`,
       settings.engine === "mc"
-        ? `Számítás: Monte Carlo szimuláció (500 útvonal, szórás ${(settings.mcSigma * 100).toFixed(0)}%/év); a sáv a 10–90. percentilis, a középérték a medián`
+        ? `Számítás: Monte Carlo szimuláció (500 útvonal, szórás ${(eff.mcSigma * 100).toFixed(0)}%/év); a sáv a 10–90. percentilis, a középérték a medián`
         : null,
       settings.realMode
         ? `Minden vagyonérték MAI FORINTBAN értendő (${(settings.inflationPct * 100).toFixed(1)}% éves inflációval deflálva); a befektetett tőke viszont a ténylegesen befizetett névleges összeg`
@@ -603,6 +614,9 @@ export default function Forecast() {
     milestones,
     monthlySaving,
     settings,
+    eff,
+    fromOutlook,
+    estimate,
     allExpenses,
     shortfallMonth,
     target,
@@ -962,6 +976,17 @@ export default function Forecast() {
             ))}
           </div>
 
+          <ForecastReturnSource
+            mode={settings.returnSource}
+            status={returnStatus}
+            estimate={estimate}
+            onChange={(returnSource) => {
+              // A half-typed draft of the other mode must not come back on the field.
+              setRateDraft({});
+              setSettings((x) => ({ ...x, returnSource }));
+            }}
+          />
+
           <div className="mt-3 space-y-2">
             {(isMc
               ? SCEN_META.filter((sc) => sc.key === "real")
@@ -974,10 +999,14 @@ export default function Forecast() {
                 <input
                   type="number"
                   step="0.5"
-                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  className={`w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums ${fromOutlook ? "opacity-70" : ""}`}
+                  readOnly={fromOutlook}
+                  aria-label={`${isMc ? "Várható hozam" : sc.label} (% / év)`}
                   value={
-                    rateDraft[sc.key] ??
-                    String(+(settings.annualReturn[sc.key] * 100).toFixed(1))
+                    fromOutlook
+                      ? String(+(eff.annualReturn[sc.key] * 100).toFixed(1))
+                      : (rateDraft[sc.key] ??
+                        String(+(settings.annualReturn[sc.key] * 100).toFixed(1)))
                   }
                   onChange={(e) => {
                     const v = e.target.value;
@@ -1014,10 +1043,14 @@ export default function Forecast() {
                 <input
                   type="number"
                   step="1"
-                  className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums"
+                  className={`w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-right text-sm tabular-nums ${fromOutlook ? "opacity-70" : ""}`}
+                  readOnly={fromOutlook}
+                  aria-label="Szórás (% / év)"
                   value={
-                    rateDraft["sigma"] ??
-                    String(+(settings.mcSigma * 100).toFixed(1))
+                    fromOutlook
+                      ? String(+(eff.mcSigma * 100).toFixed(1))
+                      : (rateDraft["sigma"] ??
+                        String(+(settings.mcSigma * 100).toFixed(1)))
                   }
                   onChange={(e) => {
                     const v = e.target.value;

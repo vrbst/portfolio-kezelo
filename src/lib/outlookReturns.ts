@@ -76,6 +76,8 @@ export interface AssetEstimate {
   basis: ReturnBasis;
   /** What the purchasing-power correction added to the real scenario (percentage points). */
   fxAdjPp: number;
+  /** Foreign currencies whose returns could not be corrected (no inflation figure). */
+  uncorrected: string[];
   sources: ReturnSource[];
 }
 
@@ -106,7 +108,14 @@ export const TARGET_MONTHS: [number, number] = [6, 18];
 export const MEDIAN_FROM = 3;
 
 /** Long-run inflation by currency, for the purchasing-power correction of foreign-currency returns. */
-export const INFLATION_BY_CURRENCY: Record<string, number> = { USD: 0.025, EUR: 0.02 };
+export const INFLATION_BY_CURRENCY: Record<string, number> = {
+  USD: 0.025,
+  EUR: 0.02,
+  GBP: 0.025,
+  CHF: 0.01,
+  JPY: 0.005,
+  CAD: 0.02,
+};
 
 /** Annual volatility when nothing better is known. The manual σ stands for a diversified equity fund. */
 export const SIGMA = { equity: 0.28, bond_fund: 0.06, commodity: 0.16, crypto: 0.6 };
@@ -125,6 +134,21 @@ export function outlookClassOf(inst: Instrument | undefined, profile?: OutlookPr
   if (profile) return profile.assetClass;
   if (assetClassOf(inst) === "crypto") return "crypto";
   return inst?.type === "stock" ? "equity" : "equity_fund";
+}
+
+/**
+ * Is this a long-term return expectation? No horizon at all is taken as the
+ * usual (these are long-term outlooks); a horizon that says years or months
+ * must be at least MIN_VIEW_YEARS; "long term" is fine; any other text cannot
+ * be checked and is left out (a "12 hónap" return is no ten-year expectation).
+ */
+export function isLongTerm(horizon: string | undefined): boolean {
+  if (!horizon || !horizon.trim()) return true;
+  const years = parseHorizonYears(horizon);
+  if (years !== undefined) return years >= MIN_VIEW_YEARS;
+  const months = horizon.match(/(\d+)\s*(?:hó|hónap|month)/i);
+  if (months) return Number(months[1]) >= MIN_VIEW_YEARS * 12;
+  return /hosszú|long/i.test(horizon);
 }
 
 /** The first number before "év"/"year" in e.g. "10–15 év", "5-10 years" (the conservative end). */
@@ -156,6 +180,9 @@ export function pppAdjust(r: number, ccy: string, inflationHuf: number): number 
   return ((1 + r) * (1 + inflationHuf)) / (1 + foreign) - 1;
 }
 
+/** A foreign currency we have no inflation figure for: its returns would go uncorrected. */
+const uncorrectedCcy = (ccy: string) => ccy !== "HUF" && INFLATION_BY_CURRENCY[ccy] === undefined;
+
 /** σ from an option-implied band: the exact inverse of the lognormal band (implied.ts). */
 export function sigmaFromBand(b: ImpliedBand): number | undefined {
   const T = b.horizonDays / 365;
@@ -183,8 +210,8 @@ function returnViews(views: AnalystView[] | undefined): AnalystView[] {
   const best = new Map<string, { v: AnalystView; years: number }>();
   for (const v of views ?? []) {
     if (v.kind !== "annualReturn") continue;
+    if (!isLongTerm(v.horizon)) continue;
     const years = parseHorizonYears(v.horizon);
-    if (years !== undefined && years < MIN_VIEW_YEARS) continue;
     const id = v.house.toLowerCase();
     const cur = best.get(id);
     const better =
@@ -194,7 +221,9 @@ function returnViews(views: AnalystView[] | undefined): AnalystView[] {
   return [...best.values()].map((b) => b.v);
 }
 
-function fromViews(h: GrowthHolding, views: AnalystView[], ctx: Context): Pick<AssetEstimate, "scenarios" | "fxAdjPp" | "sources"> {
+type Derived = Pick<AssetEstimate, "scenarios" | "fxAdjPp" | "uncorrected" | "sources">;
+
+function fromViews(h: GrowthHolding, views: AnalystView[], ctx: Context): Derived {
   const { manual, now } = ctx;
   const adjusted = views.map((v) => pppAdjust(v.value, isIso(v.unit) ? v.unit : h.currency, manual.inflationPct));
   const raw = views.map((v) => v.value);
@@ -204,9 +233,11 @@ function fromViews(h: GrowthHolding, views: AnalystView[], ctx: Context): Pick<A
   // number is no proof that the outcome is certain.
   const pess = real - Math.max(manual.annualReturn.real - manual.annualReturn.pess, real - Math.min(...adjusted));
   const opt = real + Math.max(manual.annualReturn.opt - manual.annualReturn.real, Math.max(...adjusted) - real);
+  const ccys = views.map((v) => (isIso(v.unit) ? v.unit : h.currency));
   return {
     scenarios: { pess, real, opt },
     fxAdjPp: (real - center(raw)) * 100,
+    uncorrected: [...new Set(ccys.filter(uncorrectedCcy))],
     sources: views.map((v) => ({
       label: v.house,
       detail: `${(v.value * 100).toFixed(1).replace(".", ",")}%/év${v.horizon ? `, ${v.horizon}` : ""}${isIso(v.unit) ? ` (${v.unit})` : ""}`,
@@ -245,16 +276,28 @@ function fromTargets(
   cls: OutlookClass,
   item: Outlook | undefined,
   ctx: Context,
-): Pick<AssetEstimate, "scenarios" | "fxAdjPp" | "sources"> | undefined {
+): Derived | undefined {
   const { manual, now } = ctx;
+  // The 12-month move in forint terms (a foreign-currency move carries the inflation gap), and what that did to the real scenario.
+  const inForint = (move: ReturnTriple, ccy: string) => {
+    const adj: ReturnTriple = {
+      pess: pppAdjust(move.pess, ccy, manual.inflationPct),
+      real: pppAdjust(move.real, ccy, manual.inflationPct),
+      opt: pppAdjust(move.opt, ccy, manual.inflationPct),
+    };
+    return {
+      scenarios: shrink(manual.annualReturn, adj, manual.months),
+      fxAdjPp: (shrink(manual.annualReturn, adj, manual.months).real - shrink(manual.annualReturn, move, manual.months).real) * 100,
+      uncorrected: uncorrectedCcy(ccy) ? [ccy] : [],
+    };
+  };
   if (cls === "equity" && h.price && h.price > 0) {
     const c = pickConsensus(h, item?.consensus, now);
     if (!c) return undefined;
     const dy = dividendYield(c, h.price, now);
     const move = (x: number) => x / h.price! - 1 + dy;
     return {
-      scenarios: shrink(manual.annualReturn, { pess: move(c.target.min), real: move(c.target.avg), opt: move(c.target.max) }, manual.months),
-      fxAdjPp: 0,
+      ...inForint({ pess: move(c.target.min), real: move(c.target.avg), opt: move(c.target.max) }, h.currency),
       sources: [
         {
           label: c.source === "issuer" ? "Kibocsátói konszenzus" : "Yahoo elemzői célár",
@@ -272,7 +315,9 @@ function fromTargets(
     if (!spot) return undefined;
     const moves: { v: AnalystView; u: number }[] = [];
     for (const v of item?.views ?? []) {
-      if (v.kind !== "target") continue;
+      // Only dollar targets can be compared with the dollar spot, and a target
+      // from months ago has little of its horizon left.
+      if (v.kind !== "target" || v.unit.toUpperCase() !== "USD" || isStaleView(v, now)) continue;
       const m = targetMonths(v.horizon, now);
       if (m === undefined || m < TARGET_MONTHS[0] || m > TARGET_MONTHS[1]) continue;
       moves.push({ v, u: Math.pow(Math.max(0.01, v.value / spot), 12 / m) - 1 });
@@ -280,8 +325,7 @@ function fromTargets(
     if (!moves.length) return undefined;
     const us = moves.map((x) => x.u);
     return {
-      scenarios: shrink(manual.annualReturn, { pess: Math.min(...us), real: mean(us), opt: Math.max(...us) }, manual.months),
-      fxAdjPp: 0,
+      ...inForint({ pess: Math.min(...us), real: mean(us), opt: Math.max(...us) }, "USD"),
       sources: moves.map(({ v }) => ({
         label: v.house,
         detail: `célár ${Math.round(v.value).toLocaleString("hu-HU")} ${v.unit}${v.horizon ? `, ${v.horizon}` : ""}`,
@@ -350,7 +394,7 @@ export function outlookReturns(args: {
     if (views.length) return { ...base, basis: "views" as const, ...fromViews(h, views, ctx) };
     const targets = fromTargets(h, cls, item, ctx);
     if (targets) return { ...base, basis: "targets" as const, ...targets };
-    return { ...base, basis: "manual" as const, scenarios: manual.annualReturn, fxAdjPp: 0, sources: [] };
+    return { ...base, basis: "manual" as const, scenarios: manual.annualReturn, fxAdjPp: 0, uncorrected: [], sources: [] };
   });
 
   const coveredShare = assets.filter((a) => a.basis !== "manual").reduce((s, a) => s + a.weight, 0);
@@ -375,6 +419,9 @@ export function outlookReturns(args: {
   const warnings: string[] = [];
   if (coveredShare < 0.5)
     warnings.push(`Az értékpapírok értékének csak ${Math.round(coveredShare * 100)}%-ára van kilátás-adat; a többire a kézi hozam számít.`);
+  const uncorrected = [...new Set(assets.flatMap((a) => a.uncorrected))];
+  if (uncorrected.length)
+    warnings.push(`Ehhez a devizához nincs inflációs adat, ezért a hozama korrekció nélkül számít: ${uncorrected.join(", ")}.`);
   if (cashShare > 0.05)
     warnings.push(`A növekedési kassza ${Math.round(cashShare * 100)}%-a készpénz; a motor ezt is ugyanezzel a hozammal számolja.`);
   return { scenarios, sigma: Math.sqrt(variance), assets, coveredShare, cashShare, warnings, usable: true };
