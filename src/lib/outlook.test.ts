@@ -103,6 +103,14 @@ describe("validateProfile", () => {
     expect(validateProfile({ ...ok, source: undefined })).toBeNull();
   });
 
+  it("the underlying is only for crypto and commodity products (the AI once filed an index name there)", () => {
+    const base = { source: "ai", checkedAt: "2026-10-14T00:00:00Z" };
+    expect(validateProfile({ ...base, assetClass: "equity_fund", underlying: "FTSE ALL-WORLD (GLOBÁLIS RÉSZVÉNYEK)" })?.underlying).toBeUndefined();
+    expect(validateProfile({ ...base, assetClass: "equity", underlying: "OTP" })?.underlying).toBeUndefined();
+    expect(validateProfile({ ...base, assetClass: "crypto", underlying: "btc" })?.underlying).toBe("BTC");
+    expect(validateProfile({ ...base, assetClass: "commodity", underlying: "xau" })?.underlying).toBe("XAU");
+  });
+
   it("drops a consensus URL that is not http(s)", () => {
     const p = validateProfile({ assetClass: "equity", source: "ai", checkedAt: "x", consensusUrl: "javascript:alert(1)" });
     expect(p?.consensusUrl).toBeUndefined();

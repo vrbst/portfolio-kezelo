@@ -116,7 +116,9 @@ export function validateProfile(v: unknown): OutlookProfile | null {
   if (!o || !assetClass || !checkedAt || !source) return null;
   return clean({
     assetClass,
-    underlying: str(o.underlying)?.toUpperCase(),
+    // Only products that hold a coin or a commodity have one underlying; for
+    // anything else the AI tends to file a description there.
+    underlying: assetClass === "crypto" || assetClass === "commodity" ? str(o.underlying)?.toUpperCase() : undefined,
     consensusUrl: httpUrl(o.consensusUrl),
     source,
     checkedAt,

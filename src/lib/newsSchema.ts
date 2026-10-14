@@ -373,6 +373,38 @@ export function rankedItems(items: NewsItem[]): NewsItem[] {
     .map((x) => x.it);
 }
 
+// ---- filtering by the affected asset ---------------------------------------------
+
+/** How an `affects` entry is compared: case and surrounding spaces don't matter. */
+export const assetKey = (a: string) => a.trim().toLowerCase();
+
+export interface DigestAsset {
+  /** As the first item wrote it. */
+  label: string;
+  key: string;
+  count: number;
+}
+
+/** The assets the items touch, the most mentioned first (ties: first seen first). */
+export function digestAssets(items: readonly NewsItem[]): DigestAsset[] {
+  const found = new Map<string, DigestAsset>();
+  for (const it of items)
+    for (const a of new Set(it.affects.map(assetKey))) {
+      const label = it.affects.find((x) => assetKey(x) === a)!.trim();
+      const cur = found.get(a);
+      if (cur) cur.count++;
+      else found.set(a, { label, key: a, count: 1 });
+    }
+  return [...found.values()].sort((a, b) => b.count - a.count);
+}
+
+/** The items touching `asset` (by assetKey or label); null = no filter. */
+export function itemsForAsset<T extends Pick<NewsItem, "affects">>(items: readonly T[], asset: string | null): T[] {
+  if (asset == null) return [...items];
+  const k = assetKey(asset);
+  return items.filter((it) => it.affects.some((a) => assetKey(a) === k));
+}
+
 // ---- event follow-ups (news/events.json) ---------------------------------------
 
 export const NEWS_EVENTS_PATH = `${NEWS_DIR}/events.json`;
