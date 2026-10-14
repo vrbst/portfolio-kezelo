@@ -20,7 +20,9 @@ import {
   NEWS_REGION_LABEL,
   SUBSCRIPTION_STATUS_LABEL,
   SURPRISE_LABEL,
+  digestAssets,
   digestKey,
+  itemsForAsset,
   rankedItems,
   seenKey,
   type EventResult,
@@ -137,7 +139,12 @@ export default function News() {
 }
 
 function DigestView({ digest }: { digest: NewsDigest }) {
-  const items = rankedItems(digest.items);
+  const [asset, setAsset] = useState<string | null>(null);
+  const assets = digestAssets(digest.items);
+  // A filter the shown digest doesn't have falls back to everything.
+  const active = assets.some((a) => a.key === asset) ? asset : null;
+  const ranked = rankedItems(digest.items);
+  const items = itemsForAsset(ranked, active);
   return (
     <div className="flex flex-col gap-4">
       <Card className="p-5">
@@ -147,8 +154,22 @@ function DigestView({ digest }: { digest: NewsDigest }) {
         <p className="text-lg font-semibold">{digest.headline}</p>
       </Card>
 
-      {items.map((it, i) => (
-        <Card key={i} className="p-5">
+      {assets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-sm" role="group" aria-label="Szűrés érintett papírra">
+          <span className="text-[var(--color-muted)]">Érintett:</span>
+          <FilterChip on={active == null} onClick={() => setAsset(null)}>
+            Mind
+          </FilterChip>
+          {assets.map((a) => (
+            <FilterChip key={a.key} on={active === a.key} onClick={() => setAsset(a.key)}>
+              {a.label} <span className="opacity-60">{a.count}</span>
+            </FilterChip>
+          ))}
+        </div>
+      )}
+
+      {items.map((it) => (
+        <Card key={ranked.indexOf(it)} className="p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <ImpactIcon impact={it.impact} size={18} />
             <Badge tone={it.importance === 3 ? "warning" : it.importance === 2 ? "brand" : "neutral"}>
@@ -220,6 +241,23 @@ function DigestView({ digest }: { digest: NewsDigest }) {
         Készítette: {digest.engine} ({digest.model}). Az AI tévedhet; döntés előtt nézd meg a forrást.
       </p>
     </div>
+  );
+}
+
+function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs ${
+        on
+          ? "border-[var(--color-brand)] bg-[var(--color-brand)] text-white"
+          : "border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

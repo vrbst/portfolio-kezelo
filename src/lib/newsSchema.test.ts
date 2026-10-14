@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   NEWS_INDEX_SIZE,
+  digestAssets,
+  itemsForAsset,
   digestKey,
   rankedItems,
   seenKey,
@@ -128,5 +130,25 @@ describe("unreadToday", () => {
     expect(unreadToday(idx, [seenKey(morning)], "2026-10-14").map((e) => e.edition)).toEqual(["evening"]);
     const again = withIndexEntry(idx, { ...fixtureDigest("2026-10-14", "morning"), generatedAt: "2026-10-14T09:00:00.000Z" });
     expect(unreadToday(again, [seenKey(morning)], "2026-10-14").map((e) => e.edition)).toEqual(["evening", "morning"]);
+  });
+});
+
+describe("digestAssets / itemsForAsset", () => {
+  const items = fixtureNewsBody().items;
+  it("lists each asset once (case-insensitive), the most mentioned first", () => {
+    const a = digestAssets([
+      { ...items[0], affects: ["vwce", "EUR/HUF"] },
+      { ...items[1], affects: [" VWCE ", "VWCE"] },
+    ]);
+    expect(a.map((x) => [x.label, x.count])).toEqual([
+      ["vwce", 2],
+      ["EUR/HUF", 1],
+    ]);
+  });
+  it("filters by asset; null keeps everything", () => {
+    expect(itemsForAsset(items, "wbit").every((i) => i.affects.includes("WBIT"))).toBe(true);
+    expect(itemsForAsset(items, "wbit").length).toBeGreaterThan(0);
+    expect(itemsForAsset(items, null)).toHaveLength(items.length);
+    expect(itemsForAsset(items, "nincs")).toEqual([]);
   });
 });

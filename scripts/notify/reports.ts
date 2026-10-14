@@ -30,6 +30,7 @@ import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
 import { addDaysIso, toLocalDay, txDay } from "../../src/lib/day";
 import {
   NEWS_EDITION_LABEL,
+  itemsForAsset,
   rankedItems,
   type NewsDigest,
   type NewsEdition,
@@ -1037,6 +1038,24 @@ export function newsText(
   );
   if (uploadError)
     lines.push("", `⚠️ A felhőbe nem sikerült feltölteni, ezért az appban még nem látszik: ${esc(uploadError.slice(0, 200))}`);
+  return lines.join("\n");
+}
+
+/** How many of an asset's items /hirek shows (with their summaries). */
+export const NEWS_TG_ASSET_MAX = 6;
+
+/** The digest's items touching one asset (`asset` as the button labels it), with their summaries. */
+export function newsAssetText(digest: NewsDigest, asset: string, appUrl: string): string {
+  const hits = itemsForAsset(rankedItems(digest.items), asset);
+  const lines = [
+    `${EDITION_ICON[digest.edition]} <b>${NEWS_EDITION_LABEL[digest.edition]} – ${dayLabel(digest.day)}</b> · ${esc(asset)}`,
+    "",
+  ];
+  if (!hits.length) lines.push("Ebben az összefoglalóban nincs hír erről.");
+  for (const it of hits.slice(0, NEWS_TG_ASSET_MAX))
+    lines.push(`${IMPACT_ICON[it.impact]} <b>${esc(it.title)}</b>`, esc(it.summary), "");
+  const more = hits.length - NEWS_TG_ASSET_MAX;
+  lines.push(`<a href="${esc(appUrl)}#/hirek">Részletek az appban</a>${more > 0 ? ` (+${more} hír)` : ""}`);
   return lines.join("\n");
 }
 
