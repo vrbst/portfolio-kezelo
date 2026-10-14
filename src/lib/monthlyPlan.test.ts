@@ -228,6 +228,37 @@ describe("monthly plan – goal claims", () => {
 
 // ---- costs -------------------------------------------------------------------
 
+describe("a buy the money can't pay the fixed fee of", () => {
+  // The fee is 5 Ft per buy; 1,18 Ft is left for the item.
+  const feeGlide: GlideConfig = {
+    ...GLIDE,
+    buckets: [bucket("R", 0.5, { cost: { buy: { fixedHuf: 5 } } }), bucket("K", 0.5)],
+  };
+  const feePlan = (amountHuf: number, needs: PlanNeed[]) =>
+    buildMonthlyPlan({
+      amountHuf,
+      needs,
+      glide: feeGlide,
+      state: allocationState(feeGlide, POS, DAY),
+      budgetHuf: amountHuf,
+      positions: POS,
+      instruments: new Map(),
+    });
+
+  it("is no buy: the money stays free instead of vanishing (allocated = buy + costs)", () => {
+    const p = feePlan(101.18, [need("ETF", 100, { instrumentKey: "ETF" }), need("dca:x", 50, { instrumentKey: "ETF" })]);
+    for (const l of p.lines) {
+      const spent = l.trade ? l.trade.amountHuf + l.trade.costHuf + (l.trade.fxCostHuf ?? 0) : 0;
+      expect(spent).toBeCloseTo(l.allocatedHuf, 2);
+    }
+    const allocated = p.lines.reduce((t, l) => t + l.allocatedHuf, 0);
+    expect(allocated + p.glideHuf + p.freeHuf).toBeCloseTo(p.amountHuf, 6);
+    // the second item stays short (nothing later gets money once one is short)
+    expect(p.lines[1].allocatedHuf).toBe(0);
+    expect(p.lines[1].shortHuf).toBe(50);
+  });
+});
+
 describe("cost source order: bucket rule → bond redemption → broker → general → 0", () => {
   const lyFee = { buy: { pct: 0.0035 }, sell: { pct: 0.0035 } };
   const etfPos: Position = {
