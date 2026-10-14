@@ -40,7 +40,7 @@ import {
 import { formatMoney } from "../lib/format";
 import { addDaysIso } from "../lib/day";
 import { BOND_TYPES, futureBondCashflows } from "../lib/bonds";
-import { loadForecastSettings } from "../lib/forecast";
+import { useEffectiveForecast } from "../lib/useEffectiveForecast";
 import {
   freezeInflowPath,
   projectGlide,
@@ -259,6 +259,8 @@ export default function GlidePathSettings() {
   // "reális" return.
   const transactions = usePortfolio((s) => s.transactions);
   const dcaGoals = usePortfolio((s) => s.goals);
+  // The Forecast page's "reális" return as it runs: typed in, or from the Kilátások.
+  const expectedReal = useEffectiveForecast().effective.annualReturn.real;
   // Everything the projection needs besides the config and its state.
   const projInputs = useMemo(
     () => ({
@@ -275,13 +277,13 @@ export default function GlidePathSettings() {
   const projection = useMemo(() => {
     if (!state || !cfg || !isActive(cfg)) return undefined;
     const base: Omit<ProjectionInput, "annualReturn"> = { ...projInputs, cfg, state };
-    const real = loadForecastSettings().annualReturn.real;
+    const real = expectedReal;
     return {
       zero: projectGlide({ ...base, annualReturn: 0 }),
       real: projectGlide({ ...base, annualReturn: real }),
       realPct: real,
     };
-  }, [state, cfg, projInputs]);
+  }, [state, cfg, projInputs, expectedReal]);
 
   // "inflows" mode: the path the draft's inflows draw from today's weights
   // (the editor previews it; the saved version keeps it frozen).

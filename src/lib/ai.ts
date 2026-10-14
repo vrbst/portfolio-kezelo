@@ -301,6 +301,8 @@ export interface AiContextExtras {
     monthlySavingHuf: number;
     milestones: { years: number; real: number; pess: number; opt: number }[];
     shortfall: string | null;
+    /** Where the yearly returns come from — only set when they are not the manual ones. */
+    returns?: string;
   };
   /** Glide path: today's bucket weights vs. path target and band. */
   glide?: AllocationState | null;
@@ -483,6 +485,7 @@ export function buildAiPortfolioContext(
       "",
       `Előrejelzés (az app Előrejelzés oldala, névleges Ft, havi ${huf(f.monthlySavingHuf)} Ft megtakarítással):`,
     );
+    if (f.returns) lines.push(`- Hozam-feltevés: ${f.returns}`);
     for (const m of f.milestones)
       lines.push(
         `- +${m.years} év: reális ${huf(m.real)} Ft (sáv ${huf(m.pess)}–${huf(m.opt)})`,

@@ -3,7 +3,9 @@
 // the app's own pure lib functions in Node.
 
 import type { Instrument, Transaction } from "../../src/lib/model";
-import type { PortfolioSnapshot } from "../../src/lib/sync";
+import { getRepoFile, type PortfolioSnapshot } from "../../src/lib/sync";
+import { OUTLOOK_PATH, validateOutlookFile, type OutlookFile } from "../../src/lib/outlook";
+import { loadForecastSettings } from "../../src/lib/forecast";
 import {
   computePortfolio,
   bondImportReminders,
@@ -80,7 +82,9 @@ import {
 } from "../../src/lib/rebalance";
 import { toLocalDay } from "../../src/lib/portfolio";
 import { liveGlideVersions } from "../../src/lib/flowPath";
-import { githubToken, installLocalStorage, type NotifyEnv } from "./env";
+import { NOTIFY_DIR, githubToken, installLocalStorage, type NotifyEnv } from "./env";
+import { resolve as resolvePath } from "node:path";
+import { cachedText } from "./outlook/cachedText";
 import {
   validateBondRatesFile,
   withBondRates,
@@ -118,6 +122,11 @@ export interface Context {
   baseAlerts: Alert[];
   /** Dismissed / seen history synced from the app. */
   alertState: AlertState;
+  /**
+   * The Kilátások — read only while the forecast is set to "Kilátások alapján"
+   * (null: could not be read; undefined: not looked for).
+   */
+  outlook?: OutlookFile | null;
   aiUsage?: AiUsageRecord[];
 }
 
@@ -150,6 +159,17 @@ async function loadSnapshot(env: NotifyEnv): Promise<PortfolioSnapshot> {
 }
 
 const optional = <T>(p: Promise<T>) => p.catch(() => null);
+
+/** market/outlook.json of the private sync repo (the weekly and daily outlook jobs write it). */
+async function loadOutlook(env: NotifyEnv): Promise<OutlookFile | null> {
+  const [owner, repo] = env.syncRepo.split("/");
+  // Cached for half an hour: the context is built every 5 minutes (and on every
+  // command), the file changes once a day.
+  const text = await cachedText(resolvePath(NOTIFY_DIR, "outlook", "outlook-cache.json"), Date.now(), async () =>
+    (await getRepoFile({ token: githubToken(), owner, repo, path: "" }, OUTLOOK_PATH))?.text ?? null,
+  );
+  return text ? validateOutlookFile(JSON.parse(text)) : null;
+}
 
 /** Live quotes are best-effort: a Yahoo hiccup must not break a report. */
 export async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T) {
@@ -250,6 +270,10 @@ export async function loadContext(env: NotifyEnv, aiUsageFile?: string): Promise
     reserveGraceDays: env.reserveGraceDays,
   });
   if (aiUsageFile) ctx.aiUsage = readAiUsage(aiUsageFile);
+  // Only a forecast on "Kilátások alapján" needs it (and then at most every
+  // half hour, see loadOutlook). A failed read is null, and said so in the text.
+  if (loadForecastSettings().returnSource === "outlook")
+    ctx.outlook = await withTimeout(optional(loadOutlook(env)), 15_000, null);
   return ctx;
 }
 

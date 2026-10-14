@@ -18,7 +18,12 @@ export function loadOutlookFile(target: SyncTarget): Promise<OutlookFile | null>
   return file;
 }
 
-export function useOutlookFile(): OutlookFile | null {
+/**
+ * The outlook file: `undefined` while it loads, `null` when there is none
+ * (no sync target, no file, unreadable) — consumers that must not mistake
+ * "not yet" for "none" (the forecast) tell them apart.
+ */
+export function useOutlookFile(): OutlookFile | null | undefined {
   const target = usePortfolio((s) => s.syncTarget);
   const [loaded, setLoaded] = useState<{ key: string; file: OutlookFile | null } | null>(null);
   const key = target?.id ?? null;
@@ -33,5 +38,6 @@ export function useOutlookFile(): OutlookFile | null {
       live = false;
     };
   }, [target, key]);
-  return loaded && loaded.key === key ? loaded.file : null;
+  if (!key) return null;
+  return loaded && loaded.key === key ? loaded.file : undefined;
 }
