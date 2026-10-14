@@ -350,6 +350,8 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     return undefined;
   };
   let left = Math.max(0, input.amountHuf);
+  /** Money too small to pay a buy's fixed fee: unplanned, and not for the later items either. */
+  let crumbs = 0;
   const lines: PlanLine[] = [];
   for (const need of input.needs) {
     const key = need.holdCash ? undefined : need.instrumentKey;
@@ -360,18 +362,27 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
       lines.push({ need, allocatedHuf: 0, shortHuf: need.needHuf, venue, blocked: true, upcoming });
       continue;
     }
-    const give = Math.min(left, Math.max(0, need.needHuf));
+    let give = Math.min(left, Math.max(0, need.needHuf));
     left -= give;
-    const line: PlanLine = {
+    let trade: PlanTrade | undefined;
+    if (give >= 1 && key) {
+      trade = planBuy(key, give, glide, positions, instruments, fxOf(key));
+      // The money doesn't even cover the fixed fee: no buy, the item stays short
+      // and the money stays unplanned (it would vanish between plan and deposit).
+      if (trade.amountHuf <= 0) {
+        crumbs += give;
+        give = 0;
+        trade = undefined;
+      }
+    }
+    lines.push({
       need,
       allocatedHuf: give,
       shortHuf: Math.max(0, need.needHuf - give),
       venue,
       upcoming,
-    };
-    if (give >= 1 && key)
-      line.trade = planBuy(key, give, glide, positions, instruments, fxOf(key));
-    lines.push(line);
+      ...(trade ? { trade } : {}),
+    });
   }
   let glideHuf = 0;
   let glidePlan: MonthlyPlan["glidePlan"] = null;
@@ -404,7 +415,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     lines,
     glideHuf,
     glidePlan,
-    freeHuf: left - glideHuf,
+    freeHuf: left + crumbs - glideHuf,
     shortHuf: lines.reduce((s, l) => s + l.shortHuf, 0),
     deposits: ctx
       ? planDeposits(lines, glidePlan, (k) => venueOf(k), (id) => {
