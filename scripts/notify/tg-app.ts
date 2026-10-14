@@ -19,10 +19,13 @@ import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./ai
 import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
 import {
   EVENT_JSON_SCHEMA,
+  MAX_SEARCH_TRIES,
   RETRY_MIN,
   advanceSlots,
   askEvent,
   buildEventPrompt,
+  combineCoverage,
+  recordLatency,
   eventText,
   followUpsText,
   nextDue,
@@ -627,9 +630,16 @@ async function followEvents(deps: Deps): Promise<void> {
     const before = loadState(deps.stateFile).events;
     if (!before?.slots.length) return;
     const probe = deps.probe ?? probeCoverage;
+    // Every event of every watched slot, at once: a slow feed (10 s each)
+    // must not hold the tick up one probe after the other.
     const probes: Record<string, Coverage | null> = {};
-    for (const s of slotsToProbe(before, now))
-      probes[s.key] = await probe(s.kind, s.events[0]?.event ?? s.kind, slotStart(s.date, s.time));
+    await Promise.all(
+      slotsToProbe(before, now).map(async (s) => {
+        const since = slotStart(s.date, s.time);
+        const names = s.events.length ? s.events.map((e) => e.event) : [s.kind];
+        probes[s.key] = combineCoverage(await Promise.all(names.map((n) => probe(s.kind, n, since))));
+      }),
+    );
     const after = updateState(deps.stateFile, (cur) =>
       cur.events ? { ...cur, events: advanceSlots(cur.events, now, probes).ev } : cur,
     ).events;
@@ -689,7 +699,8 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
   const slot = holder.slot;
   if (!slot) return { v: 1, messages: [] };
 
-  const release = (failing: boolean) =>
+  /** The slot is free again: searched again after a while, or (giveUp) never. */
+  const release = (failing: boolean, giveUp = false) =>
     updateState(deps.stateFile, (cur) =>
       cur.events
         ? {
@@ -697,7 +708,7 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
             events: {
               ...patchSlot(cur.events, slot.key, (s) => ({
                 ...s,
-                status: "due",
+                status: giveUp ? "expired" : "due",
                 takenAt: undefined,
                 dueAt: new Date(now.getTime() + RETRY_MIN * 60_000).toISOString(),
               })),
@@ -722,7 +733,9 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
       (costUsd != null ? `, ~$${costUsd.toFixed(2)} at API prices` : ""),
   );
   if (!answer.released) {
-    release(false);
+    // A preview can look like coverage: after a few misses the slot is given up.
+    release(false, slot.tries + 1 >= MAX_SEARCH_TRIES);
+    await publishEventsSafe(deps, deps.news(EVENT_JOB).store);
     return { v: 1, messages: [] };
   }
   const latencyMin = slot.firstSeenAt
@@ -735,12 +748,17 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
     ...(costUsd != null ? { costUsd } : {}),
     ...(latencyMin != null ? { latencyMin } : {}),
   });
+  const found = new Date();
   updateState(deps.stateFile, (cur) =>
     cur.events
       ? {
           ...cur,
           events: {
-            ...patchSlot(cur.events, slot.key, (s) => ({ ...s, status: "done", takenAt: undefined })),
+            ...recordLatency(
+              patchSlot(cur.events, slot.key, (s) => ({ ...s, status: "done", takenAt: undefined })),
+              slot,
+              found,
+            ),
             pending: [...(cur.events.pending ?? []), ...results],
             failing: false,
           },
