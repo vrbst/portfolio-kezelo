@@ -43,7 +43,7 @@ import { portfolioExposure } from "./news/prompt";
 import { makeAnalysis, type AnalysisDeps } from "./analysis/job";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
 import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
-import { NEWS_EDITION_LABEL, type NewsEdition } from "../../src/lib/newsSchema";
+import { NEWS_EDITION_LABEL, assetKey, digestAssets, type DigestAsset, type NewsEdition } from "../../src/lib/newsSchema";
 import { CHART_PREFIX, chartButtons, chartCaption, chartCard, chartMenuText, chartTargets, chartText, findTarget, type ChartTarget } from "./chart";
 import { chartSvg, svgToPng } from "./chartImage";
 import { loadContext, withGlideAlerts, type Context } from "./data";
@@ -76,6 +76,7 @@ import {
   mft,
   monthlyText,
   analysisText,
+  newsAssetText,
   newsText,
   pct,
   planText,
@@ -340,7 +341,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
   switch (req.type) {
     case "command":
       console.error(`/${req.command} ${req.args}`.trim());
-      if (req.command === "hirek") return latestNews(deps);
+      if (req.command === "hirek") return latestNews(req.args, deps, false);
       if (req.command === "hirkereses") return searchNews(deps);
       if (req.command === "bejelentesek") return followUps(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
@@ -355,6 +356,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       return { v: 1, messages: [msg("Ehhez most nem tudok mit kezdeni. A parancsokat a /help sorolja fel.")] };
     case "callback":
       if (req.data.startsWith(CHART_PREFIX)) return chart(req.data.slice(CHART_PREFIX.length), deps, true);
+      if (req.data.startsWith(NEWS_PREFIX)) return latestNews(req.data.slice(NEWS_PREFIX.length), deps, true);
       return { v: 1, messages: [] };
     case "job":
       console.error(`job ${req.job}`);
@@ -817,8 +819,37 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
   };
 }
 
-/** /hirek: the newest digest from the sync repo again, with today's moves. */
-async function latestNews(deps: Deps): Promise<HubResponse> {
+/** Callback data of the /hirek buttons: `news:<asset>`, or `news:*` for the whole digest. */
+export const NEWS_PREFIX = "news:";
+const NEWS_ALL = "*";
+/** Asset buttons on the /hirek menu (the most mentioned first). */
+const NEWS_BUTTONS_MAX = 15;
+
+/** One button per asset the digest touches, three to a row, plus "Mind"; the open one is marked. */
+export function newsButtons(all: DigestAsset[], current?: string): NonNullable<HubMessage["buttons"]> {
+  const mark = (on: boolean, text: string) => (on ? `▸ ${text}` : text);
+  const assets = all
+    .filter((a) => new TextEncoder().encode(NEWS_PREFIX + a.label).length <= 64)
+    .slice(0, NEWS_BUTTONS_MAX);
+  const mind = { text: mark(current === NEWS_ALL, "Mind"), data: NEWS_PREFIX + NEWS_ALL };
+  const rows: { text: string; data: string }[][] = [[mind]];
+  assets.forEach((a, i) => {
+    if (i % 3 === 0) rows.push([]);
+    rows[rows.length - 1].push({
+      text: mark(current != null && assetKey(current) === a.key, a.label),
+      data: NEWS_PREFIX + a.label,
+    });
+  });
+  return rows;
+}
+
+/**
+ * /hirek [papír]: without an argument the newest digest's assets as buttons
+ * (plus "Mind" = the whole digest, as before); a button or a typed asset shows
+ * that asset's news. A button press replaces the pressed message and keeps the
+ * buttons, so the next asset is one tap away.
+ */
+async function latestNews(query: string, deps: Deps, fromButton: boolean): Promise<HubResponse> {
   if (!deps.news) return fail("A hírösszefoglaló nincs beállítva.");
   const ctx = await contextFor(deps);
   if (typeof ctx === "string") return fail(ctx);
@@ -835,7 +866,34 @@ async function latestNews(deps: Deps): Promise<HubResponse> {
       v: 1,
       messages: [msg("📰 Még nincs hírösszefoglaló. Hétköznap kettő készül: 7:45 körül (a Xetra nyitása előtt) és 18:15 körül (a zárása után).")],
     };
-  return { v: 1, messages: [msg(newsText(digest, ctx, nd.appUrl))] };
+  const edit = fromButton ? ({ editOriginal: true } as const) : {};
+  const q = query.trim();
+  const assets = digestAssets(digest.items);
+  const asset = q === NEWS_ALL || !q ? undefined : assets.find((a) => a.key === assetKey(q));
+  const hasAssets = assets.length > 0;
+  // No argument: the menu (a digest without any asset has nothing to pick: show it whole).
+  if (!q && hasAssets)
+    return {
+      v: 1,
+      messages: [{ ...msg("📰 <b>Melyik papír hírei érdekelnek?</b>"), buttons: newsButtons(assets) }],
+      ...edit,
+    };
+  if (asset)
+    return {
+      v: 1,
+      messages: [{ ...msg(newsAssetText(digest, asset.label, nd.appUrl)), buttons: newsButtons(assets, asset.label) }],
+      ...edit,
+    };
+  // The whole digest: "Mind", or an asset that isn't in it (typed wrong, or an old
+  // button after a newer digest came out) with a note saying so.
+  const note = q && q !== NEWS_ALL ? `Nem találok ilyen papírt a hírek között: <code>${esc(q)}</code>. Itt az egész összefoglaló.
+
+` : "";
+  return {
+    v: 1,
+    messages: [{ ...msg(note + newsText(digest, ctx, nd.appUrl)), ...(hasAssets ? { buttons: newsButtons(assets, NEWS_ALL) } : {}) }],
+    ...edit,
+  };
 }
 
 // ---- the nightly AI analysis --------------------------------------------

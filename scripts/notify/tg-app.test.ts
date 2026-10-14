@@ -383,11 +383,63 @@ describe("news digest", () => {
     expect(readState().news).toEqual({ evening: "2026-10-13" });
   });
 
-  it("/hirek: the latest digest, or a note when there is none yet", async () => {
+  it("/hirek: a menu of the affected assets with \"Mind\"; none yet → a note", async () => {
     const empty = newsDeps(EVENING);
     expect((await call(commandReq("hirek"), empty.deps)).messages![0].html).toContain("Még nincs hírösszefoglaló");
     await call(jobReq("news-evening"), empty.deps);
     const r = await call(commandReq("hirek"), empty.deps);
+    const m = r.messages![0];
+    expect(m.html).toContain("Melyik papír hírei");
+    const buttons = m.buttons!.flat();
+    expect(buttons[0]).toEqual({ text: "Mind", data: "news:*" });
+    // the most mentioned first (ties: first seen first), three to a row after "Mind"
+    expect(m.buttons!.map((row) => row.map((b) => b.data))).toEqual([
+      ["news:*"],
+      ["news:EUR/HUF", "news:VWCE", "news:WBIT"],
+      ["news:DKJ", "news:FixMÁP"],
+    ]);
+    expect(buttons.every((b) => new TextEncoder().encode(b.data).length <= 64)).toBe(true);
+  });
+
+  it("/hirek Mind button: the whole digest as before, buttons kept, the menu replaced", async () => {
+    const { deps } = newsDeps(EVENING);
+    await call(jobReq("news-evening"), deps);
+    const r = await call(JSON.stringify({ ...base, type: "callback", data: "news:*" }), deps);
+    expect(r.editOriginal).toBe(true);
+    expect(r.messages![0].html).toContain("Napzárta – 2026. okt. 14.");
+    expect(r.messages![0].buttons![0][0].text).toBe("▸ Mind");
+  });
+
+  it("/hirek asset button (or typed, any case): only that asset's items with summaries", async () => {
+    const { deps } = newsDeps(EVENING);
+    await call(jobReq("news-evening"), deps);
+    const r = await call(JSON.stringify({ ...base, type: "callback", data: "news:EUR/HUF" }), deps);
+    expect(r.editOriginal).toBe(true);
+    const html = r.messages![0].html;
+    expect(html).toContain("Gyengült a forint &lt;az euróval&gt; szemben");
+    expect(html).toContain("A gyengébb forint a devizás eszközök forintértékét növeli.");
+    expect(html).not.toContain("Az MNB kivárást jelzett");
+    expect(r.messages![0].buttons!.flat().find((b) => b.data === "news:EUR/HUF")!.text).toBe("▸ EUR/HUF");
+    const typed = await call(commandReq("hirek", "vwce"), deps);
+    expect(typed.editOriginal).toBeUndefined();
+    expect(typed.messages![0].html).toContain("Gyengült a forint");
+  });
+
+  it("/hirek: a stale button (asset not in the newest digest) → note and the whole digest, \"Mind\" marked", async () => {
+    const { deps } = newsDeps(EVENING);
+    await call(jobReq("news-evening"), deps);
+    const r = await call(JSON.stringify({ ...base, type: "callback", data: "news:RÉGIPAPÍR" }), deps);
+    expect(r.editOriginal).toBe(true);
+    expect(r.messages![0].html).toContain("Nem találok ilyen papírt");
+    expect(r.messages![0].html).toContain("Napzárta – 2026. okt. 14.");
+    expect(r.messages![0].buttons![0][0].text).toBe("▸ Mind");
+  });
+
+  it("/hirek with an unknown asset: a note, then the whole digest", async () => {
+    const { deps } = newsDeps(EVENING);
+    await call(jobReq("news-evening"), deps);
+    const r = await call(commandReq("hirek", "nincsilyen"), deps);
+    expect(r.messages![0].html).toContain("Nem találok ilyen papírt");
     expect(r.messages![0].html).toContain("Napzárta – 2026. okt. 14.");
   });
 });

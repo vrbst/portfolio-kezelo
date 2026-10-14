@@ -513,6 +513,13 @@ test.describe("market news (Hírek)", () => {
     await expect(followUps).toContainText("Bejelentések eredménye");
     await expect(followUps).toContainText("3,2% é/é");
     await expect(followUps).toContainText("a várakozás felett");
+    // filter by the affected asset
+    const filter = main.getByRole("group", { name: "Szűrés érintett papírra" });
+    await filter.getByRole("button", { name: /^WBIT/ }).click();
+    await expect(main).toContainText("Gyengült a forint <az euróval> szemben");
+    await expect(main).not.toContainText("Kitalált háttérhír");
+    await filter.getByRole("button", { name: "Mind" }).click();
+    await expect(main).toContainText("Kitalált háttérhír");
     await page.selectOption("#news-pick", { index: 1 });
     await expect(main).toContainText("Napzárta");
     expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
