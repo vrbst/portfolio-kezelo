@@ -22,7 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const pctOf = (part: number, total: number) =>
-  total > 0 ? `${Math.round((part / total) * 100)}%` : "?";
+  total > 0 ? `${((part / total) * 100).toFixed(1).replace(".", ",")}%` : "?";
 
 /**
  * The portfolio as the model may see it: one line per instrument (weight,

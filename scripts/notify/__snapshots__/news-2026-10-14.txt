@@ -1,11 +1,11 @@
 ==== portfólió az AI-nak ====
-- VWCE (ETF, EUR, ticker: VWCE, ISIN: IE00BK5BQT80): 51%
-- Fix Magyar Állampapír 2030/I (magyar állampapír, HUF, ISIN: HU0000TESZT1, kamat: 6.50%, lejárat: 2030-03-15): 24%
-- Diszkont Kincstárjegy D261118 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT2, lejárat: 2026-11-18): 9%
-- WBIT (ETF, EUR, ticker: WBIT, ISIN: GB00BJYDH287): 5%
-- Diszkont Kincstárjegy D270512 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT3, lejárat: 2027-05-12): 4%
-- Diszkont Kincstárjegy D270310 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT4, lejárat: 2027-03-10): 3%
-- Készpénz: 3%
+- VWCE (ETF, EUR, ticker: VWCE, ISIN: IE00BK5BQT80): 51,4%
+- Fix Magyar Állampapír 2030/I (magyar állampapír, HUF, ISIN: HU0000TESZT1, kamat: 6.50%, lejárat: 2030-03-15): 23,5%
+- Diszkont Kincstárjegy D261118 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT2, lejárat: 2026-11-18): 9,0%
+- WBIT (ETF, EUR, ticker: WBIT, ISIN: GB00BJYDH287): 5,5%
+- Diszkont Kincstárjegy D270512 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT3, lejárat: 2027-05-12): 4,4%
+- Diszkont Kincstárjegy D270310 (diszkont kincstárjegy (DKJ), HUF, ISIN: HU0000TESZT4, lejárat: 2027-03-10): 2,7%
+- Készpénz: 3,4%
 - Számlák: TBSZ (magyar tartós befektetési számla), Magyar Államkincstár értékpapírszámla
 
 ==== reggeli előzetes ====
