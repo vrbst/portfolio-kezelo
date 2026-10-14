@@ -19,16 +19,25 @@ export interface RssItem {
   published: number;
 }
 
+// &amp; last: "&amp;lt;" is the text "&lt;", not "<".
 const unwrap = (s: string) =>
   s
     .replace(/^\s*<!\[CDATA\[/, "")
     .replace(/\]\]>\s*$/, "")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
     .trim();
+
+/**
+ * Articles that come before a release (previews, "what to expect") say
+ * nothing about it being out: they don't count as coverage.
+ */
+const PREVIEW =
+  /\b(preview|what to expect|what to watch|ahead of|week ahead|day ahead|how to (trade|watch))\b|előzetes|mire számít|mit várnak/i;
+export const isPreview = (title: string) => PREVIEW.test(title);
 
 /** The items of an RSS feed that have a title and a valid pubDate. */
 export function parseRss(xml: string): RssItem[] {
@@ -81,7 +90,7 @@ export async function probeCoverage(
   try {
     const res = await fetchFn(coverageUrl(kind, event), { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
-    const hits = parseRss(await res.text()).filter((i) => i.published >= since.getTime());
+    const hits = parseRss(await res.text()).filter((i) => i.published >= since.getTime() && !isPreview(i.title));
     if (!hits.length) return { count: 0, earliest: "" };
     return {
       count: hits.length,

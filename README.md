@@ -120,11 +120,17 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   2 cikk megjelent, elindul a `news-event` job (alapból `opus`,
   `NEWS_MODEL`): megkeresi a tényleges eredményt, a várakozást, a meglepetés
   irányát, az első piaci reakciót és azt, mi várható ezután a portfóliónak,
-  forrásokkal. A bejelentés és az első cikk közti késést fajtánként méri
-  (utolsó 10), és 3 mérés után (80. percentilis + 3 perc, 5–60 perc) ebből
-  időzít; mérés híján vagy ha az RSS nem érhető el, legkésőbb a bejelentés után
-  60 perccel indul. Ha az eredmény még nincs kint, 15 percenként újrapróbál,
-  3 óra után feladja. Kamatdöntésnél a sajtótájékoztatóról külön, második
+  forrásokkal. Az előzetes cikkek („what to expect”, „előzetes”) nem számítanak
+  találatnak; a slot több eseményét külön-külön, egyszerre figyeli. A
+  bejelentés és az első cikk közti késést fajtánként méri (utolsó 10), de csak
+  akkor, ha az eredmény tényleg megvolt (ha az RSS-t nem látta, a sikeres keresés
+  ideje a — felső becslés — minta), és 3 mérés után (80. percentilis + 3 perc,
+  5–60 perc) ebből időzít; mérés híján vagy ha az RSS nem érhető el, legkésőbb a
+  bejelentés után 60 perccel indul. Ha az eredmény még nincs kint, 15 percenként
+  újrapróbál, legfeljebb 5-ször, de 3 óránál tovább nem. Ugyanazt a bejelentést
+  (más időponttal vagy névvel újra listázva) nem követi kétszer. Egy
+  olvashatatlan vagy újabb verziójú `news/events.json`-t nem ír felül.
+  Kamatdöntésnél a sajtótájékoztatóról külön, második
   üzenet jön (kezdete + 45 perc). Telegramra megy, és a szinkron-repóba is
   (`news/events.json`): az app Hírek oldalán a „Figyelt bejelentések” (állapot,
   várható indítás, tanult késések) és a „Bejelentések eredménye” kártya

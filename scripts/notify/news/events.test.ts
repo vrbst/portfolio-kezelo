@@ -5,7 +5,6 @@ import type { EventSlot, EventsState } from "../state";
 import {
   FALLBACK_DELAY_MIN,
   GIVE_UP_MIN,
-  LATENCY_KEEP,
   MAX_SLOTS_PER_DAY,
   PRESS_DELAY_MIN,
   RETRY_MIN,
@@ -89,11 +88,11 @@ describe("registerFollowUps", () => {
   });
 
   it(`at most ${MAX_SLOTS_PER_DAY} a day (the earliest ones)`, () => {
-    const many = ["15:00", "10:00", "12:00", "11:00", "13:00"].map((time, i) => ({ ...cpi, event: `E${i}`, time }));
+    const many = ["15:00", "10:00", "12:00", "11:00", "13:00"].map((time, i) => ({ ...cpi, kind: "OTHER" as const, event: `E${i}`, time }));
     const ev = register(many);
     expect(ev.slots.map((s) => s.time)).toEqual(["10:00", "11:00", "12:00"]);
     // another day has its own budget
-    const other = register([{ ...cpi, date: "2026-10-15", time: "09:00" }], ev);
+    const other = register([{ ...cpi, kind: "OTHER" as const, event: "E9", date: "2026-10-15", time: "09:00" }], ev);
     expect(other.slots).toHaveLength(4);
   });
 
@@ -173,14 +172,14 @@ describe("advanceSlots", () => {
     expect(due.ev.latency).toEqual({});
   });
 
-  it("covered by enough articles → due at once, and the gap is a new sample", () => {
+  it("covered by enough articles → due at once (the gap is a sample only once the result is found)", () => {
     const ev = base();
     const key = ev.slots[0].key;
     expect(advanceSlots(ev, plus(8), { [key]: cov(1, 5) }).becameDue).toEqual([]);
     const r = advanceSlots(ev, plus(8), { [key]: cov(3, 5) });
     expect(r.becameDue).toEqual([key]);
     expect(r.ev.slots[0]).toMatchObject({ status: "due", firstSeenAt: plus(5).toISOString() });
-    expect(r.ev.latency).toEqual({ US_CPI: [5] });
+    expect(r.ev.latency).toEqual({});
   });
 
   it("an unreadable feed (null) is just no coverage", () => {
@@ -193,14 +192,6 @@ describe("advanceSlots", () => {
     expect(learnedDelayMin([5, 6, 7])).toBe(10);
     expect(advanceSlots(ev, plus(9)).becameDue).toEqual([]);
     expect(advanceSlots(ev, plus(10)).becameDue).toHaveLength(1);
-  });
-
-  it("keeps the last samples only", () => {
-    let ev: EventsState = { ...base(), latency: { US_CPI: Array.from({ length: LATENCY_KEEP }, (_, i) => i) } };
-    ev = advanceSlots(ev, plus(8), { [ev.slots[0].key]: cov(2, 6) }).ev;
-    expect(ev.latency.US_CPI).toHaveLength(LATENCY_KEEP);
-    expect(ev.latency.US_CPI.at(-1)).toBe(6);
-    expect(ev.latency.US_CPI[0]).toBe(1);
   });
 
   it("a press conference is due after its own delay (no news probe)", () => {
@@ -437,10 +428,10 @@ describe("publishEvents (news/events.json)", () => {
     expect(validateEventsFile(JSON.parse(store.files[NEWS_EVENTS_PATH])).results[0]).toMatchObject({ event: "US CPI", actual: "3,2%" });
   });
 
-  it("a damaged file is replaced, not a reason to fail", async () => {
+  it("a damaged file isn't overwritten: the publish fails and the file stays as it is", async () => {
     const store = memoryStore({ [NEWS_EVENTS_PATH]: "{nem json" });
-    await publishEvents(store, ev);
-    expect(validateEventsFile(JSON.parse(store.files[NEWS_EVENTS_PATH])).subscriptions).toHaveLength(1);
+    await expect(publishEvents(store, ev)).rejects.toThrow();
+    expect(store.files[NEWS_EVENTS_PATH]).toBe("{nem json");
   });
 
   it("the signature changes with the state of a slot, not with the retry bookkeeping", () => {
@@ -464,7 +455,7 @@ describe("a slot walked through (state in, state out)", () => {
     expect(slot(ev).status).toBe("watching");
     ev = step(ev, at(14, 14, 40), { count: 4, earliest: at(14, 14, 34).toISOString() });
     expect(slot(ev)).toMatchObject({ status: "due", firstSeenAt: at(14, 14, 34).toISOString() });
-    expect(ev.latency).toEqual({ US_CPI: [4] });
+    expect(ev.latency).toEqual({});
     expect(nextDue(ev, at(14, 14, 40))?.key).toBe(key);
 
     // the job takes it, the result isn't out → due again after the retry gap
