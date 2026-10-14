@@ -8,6 +8,9 @@ export const OUTLOOK_ALERT_DAYS = 3;
 export const VIEW_MAX_AGE_DAYS = 365;
 /** From this age on the app shows a view greyed out. */
 export const VIEW_STALE_DAYS = 183;
+/** A consensus is refreshed daily (Yahoo) or monthly (issuer): a year old is gone, about three months old is shown as old. */
+export const CONSENSUS_MAX_AGE_DAYS = 365;
+export const CONSENSUS_STALE_DAYS = 100;
 
 export const ASSET_CLASSES = ["equity", "equity_fund", "bond_fund", "crypto", "commodity", "other"] as const;
 export type AssetClass = (typeof ASSET_CLASSES)[number];
@@ -156,13 +159,15 @@ function estimates(v: unknown): Estimate[] | undefined {
   return out.length ? out : undefined;
 }
 
-export function validateConsensus(v: unknown): Consensus | null {
+export function validateConsensus(v: unknown, now: Date = new Date()): Consensus | null {
   const o = v as Record<string, unknown> | null;
   const source = (["yahoo", "issuer"] as const).find((x) => x === o?.source);
   const asOf = day(o?.asOf);
   const currency = str(o?.currency)?.toUpperCase();
   const target = targetRange(o?.target);
   if (!o || !source || !asOf || !currency || !target) return null;
+  // Like a view: nothing is shown as current for ever once its source dried up.
+  if ((now.getTime() - localDayMs(asOf)) / 86_400_000 > CONSENSUS_MAX_AGE_DAYS) return null;
   return clean({
     source,
     url: httpUrl(o.url),
@@ -215,6 +220,10 @@ export function validateView(v: unknown, now: Date = new Date()): AnalystView | 
   return clean({ house, kind, value, unit, horizon: str(o.horizon), publishedAt, url, note: str(o.note) });
 }
 
+export function isStaleConsensus(c: Consensus, now: Date): boolean {
+  return (now.getTime() - localDayMs(c.asOf)) / 86_400_000 > CONSENSUS_STALE_DAYS;
+}
+
 export function isStaleView(v: AnalystView, now: Date): boolean {
   return (now.getTime() - localDayMs(v.publishedAt)) / 86_400_000 > VIEW_STALE_DAYS;
 }
@@ -232,7 +241,7 @@ export function validateOutlook(v: unknown, now: Date = new Date()): Outlook | n
   const o = v as Record<string, unknown> | null;
   if (!o || typeof o !== "object") return null;
   const out = clean({
-    consensus: list(o.consensus, validateConsensus),
+    consensus: list(o.consensus, (x) => validateConsensus(x, now)),
     implied: list(o.implied, validateBand),
     views: list(o.views, (x) => validateView(x, now)),
   });

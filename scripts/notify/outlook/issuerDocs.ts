@@ -33,11 +33,33 @@ export function urlTemplate(url: string): UrlTemplate | null {
 
 export const urlFor = (t: UrlTemplate, day: string) => `${t.before}${day.replace(/-/g, "")}${t.after}`;
 
-/** The days after `fromDay` up to `toDay`, newest first, at most MAX_PROBE_DAYS. */
+/** How many days are asked about at once, and how long one run may probe in all. */
+export const PROBE_BATCH = 8;
+export const PROBE_BUDGET_MS = 120_000;
+
+/**
+ * The days after `fromDay` up to `toDay`, newest first, at most MAX_PROBE_DAYS:
+ * the newest ones — a document much newer than the known one must still be found.
+ */
 export function candidateDays(fromDay: string, toDay: string): string[] {
   const out: string[] = [];
-  for (let d = addDaysIso(fromDay, 1); d <= toDay && out.length < MAX_PROBE_DAYS; d = addDaysIso(d, 1)) out.push(d);
-  return out.reverse();
+  for (let d = toDay; d > fromDay && out.length < MAX_PROBE_DAYS; d = addDaysIso(d, -1)) out.push(d);
+  return out;
+}
+
+/** The newest of the days that has a document, asking in parallel batches (newest first). */
+async function newestExisting(
+  days: string[],
+  ask: (day: string) => Promise<boolean>,
+  deadline: number,
+): Promise<string | null> {
+  for (let i = 0; i < days.length && Date.now() < deadline; i += PROBE_BATCH) {
+    const batch = days.slice(i, i + PROBE_BATCH);
+    const hits = await Promise.all(batch.map(ask));
+    const at = hits.findIndex(Boolean);
+    if (at >= 0) return batch[at];
+  }
+  return null;
 }
 
 export interface Fetched {
@@ -57,7 +79,7 @@ export function defaultIssuerFetch(): Pick<IssuerDocsDeps, "head" | "get"> {
   return {
     head: async (url) => {
       try {
-        const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(15_000), redirect: "follow" });
+        const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(10_000), redirect: "follow" });
         return res.ok && !/text\/html/i.test(res.headers.get("content-type") ?? "");
       } catch {
         return false;
@@ -141,6 +163,12 @@ export async function collectIssuerDocs(
   const saved: string[] = [];
   const errors: Record<string, string> = {};
   const today = toLocalDay(now);
+  const deadline = Date.now() + PROBE_BUDGET_MS;
+  // After every asset: a job killed by its time limit keeps what it has done.
+  const saveState = () => {
+    mkdirSync(deps.dir, { recursive: true });
+    writeAtomic(statePath(deps.dir), JSON.stringify(state, null, 2));
+  };
   for (const [key, profile] of Object.entries(file.profiles)) {
     const base = profile.consensusUrl;
     if (!base) continue;
@@ -151,13 +179,10 @@ export async function collectIssuerDocs(
       let day = st.latestDay ?? tpl?.day;
       // A dated address: look for a newer document, newest candidate first.
       if (tpl && day) {
-        for (const d of candidateDays(day, today)) {
-          const candidate = urlFor(tpl, d);
-          if (await deps.head(candidate)) {
-            url = candidate;
-            day = d;
-            break;
-          }
+        const found = await newestExisting(candidateDays(day, today), (d) => deps.head(urlFor(tpl, d)), deadline);
+        if (found) {
+          url = urlFor(tpl, found);
+          day = found;
         }
       }
       state[key] = { ...st, latestUrl: url, ...(day ? { latestDay: day } : {}) };
@@ -186,8 +211,8 @@ export async function collectIssuerDocs(
     } catch (e) {
       errors[key] = (e instanceof Error ? e.message : String(e)).slice(0, 200);
     }
+    saveState();
   }
-  mkdirSync(deps.dir, { recursive: true });
-  writeAtomic(statePath(deps.dir), JSON.stringify(state, null, 2));
+  saveState();
   return { saved, errors };
 }

@@ -325,6 +325,10 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
           ],
         },
         IE00BK5BQT80: {
+          // A months-old consensus is still shown, but as old.
+          consensus: [
+            { source: "yahoo", asOf: "2026-04-01", currency: "EUR", target: { min: 100, avg: 110, max: 120, count: 5 } },
+          ],
           views: [
             { house: "Vanguard", kind: "annualReturn", value: 0.059, unit: "%/év", horizon: "10 év", publishedAt: "2026-01-22", url: "https://example.com/vcmm" },
           ],
@@ -346,6 +350,7 @@ test.describe("holdings: one table everywhere, details in a sheet", () => {
     await expect(vwce).toContainText("Nevesített előrejelzések");
     await expect(vwce).toContainText("Vanguard");
     await expect(vwce).toContainText("5,9%/év");
+    await expect(vwce).toContainText("régi adat");
     await expect(vwce).toContainText("Nem befektetési tanács");
     expect(await readableSecrets(page, goalNames, '[role="dialog"]')).toEqual([]);
     await page.keyboard.press("Escape");

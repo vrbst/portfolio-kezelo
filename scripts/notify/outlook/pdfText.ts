@@ -26,8 +26,8 @@ export function linesOf(pieces: Piece[], tolerance = 2): string[] {
 /** The text layer of a PDF as lines (table rows stay on one line). */
 export async function pdfToText(data: Uint8Array): Promise<string> {
   const task = getDocument({ data: new Uint8Array(data), useSystemFonts: true, verbosity: 0 });
-  const doc = await task.promise;
   try {
+    const doc = await task.promise;
     const pages: string[] = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);

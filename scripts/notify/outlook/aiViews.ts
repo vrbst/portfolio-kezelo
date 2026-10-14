@@ -9,7 +9,6 @@ import { toLocalDay } from "../../../src/lib/day";
 import {
   ASSET_CLASSES,
   OUTLOOK_PATH,
-  validateOutlookFile,
   validateProfile,
   validateView,
   type AnalystView,
@@ -18,6 +17,7 @@ import {
 import type { NewsEngine } from "../news/engine";
 import { extractJson, type NewsStore } from "../news/job";
 import type { OutlookTarget } from "./refresh";
+import { readOutlookFile } from "./storeFile";
 
 export const MAX_VIEWS_PER_ASSET = 8;
 
@@ -112,6 +112,7 @@ export function mergeAiAnswer(
   now: Date,
 ): { file: OutlookFile; assets: number; views: number } {
   const known = new Set(targets.map((t) => t.key));
+  const given = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
   const list = (answer as { assets?: unknown } | null)?.assets;
   if (!Array.isArray(list)) throw new Error("a válaszban nincs assets lista");
   const file: OutlookFile = {
@@ -122,14 +123,18 @@ export function mergeAiAnswer(
   };
   let assets = 0;
   let total = 0;
+  let matched = 0;
   for (const raw of list) {
     const a = raw as Record<string, unknown> | null;
     const key = typeof a?.key === "string" ? a.key : "";
     if (!a || !known.has(key)) continue;
+    matched++;
+    const old = prev.profiles[key];
+    // The model leaves things out from week to week: what it did not say stays.
     const profile = validateProfile({
       assetClass: a.assetClass,
-      underlying: a.underlying,
-      consensusUrl: a.consensusUrl,
+      underlying: given(a.underlying) ?? old?.underlying,
+      consensusUrl: given(a.consensusUrl) ?? old?.consensusUrl,
       source: "ai",
       checkedAt: now.toISOString(),
     });
@@ -146,6 +151,9 @@ export function mergeAiAnswer(
       total += views.length;
     }
   }
+  // An answer about none of our papers is no answer: the week must not count as done.
+  if (!matched) throw new Error("az AI egyetlen ismert eszközre sem adott választ");
+  if (!total) console.error("outlook-ai: no valid view in the answer (profiles were still updated)");
   return { file, assets, views: total };
 }
 
@@ -161,14 +169,8 @@ export async function runOutlookAi(
   deps: { engine: NewsEngine; store: NewsStore },
   now: Date,
 ): Promise<OutlookAiResult> {
-  const text = await deps.store.read(OUTLOOK_PATH).catch(() => null);
-  const prev = (() => {
-    try {
-      return text ? validateOutlookFile(JSON.parse(text), now) : null;
-    } catch {
-      return null;
-    }
-  })();
+  // A failed or unreadable read stops the run before the AI is asked.
+  const prev = await readOutlookFile(deps.store, now);
   const base: OutlookFile = prev ?? { v: 1, updatedAt: now.toISOString(), profiles: {}, items: {}, errors: {} };
   const prompt = buildOutlookPrompt(targets, base, now);
   let cost = 0;

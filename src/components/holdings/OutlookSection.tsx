@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { formatDate, formatNumber, formatPercent } from "../../lib/format";
-import { isStaleView, type Consensus, type ImpliedBand, type Outlook, type OutlookProfile } from "../../lib/outlook";
+import { isStaleConsensus, isStaleView, type Consensus, type ImpliedBand, type Outlook, type OutlookProfile } from "../../lib/outlook";
 import type { FetchError } from "../../lib/fundamentals";
 import {
   ASSET_CLASS_LABEL,
@@ -18,17 +18,19 @@ function SubTitle({ children }: { children: ReactNode }) {
   return <div className="mb-2 text-xs font-medium text-[var(--color-muted)]">{children}</div>;
 }
 
-function ConsensusBlock({ c, price, currency }: { c: Consensus; price?: number; currency: string }) {
+function ConsensusBlock({ c, price, currency, now }: { c: Consensus; price?: number; currency: string; now: Date }) {
+  const stale = isStaleConsensus(c, now);
   const same = c.currency.toUpperCase() === currency.toUpperCase();
   const scale = rangeScale(c.target, price, same);
   const up = upside(c.target, price, c.currency, currency);
   const fmt = (v: number) => formatNumber(v, c.currency === "HUF" ? 0 : 2);
   const label = c.source === "issuer" ? "Kibocsátói elemzői konszenzus" : "Elemzői célár (Yahoo)";
   return (
-    <div>
+    <div className={stale ? "opacity-60" : undefined}>
       <SubTitle>
         {label}
         {c.target.count ? `, ${c.target.count} elemző` : ""}
+        {stale && <span className="text-[var(--color-warning)]"> · régi adat</span>}
       </SubTitle>
       <div className="flex justify-between text-xs text-[var(--color-muted)]">
         <span>
@@ -160,7 +162,7 @@ export default function OutlookSection({
       <h3 className="mb-3 text-sm font-semibold">Kilátások</h3>
       <div className="space-y-4">
         {consensus?.map((c) => (
-          <ConsensusBlock key={`${c.source}-${c.asOf}`} c={c} price={price} currency={currency} />
+          <ConsensusBlock key={`${c.source}-${c.asOf}`} c={c} price={price} currency={currency} now={now} />
         ))}
         {implied && implied.length > 0 && <BandsBlock bands={implied} />}
         {views && views.length > 0 && (

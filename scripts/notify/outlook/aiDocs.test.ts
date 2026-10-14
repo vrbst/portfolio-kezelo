@@ -83,7 +83,8 @@ describe("consensusFromAnswer", () => {
   it("no price to check against, an inconsistent range or an implausible date is an error", () => {
     expect(() => consensusFromAnswer({ ...good, price: undefined }, doc, NOW)).toThrow(/árfolyam/);
     expect(() => consensusFromAnswer({ ...good, target: { min: 50_000, avg: 45_888, max: 58_667 } }, doc, NOW)).toThrow();
-    expect(() => consensusFromAnswer({ ...good, asOf: "2024-01-05" }, doc, NOW)).toThrow(/dátuma/);
+    expect(() => consensusFromAnswer({ ...good, asOf: "2024-01-05" }, doc, NOW)).toThrow(); // over a year old
+    expect(() => consensusFromAnswer({ ...good, asOf: "2026-12-05" }, doc, NOW)).toThrow(/dátuma/);
     expect(() => consensusFromAnswer(null, doc, NOW)).toThrow();
   });
 });
