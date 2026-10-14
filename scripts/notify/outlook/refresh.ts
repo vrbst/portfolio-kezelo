@@ -2,7 +2,6 @@ import { toLocalDay } from "../../../src/lib/day";
 import {
   OUTLOOK_PATH,
   staleOutlookErrors,
-  validateOutlookFile,
   type Consensus,
   type ImpliedBand,
   type Outlook,
@@ -12,6 +11,7 @@ import {
 import type { NewsStore } from "../news/job";
 import { esc } from "../reports";
 import { classifyForOutlook } from "./profile";
+import { readOutlookFile } from "./storeFile";
 import { parseAnalystTargets } from "./yahooTargets";
 
 const NOTIFY_EVERY_MS = 7 * 86_400_000;
@@ -35,12 +35,17 @@ export interface OutlookDeps {
 
 const shortErr = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
-function parsePrevious(text: string, now: Date): OutlookFile | null {
-  try {
-    return validateOutlookFile(JSON.parse(text), now);
-  } catch {
-    return null;
-  }
+type QuoteSummary = { quoteSummary?: { result?: unknown[] | null; error?: { description?: unknown } | null } };
+
+/**
+ * Yahoo answers a 401/429 with a body, not an exception: only a body with a
+ * result counts as an answer, otherwise this says why not.
+ */
+function checkYahoo(json: unknown): void {
+  const q = (json as QuoteSummary | null)?.quoteSummary;
+  if (q?.result?.[0]) return;
+  const why = q?.error?.description;
+  throw new Error(typeof why === "string" && why.trim() ? why.trim() : "üres válasz");
 }
 
 interface YahooIdentity {
@@ -100,10 +105,13 @@ export async function refreshOutlook(
   deps: OutlookDeps,
   now: Date,
 ): Promise<{ file: OutlookFile; messages: string[] }> {
-  const prevText = await deps.store.read(OUTLOOK_PATH).catch(() => null);
-  const prev = prevText ? parsePrevious(prevText, now) : null;
+  // A failed or unreadable read stops here: rebuilding from nothing would wipe
+  // the weekly AI run's views, profiles and document addresses.
+  const prev = await readOutlookFile(deps.store, now);
   const file: OutlookFile = { v: 1, updatedAt: now.toISOString(), profiles: {}, items: {}, errors: {} };
   if (prev?.notifiedAt) file.notifiedAt = prev.notifiedAt;
+  // No held papers (a failed load, say) is no reason to empty the file.
+  if (!targets.length) return { file: prev ?? file, messages: [] };
 
   for (const t of targets) {
     let json: unknown = null;
@@ -111,7 +119,9 @@ export async function refreshOutlook(
     try {
       const symbol = await deps.resolve(t);
       if (!symbol) throw new Error("nincs Yahoo-szimbólum");
-      json = await deps.fetch(symbol);
+      const answer = await deps.fetch(symbol);
+      checkYahoo(answer);
+      json = answer;
     } catch (e) {
       summaryError = shortErr(e);
     }

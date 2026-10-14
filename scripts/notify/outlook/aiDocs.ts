@@ -8,13 +8,13 @@ import {
   OUTLOOK_PATH,
   daysBetween,
   validateConsensus,
-  validateOutlookFile,
   type Consensus,
   type OutlookFile,
 } from "../../../src/lib/outlook";
 import type { NewsEngine } from "../news/engine";
 import { extractJson, type NewsStore } from "../news/job";
 import { listPending, removePending, type PendingDoc } from "./issuerDocs";
+import { readOutlookFile } from "./storeFile";
 
 const range = {
   type: "object",
@@ -141,14 +141,7 @@ export async function extractPendingDocs(deps: DocsDeps, now: Date): Promise<Doc
   const result: DocsResult = { done: [], failed: {} };
   const pending = listPending(deps.dir);
   if (!pending.length) return result;
-  const text = await deps.store.read(OUTLOOK_PATH).catch(() => null);
-  const file = (() => {
-    try {
-      return text ? validateOutlookFile(JSON.parse(text), now) : null;
-    } catch {
-      return null;
-    }
-  })();
+  const file = await readOutlookFile(deps.store, now);
   if (!file) return result; // nothing to merge into yet: the documents wait
   const next: OutlookFile = { ...file, updatedAt: now.toISOString(), items: { ...file.items } };
   const finished: string[] = [];
