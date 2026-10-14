@@ -27,6 +27,8 @@ import {
 } from "./savings";
 import { effectiveMonthKey, type GoalProgress } from "./goals";
 import { forecastMilestones, projectFromSettings } from "./forecast";
+import type { OutlookFile } from "./outlook";
+import type { OutlookReturnEstimate } from "./outlookReturns";
 import type { Alert } from "./alerts";
 import type { AllocationState } from "./rebalance";
 import { txDay } from "./day";
@@ -46,7 +48,18 @@ export interface AiContextInput {
   alerts: Alert[];
   savingsGoals: SavingsGoal[];
   glide: AllocationState | null;
+  /** The Kilátások, for a forecast set to "Kilátások alapján". */
+  outlook?: OutlookFile | null;
   now?: Date;
+}
+
+/** One line on where the forecast's yearly returns come from (only in "Kilátások alapján" mode). */
+function describeReturns(r: { pess: number; real: number; opt: number }, e: OutlookReturnEstimate): string {
+  const p = (x: number) => `${(x * 100).toFixed(1).replace(".", ",")}%`;
+  const basis = e.usable
+    ? `a Kilátásokból levezetve, a tartott értékpapírok ${Math.round(e.coveredShare * 100)}%-ára van adat, a többire a kézi érték`
+    : "kézi érték (a Kilátásokból nincs használható adat)";
+  return `éves hozam ${p(r.pess)} / ${p(r.real)} / ${p(r.opt)} (pesszimista / reális / optimista), ${basis}`;
 }
 
 export function buildFullAiContext(i: AiContextInput): string {
@@ -71,13 +84,14 @@ export function buildFullAiContext(i: AiContextInput): string {
     fx,
   );
   const goalExpenses = savingsGoalExpenses(i.savingsGoals, savingsProgress);
-  const { assumptions, result } = projectFromSettings(
+  const { assumptions, result, estimate, settings } = projectFromSettings(
     summary,
     transactions,
     fx,
     goalExpenses,
     {},
     now,
+    i.outlook,
   );
   const cashflows = futureBondCashflows(summary, now, transactions);
   const today = toLocalDay(now);
@@ -139,6 +153,9 @@ export function buildFullAiContext(i: AiContextInput): string {
           opt: m.point.opt,
         })),
       shortfall: result.shortfall.real ?? result.shortfall.pess,
+      ...(estimate && settings.returnSource === "outlook"
+        ? { returns: describeReturns(assumptions.annualReturn, estimate) }
+        : {}),
     },
     glide: i.glide,
     bonds,

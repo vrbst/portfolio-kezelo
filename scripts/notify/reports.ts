@@ -17,6 +17,7 @@ import {
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
+import { effectiveForecastSettings, estimateFromSettings } from "../../src/lib/outlookReturns";
 import {
   bandBaseNote,
   bandRule,
@@ -355,7 +356,11 @@ export function goalsText(ctx: Context): string {
 
 /** Same projection the Forecast page runs (settings + goals as expenses). */
 function forecastFor(ctx: Context) {
-  const settings = loadForecastSettings();
+  const stored = loadForecastSettings();
+  // "Kilátások alapján": the returns the page would run with (never saved back).
+  const estimate =
+    stored.returnSource === "outlook" ? estimateFromSettings(stored, ctx.summary, ctx.outlook, ctx.at) : null;
+  const settings = effectiveForecastSettings(stored, estimate);
   const detected = detectRecurringSavings(ctx.transactions, ctx.fx, ctx.at);
   const monthly = settings.monthlySavingOverride ?? detected.monthlyHuf;
   const goalExpenses: PlannedExpense[] = loadSavingsGoals()
@@ -381,16 +386,21 @@ function forecastFor(ctx: Context) {
     [...settings.expenses, ...goalExpenses],
     ctx.at,
   );
-  return { settings, monthly, result };
+  return { settings, monthly, result, estimate };
 }
 
 export function forecastText(ctx: Context): string {
-  const { settings, monthly, result } = forecastFor(ctx);
+  const { settings, monthly, result, estimate } = forecastFor(ctx);
   const r = settings.annualReturn;
+  const source = !estimate
+    ? ""
+    : estimate.usable
+      ? ` – a Kilátások alapján, ${Math.round(estimate.coveredShare * 100)}%-os fedettséggel`
+      : " – kézi érték (a Kilátások most nem elérhetők)";
   const lines = [
     "🔮 <b>Előrejelzés</b> (névleges Ft)",
     `Havi megtakarítás: ${ft(monthly)}${settings.savingGrowth ? `, évente +${rate(settings.savingGrowth)}` : ""}`,
-    `Hozam: ${rate(r.pess)} / ${rate(r.real)} / ${rate(r.opt)} (pessz. / reális / opt.)`,
+    `Hozam: ${rate(r.pess)} / ${rate(r.real)} / ${rate(r.opt)} (pessz. / reális / opt.)${source}`,
     "",
   ];
   for (const m of forecastMilestones(result).filter((m) =>

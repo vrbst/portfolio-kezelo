@@ -49,6 +49,7 @@ export function analysisContext(ctx: Context): string {
     alerts: ctx.alerts,
     savingsGoals: loadSavingsGoals(),
     glide: ctx.glide,
+    outlook: ctx.outlook,
     now: ctx.at,
   });
 }

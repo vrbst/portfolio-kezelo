@@ -28,6 +28,7 @@ import { addDaysIso, toLocalDay, todayLocal, txDay } from "./day";
 import type { BondRatesFile } from "./bondRates";
 import { bondAdvice, bondMarket } from "./bondSwitch";
 import type { SavingsGoal } from "./savings";
+import type { OutlookFile } from "./outlook";
 
 /** Everything the tools read — the same state the pages show. */
 export interface ToolEnv {
@@ -43,6 +44,8 @@ export interface ToolEnv {
   goalExpenses: PlannedExpense[];
   bondRates?: BondRatesFile | null;
   savingsGoals?: SavingsGoal[];
+  /** The Kilátások, for a forecast set to "Kilátások alapján". */
+  outlook?: OutlookFile | null;
 }
 
 export interface ClientTool {
@@ -159,6 +162,9 @@ const runForecast: ClientTool = {
       env.transactions,
       env.fx,
       env.goalExpenses,
+      {},
+      new Date(),
+      env.outlook,
     ).assumptions;
     const over: Partial<ForecastAssumptions> = {};
     const m = num(i.monthly_saving_huf);
@@ -182,15 +188,19 @@ const runForecast: ClientTool = {
     const eAmt = e ? num(e.amount_huf) : null;
     if (eDate && eAmt && eAmt > 0)
       extra.push({ id: "ai-what-if", date: eDate, amountHuf: eAmt, note: "what-if" });
-    const { assumptions, result } = projectFromSettings(
+    const { assumptions, result, estimate, settings } = projectFromSettings(
       env.summary,
       env.transactions,
       env.fx,
       extra,
       over,
+      new Date(),
+      env.outlook,
     );
     return JSON.stringify({
       used: {
+        // "manual" unless the forecast is set to the Kilátások (then: where the returns come from)
+        return_source: estimate && settings.returnSource === "outlook" && estimate.usable ? "outlook" : "manual",
         monthly_saving_huf: round(assumptions.monthlySavingHuf),
         returns_pct: {
           pess: +(assumptions.annualReturn.pess * 100).toFixed(2),

@@ -5,6 +5,12 @@ import { touchPref } from "./prefs";
 import { effectiveMonth, effectiveMonthKey } from "./goals";
 import { couponId, splitAmongGoals } from "./incomeClaims";
 import { localDayMs } from "./day";
+import type { OutlookFile } from "./outlook";
+import {
+  effectiveForecastSettings,
+  estimateFromSettings,
+  type OutlookReturnEstimate,
+} from "./outlookReturns";
 
 // ---------------------------------------------------------------------------
 // Forecast engine — a transparent, deterministic projection of net worth.
@@ -937,12 +943,20 @@ const STORE_KEY = "pf-forecast";
 
 export type ForecastEngine = "det" | "mc";
 
+export type ReturnSourceMode = "manual" | "outlook";
+
 export interface ForecastSettings {
   /** null → use the auto-detected recurring saving. */
   monthlySavingOverride: number | null;
   /** Yearly raise of the monthly saving (fraction). */
   savingGrowth: number;
   annualReturn: Record<ScenarioKey, number>;
+  /**
+   * Where the growth return and σ come from: typed in by hand (default), or
+   * derived from the Kilátások. The derived numbers are never stored here —
+   * see effectiveForecastSettings (outlookReturns.ts).
+   */
+  returnSource: ReturnSourceMode;
   /** Where bond coupons + matured principal are reinvested. */
   reinvestTarget: ReinvestTarget;
   /** Annual rate for the "bond" reinvest target (fraction). */
@@ -971,6 +985,7 @@ export const DEFAULT_SETTINGS: ForecastSettings = {
   monthlySavingOverride: null,
   savingGrowth: 0,
   annualReturn: { pess: 0.03, real: 0.06, opt: 0.09 },
+  returnSource: "manual",
   reinvestTarget: "growth",
   reinvestBondRate: 0.06,
   months: 120,
@@ -999,6 +1014,7 @@ export function loadForecastSettings(): ForecastSettings {
       ...DEFAULT_SETTINGS,
       ...parsed,
       reinvestTarget,
+      returnSource: parsed.returnSource === "outlook" ? "outlook" : "manual",
       annualReturn: {
         ...DEFAULT_SETTINGS.annualReturn,
         ...(parsed.annualReturn ?? {}),
@@ -1135,7 +1151,9 @@ export function recordForecastSnapshot(
  * Run the deterministic projection exactly as the Forecast page sets it up —
  * saved settings, detected (or overridden) monthly saving, planned expenses
  * plus `extraExpenses` (the savings-goal deadlines) — with optional overrides
- * for what-if questions.
+ * for what-if questions. With `outlook` and the "Kilátások alapján" mode on, the
+ * growth return comes from the outlook (the returned `settings` are then the
+ * effective ones, `estimate` says where they come from).
  */
 export function projectFromSettings(
   summary: PortfolioSummary,
@@ -1144,12 +1162,17 @@ export function projectFromSettings(
   extraExpenses: PlannedExpense[] = [],
   over: Partial<ForecastAssumptions> = {},
   now: Date = new Date(),
+  outlook?: OutlookFile | null,
 ): {
   settings: ForecastSettings;
   assumptions: ForecastAssumptions;
   result: ForecastResult;
+  estimate: OutlookReturnEstimate | null;
 } {
-  const settings = loadForecastSettings();
+  const stored = loadForecastSettings();
+  const estimate =
+    stored.returnSource === "outlook" ? estimateFromSettings(stored, summary, outlook, now) : null;
+  const settings = effectiveForecastSettings(stored, estimate);
   const monthly =
     settings.monthlySavingOverride ??
     detectRecurringSavings(transactions, fx, now).monthlyHuf;
@@ -1167,6 +1190,7 @@ export function projectFromSettings(
   return {
     settings,
     assumptions,
+    estimate,
     result: projectForecast(
       summary,
       assumptions,

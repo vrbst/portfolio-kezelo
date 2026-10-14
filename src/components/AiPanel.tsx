@@ -80,6 +80,7 @@ import {
 } from "../lib/aiChat";
 import { txDay } from "../lib/day";
 import { buildFullAiContext } from "../lib/aiContext";
+import { useOutlookFile } from "../lib/outlookStore";
 import { useNightlyAnalysis } from "../lib/aiNightly";
 
 const usd = (n: number) =>
@@ -110,6 +111,7 @@ const TOPIC_ICON: Record<Topic, typeof Layers> = {
  */
 export default function AiPanel() {
   const summary = usePortfolioSummary();
+  const outlook = useOutlookFile();
   const accounts = usePortfolio((s) => s.accounts);
   const transactions = usePortfolio((s) => s.transactions);
   const instruments = useValuedInstruments();
@@ -165,6 +167,7 @@ export default function AiPanel() {
         alerts,
         savingsGoals,
         glide,
+        outlook,
       }),
     [
       summary,
@@ -181,6 +184,7 @@ export default function AiPanel() {
       alerts,
       savingsGoals,
       glide,
+      outlook,
     ],
   );
 
@@ -196,6 +200,7 @@ export default function AiPanel() {
     goalExpenses,
     bondRates,
     savingsGoals,
+    outlook,
   };
 
   const [spend, setSpend] = useState<AiSpend>(loadSpend);

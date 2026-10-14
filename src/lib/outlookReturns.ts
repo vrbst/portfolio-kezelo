@@ -395,6 +395,26 @@ export function growthInputs(summary: PortfolioSummary): { holdings: GrowthHoldi
   return { holdings, cashHuf: summary.cashValueHuf };
 }
 
+/** The estimate for a portfolio under the user's stored (manual) settings. */
+export function estimateFromSettings(
+  settings: { annualReturn: ReturnTriple; mcSigma: number; months: number; inflationPct: number },
+  summary: PortfolioSummary,
+  outlook: OutlookFile | null | undefined,
+  now: Date,
+): OutlookReturnEstimate {
+  return outlookReturns({
+    ...growthInputs(summary),
+    outlook,
+    manual: {
+      annualReturn: settings.annualReturn,
+      mcSigma: settings.mcSigma,
+      months: settings.months,
+      inflationPct: settings.inflationPct,
+    },
+    now,
+  });
+}
+
 /**
  * The settings the forecast actually runs with: in "outlook" mode (and with
  * usable data) the derived returns and σ replace the manual ones. Never saved
