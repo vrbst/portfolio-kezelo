@@ -162,6 +162,25 @@ export function quotedToday(q: LiveQuote | undefined, now: Date): boolean {
   return q.marketTime == null || toLocalDay(q.marketTime) === toLocalDay(now);
 }
 
+/**
+ * Today's swing off the day's extremes: `up` is the rise from the session low
+ * (≥ 0), `down` the fall from the session high (≤ 0), both as fractions. Only
+ * the listing's own curve of `now`'s local day counts — a borrowed curve
+ * (intradayFrom) is in another price scale, and a stale one is yesterday's.
+ */
+export function intradaySwing(
+  q: LiveQuote | undefined,
+  now: Date,
+): { up: number; down: number } | undefined {
+  const bars = q?.intraday;
+  const last = q?.intradayT?.at(-1);
+  if (!q || !bars?.length || q.intradayFrom || last == null) return undefined;
+  if (!(q.price > 0) || toLocalDay(last) !== toLocalDay(now)) return undefined;
+  const low = Math.min(q.price, ...bars);
+  const high = Math.max(q.price, ...bars);
+  return { up: q.price / low - 1, down: q.price / high - 1 };
+}
+
 const WEEKDAYS = ["vasárnap", "hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat"];
 
 /**

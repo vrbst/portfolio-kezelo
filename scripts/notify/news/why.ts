@@ -12,6 +12,8 @@ export interface WhyFactor {
   currency?: string;
   type?: string;
   subject?: string;
+  /** A reversal off the day's extreme (signed: + = rise from the low). */
+  swing?: { pct: number; from: "low" | "high" };
 }
 
 export interface WhySource {
@@ -94,7 +96,12 @@ export function buildWhyPrompt(p: {
 }): string {
   const lines = p.factors.map((f) => {
     const head = `- factor: "${f.key}" — `;
-    const move = `${pct(f.pct, 2)} ma`;
+    const swing = f.swing
+      ? f.swing.from === "low"
+        ? `, a napi mélypontjáról ${pct(f.swing.pct, 2)} visszapattanás`
+        : `, a napi csúcsáról ${pct(f.swing.pct, 2)} visszaesés`
+      : "";
+    const move = `${pct(f.pct, 2)} ma${swing}`;
     if (f.key === "portfolio") return `${head}a teljes portfólió forintértéke: ${move}`;
     if (f.key === "EUR/HUF") return `${head}az EUR/HUF árfolyam (pozitív = gyengülő forint): ${move}`;
     const id = [f.ticker, f.isin ? `ISIN: ${f.isin}` : ""].filter(Boolean).join(", ");

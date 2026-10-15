@@ -2,12 +2,39 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fetchLiveFx,
   fxMarketOpen,
+  intradaySwing,
   lastSessionLabel,
   lastTradeTime,
   quotedToday,
 } from "./prices";
 
 // Local times throughout, so the assertions hold in every test time zone.
+
+describe("intradaySwing", () => {
+  const now = new Date(2026, 9, 14, 15, 0);
+  const bars = [100, 94, 97];
+  const t = bars.map((_, i) => new Date(2026, 9, 14, 9, i * 5).getTime());
+  const quote = { price: 97, prevClose: 100, intraday: bars, intradayT: t };
+
+  it("the rise from the low and the fall from the high, as fractions", () => {
+    const sw = intradaySwing(quote, now)!;
+    expect(sw.up).toBeCloseTo(97 / 94 - 1, 6);
+    expect(sw.down).toBeCloseTo(97 / 100 - 1, 6);
+  });
+
+  it("the live price counts as a bar", () => {
+    const sw = intradaySwing({ ...quote, price: 90 }, now)!;
+    expect(sw.up).toBe(0);
+    expect(sw.down).toBeCloseTo(-0.1, 6);
+  });
+
+  it("no evidence: a borrowed, a yesterday's or a missing curve", () => {
+    expect(intradaySwing({ ...quote, intradayFrom: "BTC-USD" }, now)).toBeUndefined();
+    expect(intradaySwing(quote, new Date(2026, 9, 15, 9, 0))).toBeUndefined();
+    expect(intradaySwing({ price: 97 }, now)).toBeUndefined();
+    expect(intradaySwing(undefined, now)).toBeUndefined();
+  });
+});
 
 describe("quotedToday", () => {
   // Friday 2026-10-02, Xetra close; Saturday the 3rd; Monday the 5th.

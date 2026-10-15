@@ -52,7 +52,12 @@ import { loadState, updateState, type EventSlot, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
-import { quotedToday, resolveYahooSymbol } from "../../src/lib/prices";
+import {
+  intradaySwing,
+  quotedToday,
+  resolveYahooSymbol,
+  type LiveQuote,
+} from "../../src/lib/prices";
 import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
 import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
 import { fetchImpliedBands } from "./outlook/optionsImplied";
@@ -1220,7 +1225,43 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   const marketMovedToday = heldQuotes.length
     ? heldQuotes.some((q) => quotedToday(q, now))
     : quotedToday(ctx.liveQuotes["EUR"], now);
-  const moved: WhyFactor[] = [];
+  if (st.why?.day !== today) st.why = { day: today, explained: [], runs: 0 };
+  const why = st.why;
+  // A reversal off the day's low / high is its own event: a position that fell
+  // 6% and bounced back to -3% is quiet on the previous-close scale. It pings
+  // on the same step, once per level, but not when it only repeats the move
+  // already reported off the previous close (a straight +3% from the open).
+  type Swing = NonNullable<WhyFactor["swing"]>;
+  const swingKey = (key: string, s: Swing) => `${key}:swing-${s.from === "low" ? "up" : "down"}`;
+  const swingMoves = (key: string, ch: number, q: LiveQuote, step: number) => {
+    const sw = intradaySwing(q, now);
+    const fired: Swing[] = [];
+    const seen: Swing[] = [];
+    if (!sw) return { fired, seen };
+    const rep = moves.swing?.[key] ?? { up: 0, down: 0 };
+    const store = (r: { up: number; down: number }) => ((moves.swing ??= {})[key] = r);
+    if (crosses(sw.up, rep.up, step) && (ch <= 0 || level(sw.up, step) > level(ch, step))) {
+      fired.push({ from: "low", pct: sw.up });
+      rep.up = sw.up;
+      store(rep);
+    }
+    if (crosses(sw.down, rep.down, step) && (ch >= 0 || level(sw.down, step) > level(ch, step))) {
+      fired.push({ from: "high", pct: sw.down });
+      rep.down = Math.abs(sw.down);
+      store(rep);
+    }
+    if (rep.up > 0) seen.push({ from: "low", pct: sw.up });
+    if (rep.down > 0) seen.push({ from: "high", pct: sw.down });
+    return { fired, seen };
+  };
+  const swingLine = (name: string, s: Swing, ch: number, tail: string) =>
+    `${s.from === "low" ? "↗️" : "↘️"} <b>${name}: ${pct(s.pct, 1)}</b> a mai ${s.from === "low" ? "mélypontjától" : "csúcsától"} (ma: ${pct(ch, 1)}), ${tail}`;
+  // The newest reversal not yet explained today (the larger one if both).
+  const pendingSwing = (key: string, seen: Swing[]) =>
+    seen
+      .filter((s) => !why.explained.includes(swingKey(key, s)))
+      .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))[0];
+  const moved: { factor: WhyFactor; daily: boolean }[] = [];
   const dc = ctx.dayChange;
   if (dc?.pct != null && dc.note === "ma" && marketMovedToday) {
     if (crosses(dc.pct, moves.total, moveSettings.portfolioPct ?? env.bigMovePct)) {
@@ -1232,7 +1273,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
         ),
       );
     }
-    if (moves.total > 0) moved.push({ key: "portfolio", label: "portfólió", pct: dc.pct });
+    if (moves.total > 0)
+      moved.push({ factor: { key: "portfolio", label: "portfólió", pct: dc.pct }, daily: true });
   }
   const posLines: string[] = [];
   for (const h of held) {
@@ -1242,7 +1284,8 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     const i = h.instrument;
     const name = shortName(i?.name ?? h.instrumentKey);
     const ids = [i?.ticker, name, i?.isin, h.instrumentKey];
-    if (crosses(ch, moves.pos[h.instrumentKey] ?? 0, positionStep(h.instrumentKey, ids))) {
+    const step = positionStep(h.instrumentKey, ids);
+    if (crosses(ch, moves.pos[h.instrumentKey] ?? 0, step)) {
       moves.pos[h.instrumentKey] = Math.abs(ch);
       // HUF move of the position today: value now minus value at prev close.
       const move = h.marketValueHuf - h.marketValueHuf / (1 + ch);
@@ -1250,18 +1293,29 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
         `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma, árfolyam: ${px(q.price, h.currency)} (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
       );
     }
-    if ((moves.pos[h.instrumentKey] ?? 0) > 0) {
+    const sw = swingMoves(h.instrumentKey, ch, q, step);
+    for (const s of sw.fired)
+      posLines.push(
+        swingLine(name, s, ch, `árfolyam: ${px(q.price, h.currency)} (pozíció: ${mft(h.marketValueHuf)})`),
+      );
+    const daily = (moves.pos[h.instrumentKey] ?? 0) > 0;
+    const swing = pendingSwing(h.instrumentKey, sw.seen);
+    if (daily || swing) {
       const subject = forHolding(env.whySubjects, ids);
       moved.push({
-        key: h.instrumentKey,
-        label: name,
-        pct: ch,
-        name: i?.name ?? h.instrumentKey,
-        currency: h.currency,
-        ...(i?.type ? { type: i.type } : {}),
-        ...(i?.ticker ? { ticker: i.ticker } : {}),
-        ...(i?.isin ? { isin: i.isin } : {}),
-        ...(subject ? { subject } : {}),
+        daily,
+        factor: {
+          key: h.instrumentKey,
+          label: name,
+          pct: ch,
+          name: i?.name ?? h.instrumentKey,
+          currency: h.currency,
+          ...(i?.type ? { type: i.type } : {}),
+          ...(i?.ticker ? { ticker: i.ticker } : {}),
+          ...(i?.isin ? { isin: i.isin } : {}),
+          ...(subject ? { subject } : {}),
+          ...(swing ? { swing } : {}),
+        },
       });
     }
   }
@@ -1274,13 +1328,26 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
         `${ch > 0 ? "🚀" : "🔻"} <b>EUR/HUF: ${pct(ch, 1)}</b> ma (${eur.price.toFixed(2).replace(".", ",")} Ft)`,
       );
     }
-    if ((moves.pos[FX_KEY] ?? 0) > 0) moved.push({ key: FX_KEY, label: "EUR/HUF", pct: ch });
+    const sw = swingMoves(FX_KEY, ch, eur, positionStep(FX_KEY, ["EUR"]));
+    for (const s of sw.fired)
+      posLines.push(swingLine("EUR/HUF", s, ch, `${eur.price.toFixed(2).replace(".", ",")} Ft`));
+    const daily = (moves.pos[FX_KEY] ?? 0) > 0;
+    const swing = pendingSwing(FX_KEY, sw.seen);
+    if (daily || swing)
+      moved.push({
+        daily,
+        factor: { key: FX_KEY, label: "EUR/HUF", pct: ch, ...(swing ? { swing } : {}) },
+      });
   }
   if (posLines.length) send("positionMove", msg(posLines.join("\n")));
 
-  if (st.why?.day !== today) st.why = { day: today, explained: [], runs: 0 };
-  const why = st.why;
-  const unexplained = moved.filter((f) => !why.explained.includes(f.key));
+  // Per factor: the move off the previous close and the reversal each get
+  // searched once a day.
+  const pending = (m: (typeof moved)[number]) =>
+    (m.daily && !why.explained.includes(m.factor.key)) ||
+    (m.factor.swing != null && !why.explained.includes(swingKey(m.factor.key, m.factor.swing)));
+  const todo = moved.filter(pending);
+  const unexplained = todo.map((m) => m.factor);
   const open =
     why.request != null &&
     st.whyTaken !== why.request.at &&
@@ -1291,7 +1358,10 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
       factors: unexplained,
       ...(unexplained.some((f) => f.key === "portfolio") ? { exposure: portfolioExposure(ctx) } : {}),
     };
-    why.explained.push(...unexplained.map((f) => f.key));
+    for (const m of todo) {
+      if (m.daily && !why.explained.includes(m.factor.key)) why.explained.push(m.factor.key);
+      if (m.factor.swing) why.explained.push(swingKey(m.factor.key, m.factor.swing));
+    }
     why.runs++;
   }
 

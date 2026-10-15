@@ -796,6 +796,100 @@ describe("Miért mozdult?", () => {
     expect(vwce).not.toContain("keresd:");
   });
 
+  describe("reversal off the day's low / high", () => {
+    // WBIT's day as moves off the previous close: the bars so far and the
+    // current price (the last bar). Threshold 2%, so a bounce of 3% counts.
+    const env2 = { ...env1, bigMovePct: 50, positionMovePct: 2 };
+    const swingSetup = (bars: number[]) => {
+      const answers: unknown[] = [];
+      const engine = fakeEngine(answers);
+      const started: string[] = [];
+      let day = bars;
+      let minute = 0;
+      const deps: Deps = {
+        load: async () => {
+          const ctx = contextAt([2026, 10, 14, 10, (minute += 5)]);
+          const q = ctx.liveQuotes[WBIT];
+          const at = (b: number) => Math.round(q.prevClose! * (1 + b) * 10_000) / 10_000;
+          q.intraday = day.map(at);
+          q.intradayT = day.map((_, i) => new Date(2026, 9, 14, 9, i * 5).getTime());
+          q.price = at(day.at(-1)!);
+          return ctx;
+        },
+        stateFile,
+        env: env2,
+        why: () => engine,
+        runJob: async (job) => {
+          started.push(job);
+          return "started";
+        },
+      };
+      const swings = async () =>
+        (await call(jobReq(), deps)).messages!.flatMap((m) => m.html.split("\n")).filter((l) => /mai (mélypontjától|csúcsától)/.test(l));
+      const answerAll = () =>
+        answers.push({
+          items: (readState().why as WhyState).request!.factors.map((f) => ({
+            factor: f.key,
+            explanation: "Ok",
+            sources: [],
+          })),
+        });
+      return { deps, engine, started, swings, answerAll, setDay: (b: number[]) => (day = b) };
+    };
+
+    it("a bounce off the low pings once per level, though the day is still deep in the red", async () => {
+      const s = swingSetup([-0.06, -0.059]);
+      expect(await s.swings()).toEqual([]);
+      s.setDay([-0.06, -0.05, -0.03]);
+      const bounce = await s.swings();
+      expect(bounce).toEqual([expect.stringContaining("↗️ <b>WBIT: +3,2%</b> a mai mélypontjától (ma: −3,0%)")]);
+      expect(await s.swings()).toEqual([]);
+      s.setDay([-0.06, -0.05, -0.03, 0]);
+      expect(await s.swings()).toEqual([expect.stringContaining("<b>WBIT: +6,4%</b> a mai mélypontjától (ma: +0,0%)")]);
+    });
+
+    it("a fall off the high is the mirror image", async () => {
+      const s = swingSetup([0.06, 0.05, 0.03]);
+      expect(await s.swings()).toEqual([expect.stringContaining("↘️ <b>WBIT: −2,8%</b> a mai csúcsától (ma: +3,0%)")]);
+    });
+
+    it("a straight move off the previous close is the daily alert's, not a reversal", async () => {
+      const s = swingSetup([0, 0.02, 0.035]);
+      const lines = (await call(jobReq(), s.deps)).messages!.flatMap((m) => m.html.split("\n"));
+      expect(lines.some((l) => l.includes("<b>WBIT: +3,5%</b> ma"))).toBe(true);
+      expect(await s.swings()).toEqual([]);
+    });
+
+    it("a borrowed or stale curve is no evidence of the day's extremes", async () => {
+      const s = swingSetup([-0.06, -0.05, -0.03]);
+      const load = s.deps.load;
+      s.deps.load = async () => {
+        const ctx = await load();
+        ctx.liveQuotes[WBIT].intradayFrom = "BTC-USD";
+        return ctx;
+      };
+      expect(await s.swings()).toEqual([]);
+    });
+
+    it("the reversal gets its own search even after the factor was explained today", async () => {
+      const s = swingSetup([-0.06, -0.059]);
+      await call(jobReq(), s.deps);
+      expect(s.started).toEqual(["news-why"]);
+      s.answerAll();
+      await call(jobReq("news-why"), s.deps);
+      s.setDay([-0.06, -0.05, -0.03]);
+      await call(jobReq(), s.deps);
+      expect(s.started).toEqual(["news-why", "news-why"]);
+      const request = (readState().why as WhyState).request!;
+      expect(request.factors).toEqual([expect.objectContaining({ key: WBIT, swing: { from: "low", pct: expect.closeTo(0.0319, 3) } })]);
+      s.answerAll();
+      await call(jobReq("news-why"), s.deps);
+      expect(s.engine.prompts[1]).toContain("a napi mélypontjáról +3,19% visszapattanás");
+      await call(jobReq(), s.deps);
+      expect(s.started).toHaveLength(2);
+    });
+  });
+
   it("override settings: malformed entries are ignored", () => {
     expect(parseMoveOverrides("WBIT:4, xyz : 2.5,bad,:3,ABC:0,DEF:x,")).toEqual({ WBIT: 4, XYZ: 2.5 });
     expect(parseMoveOverrides("")).toEqual({});

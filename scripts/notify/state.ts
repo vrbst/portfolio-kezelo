@@ -18,7 +18,17 @@ export interface State {
    * the move crosses a higher multiple of the current threshold than the one
    * already reported, so a 2% day pings once, and again if it deepens to 4%.
    */
-  moves?: { day: string; total: number; pos: Record<string, number> };
+  moves?: {
+    day: string;
+    total: number;
+    pos: Record<string, number>;
+    /**
+     * Last reported rise from the day's low (`up`) and fall from its high
+     * (`down`), as |fractions| per position: a reversal pings on its own,
+     * the same way as the move off the previous close.
+     */
+    swing?: Record<string, { up: number; down: number }>;
+  };
   /** Stale-data warnings: key → last sent ISO (re-sent at most weekly). */
   warned: Record<string, string>;
   /**
