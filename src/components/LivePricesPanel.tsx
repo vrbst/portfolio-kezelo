@@ -287,7 +287,9 @@ function PriceTile({
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-muted)]"
               title={
-                trading
+                quote?.premarket
+                  ? `Nyitás előtti ár (${quote.premarket}) — ${quote.exchange ?? "a piac"} még nem kötött ma`
+                  : trading
                   ? `${quote?.exchange ?? "A piac"} nyitva, de még nincs mai kötés — az utolsó záróár`
                   : `Záróár — ${quote?.exchange ?? "a piac"} most zárva`
               }
@@ -308,7 +310,9 @@ function PriceTile({
           title={
             session
               ? `Az utolsó kereskedési nap (${session}) változása — ma nem volt kereskedés`
-              : "Változás az előző záráshoz képest"
+              : quote?.premarket
+                ? `Változás az előző záráshoz képest — ${quote.premarket} ára, a(z) ${quote.exchange ?? "piac"} még nem kötött`
+                : "Változás az előző záráshoz képest"
           }
         >
           {session && `${session}: `}

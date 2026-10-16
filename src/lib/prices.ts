@@ -149,6 +149,12 @@ export interface LiveQuote {
    */
   marketTime?: number;
   quoteType?: string;
+  /**
+   * Set when the primary listing has not traded today yet and `price` comes
+   * from another listing of the same security (e.g. Munich before the Xetra
+   * open): that listing's exchange name. `prevClose` stays the primary's.
+   */
+  premarket?: string;
 }
 
 /**
@@ -410,6 +416,96 @@ async function searchYahooSymbol(isin: string): Promise<string | null> {
   }
 }
 
+/** Other listings of an ISIN (Yahoo search), cached per session. */
+const altSymbolCache = new Map<string, string[]>();
+
+async function searchAltSymbols(isin: string): Promise<string[]> {
+  const cached = altSymbolCache.get(isin);
+  if (cached) return cached;
+  let symbols: string[] = [];
+  try {
+    const res = await fetch(
+      proxied(
+        `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
+          isin,
+        )}&quotesCount=10&newsCount=0`,
+      ),
+      { cache: "no-store" },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        quotes?: { symbol?: string; quoteType?: string }[];
+      };
+      symbols = (data?.quotes ?? [])
+        .filter(
+          (q) =>
+            q.symbol &&
+            (q.quoteType === "ETF" ||
+              q.quoteType === "EQUITY" ||
+              q.quoteType === "MUTUALFUND"),
+        )
+        .map((q) => q.symbol!);
+    }
+  } catch {
+    /* no alternatives */
+  }
+  altSymbolCache.set(isin, symbols);
+  return symbols;
+}
+
+/** How far a secondary listing may sit from the primary's previous close. */
+const PREMARKET_TOLERANCE = 0.05;
+const MAX_ALT_LISTINGS = 5;
+
+/**
+ * The best "pre-market" stand-in for a listing that has not traded today: the
+ * alternative listing in the SAME currency that traded today, closest in price
+ * to the primary's previous close (a sanity guard against a wrong or illiquid
+ * line), latest trade first. Undefined when none qualifies.
+ */
+export function pickPremarket<Q extends LiveQuote & { currency?: string }>(
+  primary: LiveQuote,
+  alts: Q[],
+  currency: string,
+  now: Date,
+): Q | undefined {
+  const ref = primary.prevClose ?? primary.price;
+  return alts
+    .filter(
+      (a) =>
+        a.currency === currency &&
+        a.marketTime != null &&
+        quotedToday(a, now) &&
+        Math.abs(a.price / ref - 1) <= PREMARKET_TOLERANCE,
+    )
+    .sort((a, b) => b.marketTime! - a.marketTime!)[0];
+}
+
+/**
+ * Before the primary listing's first trade of the day (weekday mornings), take
+ * the price from another listing of the same ISIN that already trades — works
+ * for any security Yahoo has a second, active listing for.
+ */
+async function applyPremarket(
+  t: LivePriceTarget,
+  primarySymbol: string,
+  live: LiveQuote,
+  now: Date,
+): Promise<void> {
+  if (quotedToday(live, now) || now.getDay() === 0 || now.getDay() === 6) return;
+  const symbols = (await searchAltSymbols(t.isin))
+    .filter((s) => s !== primarySymbol)
+    .slice(0, MAX_ALT_LISTINGS);
+  const alts = (await Promise.all(symbols.map(fetchYahooQuote))).filter(
+    (q): q is YahooQuote => q != null,
+  );
+  const alt = pickPremarket(live, alts, t.currency, now);
+  if (!alt) return;
+  live.price = alt.price;
+  live.marketTime = alt.marketTime;
+  live.premarket = alt.exchange ?? "másik tőzsde";
+}
+
 export interface LivePriceTarget {
   /** instrument.key — what the returned price map is keyed by. */
   key: string;
@@ -481,6 +577,7 @@ export async function fetchLivePrices(
           live.intradayFrom = proxy;
         }
       }
+      await applyPremarket(t, r.symbol, live, new Date());
       return [t.key, live] as const;
     }),
   );

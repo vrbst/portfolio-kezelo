@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchLiveFx,
+  fetchLivePrices,
+  pickPremarket,
   fxMarketOpen,
   intradaySwing,
   lastSessionLabel,
@@ -149,5 +151,61 @@ describe("fetchLiveFx after the Sunday-evening reopen", () => {
     const eur = await load(now);
     expect(quotedToday(eur, now)).toBe(false);
     expect(eur.prevClose).toBe(368.36);
+  });
+});
+
+describe("pre-market stand-in listing", () => {
+  const now = new Date(2026, 9, 16, 9, 11); // Friday, Xetra open but no trade yet
+  const today = (h: number, m: number) => new Date(2026, 9, 16, h, m).getTime();
+  const primary = { price: 170.94, prevClose: 170.94, marketTime: today(0, 0) - 3_600_000 };
+  const alt = (o: object) => ({ price: 171.16, currency: "EUR", marketTime: today(8, 52), exchange: "Munich", ...o });
+
+  it("takes the same-currency listing that traded today", () => {
+    expect(pickPremarket(primary, [alt({})], "EUR", now)?.exchange).toBe("Munich");
+  });
+
+  it("rejects other currencies, stale trades and off-scale prices", () => {
+    expect(pickPremarket(primary, [alt({ currency: "HUF" })], "EUR", now)).toBeUndefined();
+    expect(pickPremarket(primary, [alt({ marketTime: today(0, 0) - 3_600_000 })], "EUR", now)).toBeUndefined();
+    expect(pickPremarket(primary, [alt({ price: 100.86 })], "EUR", now)).toBeUndefined();
+  });
+
+  it("prefers the most recent trade", () => {
+    const picked = pickPremarket(primary, [alt({ exchange: "A" }), alt({ exchange: "B", marketTime: today(9, 5) })], "EUR", now);
+    expect(picked?.exchange).toBe("B");
+  });
+
+  const chart = (price: number, exchange: string, tradeAt: number, currency = "EUR") => ({
+    chart: { result: [{ meta: { regularMarketPrice: price, regularMarketTime: Math.floor(tradeAt / 1000), currency, previousClose: 170.94, fullExchangeName: exchange, gmtoffset: 7200 }, timestamp: [], indicators: { quote: [{ close: [] }] } }] },
+  });
+  const load = async (at: Date, isin = "IE00PRE0000X") => {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const target = new URL(url).searchParams.get("url")!;
+      if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }, { symbol: "AAA.MU", quoteType: "ETF" }] }) };
+      const json = target.includes("AAA.DE") ? chart(170.94, "XETRA", at.getTime() - 20 * 3_600_000) : chart(171.16, "Munich", today(8, 52));
+      return { ok: true, json: async () => json };
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at);
+    try {
+      return (await fetchLivePrices([{ key: isin, isin, currency: "EUR" }]))[isin];
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  };
+
+  it("fetchLivePrices uses the other listing's price, keeping the primary previous close", async () => {
+    const q = await load(now);
+    expect(q.price).toBe(171.16);
+    expect(q.premarket).toBe("Munich");
+    expect(q.prevClose).toBe(170.94);
+    expect(quotedToday(q, now)).toBe(true);
+  });
+
+  it("not on a weekend", async () => {
+    const q = await load(new Date(2026, 9, 17, 9, 11), "IE00PRE0000Y");
+    expect(q.premarket).toBeUndefined();
+    expect(q.price).toBe(170.94);
   });
 });
