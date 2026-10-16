@@ -150,11 +150,12 @@ export interface LiveQuote {
   marketTime?: number;
   quoteType?: string;
   /**
-   * Set when the primary listing has not traded today yet and `price` comes
-   * from another listing of the same security (e.g. Munich before the Xetra
-   * open): that listing's exchange name. `prevClose` stays the primary's.
+   * Set when the primary listing is closed (`pre`: no trade yet today, `post`:
+   * session over) and `price` comes from another listing of the same
+   * security that still trades (e.g. Munich): that exchange's name. The
+   * `prevClose` stays the primary's.
    */
-  premarket?: string;
+  offHours?: { exchange: string; kind: "pre" | "post" };
 }
 
 /**
@@ -453,57 +454,78 @@ async function searchAltSymbols(isin: string): Promise<string[]> {
   return symbols;
 }
 
-/** How far a secondary listing may sit from the primary's previous close. */
-const PREMARKET_TOLERANCE = 0.05;
+/** How far a secondary listing may sit from the primary's last price. */
+const ALT_TOLERANCE = 0.05;
 const MAX_ALT_LISTINGS = 5;
+/** Secondary venues (Munich, Stuttgart…) trade for hours after the primary closes. */
+const AFTER_CLOSE_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 /**
- * The best "pre-market" stand-in for a listing that has not traded today: the
- * alternative listing in the SAME currency that traded today, closest in price
- * to the primary's previous close (a sanity guard against a wrong or illiquid
- * line), latest trade first. Undefined when none qualifies.
+ * Is the primary listing outside its own hours on a weekday — "pre": no trade
+ * yet today, "post": its session is over (within the after-close window)?
  */
-export function pickPremarket<Q extends LiveQuote & { currency?: string }>(
+export function offHoursKind(
+  q: LiveQuote,
+  now: number,
+): "pre" | "post" | undefined {
+  const day = new Date(now).getDay();
+  if (day === 0 || day === 6) return undefined;
+  if (!quotedToday(q, new Date(now))) return "pre";
+  const end = q.session?.end;
+  return end != null && now >= end && now < end + AFTER_CLOSE_WINDOW_MS
+    ? "post"
+    : undefined;
+}
+
+/**
+ * The stand-in for a primary listing that is closed: the alternative listing
+ * in the SAME currency that traded today AFTER the primary's last trade, close
+ * to the primary's price (a guard against a wrong or illiquid line), latest
+ * trade first. Undefined when none qualifies.
+ */
+export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
   primary: LiveQuote,
   alts: Q[],
   currency: string,
   now: Date,
 ): Q | undefined {
-  const ref = primary.prevClose ?? primary.price;
+  const since = primary.marketTime ?? 0;
   return alts
     .filter(
       (a) =>
         a.currency === currency &&
         a.marketTime != null &&
+        a.marketTime > since &&
         quotedToday(a, now) &&
-        Math.abs(a.price / ref - 1) <= PREMARKET_TOLERANCE,
+        Math.abs(a.price / primary.price - 1) <= ALT_TOLERANCE,
     )
-    .sort((a, b) => b.marketTime! - a.marketTime!)[0];
+    .sort((x, y) => y.marketTime! - x.marketTime!)[0];
 }
 
 /**
- * Before the primary listing's first trade of the day (weekday mornings), take
- * the price from another listing of the same ISIN that already trades — works
- * for any security Yahoo has a second, active listing for.
+ * Before the primary listing's first trade or after its close (weekdays), take
+ * the price from another listing of the same ISIN that is still trading —
+ * works for any security Yahoo has a second, active listing for.
  */
-async function applyPremarket(
+async function applyOffHours(
   t: LivePriceTarget,
   primarySymbol: string,
   live: LiveQuote,
   now: Date,
 ): Promise<void> {
-  if (quotedToday(live, now) || now.getDay() === 0 || now.getDay() === 6) return;
+  const kind = offHoursKind(live, now.getTime());
+  if (!kind) return;
   const symbols = (await searchAltSymbols(t.isin))
     .filter((s) => s !== primarySymbol)
     .slice(0, MAX_ALT_LISTINGS);
   const alts = (await Promise.all(symbols.map(fetchYahooQuote))).filter(
     (q): q is YahooQuote => q != null,
   );
-  const alt = pickPremarket(live, alts, t.currency, now);
+  const alt = pickOffHours(live, alts, t.currency, now);
   if (!alt) return;
   live.price = alt.price;
   live.marketTime = alt.marketTime;
-  live.premarket = alt.exchange ?? "másik tőzsde";
+  live.offHours = { exchange: alt.exchange ?? "másik tőzsde", kind };
 }
 
 export interface LivePriceTarget {
@@ -577,7 +599,7 @@ export async function fetchLivePrices(
           live.intradayFrom = proxy;
         }
       }
-      await applyPremarket(t, r.symbol, live, new Date());
+      await applyOffHours(t, r.symbol, live, new Date());
       return [t.key, live] as const;
     }),
   );
