@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  altCandidates,
   fetchLiveFx,
   fetchLivePrices,
   pickOffHours,
@@ -161,17 +162,17 @@ describe("off-hours stand-in listing", () => {
   const alt = (o: object) => ({ price: 171.16, currency: "EUR", marketTime: today(8, 52), exchange: "Munich", ...o });
 
   it("takes the same-currency listing that traded today", () => {
-    expect(pickOffHours(primary, [alt({})], "EUR", now)?.exchange).toBe("Munich");
+    expect(pickOffHours(primary, [alt({})], "EUR")?.exchange).toBe("Munich");
   });
 
   it("rejects other currencies, stale trades and off-scale prices", () => {
-    expect(pickOffHours(primary, [alt({ currency: "HUF" })], "EUR", now)).toBeUndefined();
-    expect(pickOffHours(primary, [alt({ marketTime: today(0, 0) - 3_600_000 })], "EUR", now)).toBeUndefined();
-    expect(pickOffHours(primary, [alt({ price: 100.86 })], "EUR", now)).toBeUndefined();
+    expect(pickOffHours(primary, [alt({ currency: "HUF" })], "EUR")).toBeUndefined();
+    expect(pickOffHours(primary, [alt({ marketTime: today(0, 0) - 3_600_000 })], "EUR")).toBeUndefined();
+    expect(pickOffHours(primary, [alt({ price: 100.86 })], "EUR")).toBeUndefined();
   });
 
   it("prefers the most recent trade", () => {
-    const picked = pickOffHours(primary, [alt({ exchange: "A" }), alt({ exchange: "B", marketTime: today(9, 5) })], "EUR", now);
+    const picked = pickOffHours(primary, [alt({ exchange: "A" }), alt({ exchange: "B", marketTime: today(9, 5) })], "EUR");
     expect(picked?.exchange).toBe("B");
   });
 
@@ -181,7 +182,8 @@ describe("off-hours stand-in listing", () => {
   const load = async (at: Date, isin = "IE00PRE0000X", primary?: ReturnType<typeof chart>, altAt = today(8, 52), altPrice = 171.16) => {
     vi.stubGlobal("fetch", async (url: string) => {
       const target = new URL(url).searchParams.get("url")!;
-      if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }, { symbol: "AAA.MU", quoteType: "ETF" }] }) };
+      if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }] }) };
+      if (!target.includes("AAA.DE") && !target.includes("AAA.MU")) return { ok: false, json: async () => ({}) };
       const json = target.includes("AAA.DE") ? (primary ?? chart(170.94, "XETRA", at.getTime() - 20 * 3_600_000)) : chart(altPrice, "Munich", altAt);
       return { ok: true, json: async () => json };
     });
@@ -203,10 +205,12 @@ describe("off-hours stand-in listing", () => {
     expect(quotedToday(q, now)).toBe(true);
   });
 
-  it("not on a weekend", async () => {
-    const q = await load(new Date(2026, 9, 17, 9, 11), "IE00PRE0000Y");
-    expect(q.offHours).toBeUndefined();
-    expect(q.price).toBe(170.94);
+  it("on the weekend Friday evening's venue price stays, still Friday's move", async () => {
+    const sat = new Date(2026, 9, 17, 9, 11);
+    const q = await load(sat, "IE00PRE0000Y", undefined, new Date(2026, 9, 16, 20, 0).getTime());
+    expect(q.price).toBe(171.16);
+    expect(q.offHours?.kind).toBe("post");
+    expect(quotedToday(q, sat)).toBe(false);
   });
 
   it("after the primary close the later-trading listing's price is used", async () => {
@@ -223,5 +227,14 @@ describe("off-hours stand-in listing", () => {
     const q = await load(at, "IE00MID0000X", xetra, new Date(2026, 9, 16, 11, 59).getTime(), 172.4);
     expect(q.offHours).toBeUndefined();
     expect(q.price).toBe(172);
+  });
+
+  it("siblings of the primary ticker are candidates even when the ISIN search misses them", () => {
+    const c = altCandidates(["VWRA.L"], "VWCE.DE");
+    expect(c).toContain("VWCE.MU");
+    expect(c).toContain("VWCE.DU");
+    expect(c).toContain("VWRA.L");
+    expect(c).not.toContain("VWCE.DE");
+    expect(altCandidates([], "BTC-EUR")).toEqual([]);
   });
 });

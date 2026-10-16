@@ -456,30 +456,37 @@ async function searchAltSymbols(isin: string): Promise<string[]> {
 
 /** How far a secondary listing may sit from the primary's last price. */
 const ALT_TOLERANCE = 0.05;
-const MAX_ALT_LISTINGS = 5;
-/** Secondary venues (Munich, Stuttgart…) trade for hours after the primary closes. */
-const AFTER_CLOSE_WINDOW_MS = 6 * 60 * 60 * 1000;
-
+const MAX_ALT_LISTINGS = 8;
 /**
- * Is the primary listing outside its own hours on a weekday — "pre": no trade
- * yet today, "post": its session is over (within the after-close window)?
+ * German regional venues that trade long hours (Munich, Düsseldorf, Hamburg,
+ * Berlin, Stuttgart, Frankfurt). Yahoo's ISIN search rarely lists them, so the
+ * primary ticker's siblings on these venues are probed too — the currency,
+ * "traded after the primary" and price-distance checks reject wrong lines.
  */
-export function offHoursKind(
-  q: LiveQuote,
-  now: number,
-): "pre" | "post" | undefined {
-  const day = new Date(now).getDay();
-  if (day === 0 || day === 6) return undefined;
-  if (!quotedToday(q, new Date(now))) return "pre";
-  const end = q.session?.end;
-  return end != null && now >= end && now < end + AFTER_CLOSE_WINDOW_MS
-    ? "post"
-    : undefined;
+const SIBLING_SUFFIXES = ["MU", "DU", "HM", "BE", "SG", "F"];
+/** Symbols that returned nothing this session — not probed again. */
+const deadSymbols = new Set<string>();
+
+/** Other listings to try: Yahoo's ISIN search hits plus the ticker's siblings. */
+export function altCandidates(searched: string[], primarySymbol: string): string[] {
+  const dot = primarySymbol.lastIndexOf(".");
+  const base = dot > 0 ? primarySymbol.slice(0, dot) : "";
+  const siblings = base ? SIBLING_SUFFIXES.map((x) => `${base}.${x}`) : [];
+  return [...new Set([...searched, ...siblings])]
+    .filter((x) => x !== primarySymbol && !deadSymbols.has(x))
+    .slice(0, MAX_ALT_LISTINGS);
+}
+/**
+ * Should the primary listing be cross-checked against other venues: it has not
+ * traded today, or its regular session is not running (evening, weekend)?
+ */
+export function needsOffHours(q: LiveQuote, now: number): boolean {
+  return !quotedToday(q, new Date(now)) || !isTrading(q, now);
 }
 
 /**
  * The stand-in for a primary listing that is closed: the alternative listing
- * in the SAME currency that traded today AFTER the primary's last trade, close
+ * in the SAME currency that traded AFTER the primary's last trade, close
  * to the primary's price (a guard against a wrong or illiquid line), latest
  * trade first. Undefined when none qualifies.
  */
@@ -487,7 +494,6 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
   primary: LiveQuote,
   alts: Q[],
   currency: string,
-  now: Date,
 ): Q | undefined {
   const since = primary.marketTime ?? 0;
   return alts
@@ -496,16 +502,15 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
         a.currency === currency &&
         a.marketTime != null &&
         a.marketTime > since &&
-        quotedToday(a, now) &&
         Math.abs(a.price / primary.price - 1) <= ALT_TOLERANCE,
     )
     .sort((x, y) => y.marketTime! - x.marketTime!)[0];
 }
 
 /**
- * Before the primary listing's first trade or after its close (weekdays), take
- * the price from another listing of the same ISIN that is still trading —
- * works for any security Yahoo has a second, active listing for.
+ * Before the primary listing's first trade, after its close or on the weekend,
+ * take the latest price from another listing of the same security that traded
+ * later — works for any security Yahoo has a second, active listing for.
  */
 async function applyOffHours(
   t: LivePriceTarget,
@@ -513,16 +518,24 @@ async function applyOffHours(
   live: LiveQuote,
   now: Date,
 ): Promise<void> {
-  const kind = offHoursKind(live, now.getTime());
-  if (!kind) return;
-  const symbols = (await searchAltSymbols(t.isin))
-    .filter((s) => s !== primarySymbol)
-    .slice(0, MAX_ALT_LISTINGS);
-  const alts = (await Promise.all(symbols.map(fetchYahooQuote))).filter(
-    (q): q is YahooQuote => q != null,
-  );
-  const alt = pickOffHours(live, alts, t.currency, now);
+  if (!needsOffHours(live, now.getTime())) return;
+  const symbols = altCandidates(await searchAltSymbols(t.isin), primarySymbol);
+  const alts = (
+    await Promise.all(
+      symbols.map(async (sym) => {
+        const q = await fetchYahooQuote(sym);
+        if (!q) deadSymbols.add(sym);
+        return q;
+      }),
+    )
+  ).filter((q): q is YahooQuote => q != null);
+  const alt = pickOffHours(live, alts, t.currency);
   if (!alt) return;
+  // Same local day as the primary's last trade: after its close; a later day: before its open.
+  const kind =
+    live.marketTime != null && toLocalDay(live.marketTime) === toLocalDay(alt.marketTime!)
+      ? "post"
+      : "pre";
   live.price = alt.price;
   live.marketTime = alt.marketTime;
   live.offHours = { exchange: alt.exchange ?? "másik tőzsde", kind };
