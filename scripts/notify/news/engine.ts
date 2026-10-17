@@ -8,8 +8,8 @@
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
 import { usageFromClaudeOutput, usageFromClaudeResult, type AiUsage } from "../aiUsage";
 import {
-  HUB_CODE,
-  HubError,
+  CliError,
+  DeadlineMissedError,
   hubAsk,
   toCliJson,
   type HubAskOptions,
@@ -111,11 +111,7 @@ export function claudeCodeEngine(opts: {
       const schema = (opts.schema ?? NEWS_JSON_SCHEMA) as Record<string, unknown>;
       try {
         if (opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime())
-          throw new HubError(
-            HUB_CODE.deadlineMissed,
-            409,
-            "A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.",
-          );
+          throw new DeadlineMissedError("A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.");
         const res = await (opts.askImpl ?? hubAsk)(
           {
             prompt,
@@ -140,7 +136,7 @@ export function claudeCodeEngine(opts: {
         return result;
       } catch (e) {
         // A CLI failure that still printed JSON carries its usage.
-        if (e instanceof HubError && e.code === HUB_CODE.cliError && e.cliJson) usage = usageFromClaudeResult(e.cliJson);
+        if (e instanceof CliError && e.cliJson) usage = usageFromClaudeResult(e.cliJson);
         report(false, (e as Error).message.slice(0, 200));
         throw e;
       }

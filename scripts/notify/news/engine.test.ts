@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { claudeCodeEngine, type EngineRun } from "./engine";
-import { HubError, hubErrorCode, type HubAskOptions, type HubAskResult } from "../hubClient";
+import { hubErrorCode, type HubAskOptions, type HubAskResult } from "../hubClient";
+import { hubError } from "../hubError.fixture";
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
 
 // No real hub and no real claude: askImpl / directImpl record what they get.
@@ -30,7 +31,7 @@ const recorder = (answer: HubAskResult | Error) => {
     },
   };
 };
-const hubErr = (code: string, status = 500) => new HubError(code, status, `hiba: ${code}`);
+const hubErr = (code: string, status = 500) => hubError(code, { status });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -78,7 +79,8 @@ describe("claudeCodeEngine → the hub", () => {
 
   it("a CLI error with JSON still reports its usage", async () => {
     const runs: EngineRun[] = [];
-    const e = new HubError("cli_error", 502, "a claude hibával állt le", {
+    const e = hubError("cli_error", {
+      message: "a claude hibával állt le",
       cliJson: { usage: { input_tokens: 7, output_tokens: 3 }, total_cost_usd: 0.1 },
     });
     await expect(

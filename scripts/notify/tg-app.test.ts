@@ -11,7 +11,7 @@ import { ROOT, parseMoveOverrides, parseWhySubjects } from "./env";
 import { contextAt } from "./testContext";
 import { alertMessages, runHandler, searchEdition, type Deps, type HubResponse } from "./tg-app";
 import { fakeEngine, memoryStore } from "./news/testFakes";
-import { HubError } from "./hubClient";
+import { hubError } from "./hubError.fixture";
 import { fixtureNewsBody } from "../../src/test/newsFixture";
 import { VWCE, WBIT } from "../../src/test/fixture";
 import { article } from "./news/why";
@@ -991,7 +991,7 @@ describe("outlook jobs", () => {
   const limitHit = {
     name: "f",
     model: "m",
-    run: async () => Promise.reject(new HubError("quota_exhausted", 429, "A kvóta elfogyott, reset 8-kor", { resetAt: null })),
+    run: async () => Promise.reject(hubError("quota_exhausted", { status: 429, message: "A kvóta elfogyott, reset 8-kor" })),
   };
   const aiDeps = (at: [number, number, number, number, number], engine: ReturnType<typeof fakeEngine> | typeof limitHit, store = memoryStore()) => ({
     deps: {

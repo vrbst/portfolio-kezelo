@@ -1,0 +1,18 @@
+{
+  "package": "my-claude-hub-client",
+  "version": "0.1.0",
+  "source": "my-claude-hub/packages/hub-client/dist/esm",
+  "hubCommit": "9e80f00",
+  "files": {
+    "client.js": "95b39d521869ce6b810a618ec8aa42eb7decbcd2da5f80008c86a3948a662f8d",
+    "client.d.ts": "b25ed282c3ce18f59a0a6b5bc8ed138e06d3b3959a415eb1bd04247dd9fe80f9",
+    "errors.js": "78cecfaf2fcad157aaa3f478abc6809fd5738dd8706bafeb2eeb9f02f087a6be",
+    "errors.d.ts": "e6e2de0a3a3bef20ab36374115480d7674006ccd229c3f35fc072a48a3caaaa8",
+    "index.js": "4b6e2ac3874c65bbc5f0a70e17a8824bcb65c5ffd494f77c26ece252f5ce99b0",
+    "index.d.ts": "5a25ed1e7fca4263038449eb3e46be1def7920246aa14f49054d049f0ada27a4",
+    "sse.js": "584fc9eefd42433078417380e6d4bf6f967884894d3879f58fb78d7fcad31e86",
+    "sse.d.ts": "82737fc344c3df5d8ef8b1cccde9884a4abb9b3ee1fa48b7f0e8367b7eb44834",
+    "transport.js": "02ba6aadd1ff66313732104e7483f068b68697b1ab16af49ce6db1310f9bc5c4",
+    "transport.d.ts": "f84f865d0c5161c10d765ae01b7ec69fb04f593cbd366c9712534ca63a9ad397"
+  }
+}

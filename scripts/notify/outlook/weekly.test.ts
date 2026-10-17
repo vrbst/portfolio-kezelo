@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { weeklyOutlookAi } from "./weekly";
-import { HubError } from "../hubClient";
+import { hubError } from "../hubError.fixture";
 import { readAiState } from "./aiState";
 import { listPending } from "./issuerDocs";
 import type { OutlookTarget } from "./refresh";
@@ -23,8 +23,8 @@ const answer = {
 const sat0430 = new Date(2026, 9, 17, 4, 30);
 const sat0815 = new Date(2026, 9, 17, 8, 15);
 const sun = new Date(2026, 9, 18, 9, 0);
-const quotaError = () => new HubError("quota_exhausted", 429, "A kvóta elfogyott", { resetAt: null });
-const deadlineError = () => new HubError("deadline_missed", 409, "Nem fér bele a job idejébe");
+const quotaError = () => hubError("quota_exhausted", { status: 429, message: "A kvóta elfogyott" });
+const deadlineError = () => hubError("deadline_missed", { status: 409, message: "Nem fér bele a job idejébe" });
 const limitHit = { name: "f", model: "m", run: async () => Promise.reject(quotaError()) };
 const deadlineHit = { name: "f", model: "m", run: async () => Promise.reject(deadlineError()) };
 

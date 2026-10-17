@@ -199,8 +199,10 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   nem érhető el, a hívás hibával megáll, és a következő futás pótolja. Az időablakos jobok (`news-*`, `analysis`, `outlook-ai*`) hívásai
   határidőt kapnak: a `tg-hub.app.json`-beli job-timeout mínusz 12 perc futás
   mínusz 3 perc tartalék; ami már nem fér bele, kimarad, és a következő futás
-  (vagy az `outlook-ai-retry`) pótolja. Az `scripts/notify/hubClient.ts` saját
-  kliens, nincs külön csomag.
+  (vagy az `outlook-ai-retry`) pótolja. A kliens a hub hivatalos
+  kliensének lefordított másolata (`vendor/hub-client/`, frissítés: `node
+  scripts/sync-hub-client.mjs`), az `scripts/notify/hubClient.ts` csak vékony
+  illesztő; nincs külön csomagfüggőség, a másolatot kézzel nem szerkesztjük.
 
 ## Technológia
 

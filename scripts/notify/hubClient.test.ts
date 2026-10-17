@@ -1,7 +1,17 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { HUB_CODE, HubError, errorFromBody, hubAsk, hubErrorCode, requestCapMs, toCliJson, type HubConnection } from "./hubClient";
+import {
+  HUB_CODE,
+  HubClientError,
+  QuotaExhaustedError,
+  errorFromResponse,
+  hubAsk,
+  hubErrorCode,
+  requestCapMs,
+  toCliJson,
+  type HubConnection,
+} from "./hubClient";
 
 // A stand-in for the hub, answering as docs/API.md describes. No real hub, no claude.
 type Handler = (req: http.IncomingMessage, body: string, res: http.ServerResponse) => void;
@@ -60,8 +70,8 @@ describe("hubAsk", () => {
     ];
     for (const [status, body] of cases) {
       const conn = await serve(err(status, body));
-      const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubError);
-      expect(e).toBeInstanceOf(HubError);
+      const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubClientError);
+      expect(e).toBeInstanceOf(HubClientError);
       expect(e).toMatchObject({ code: body.code, status });
       await new Promise<void>((r) => server!.close(() => r()));
       server = undefined;
@@ -69,12 +79,12 @@ describe("hubAsk", () => {
   });
 
   it("quota_exhausted carries resetAt, cli_error carries the CLI's JSON and exit code", async () => {
-    const q = errorFromBody(429, JSON.stringify({ error: { code: "quota_exhausted", message: "x", reset_at: "2026-10-17T06:00:00.000Z", call_id: 3 } }));
+    const q = errorFromResponse(429, { error: { code: "quota_exhausted", message: "x", reset_at: "2026-10-17T06:00:00.000Z", call_id: 3 } }) as QuotaExhaustedError;
     expect(q.resetAt?.toISOString()).toBe("2026-10-17T06:00:00.000Z");
     expect(q.callId).toBe(3);
-    const guessed = errorFromBody(429, JSON.stringify({ error: { code: "quota_exhausted", message: "x" } }));
+    const guessed = errorFromResponse(429, { error: { code: "quota_exhausted", message: "x" } }) as QuotaExhaustedError;
     expect(guessed.resetAt).toBeNull();
-    const c = errorFromBody(502, JSON.stringify({ error: { code: "cli_error", message: "x", exit_code: 3, stderr_tail: "boom", cli_json: { result: "r" } } }));
+    const c = errorFromResponse(502, { error: { code: "cli_error", message: "x", exit_code: 3, stderr_tail: "boom", cli_json: { result: "r" } } });
     expect(c).toMatchObject({ exitCode: 3, stderrTail: "boom", cliJson: { result: "r" } });
   });
 
@@ -83,13 +93,13 @@ describe("hubAsk", () => {
       res.writeHead(502);
       res.end("<html>bad gateway</html>");
     });
-    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubClientError);
     expect(e).toMatchObject({ code: "error", status: 502 });
     expect(hubErrorCode(e)).toBe("error");
   });
 
   it("an empty key is unauthorized without any network call", async () => {
-    const e = await hubAsk({ prompt: "p" }, { baseUrl: "http://127.0.0.1:1", apiKey: "" }).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, { baseUrl: "http://127.0.0.1:1", apiKey: "" }).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.unauthorized);
   });
 
@@ -98,18 +108,18 @@ describe("hubAsk", () => {
     const closed = { ...conn };
     await new Promise<void>((r) => server!.close(() => r()));
     server = undefined;
-    const e = await hubAsk({ prompt: "p" }, closed).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, closed).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.unreachable);
   });
 
   it("an invalid address → unreachable", async () => {
-    const e = await hubAsk({ prompt: "p" }, { baseUrl: "nem cím", apiKey: "k" }).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, { baseUrl: "nem cím", apiKey: "k" }).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.unreachable);
   });
 
   it("connected, then the hub drops the connection → connection_lost, never unreachable", async () => {
     const conn = await serve((req) => req.socket.destroy());
-    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.connectionLost);
   });
 
@@ -119,7 +129,7 @@ describe("hubAsk", () => {
       res.write('{"result":"fél');
       setTimeout(() => res.socket?.destroy(), 20);
     });
-    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p" }, conn).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.connectionLost);
   });
 
@@ -127,7 +137,7 @@ describe("hubAsk", () => {
     const conn = await serve(() => {
       /* never answers */
     });
-    const e = await hubAsk({ prompt: "p", timeout_s: 1 }, { ...conn, capMs: 80 }).catch((x) => x as HubError);
+    const e = await hubAsk({ prompt: "p", timeout_s: 1 }, { ...conn, capMs: 80 }).catch((x) => x as HubClientError);
     expect(hubErrorCode(e)).toBe(HUB_CODE.connectionLost);
   });
 });
