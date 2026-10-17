@@ -37,13 +37,9 @@ export interface NotifyEnv {
   analysisModel: string;
   /** Weekly outlook run (outlook/): the model Claude Code runs it with. */
   outlookModel: string;
-  /** Path / name of the Claude Code CLI (only the hub-unreachable fallback starts it). */
-  newsClaudeBin: string;
   /** The local my-claude-hub that runs every AI call (docs/API.md) and this app's key. */
   hubUrl: string;
   hubKey: string;
-  /** MY_CLAUDE_HUB_FALLBACK=1: if the hub is unreachable, start claude -p directly. */
-  hubFallback: boolean;
   /** The app's address, linked from the Telegram digest. */
   appUrl: string;
 }
@@ -110,10 +106,8 @@ export function loadEnv(): NotifyEnv {
     newsModel: e.NEWS_MODEL || "opus",
     analysisModel: e.ANALYSIS_MODEL || "opus",
     outlookModel: e.OUTLOOK_MODEL || "opus",
-    newsClaudeBin: e.NEWS_CLAUDE_BIN || "claude",
     hubUrl: e.MY_CLAUDE_HUB_URL || "http://127.0.0.1:7420",
     hubKey: e.MY_CLAUDE_HUB_KEY || "",
-    hubFallback: e.MY_CLAUDE_HUB_FALLBACK === "1",
     appUrl: e.APP_URL || "https://vrbst.github.io/portfolio-kezelo/",
   };
 }

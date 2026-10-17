@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { claudeCodeEngine, type EngineRun } from "./engine";
-import { tagDirectError } from "./directClaude";
 import { HubError, hubErrorCode, type HubAskOptions, type HubAskResult } from "../hubClient";
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
 
@@ -118,103 +117,15 @@ describe("claudeCodeEngine → the hub", () => {
   });
 });
 
-describe("claudeCodeEngine: the fallback", () => {
-  const direct = () => {
-    const calls: { bin: string; tools: string; prompt: string }[] = [];
-    return {
-      calls,
-      directImpl: async (o: { bin: string; tools: string }, prompt: string) => {
-        calls.push({ bin: o.bin, tools: o.tools, prompt });
-        return JSON.stringify({ subtype: "success", result: "közvetlen", total_cost_usd: 0.01 });
-      },
-    };
-  };
-
-  it("unreachable hub + MY_CLAUDE_HUB_FALLBACK=1 → claude directly, with a warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const d = direct();
-    const out = await claudeCodeEngine({
-      bin: "claude-x",
-      model: "opus",
-      hub: conn,
-      fallback: true,
-      askImpl: recorder(hubErr("unreachable")).askImpl,
-      directImpl: d.directImpl,
-    }).run("p");
-    expect(out.output).toBe("közvetlen");
-    expect(d.calls).toEqual([{ bin: "claude-x", tools: "WebSearch,WebFetch", prompt: "p" }]);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toMatch(/nem érhető el.*közvetlen claude -p/);
-  });
-
-  it("unreachable hub, but the deadline passed meanwhile → no direct call, deadline_missed", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    let now = 1_000;
-    const d = direct();
-    const e = await claudeCodeEngine({
-      model: "opus",
-      hub: conn,
-      fallback: true,
-      deadline: new Date(5_000),
-      now: () => now,
-      // the failed hub attempt itself burns the time that was left
-      askImpl: async () => {
-        now = 6_000;
-        throw hubErr("unreachable");
-      },
-      directImpl: d.directImpl,
-    })
-      .run("p")
-      .catch((x) => x as Error);
-    expect(hubErrorCode(e)).toBe("deadline_missed");
-    expect(d.calls).toEqual([]);
-  });
-
-  it("unreachable without the switch → the error, no direct call", async () => {
-    const d = direct();
-    const e = await claudeCodeEngine({ model: "opus", hub: conn, askImpl: recorder(hubErr("unreachable")).askImpl, directImpl: d.directImpl })
-      .run("p")
-      .catch((x) => x as Error);
-    expect(hubErrorCode(e)).toBe("unreachable");
-    expect(d.calls).toEqual([]);
-  });
-
-  it.each(["quota_exhausted", "rate_limited", "timeout", "deadline_missed", "cli_error", "forbidden", "unauthorized", "unavailable", "connection_lost"])(
-    "%s never falls back, even with the switch on",
+describe("claudeCodeEngine: no direct claude fallback", () => {
+  // Since 2026-10-17 the hub is the only way: even an unreachable hub is just an error.
+  it.each(["unreachable", "quota_exhausted", "rate_limited", "timeout", "deadline_missed", "cli_error", "forbidden", "unauthorized", "unavailable", "connection_lost"])(
+    "%s comes back with its own code",
     async (code) => {
-      const d = direct();
-      const e = await claudeCodeEngine({ model: "opus", hub: conn, fallback: true, askImpl: recorder(hubErr(code)).askImpl, directImpl: d.directImpl })
-        .run("p")
-        .catch((x) => x as Error);
+      const r = recorder(hubErr(code));
+      const e = await claudeCodeEngine({ model: "opus", hub: conn, askImpl: r.askImpl }).run("p").catch((x) => x as Error);
       expect(hubErrorCode(e)).toBe(code);
-      expect(d.calls).toEqual([]);
+      expect(r.calls).toHaveLength(1);
     },
   );
-
-  it("on the direct path a quota text from the CLI becomes the quota code (and only there)", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const e = await claudeCodeEngine({
-      model: "opus",
-      hub: conn,
-      fallback: true,
-      askImpl: recorder(hubErr("unreachable")).askImpl,
-      directImpl: async () => JSON.stringify({ is_error: true, subtype: "error", result: "Claude usage limit reached" }),
-    })
-      .run("p")
-      .catch((x) => x as Error);
-    expect(hubErrorCode(e)).toBe("quota_exhausted");
-  });
-});
-
-describe("tagDirectError", () => {
-  it("only the quota-like CLI texts get a code; an existing hub code is kept", () => {
-    expect(hubErrorCode(tagDirectError(new Error("5-hour limit reached ∙ resets 8am")))).toBe("quota_exhausted");
-    expect(hubErrorCode(tagDirectError(new Error("HTTP 429")))).toBe("quota_exhausted");
-    expect(hubErrorCode(tagDirectError(new Error("a válasz nem érvényes JSON")))).toBeUndefined();
-    // a news headline in the model's text is not a quota error
-    expect(hubErrorCode(tagDirectError(new Error("Hibás JSON: \"Credit Suisse overloaded the market, 4290 points\"")))).toBeUndefined();
-    expect(hubErrorCode(tagDirectError(new Error("Claude: credit balance is too low")))).toBe("quota_exhausted");
-    const e = hubErr("timeout");
-    expect(tagDirectError(e)).toBe(e);
-  });
 });

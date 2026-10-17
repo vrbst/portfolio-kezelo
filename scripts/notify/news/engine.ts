@@ -2,8 +2,8 @@
 // switch to the API later (or a fake in the tests). Today: Claude Code in
 // print mode (`claude -p`) on the owner's subscription, with web search, and
 // its structured output bound to NEWS_JSON_SCHEMA — started by the local
-// my-claude-hub (one queue, quota guard, history), see hubClient.ts. Only when
-// the hub is unreachable and MY_CLAUDE_HUB_FALLBACK=1 does it start claude itself.
+// my-claude-hub (one queue, quota guard, history), see hubClient.ts. There is no
+// direct `claude -p` fallback: an unreachable hub is an error like any other.
 
 import { NEWS_JSON_SCHEMA } from "../../../src/lib/newsSchema";
 import { usageFromClaudeOutput, usageFromClaudeResult, type AiUsage } from "../aiUsage";
@@ -11,13 +11,11 @@ import {
   HUB_CODE,
   HubError,
   hubAsk,
-  hubErrorCode,
   toCliJson,
   type HubAskOptions,
   type HubAskResult,
   type HubConnection,
 } from "../hubClient";
-import { runClaudeDirect, tagDirectError, type DirectOptions } from "./directClaude";
 
 export interface EngineResult {
   /** The structured answer (already parsed), or the raw text to parse. */
@@ -69,8 +67,6 @@ export interface EngineRun {
 }
 
 export function claudeCodeEngine(opts: {
-  /** Only for the fallback: the claude binary to start when the hub is unreachable. */
-  bin?: string;
   model: string;
   schema?: object;
   /** Claude Code tools to allow; "" = none (default: the web research tools). */
@@ -84,12 +80,9 @@ export function claudeCodeEngine(opts: {
    */
   deadline?: Date;
   hub?: HubConnection;
-  /** Unreachable hub → start claude directly (MY_CLAUDE_HUB_FALLBACK=1). */
-  fallback?: boolean;
   onRun?: (run: EngineRun) => void;
   /** Test seams. */
   askImpl?: (o: HubAskOptions, c: HubConnection) => Promise<HubAskResult>;
-  directImpl?: (o: DirectOptions, prompt: string) => Promise<string>;
   now?: () => number;
 }): NewsEngine {
   return {
@@ -117,61 +110,32 @@ export function claudeCodeEngine(opts: {
       const tools = toolsText.split(",").map((t) => t.trim()).filter(Boolean);
       const schema = (opts.schema ?? NEWS_JSON_SCHEMA) as Record<string, unknown>;
       try {
-        let stdout: string;
-        let viaDirect = false;
-        const pastDeadline = () => !!opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime();
-        const deadlineMissed = () =>
-          new HubError(
+        if (opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime())
+          throw new HubError(
             HUB_CODE.deadlineMissed,
             409,
             "A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.",
           );
-        try {
-          if (pastDeadline()) throw deadlineMissed();
-          const res = await (opts.askImpl ?? hubAsk)(
-            {
-              prompt,
-              model: opts.model,
-              // Only reading the web (or nothing): nothing that touches this machine.
-              // The empty list is an explicit "no tools".
-              tools,
-              ...(tools.length ? { allowed_tools: tools } : {}),
-              json_schema: schema,
-              timeout_s: ENGINE_TIMEOUT_MS / 1000,
-              priority: opts.priority ?? "normal",
-              ...(opts.runId ? { run_id: opts.runId } : {}),
-              ...(opts.deadline ? { deadline: opts.deadline } : {}),
-            },
-            opts.hub ?? { baseUrl: "", apiKey: "" },
-          );
-          // The same shape as the CLI's own stdout: the existing parsers stay as they are.
-          stdout = JSON.stringify(toCliJson(res));
-        } catch (e) {
-          if (hubErrorCode(e) !== HUB_CODE.unreachable || !opts.fallback) throw e;
-          // The failed hub attempt may have used up the time: a direct call started
-          // now would outlive the job and be killed with its answer.
-          if (pastDeadline()) throw deadlineMissed();
-          console.warn(
-            `⚠ A my-claude-hub nem érhető el (${(e as Error).message}); MY_CLAUDE_HUB_FALLBACK=1: közvetlen claude -p hívás (a hub sorát és kvótavédelmét megkerüli).`,
-          );
-          viaDirect = true;
-          try {
-            stdout = await (opts.directImpl ?? runClaudeDirect)(
-              { bin: opts.bin || "claude", model: opts.model, schema, tools: toolsText, timeoutMs: ENGINE_TIMEOUT_MS },
-              prompt,
-            );
-          } catch (d) {
-            throw tagDirectError(d);
-          }
-        }
+        const res = await (opts.askImpl ?? hubAsk)(
+          {
+            prompt,
+            model: opts.model,
+            // Only reading the web (or nothing): nothing that touches this machine.
+            // The empty list is an explicit "no tools".
+            tools,
+            ...(tools.length ? { allowed_tools: tools } : {}),
+            json_schema: schema,
+            timeout_s: ENGINE_TIMEOUT_MS / 1000,
+            priority: opts.priority ?? "normal",
+            ...(opts.runId ? { run_id: opts.runId } : {}),
+            ...(opts.deadline ? { deadline: opts.deadline } : {}),
+          },
+          opts.hub ?? { baseUrl: "", apiKey: "" },
+        );
+        // The same shape as the CLI's own stdout: the existing parsers stay as they are.
+        const stdout = JSON.stringify(toCliJson(res));
         usage = usageFromClaudeOutput(stdout);
-        let result: EngineResult;
-        try {
-          result = parseClaudeCodeOutput(stdout);
-        } catch (e) {
-          // Direct path only: no hub code there, so the CLI's text is read (directClaude.ts).
-          throw viaDirect ? tagDirectError(e) : e;
-        }
+        const result = parseClaudeCodeOutput(stdout);
         report(true);
         return result;
       } catch (e) {

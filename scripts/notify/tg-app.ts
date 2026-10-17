@@ -183,9 +183,7 @@ export function defaultDeps(): Deps {
   const call: { runId?: string; deadline?: Date } = {};
   const engine = (o: Pick<Parameters<typeof claudeCodeEngine>[0], "model" | "schema" | "tools" | "priority" | "onRun">) =>
     claudeCodeEngine({
-      bin: env.newsClaudeBin,
       hub: { baseUrl: env.hubUrl, apiKey: env.hubKey },
-      fallback: env.hubFallback,
       runId: call.runId,
       deadline: call.deadline,
       ...o,
