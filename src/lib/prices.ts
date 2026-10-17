@@ -521,14 +521,15 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
 
 /**
  * Chart bars for an off-hours day: the primary's bars where it traded, the
- * other listing's bars before / after them, on one 5-minute grid (gaps forward-
- * filled) so the sparkline's index layout stays aligned with the clock. When the
+ * other listing's bars before / after them, on one 5-minute grid (gaps
+ * interpolated) so the sparkline's index layout stays aligned with the clock. When the
  * primary has no bars of that day yet (before its open), its latest session
  * becomes the "previous day". Pure; returns undefined without alt bars.
  */
 export function mergeOffHoursBars(
   primary: LiveQuote,
   alt: LiveQuote,
+  interpolate = true,
 ): Pick<LiveQuote, "intraday" | "intradayT" | "prevDay" | "prevDayT" | "chartSession"> | undefined {
   const aT = alt.intradayT ?? [];
   const aV = alt.intraday ?? [];
@@ -549,17 +550,29 @@ export function mergeOffHoursBars(
   const last = Math.max(...keys);
   const priFirst = priBars.size ? Math.min(...priBars.keys()) : Infinity;
   const priLast = priBars.size ? Math.max(...priBars.keys()) : -Infinity;
+  // The real points: the primary's bars inside its trading range, the other
+  // listing's outside it.
+  const points: [number, number][] = [];
+  for (let t = first; t <= last; t += BAR_MS) {
+    const v = t >= priFirst && t <= priLast ? priBars.get(t) : altBars.get(t);
+    if (v != null) points.push([t, v]);
+  }
+  // Thin venues trade a few times an evening: the empty 5-minute slots between
+  // two trades are filled in a straight line (or held, without `interpolate`).
   const intraday: number[] = [];
   const intradayT: number[] = [];
-  let carry: number | undefined;
-  for (let t = first; t <= last; t += BAR_MS) {
-    const inside = t >= priFirst && t <= priLast;
-    const v = inside ? (priBars.get(t) ?? carry) : (altBars.get(t) ?? carry);
-    if (v == null) continue;
-    carry = v;
-    intraday.push(v);
+  points.forEach(([t, v], k) => {
+    const prev = points[k - 1];
+    if (prev)
+      for (let g = prev[0] + BAR_MS; g < t; g += BAR_MS) {
+        intradayT.push(g);
+        intraday.push(
+          interpolate ? prev[1] + ((v - prev[1]) * (g - prev[0])) / (t - prev[0]) : prev[1],
+        );
+      }
     intradayT.push(t);
-  }
+    intraday.push(v);
+  });
   if (intraday.length < 2) return undefined;
   const end = Math.max(primary.session?.end ?? 0, alt.session?.end ?? 0, intradayT.at(-1)! + BAR_MS);
   return {

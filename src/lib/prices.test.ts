@@ -281,6 +281,14 @@ describe("mergeOffHoursBars", () => {
     expect(m.chartSession!.end).toBe(at(16, 22, 0));
   });
 
+  it("the empty slots between two trades of a thin venue are on a straight line", () => {
+    const mu = { t: [at(16, 8, 0), at(16, 8, 20)], v: [170, 172] }; // 3 empty slots → 170.5, 171, 171.5
+    const alt = { price: 172, intraday: mu.v, intradayT: mu.t, session: { start: at(16, 8, 0), end: at(16, 22, 0) } };
+    const m = mergeOffHoursBars({ price: 170 }, alt)!;
+    expect(m.intraday).toEqual([170, 170.5, 171, 171.5, 172]);
+    expect(mergeOffHoursBars({ price: 170 }, alt, false)!.intraday).toEqual([170, 170, 170, 170, 172]);
+  });
+
   it("no bars on the other venue: nothing to merge", () => {
     expect(mergeOffHoursBars({ price: 1 }, { price: 1 })).toBeUndefined();
   });
