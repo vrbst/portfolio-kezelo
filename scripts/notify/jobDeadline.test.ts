@@ -10,7 +10,11 @@ describe("jobDeadline", () => {
     expect(parseDuration("25m")).toBe(25 * 60_000);
     expect(parseDuration("90s")).toBe(90_000);
     expect(parseDuration("2h")).toBe(7_200_000);
+    expect(parseDuration("6h15m")).toBe(6 * 3_600_000 + 15 * 60_000);
+    expect(parseDuration("1m30s")).toBe(90_000);
+    expect(parseDuration("500ms")).toBe(500);
     expect(parseDuration("soon")).toBeUndefined();
+    expect(parseDuration("6h 15")).toBeUndefined();
     expect(parseDuration(undefined)).toBeUndefined();
   });
 

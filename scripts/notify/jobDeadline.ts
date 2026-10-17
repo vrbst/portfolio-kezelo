@@ -11,11 +11,13 @@ import { ENGINE_TIMEOUT_MS } from "./news/engine";
 
 export const DEADLINE_MARGIN_MS = 3 * 60_000;
 
-/** "90s" / "25m" / "2h" → ms (the tg-hub descriptor's duration format). */
+/** "90s" / "25m" / "2h" / "6h15m" → ms (the tg-hub descriptor's duration format, compound values too). */
 export function parseDuration(s: unknown): number | undefined {
-  const m = typeof s === "string" ? s.trim().match(/^(\d+(?:\.\d+)?)\s*(s|m|h|d)$/) : null;
-  if (!m) return undefined;
-  return Number(m[1]) * { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] as "s" | "m" | "h" | "d"];
+  if (typeof s !== "string" || !/^(\d+(ms|s|m|h|d))+$/.test(s.trim())) return undefined;
+  const unit = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  let ms = 0;
+  for (const [, n, u] of s.trim().matchAll(/(\d+)(ms|s|m|h|d)/g)) ms += Number(n) * unit[u as keyof typeof unit];
+  return ms;
 }
 
 /** The jobs whose AI calls get a deadline (the ones with a time window). */
