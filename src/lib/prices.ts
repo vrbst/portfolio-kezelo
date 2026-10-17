@@ -136,6 +136,12 @@ export interface LiveQuote {
   prevDayT?: number[];
   /** Regular trading session of the listing's exchange (epoch ms). */
   session?: { start: number; end: number };
+  /**
+   * Time window the intraday chart should span when it also shows an
+   * off-hours listing's bars (wider than `session`, which keeps meaning the
+   * primary listing's trading hours for isTrading / isCurveLive).
+   */
+  chartSession?: { start: number; end: number };
   /** Exchange display name (e.g. "XETRA"). */
   exchange?: string;
   /** The security's long name (e.g. "Vanguard FTSE All-World UCITS ETF…"). */
@@ -508,6 +514,58 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
 }
 
 /**
+ * Chart bars for an off-hours day: the primary's bars where it traded, the
+ * other listing's bars before / after them, on one 5-minute grid (gaps forward-
+ * filled) so the sparkline's index layout stays aligned with the clock. When the
+ * primary has no bars of that day yet (before its open), its latest session
+ * becomes the "previous day". Pure; returns undefined without alt bars.
+ */
+export function mergeOffHoursBars(
+  primary: LiveQuote,
+  alt: LiveQuote,
+): Pick<LiveQuote, "intraday" | "intradayT" | "prevDay" | "prevDayT" | "chartSession"> | undefined {
+  const aT = alt.intradayT ?? [];
+  const aV = alt.intraday ?? [];
+  if (aV.length < 2 || aT.length !== aV.length) return undefined;
+  const day = toLocalDay(aT.at(-1)!);
+  const bucket = (t: number) => Math.floor(t / BAR_MS) * BAR_MS;
+  const altBars = new Map<number, number>();
+  aT.forEach((t, i) => {
+    if (toLocalDay(t) === day) altBars.set(bucket(t), aV[i]);
+  });
+  const pT = primary.intradayT ?? [];
+  const pV = primary.intraday ?? [];
+  const primaryToday = pT.length > 0 && toLocalDay(pT.at(-1)!) === day;
+  const priBars = new Map<number, number>();
+  if (primaryToday) pT.forEach((t, i) => priBars.set(bucket(t), pV[i]));
+  const keys = [...altBars.keys(), ...priBars.keys()];
+  const first = Math.min(...keys);
+  const last = Math.max(...keys);
+  const priFirst = priBars.size ? Math.min(...priBars.keys()) : Infinity;
+  const priLast = priBars.size ? Math.max(...priBars.keys()) : -Infinity;
+  const intraday: number[] = [];
+  const intradayT: number[] = [];
+  let carry: number | undefined;
+  for (let t = first; t <= last; t += BAR_MS) {
+    const inside = t >= priFirst && t <= priLast;
+    const v = inside ? (priBars.get(t) ?? carry) : (altBars.get(t) ?? carry);
+    if (v == null) continue;
+    carry = v;
+    intraday.push(v);
+    intradayT.push(t);
+  }
+  if (intraday.length < 2) return undefined;
+  const end = Math.max(primary.session?.end ?? 0, alt.session?.end ?? 0, intradayT.at(-1)! + BAR_MS);
+  return {
+    intraday,
+    intradayT,
+    // Before the primary's open its "today" bars are really its last session.
+    ...(primaryToday ? {} : { prevDay: primary.intraday, prevDayT: primary.intradayT }),
+    chartSession: { start: intradayT[0], end },
+  };
+}
+
+/**
  * Before the primary listing's first trade, after its close or on the weekend,
  * take the latest price from another listing of the same security that traded
  * later — works for any security Yahoo has a second, active listing for.
@@ -536,6 +594,7 @@ async function applyOffHours(
     live.marketTime != null && toLocalDay(live.marketTime) === toLocalDay(alt.marketTime!)
       ? "post"
       : "pre";
+  Object.assign(live, mergeOffHoursBars(live, alt));
   live.price = alt.price;
   live.marketTime = alt.marketTime;
   live.offHours = { exchange: alt.exchange ?? "másik tőzsde", kind };

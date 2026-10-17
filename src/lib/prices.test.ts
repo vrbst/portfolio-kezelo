@@ -3,6 +3,7 @@ import {
   altCandidates,
   fetchLiveFx,
   fetchLivePrices,
+  mergeOffHoursBars,
   pickOffHours,
   fxMarketOpen,
   intradaySwing,
@@ -236,5 +237,45 @@ describe("off-hours stand-in listing", () => {
     expect(c).toContain("VWRA.L");
     expect(c).not.toContain("VWCE.DE");
     expect(altCandidates([], "BTC-EUR")).toEqual([]);
+  });
+});
+
+describe("mergeOffHoursBars", () => {
+  const BAR = 5 * 60_000;
+  const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).getTime();
+  const bars = (d: number, from: [number, number], n: number, v: (i: number) => number) => ({
+    t: Array.from({ length: n }, (_, i) => at(d, from[0], from[1]) + i * BAR),
+    v: Array.from({ length: n }, (_, i) => v(i)),
+  });
+
+  it("after the close: the primary's bars, then the other venue's, on one grid", () => {
+    const xetra = bars(16, [9, 0], 4, () => 170); // 9:00–9:15
+    const mu = bars(16, [8, 50], 8, () => 171); // 8:50–9:25
+    const primary = { price: 170, intraday: xetra.v, intradayT: xetra.t, prevDay: [169, 169.5], prevDayT: [1, 2], session: { start: at(16, 9, 0), end: at(16, 17, 30) } };
+    const alt = { price: 171, intraday: mu.v, intradayT: mu.t, session: { start: at(16, 8, 0), end: at(16, 22, 0) } };
+    const m = mergeOffHoursBars(primary, alt)!;
+    expect(m.intradayT![0]).toBe(at(16, 8, 50));
+    expect(m.intraday!.slice(0, 2)).toEqual([171, 171]); // before the primary: the other venue
+    expect(m.intraday!.slice(2, 6)).toEqual([170, 170, 170, 170]); // the primary where it traded
+    expect(m.intraday!.slice(6)).toEqual([171, 171]); // after: the other venue
+    expect(m.intradayT!.every((t, i) => i === 0 || t - m.intradayT![i - 1] === BAR)).toBe(true);
+    expect(m.prevDay).toBeUndefined(); // the primary's own previous day stays
+    expect(m.chartSession).toEqual({ start: at(16, 8, 50), end: at(16, 22, 0) });
+  });
+
+  it("before the open: the other venue's bars are today, the primary's last session is the previous day", () => {
+    const xetra = bars(15, [9, 0], 3, () => 170); // yesterday's session
+    const mu = bars(16, [8, 0], 4, () => 171);
+    const primary = { price: 170, intraday: xetra.v, intradayT: xetra.t, prevDay: [1, 2], prevDayT: [1, 2], session: { start: at(16, 9, 0), end: at(16, 17, 30) } };
+    const alt = { price: 171, intraday: mu.v, intradayT: mu.t, session: { start: at(16, 8, 0), end: at(16, 22, 0) } };
+    const m = mergeOffHoursBars(primary, alt)!;
+    expect(m.intraday).toEqual([171, 171, 171, 171]);
+    expect(m.prevDay).toEqual(xetra.v);
+    expect(m.prevDayT).toEqual(xetra.t);
+    expect(m.chartSession!.end).toBe(at(16, 22, 0));
+  });
+
+  it("no bars on the other venue: nothing to merge", () => {
+    expect(mergeOffHoursBars({ price: 1 }, { price: 1 })).toBeUndefined();
   });
 });

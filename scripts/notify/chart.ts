@@ -54,7 +54,7 @@ export function sparkline(q: LiveQuote): string {
   const max = Math.max(...all);
   // Today fills its half by time: a half-finished day stays short. A borrowed
   // (24 h) curve or an unknown session counts as a whole day.
-  const session = q.intradayFrom ? undefined : q.session;
+  const session = q.intradayFrom ? undefined : (q.chartSession ?? q.session);
   const fullDay = session
     ? Math.max(2, Math.round((session.end - session.start) / BAR_MS))
     : Math.max(prev.length, 288);

@@ -27,7 +27,7 @@ export function buildChartRows(quote: LiveQuote): { rows: ChartRow[]; split: num
   const todayT = quote.intradayT ?? [];
   today.forEach((c, k) => rows.push({ i: rows.length, t: todayT[k], today: c }));
   // A borrowed 24/7 curve doesn't follow the listing's session.
-  const session = quote.intradayFrom ? undefined : quote.session;
+  const session = quote.intradayFrom ? undefined : (quote.chartSession ?? quote.session);
   const start = todayT[0];
   const full = session
     ? Math.round((session.end - (start ?? session.start)) / BAR_MS)
