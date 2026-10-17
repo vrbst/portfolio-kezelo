@@ -172,6 +172,12 @@ describe("off-hours stand-in listing", () => {
     expect(pickOffHours(primary, [alt({ price: 100.86 })], "EUR")).toBeUndefined();
   });
 
+  it("prefers a listing with intraday bars over a fresher one without", () => {
+    const bars = [171, 171.1, 171.2];
+    const picked = pickOffHours(primary, [alt({ exchange: "daily", marketTime: today(9, 5) }), alt({ exchange: "bars", intraday: bars })], "EUR");
+    expect(picked?.exchange).toBe("bars");
+  });
+
   it("prefers the most recent trade", () => {
     const picked = pickOffHours(primary, [alt({ exchange: "A" }), alt({ exchange: "B", marketTime: today(9, 5) })], "EUR");
     expect(picked?.exchange).toBe("B");

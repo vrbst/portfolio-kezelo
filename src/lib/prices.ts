@@ -493,8 +493,9 @@ export function needsOffHours(q: LiveQuote, now: number): boolean {
 /**
  * The stand-in for a primary listing that is closed: the alternative listing
  * in the SAME currency that traded AFTER the primary's last trade, close
- * to the primary's price (a guard against a wrong or illiquid line), latest
- * trade first. Undefined when none qualifies.
+ * to the primary's price (a guard against a wrong or illiquid line). A line
+ * with intraday bars wins (the chart needs them), then the latest trade.
+ * Undefined when none qualifies.
  */
 export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
   primary: LiveQuote,
@@ -510,7 +511,12 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
         a.marketTime > since &&
         Math.abs(a.price / primary.price - 1) <= ALT_TOLERANCE,
     )
-    .sort((x, y) => y.marketTime! - x.marketTime!)[0];
+    .sort(
+      (x, y) =>
+        Number((y.intraday?.length ?? 0) >= 2) -
+          Number((x.intraday?.length ?? 0) >= 2) ||
+        y.marketTime! - x.marketTime!,
+    )[0];
 }
 
 /**
