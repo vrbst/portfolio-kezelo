@@ -147,6 +147,29 @@ describe("claudeCodeEngine: the fallback", () => {
     expect(String(warn.mock.calls[0][0])).toMatch(/nem érhető el.*közvetlen claude -p/);
   });
 
+  it("unreachable hub, but the deadline passed meanwhile → no direct call, deadline_missed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let now = 1_000;
+    const d = direct();
+    const e = await claudeCodeEngine({
+      model: "opus",
+      hub: conn,
+      fallback: true,
+      deadline: new Date(5_000),
+      now: () => now,
+      // the failed hub attempt itself burns the time that was left
+      askImpl: async () => {
+        now = 6_000;
+        throw hubErr("unreachable");
+      },
+      directImpl: d.directImpl,
+    })
+      .run("p")
+      .catch((x) => x as Error);
+    expect(hubErrorCode(e)).toBe("deadline_missed");
+    expect(d.calls).toEqual([]);
+  });
+
   it("unreachable without the switch → the error, no direct call", async () => {
     const d = direct();
     const e = await claudeCodeEngine({ model: "opus", hub: conn, askImpl: recorder(hubErr("unreachable")).askImpl, directImpl: d.directImpl })
@@ -188,6 +211,9 @@ describe("tagDirectError", () => {
     expect(hubErrorCode(tagDirectError(new Error("5-hour limit reached ∙ resets 8am")))).toBe("quota_exhausted");
     expect(hubErrorCode(tagDirectError(new Error("HTTP 429")))).toBe("quota_exhausted");
     expect(hubErrorCode(tagDirectError(new Error("a válasz nem érvényes JSON")))).toBeUndefined();
+    // a news headline in the model's text is not a quota error
+    expect(hubErrorCode(tagDirectError(new Error("Hibás JSON: \"Credit Suisse overloaded the market, 4290 points\"")))).toBeUndefined();
+    expect(hubErrorCode(tagDirectError(new Error("Claude: credit balance is too low")))).toBe("quota_exhausted");
     const e = hubErr("timeout");
     expect(tagDirectError(e)).toBe(e);
   });

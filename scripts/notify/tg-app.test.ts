@@ -871,6 +871,19 @@ describe("Miért mozdult?", () => {
       expect(await s.swings()).toEqual([]);
     });
 
+    it("the why of a reversal carries the reported size, not what is left of it after a retrace", async () => {
+      const s = swingSetup([-0.06, -0.059]);
+      await call(jobReq(), s.deps); // baseline: the day's move starts a why (still unanswered)
+      s.setDay([-0.06, -0.05, -0.03]);
+      expect(await s.swings()).toHaveLength(1); // +3.19% off the low reported; its why waits
+      s.setDay([-0.06, -0.05, -0.03, -0.0585]); // fell back: only ~+0.16% left off the low
+      s.answerAll();
+      await call(jobReq("news-why"), s.deps); // the first why is answered
+      await call(jobReq(), s.deps); // now the reversal's own why is queued
+      const request = (readState().why as WhyState).request!;
+      expect(request.factors).toEqual([expect.objectContaining({ key: WBIT, swing: { from: "low", pct: expect.closeTo(0.0319, 3) } })]);
+    });
+
     it("the reversal gets its own search even after the factor was explained today", async () => {
       const s = swingSetup([-0.06, -0.059]);
       await call(jobReq(), s.deps);

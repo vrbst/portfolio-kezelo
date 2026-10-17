@@ -53,7 +53,8 @@ export function runClaudeDirect(o: DirectOptions, prompt: string): Promise<strin
 }
 
 /** Usage-limit style failures of the Claude CLI's text. */
-const QUOTA_TEXT = /usage limit|rate.?limit|quota|limit reached|limit will reset|\b429\b|overloaded|credit/i;
+const QUOTA_TEXT =
+  /usage limit|rate.?limit|limit reached|limit will reset|\b(?:HTTP|status|error)\W{0,3}429\b|\b429 too many|overloaded_error|credit balance is too low|quota (?:exceeded|exhausted)|exceeded your quota/i;
 
 /**
  * The direct path has no hub error codes, so the CLI's text is read here — and

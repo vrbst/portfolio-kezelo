@@ -288,7 +288,7 @@ function PriceTile({
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-muted)]"
               title={
                 quote?.offHours
-                  ? `${quote.offHours.kind === "pre" ? "Nyitás előtti" : "Zárás utáni"} ár (${quote.offHours.exchange}) — ${quote.exchange ?? "a piac"} ${quote.offHours.kind === "pre" ? "még nem kötött ma" : "már zárt"}`
+                  ? `${offHoursTitle(quote.offHours.kind, quote.offHours.exchange, quote.exchange)}`
                   : trading
                   ? `${quote?.exchange ?? "A piac"} nyitva, de még nincs mai kötés — az utolsó záróár`
                   : `Záróár — ${quote?.exchange ?? "a piac"} most zárva`
@@ -311,7 +311,7 @@ function PriceTile({
             session
               ? `Az utolsó kereskedési nap (${session}) változása — ma nem volt kereskedés`
               : quote?.offHours
-                ? `Változás az előző záráshoz képest — ${quote.offHours.exchange} ára, a(z) ${quote.exchange ?? "piac"} ${quote.offHours.kind === "pre" ? "még nem kötött" : "már zárt"}`
+                ? `Változás az előző záráshoz képest — ${offHoursNote(quote.offHours.kind, quote.offHours.exchange, quote.exchange)}`
                 : "Változás az előző záráshoz képest"
           }
         >
@@ -370,6 +370,30 @@ function PriceTile({
 }
 
 const BAR_MS = 5 * 60_000;
+
+const OFF_HOURS_STATE = {
+  pre: "még nem kötött ma",
+  post: "már zárt",
+  closed: "ma nem kereskedett",
+} as const;
+
+/** Tooltip of the status dot when the price is another listing's. */
+function offHoursTitle(
+  kind: keyof typeof OFF_HOURS_STATE,
+  venue: string,
+  primary?: string,
+): string {
+  const label = { pre: "Nyitás előtti", post: "Zárás utáni", closed: "Utolsó" }[kind];
+  return `${label} ár (${venue}) — ${primary ?? "a piac"} ${OFF_HOURS_STATE[kind]}`;
+}
+
+function offHoursNote(
+  kind: keyof typeof OFF_HOURS_STATE,
+  venue: string,
+  primary?: string,
+): string {
+  return `${venue} ára, a(z) ${primary ?? "piac"} ${OFF_HOURS_STATE[kind]}`;
+}
 
 /**
  * Currency mark for FX tiles, in the same tinted rounded-tile style as

@@ -122,6 +122,13 @@ if (typeof window !== "undefined") {
   });
 }
 
+/**
+ * Why the price is another listing's: `pre` — the primary has not opened yet
+ * today, `post` — it has closed after trading, `closed` — it did not trade today
+ * at all (holiday, or it is the weekend and this is Friday evening's later venue).
+ */
+export type OffHoursKind = "pre" | "post" | "closed";
+
 /** A live quote plus the context for "today's move" displays. */
 export interface LiveQuote {
   price: number;
@@ -161,7 +168,7 @@ export interface LiveQuote {
    * security that still trades (e.g. Munich): that exchange's name. The
    * `prevClose` stays the primary's.
    */
-  offHours?: { exchange: string; kind: "pre" | "post" };
+  offHours?: { exchange: string; kind: OffHoursKind };
 }
 
 /**
@@ -563,11 +570,16 @@ export function mergeOffHoursBars(
   const intradayT: number[] = [];
   points.forEach(([t, v], k) => {
     const prev = points[k - 1];
+    // A hole inside the primary's own bars (a halt, missing data) is held, not
+    // drawn as invented trades — only the thin venue's gaps are interpolated.
+    const inPrimary = prev != null && prev[0] >= priFirst && t <= priLast;
     if (prev)
       for (let g = prev[0] + BAR_MS; g < t; g += BAR_MS) {
         intradayT.push(g);
         intraday.push(
-          interpolate ? prev[1] + ((v - prev[1]) * (g - prev[0])) / (t - prev[0]) : prev[1],
+          interpolate && !inPrimary
+            ? prev[1] + ((v - prev[1]) * (g - prev[0])) / (t - prev[0])
+            : prev[1],
         );
       }
     intradayT.push(t);
@@ -585,9 +597,32 @@ export function mergeOffHoursBars(
 }
 
 /**
+ * Which off-hours state is it: the alternative traded on the same local day as
+ * the primary's last trade → `post`; on a later day that is today, with the
+ * primary's session still ahead → `pre`; anything else (the primary was silent
+ * all day, or it is already past its session end) → `closed`.
+ */
+export function offHoursKind(
+  primaryTime: number | undefined,
+  altTime: number,
+  now: number,
+  sessionEnd: number | undefined,
+): OffHoursKind {
+  if (primaryTime != null && toLocalDay(primaryTime) === toLocalDay(altTime)) return "post";
+  const today = toLocalDay(altTime) === toLocalDay(now);
+  return today && (sessionEnd == null || now < sessionEnd) ? "pre" : "closed";
+}
+
+/** How long a cross-check's results are reused (the refresh polls every few minutes). */
+const OFF_HOURS_TTL_MS = 3 * 60 * 1000;
+const offHoursCache = new Map<string, { at: number; alts: YahooQuote[] }>();
+
+/**
  * Before the primary listing's first trade, after its close or on the weekend,
  * take the latest price from another listing of the same security that traded
- * later — works for any security Yahoo has a second, active listing for.
+ * later — works for any security Yahoo has a second, active listing for. The
+ * price and the chart bars switch together, never one without the other, and a
+ * borrowed curve (intradayFrom) is left alone.
  */
 async function applyOffHours(
   t: LivePriceTarget,
@@ -595,25 +630,27 @@ async function applyOffHours(
   live: LiveQuote,
   now: Date,
 ): Promise<void> {
-  if (!needsOffHours(live, now.getTime())) return;
-  const symbols = altCandidates(await searchAltSymbols(t.isin), primarySymbol);
-  const alts = (
-    await Promise.all(
-      symbols.map(async (sym) => {
-        const q = await fetchYahooQuote(sym);
-        if (!q) deadSymbols.add(sym);
-        return q;
-      }),
-    )
-  ).filter((q): q is YahooQuote => q != null);
-  const alt = pickOffHours(live, alts, t.currency);
-  if (!alt) return;
-  // Same local day as the primary's last trade: after its close; a later day: before its open.
-  const kind =
-    live.marketTime != null && toLocalDay(live.marketTime) === toLocalDay(alt.marketTime!)
-      ? "post"
-      : "pre";
-  Object.assign(live, mergeOffHoursBars(live, alt));
+  if (live.intradayFrom || !needsOffHours(live, now.getTime())) return;
+  let hit = offHoursCache.get(t.isin);
+  if (!hit || now.getTime() - hit.at > OFF_HOURS_TTL_MS) {
+    const symbols = altCandidates(await searchAltSymbols(t.isin), primarySymbol);
+    const alts = (
+      await Promise.all(
+        symbols.map(async (sym) => {
+          const q = await fetchYahooQuote(sym);
+          if (!q) deadSymbols.add(sym);
+          return q;
+        }),
+      )
+    ).filter((q): q is YahooQuote => q != null);
+    hit = { at: now.getTime(), alts };
+    offHoursCache.set(t.isin, hit);
+  }
+  const alt = pickOffHours(live, hit.alts, t.currency);
+  const merged = alt && mergeOffHoursBars(live, alt);
+  if (!alt || !merged) return;
+  const kind = offHoursKind(live.marketTime, alt.marketTime!, now.getTime(), live.session?.end);
+  Object.assign(live, merged);
   live.price = alt.price;
   live.marketTime = alt.marketTime;
   live.offHours = { exchange: alt.exchange ?? "másik tőzsde", kind };

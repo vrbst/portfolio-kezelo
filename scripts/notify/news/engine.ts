@@ -119,13 +119,15 @@ export function claudeCodeEngine(opts: {
       try {
         let stdout: string;
         let viaDirect = false;
+        const pastDeadline = () => !!opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime();
+        const deadlineMissed = () =>
+          new HubError(
+            HUB_CODE.deadlineMissed,
+            409,
+            "A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.",
+          );
         try {
-          if (opts.deadline && (opts.now?.() ?? Date.now()) > opts.deadline.getTime())
-            throw new HubError(
-              HUB_CODE.deadlineMissed,
-              409,
-              "A hívás már nem fér bele a job idejébe (a hub sora foglalt volt); a következő futás pótolja.",
-            );
+          if (pastDeadline()) throw deadlineMissed();
           const res = await (opts.askImpl ?? hubAsk)(
             {
               prompt,
@@ -146,6 +148,9 @@ export function claudeCodeEngine(opts: {
           stdout = JSON.stringify(toCliJson(res));
         } catch (e) {
           if (hubErrorCode(e) !== HUB_CODE.unreachable || !opts.fallback) throw e;
+          // The failed hub attempt may have used up the time: a direct call started
+          // now would outlive the job and be killed with its answer.
+          if (pastDeadline()) throw deadlineMissed();
           console.warn(
             `⚠ A my-claude-hub nem érhető el (${(e as Error).message}); MY_CLAUDE_HUB_FALLBACK=1: közvetlen claude -p hívás (a hub sorát és kvótavédelmét megkerüli).`,
           );

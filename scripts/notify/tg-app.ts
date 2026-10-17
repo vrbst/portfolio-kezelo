@@ -1250,8 +1250,11 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
       rep.down = Math.abs(sw.down);
       store(rep);
     }
-    if (rep.up > 0) seen.push({ from: "low", pct: sw.up });
-    if (rep.down > 0) seen.push({ from: "high", pct: sw.down });
+    // The reported level (the one that fired), not today's size of the swing:
+    // after a retrace the current figure is small and the "why" would explain a
+    // reversal that is no longer one.
+    if (rep.up > 0) seen.push({ from: "low", pct: rep.up });
+    if (rep.down > 0) seen.push({ from: "high", pct: -rep.down });
     return { fired, seen };
   };
   const swingLine = (name: string, s: Swing, ch: number, tail: string) =>

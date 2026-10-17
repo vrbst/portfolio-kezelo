@@ -3,6 +3,7 @@ import {
   altCandidates,
   fetchLiveFx,
   fetchLivePrices,
+  offHoursKind,
   mergeOffHoursBars,
   pickOffHours,
   fxMarketOpen,
@@ -183,15 +184,16 @@ describe("off-hours stand-in listing", () => {
     expect(picked?.exchange).toBe("B");
   });
 
-  const chart = (price: number, exchange: string, tradeAt: number, currency = "EUR", session?: [number, number]) => ({
-    chart: { result: [{ meta: { regularMarketPrice: price, regularMarketTime: Math.floor(tradeAt / 1000), currency, previousClose: 170.94, fullExchangeName: exchange, gmtoffset: 7200, ...(session && { currentTradingPeriod: { regular: { start: Math.floor(session[0] / 1000), end: Math.floor(session[1] / 1000) } } }) }, timestamp: [], indicators: { quote: [{ close: [] }] } }] },
+  const chart = (price: number, exchange: string, tradeAt: number, currency = "EUR", session?: [number, number], bars = 0) => ({
+    chart: { result: [{ meta: { regularMarketPrice: price, regularMarketTime: Math.floor(tradeAt / 1000), currency, previousClose: 170.94, fullExchangeName: exchange, gmtoffset: 7200, ...(session && { currentTradingPeriod: { regular: { start: Math.floor(session[0] / 1000), end: Math.floor(session[1] / 1000) } } }) }, timestamp: Array.from({ length: bars }, (_, i) => Math.floor(tradeAt / 1000) - (bars - 1 - i) * 300), indicators: { quote: [{ close: Array.from({ length: bars }, () => price) }] } }] },
   });
-  const load = async (at: Date, isin = "IE00PRE0000X", primary?: ReturnType<typeof chart>, altAt = today(8, 52), altPrice = 171.16) => {
+  const load = async (at: Date, isin = "IE00PRE0000X", primary?: ReturnType<typeof chart>, altAt = today(8, 52), altPrice = 171.16, altBars = 4, calls: string[] = []) => {
     vi.stubGlobal("fetch", async (url: string) => {
       const target = new URL(url).searchParams.get("url")!;
+      calls.push(target);
       if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }] }) };
       if (!target.includes("AAA.DE") && !target.includes("AAA.MU")) return { ok: false, json: async () => ({}) };
-      const json = target.includes("AAA.DE") ? (primary ?? chart(170.94, "XETRA", at.getTime() - 20 * 3_600_000)) : chart(altPrice, "Munich", altAt);
+      const json = target.includes("AAA.DE") ? (primary ?? chart(170.94, "XETRA", at.getTime() - 20 * 3_600_000)) : chart(altPrice, "Munich", altAt, "EUR", undefined, altBars);
       return { ok: true, json: async () => json };
     });
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -210,6 +212,23 @@ describe("off-hours stand-in listing", () => {
     expect(q.offHours?.exchange).toBe("Munich");
     expect(q.prevClose).toBe(170.94);
     expect(quotedToday(q, now)).toBe(true);
+  });
+
+  it("a venue without enough bars changes nothing: price and chart stay the primary's", async () => {
+    const q = await load(now, "IE00NOBARS0X", undefined, today(8, 52), 171.16, 1);
+    expect(q.offHours).toBeUndefined();
+    expect(q.price).toBe(170.94);
+  });
+
+  it("the cross-check is reused for a few minutes instead of refetching every poll", async () => {
+    const calls: string[] = [];
+    await load(now, "IE00CACHE00X", undefined, today(8, 52), 171.16, 4, calls);
+    const first = calls.length;
+    // a second refresh 1 minute later, same ISIN: the alternatives come from the cache
+    const calls2: string[] = [];
+    await load(new Date(now.getTime() + 60_000), "IE00CACHE00X", undefined, today(8, 52), 171.16, 4, calls2);
+    expect(first).toBeGreaterThan(2);
+    expect(calls2.filter((c) => c.includes("AAA.MU") || c.includes("/search"))).toHaveLength(0);
   });
 
   it("on the weekend Friday evening's venue price stays, still Friday's move", async () => {
@@ -291,5 +310,33 @@ describe("mergeOffHoursBars", () => {
 
   it("no bars on the other venue: nothing to merge", () => {
     expect(mergeOffHoursBars({ price: 1 }, { price: 1 })).toBeUndefined();
+  });
+});
+
+describe("offHoursKind", () => {
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
+  it("post: the other venue traded on the primary's last trading day", () => {
+    expect(offHoursKind(at(16, 17, 35), at(16, 20), at(16, 21), at(16, 17, 30))).toBe("post");
+    expect(offHoursKind(at(16, 17, 35), at(16, 20), at(17, 11), at(17, 17, 30))).toBe("post"); // weekend
+  });
+  it("pre: today, the primary still to open", () => {
+    expect(offHoursKind(at(15, 17, 35), at(16, 8, 52), at(16, 9, 11), at(16, 17, 30))).toBe("pre");
+  });
+  it("closed: the primary was silent all day (holiday evening)", () => {
+    expect(offHoursKind(at(15, 17, 35), at(16, 20), at(16, 21), at(16, 17, 30))).toBe("closed");
+  });
+});
+
+describe("mergeOffHoursBars: the primary's own holes", () => {
+  const BAR = 5 * 60_000;
+  const at = (h: number, m: number) => new Date(2026, 9, 16, h, m).getTime();
+  it("a hole inside the primary's bars is held, the venue's gap is a straight line", () => {
+    const primary = { price: 170, intraday: [170, 174], intradayT: [at(9, 0), at(9, 20)], session: { start: at(9, 0), end: at(17, 30) } };
+    const alt = { price: 171, intraday: [172, 176], intradayT: [at(17, 40), at(18, 0)] };
+    const m = mergeOffHoursBars(primary, alt)!;
+    expect(m.intraday!.slice(0, 5)).toEqual([170, 170, 170, 170, 174]); // held: no invented trades
+    const i = m.intradayT!.indexOf(at(17, 40));
+    expect(m.intraday!.slice(i, i + 5)).toEqual([172, 173, 174, 175, 176]); // interpolated
+    expect(BAR).toBe(300_000);
   });
 });

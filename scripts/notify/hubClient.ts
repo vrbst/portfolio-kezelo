@@ -161,10 +161,14 @@ export function hubAsk(o: HubAskOptions, conn: HubConnection, now = Date.now()):
     }
     let connected = false;
     let settled = false;
+    // Created after the request (a synchronous throw of lib.request must not leave
+    // a timer running), yet `done` may run before it exists: hence `let`.
+    // eslint-disable-next-line prefer-const
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const done = (fn: () => void) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       fn();
     };
     const lib = url.protocol === "https:" ? https : http;
@@ -201,7 +205,7 @@ export function hubAsk(o: HubAskOptions, conn: HubConnection, now = Date.now()):
         });
       },
     );
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       done(() =>
         reject(new HubError(HUB_CODE.connectionLost, 0, `A hub ${Math.round(cap / 1000)} s alatt sem válaszolt (biztonsági korlát).`)),
       );
