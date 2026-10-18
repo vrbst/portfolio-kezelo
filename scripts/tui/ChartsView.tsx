@@ -1,5 +1,6 @@
 // Draws a ChartData (charts.ts) with Ink: braille lines, bars, legend, captions.
 
+import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { Context } from "../notify/data";
 import { horizontalBars, linePlot, verticalBars, type Row } from "./plot";
@@ -145,7 +146,12 @@ export function ChartsView({
   columns: number;
   height: number;
 }) {
-  const data = buildChart(chart, ctx, { ...options, columns: Math.max(10, columns - 2) });
+  const { range, mode, pick, hide } = options;
+  // Some charts re-mark the whole history: build once per setting, not per redraw.
+  const data = useMemo(
+    () => buildChart(chart, ctx, { range, mode, pick, hide, columns: Math.max(10, columns - 2) }),
+    [chart, ctx, range, mode, pick, hide, columns],
+  );
   return (
     <Box flexDirection="column">
       <ChartMenu chart={chart} />

@@ -43,7 +43,7 @@ describe("terminal charts", () => {
 
   it("show no personal Ft amount in privacy mode, anywhere", () => {
     const c = ctx();
-    const ranged: ChartId[] = ["value", "profit", "twr", "drawdown", "glide", "price"];
+    const ranged: ChartId[] = ["value", "accounts", "profit", "twr", "drawdown", "glide", "price"];
     for (const id of CHART_IDS) {
       const ranges = ranged.includes(id) ? CHART_RANGES.length : 1;
       for (let range = 0; range < ranges; range++)
@@ -102,6 +102,16 @@ describe("terminal charts", () => {
     expect(title(0)).not.toBe(title(1));
     expect(title(n)).toBe(title(0));
     expect(title(-1)).toBe(title(n - 1));
+  });
+
+  it("the account lines add up to the portfolio value on the last day", () => {
+    const c = ctx();
+    const d = buildChart("accounts", c, OPTS);
+    expect(d.kind).toBe("line");
+    if (d.kind !== "line") return;
+    const last = d.series.reduce((sum, line) => sum + line.values[line.values.length - 1], 0);
+    expect(last).toBeCloseTo(c.series[c.series.length - 1].value, 0);
+    expect(d.series.length).toBeGreaterThan(1);
   });
 
   it("an empty portfolio gives a message, not a crash", () => {

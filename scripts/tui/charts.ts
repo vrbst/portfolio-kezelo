@@ -25,6 +25,7 @@ import type { Bar, HBar, LineSeries } from "./plot";
 
 export const CHART_IDS = [
   "value",
+  "accounts",
   "profit",
   "twr",
   "drawdown",
@@ -41,6 +42,7 @@ export type ChartId = (typeof CHART_IDS)[number];
 
 export const CHART_TITLES: Record<ChartId, string> = {
   value: "Vagyon",
+  accounts: "Számlák",
   profit: "Eredmény",
   twr: "Hozam",
   drawdown: "Esés",
@@ -57,6 +59,7 @@ export const CHART_TITLES: Record<ChartId, string> = {
 /** Which controls a chart answers to (shown in the help line). */
 export const CHART_CONTROLS: Record<ChartId, string> = {
   value: "t: időszak",
+  accounts: "t: időszak",
   profit: "t: időszak",
   twr: "t: időszak",
   drawdown: "t: időszak",
@@ -195,6 +198,37 @@ function valueChart(ctx: Context, o: ChartOptions): ChartData {
       `Most: ${m(last.value)} · befektetve: ${m(last.invested)}`,
       `Piaci eredmény az időszakban: ${signed(o.hide, last.value - last.invested - (first.value - first.invested))} (a befizetések nélkül)`,
     ],
+  };
+}
+
+/** Each account's value over the range (sampled, at most ~90 points). */
+function accountsChart(ctx: Context, o: ChartOptions): ChartData {
+  const title = `Számlák értéke – ${rangeLabel(o.range)}`;
+  const days = ctx.series.map((p) => p.date).filter((d) => d >= from(o.range));
+  if (days.length < 2) return empty(title);
+  const step = Math.ceil(days.length / 90);
+  const sampled = days.filter((_, i) => i % step === 0 || i === days.length - 1);
+  const accounts = ctx.summary.accounts.map((a) => a.account);
+  const samples = summariesOnDays(accounts, ctx.transactions, ctx.instMap, ctx.fx, ctx.history, sampled);
+  const live = ctx.summary.accounts.filter((a) => Math.abs(a.totalValueHuf) >= 1);
+  if (!live.length) return empty(title);
+  // The last point is today at live prices (like the value series), the rest day-end marks.
+  const valueOf = (day: number, id: string) =>
+    (day === samples.length - 1 ? ctx.summary : samples[day].summary).accounts.find((a) => a.account.id === id)
+      ?.totalValueHuf ?? 0;
+  const m = money(o.hide);
+  return {
+    kind: "line",
+    title,
+    series: live.map((a, i) => ({
+      values: samples.map((_, d) => valueOf(d, a.account.id)),
+      color: PALETTE[i % PALETTE.length],
+    })),
+    legend: live.map((a, i) => ({ name: name(a.account.name), color: PALETTE[i % PALETTE.length] })),
+    yLabel: (v) => (o.hide ? MASK : mft(v)),
+    xFirst: sampled[0],
+    xLast: sampled[sampled.length - 1],
+    summary: live.map((a) => `${name(a.account.name)}: ${m(a.totalValueHuf, mft)}`),
   };
 }
 
@@ -524,6 +558,8 @@ export function buildChart(id: ChartId, ctx: Context, o: ChartOptions): ChartDat
   switch (id) {
     case "value":
       return valueChart(ctx, o);
+    case "accounts":
+      return accountsChart(ctx, o);
     case "profit":
       return profitChart(ctx, o);
     case "twr":
