@@ -5,7 +5,12 @@
 
 import type { Context } from "../notify/data";
 import { forecastFor, ft, mft, pct, px, sft } from "../notify/reports";
-import { addDaysIso, todayLocal } from "../../src/lib/day";
+import { addDaysIso, toLocalDay, todayLocal, txDay } from "../../src/lib/day";
+import { latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
+import { liveGlideVersions } from "../../src/lib/flowPath";
+import { checkDays, positionsFromSummary, weightHistory } from "../../src/lib/rebalance";
+import { reservedCashByAccount, loadSavingsGoals } from "../../src/lib/savings";
+import { summariesOnDays } from "../../src/lib/series";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import {
   BENCHMARK,
@@ -27,6 +32,7 @@ export const CHART_IDS = [
   "deposits",
   "daily",
   "forecast",
+  "glide",
   "alloc",
   "price",
 ] as const;
@@ -41,6 +47,7 @@ export const CHART_TITLES: Record<ChartId, string> = {
   deposits: "Befizetés",
   daily: "Napi",
   forecast: "Előrejelzés",
+  glide: "Pálya",
   alloc: "Allokáció",
   price: "Árfolyam",
 };
@@ -55,6 +62,7 @@ export const CHART_CONTROLS: Record<ChartId, string> = {
   deposits: "",
   daily: "",
   forecast: "t: horizont",
+  glide: "t: időszak",
   alloc: "m: nézet",
   price: "t: időszak · ↑/↓: papír",
 };
@@ -131,6 +139,9 @@ const PALETTE = ["cyan", "green", "yellow", "magenta", "blue", "red", "white"] a
 
 /** "YYYY-MM" of a local "YYYY-MM-DD" day. */
 const monthOf = (day: string) => day.slice(0, 7);
+
+/** A share, without a sign: 0.523 -> "52,3%". */
+const share = (x: number, d = 1) => `${(x * 100).toFixed(d).replace(".", ",")}%`;
 
 const sign = (x: number) => (x >= 0 ? colors.good : colors.bad);
 
@@ -362,6 +373,58 @@ function forecastChart(ctx: Context, o: ChartOptions): ChartData {
   };
 }
 
+function glideChart(ctx: Context, o: ChartOptions): ChartData {
+  const title = `Célpálya: a súlyok az időben – ${rangeLabel(o.range)}`;
+  const versions = loadGlideVersions();
+  const cfg = latestConfig(versions);
+  if (!cfg || !ctx.transactions.length) return empty(title, "Nincs beállított célpálya.");
+  const today = toLocalDay(ctx.at.getTime());
+  const accounts = ctx.summary.accounts.map((a) => a.account);
+  const live = liveGlideVersions(versions, {
+    accounts,
+    transactions: ctx.transactions,
+    instruments: ctx.instMap,
+    fx: ctx.fx,
+    history: ctx.history,
+    summary: ctx.summary,
+    today,
+    reserved: reservedCashByAccount(loadSavingsGoals(), today),
+  });
+  const first = ctx.transactions.reduce((m, t) => (t.date < m ? t.date : m), ctx.transactions[0].date);
+  // Month starts over the whole ledger history, then today at live prices.
+  const days = checkDays("monthly", txDay(first), today).filter((d) => d < today);
+  const samples = new Map(
+    summariesOnDays(accounts, ctx.transactions, ctx.instMap, ctx.fx, ctx.history, days).map((x) => [x.day, x]),
+  );
+  const history = weightHistory(live, [...days, today], (day, atFace) => {
+    const x = samples.get(day);
+    return x
+      ? positionsFromSummary(x.summary, x.fx, atFace, day)
+      : positionsFromSummary(ctx.summary, ctx.fx, atFace, day);
+  }).filter((p) => p.day >= from(o.range));
+  if (history.length < 2) return empty(title);
+  const latest = history[history.length - 1];
+  const buckets = latestConfig(live)!.buckets.filter((b) => latest.buckets[b.id]);
+  if (!buckets.length) return empty(title);
+  const statusText = { below: "sáv alatt", within: "sávban", above: "sáv felett", empty: "üres" } as const;
+  return {
+    kind: "line",
+    title,
+    series: buckets.map((b, i) => ({
+      values: history.map((p) => p.buckets[b.id]?.weight ?? NaN),
+      color: PALETTE[i % PALETTE.length],
+    })),
+    legend: buckets.map((b, i) => ({ name: name(b.name), color: PALETTE[i % PALETTE.length] })),
+    yLabel: (v) => share(v, 0),
+    xFirst: history[0].day,
+    xLast: latest.day,
+    summary: buckets.map((b) => {
+      const w = latest.buckets[b.id];
+      return `${name(b.name)}: ${share(w.weight)} · cél ${share(w.target)} (sáv ${share(w.low)} – ${share(w.high)}) · ${statusText[w.status]}`;
+    }),
+  };
+}
+
 function allocChart(ctx: Context, o: ChartOptions): ChartData {
   const mode = ALLOC_MODES[o.mode % ALLOC_MODES.length];
   const title = `Allokáció – ${ALLOC_LABEL[mode]}`;
@@ -438,6 +501,8 @@ export function buildChart(id: ChartId, ctx: Context, o: ChartOptions): ChartDat
       return dailyChart(ctx, o);
     case "forecast":
       return forecastChart(ctx, o);
+    case "glide":
+      return glideChart(ctx, o);
     case "alloc":
       return allocChart(ctx, o);
     case "price":

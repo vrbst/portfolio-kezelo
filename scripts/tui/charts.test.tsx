@@ -43,7 +43,7 @@ describe("terminal charts", () => {
 
   it("show no personal Ft amount in privacy mode, anywhere", () => {
     const c = ctx();
-    const ranged: ChartId[] = ["value", "profit", "twr", "drawdown", "price"];
+    const ranged: ChartId[] = ["value", "profit", "twr", "drawdown", "glide", "price"];
     for (const id of CHART_IDS) {
       const ranges = ranged.includes(id) ? CHART_RANGES.length : 1;
       for (let range = 0; range < ranges; range++)
