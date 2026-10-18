@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { horizontalBars, linePlot, verticalBars, type Row } from "./plot";
+import { horizontalBars, linePlot, verticalBars, verticalBarsScaled, type Row } from "./plot";
 
 const text = (rows: Row[]) => rows.map((r) => r.map((x) => x.text).join(""));
 const braille = (s: string) => [...s].map((c) => c.charCodeAt(0) - 0x2800);
@@ -79,6 +79,40 @@ describe("verticalBars", () => {
 
   it("keeps the requested height when there are positive bars only", () => {
     expect(verticalBars([{ value: 1 }, { value: 2 }], 6)).toHaveLength(6);
+  });
+});
+
+describe("verticalBarsScaled", () => {
+  it("marks the top, the middle and the zero line of positive bars", () => {
+    const { rows, ticks } = verticalBarsScaled([{ value: 2 }, { value: 8 }], 8);
+    expect(rows).toHaveLength(8);
+    expect(ticks).toEqual([
+      { row: 0, value: 8 },
+      { row: 4, value: 4 },
+      { row: 7, value: 0 },
+    ]);
+  });
+
+  it("puts the zero mark on the zero line between positive and negative bars", () => {
+    const { rows, ticks } = verticalBarsScaled([{ value: 6 }, { value: -3 }], 9);
+    const zero = rows.findIndex((r) => r.map((x) => x.text).join("").startsWith("─"));
+    expect(ticks.find((t) => t.value === 0)?.row).toBe(zero);
+    expect(ticks[0]).toEqual({ row: 0, value: expect.closeTo(6, 5) });
+    expect(ticks[ticks.length - 1].row).toBe(rows.length - 1);
+    expect(ticks[ticks.length - 1].value).toBeLessThan(0);
+  });
+
+  it("works for only-negative and all-zero bars", () => {
+    const neg = verticalBarsScaled([{ value: -2 }, { value: -4 }], 4);
+    expect(neg.ticks[0]).toEqual({ row: 0, value: 0 });
+    expect(neg.ticks[neg.ticks.length - 1].value).toBeCloseTo(-4, 5);
+    expect(verticalBarsScaled([{ value: 0 }], 4).ticks).toEqual([{ row: 0, value: 0 }]);
+    expect(verticalBarsScaled([], 4)).toEqual({ rows: [], ticks: [] });
+  });
+
+  it("the top mark is the value a full-height bar stands for", () => {
+    const { ticks } = verticalBarsScaled([{ value: 5 }, { value: 10 }], 5);
+    expect(ticks[0].value).toBeCloseTo(10, 5);
   });
 });
 

@@ -56,6 +56,17 @@ describe("terminal charts", () => {
     expect(frame(c, "alloc")).toMatch(AMOUNT);
   }, 60_000);
 
+  it("bar charts have a value axis with the zero line, masked in privacy mode", () => {
+    const c = ctx();
+    for (const id of ["monthly", "deposits", "payouts", "daily"] as const) {
+      expect(frame(c, id), id).toMatch(/ 0 │/);
+      expect(frame(c, id, { hide: true }), id).toMatch(/ 0 │/);
+    }
+    expect(frame(c, "deposits")).toMatch(/\d M Ft │/);
+    expect(frame(c, "monthly")).toMatch(/%\s+│/);
+    expect(frame(c, "deposits", { hide: true })).toMatch(/•••• │/);
+  });
+
   it("line charts draw braille dots in their series colours", () => {
     const out = frame(ctx(), "value");
     expect(out).toMatch(/[⠁-⣿]{5}/);

@@ -128,17 +128,34 @@ export interface Bar {
 
 const UP = " ▁▂▃▄▅▆▇█";
 
+/** A scale mark: the value at the top edge of the row (0 = the zero line). */
+export interface Tick {
+  row: number;
+  value: number;
+}
+
+/** Vertical bars without the scale — see {@link verticalBarsScaled}. */
+export const verticalBars = (bars: Bar[], height: number, barWidth = 1, gap = 1): Row[] =>
+  verticalBarsScaled(bars, height, barWidth, gap).rows;
+
 /**
  * Vertical bars around a zero line: positive ones grow up (eighth-block
  * resolution), negative ones down (whole rows). Each bar takes `barWidth`
  * cells and `gap` blank ones; returns `height` rows (plus a zero row when
- * there are negative bars and positive ones both).
+ * there are negative bars and positive ones both) and the scale marks for
+ * the axis: the top, the middle, the zero line and the bottom.
  */
-export function verticalBars(bars: Bar[], height: number, barWidth = 1, gap = 1): Row[] {
-  if (!bars.length || height < 1) return [];
+export function verticalBarsScaled(
+  bars: Bar[],
+  height: number,
+  barWidth = 1,
+  gap = 1,
+): { rows: Row[]; ticks: Tick[] } {
+  if (!bars.length || height < 1) return { rows: [], ticks: [] };
   const pos = Math.max(0, ...bars.map((b) => b.value));
   const neg = Math.max(0, ...bars.map((b) => -b.value));
-  if (pos === 0 && neg === 0) return [[{ text: "─".repeat(bars.length * (barWidth + gap)) }]];
+  if (pos === 0 && neg === 0)
+    return { rows: [[{ text: "─".repeat(bars.length * (barWidth + gap)) }]], ticks: [{ row: 0, value: 0 }] };
   const total = pos + neg;
   let up = neg === 0 ? height : pos === 0 ? 0 : Math.round((height * pos) / total);
   if (pos > 0) up = Math.max(1, up);
@@ -171,7 +188,16 @@ export function verticalBars(bars: Bar[], height: number, barWidth = 1, gap = 1)
     }
     rows.push(compact(runs));
   }
-  return rows;
+  // Marks by row; a later one wins when two share a row (the zero line last).
+  const marks = new Map<number, number>();
+  if (up > 0) {
+    marks.set(0, unit * up);
+    if (up >= 4) marks.set(Math.floor(up / 2), unit * (up - Math.floor(up / 2)));
+  }
+  if (down > 0) marks.set(rows.length - 1, -unit * down);
+  marks.set(up > 0 ? (down > 0 ? up : up - 1) : 0, 0);
+  const ticks = [...marks].map(([row, value]) => ({ row, value })).sort((a, b) => a.row - b.row);
+  return { rows, ticks };
 }
 
 export interface HBar {

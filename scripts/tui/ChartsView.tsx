@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { Context } from "../notify/data";
-import { horizontalBars, linePlot, verticalBars, type Row } from "./plot";
+import { horizontalBars, linePlot, verticalBarsScaled } from "./plot";
 import {
   CHART_CONTROLS,
   CHART_IDS,
@@ -13,23 +13,6 @@ import {
   type ChartId,
   type ChartOptions,
 } from "./charts";
-
-function Rows({ rows, indent = "" }: { rows: Row[]; indent?: string }) {
-  return (
-    <Box flexDirection="column">
-      {rows.map((row, i) => (
-        <Text key={i}>
-          {indent}
-          {row.map((run, j) => (
-            <Text key={j} color={run.color}>
-              {run.text}
-            </Text>
-          ))}
-        </Text>
-      ))}
-    </Box>
-  );
-}
 
 /** First and last label at the two ends of a `width` wide plot. */
 const xAxis = (first: string, last: string, width: number) =>
@@ -94,12 +77,26 @@ function Body({
   }
 
   if (data.kind === "vbars") {
-    const rows = verticalBars(data.bars, height);
+    const { rows, ticks } = verticalBarsScaled(data.bars, height);
+    const labelRows = new Map(ticks.map((t) => [t.row, t.value === 0 ? "0" : data.yLabel(t.value)]));
+    const gutter = Math.max(1, ...[...labelRows.values()].map((l) => l.length)) + 1;
     const width = data.bars.length * 2;
     return (
       <Box flexDirection="column">
-        <Rows rows={rows} />
-        <Text dimColor>{xAxis(data.xFirst, data.xLast, width)}</Text>
+        {rows.map((row, i) => (
+          <Text key={i}>
+            <Text dimColor>{(labelRows.get(i) ?? "").padStart(gutter - 1)} │</Text>
+            {row.map((run, j) => (
+              <Text key={j} color={run.color}>
+                {run.text}
+              </Text>
+            ))}
+          </Text>
+        ))}
+        <Text dimColor>
+          {" ".repeat(gutter + 1)}
+          {xAxis(data.xFirst, data.xLast, width)}
+        </Text>
       </Box>
     );
   }

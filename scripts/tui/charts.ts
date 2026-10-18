@@ -112,6 +112,8 @@ export type ChartData =
       kind: "vbars";
       title: string;
       bars: Bar[];
+      /** Axis label for a value (masked in privacy mode when it is an amount). */
+      yLabel: (v: number) => string;
       xFirst: string;
       xLast: string;
       summary: string[];
@@ -148,6 +150,9 @@ const monthOf = (day: string) => day.slice(0, 7);
 
 /** A share, without a sign: 0.523 -> "52,3%". */
 const share = (x: number, d = 1) => `${(x * 100).toFixed(d).replace(".", ",")}%`;
+
+/** How many bars fit next to the value axis. */
+const barCount = (o: ChartOptions) => Math.max(1, Math.floor((o.columns - 14) / 2));
 
 const sign = (x: number) => (x >= 0 ? colors.good : colors.bad);
 
@@ -309,7 +314,7 @@ function drawdownChart(ctx: Context, o: ChartOptions): ChartData {
 function monthlyChart(ctx: Context, o: ChartOptions): ChartData {
   const title = "Havi idősúlyozott hozam";
   const { r, bench } = twrWindow(ctx, 3);
-  const months = monthlyPerformance(r.twrIndex, ctx.series, bench).slice(-Math.max(1, Math.floor(o.columns / 2)));
+  const months = monthlyPerformance(r.twrIndex, ctx.series, bench).slice(-barCount(o));
   if (months.length < 2) return empty(title);
   const best = months.reduce((a, b) => (b.twr > a.twr ? b : a));
   const worst = months.reduce((a, b) => (b.twr < a.twr ? b : a));
@@ -318,6 +323,7 @@ function monthlyChart(ctx: Context, o: ChartOptions): ChartData {
     kind: "vbars",
     title,
     bars: months.map((x) => ({ value: x.twr, color: sign(x.twr) })),
+    yLabel: (v) => pct(v, 1),
     xFirst: months[0].month,
     xLast: months[months.length - 1].month,
     summary: [
@@ -333,7 +339,7 @@ function depositsChart(ctx: Context, o: ChartOptions): ChartData {
   for (const p of ctx.series) endOf.set(monthOf(p.date), p.invested);
   const keys = [...endOf.keys()].sort();
   const delta = keys.map((k, i) => ({ month: k, v: endOf.get(k)! - (i ? endOf.get(keys[i - 1])! : 0) }));
-  const shown = delta.slice(-Math.max(1, Math.floor(o.columns / 2)));
+  const shown = delta.slice(-barCount(o));
   if (shown.length < 2) return empty(title);
   const m = money(o.hide);
   const sum = shown.reduce((s, x) => s + x.v, 0);
@@ -341,6 +347,7 @@ function depositsChart(ctx: Context, o: ChartOptions): ChartData {
     kind: "vbars",
     title,
     bars: shown.map((x) => ({ value: x.v, color: x.v >= 0 ? colors.value : colors.bad })),
+    yLabel: (v) => (o.hide ? MASK : mft(v)),
     xFirst: shown[0].month,
     xLast: shown[shown.length - 1].month,
     summary: [
@@ -375,6 +382,7 @@ function payoutsChart(ctx: Context, o: ChartOptions): ChartData {
     kind: "vbars",
     title,
     bars: months.map((m) => ({ value: total(m), color: maturity.get(m) ? colors.invested : colors.value })),
+    yLabel: (v) => (o.hide ? MASK : mft(v)),
     xFirst: months[0],
     xLast: months[months.length - 1],
     summary: [
@@ -395,7 +403,7 @@ function dailyChart(ctx: Context, o: ChartOptions): ChartData {
       v: (s[i].value - s[i].invested - (s[i - 1].value - s[i - 1].invested)) / s[i - 1].value,
     });
   }
-  const shown = days.slice(-Math.max(1, Math.floor(o.columns / 2)));
+  const shown = days.slice(-barCount(o));
   if (shown.length < 2) return empty(title);
   const best = shown.reduce((a, b) => (b.v > a.v ? b : a));
   const worst = shown.reduce((a, b) => (b.v < a.v ? b : a));
@@ -403,6 +411,7 @@ function dailyChart(ctx: Context, o: ChartOptions): ChartData {
     kind: "vbars",
     title,
     bars: shown.map((x) => ({ value: x.v, color: sign(x.v) })),
+    yLabel: (v) => pct(v, 2),
     xFirst: shown[0].date,
     xLast: shown[shown.length - 1].date,
     summary: [
