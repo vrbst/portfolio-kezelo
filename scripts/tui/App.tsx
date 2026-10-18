@@ -145,12 +145,12 @@ export function App() {
           ) : news.error ? (
             <Text color="red">A hírek nem olvashatók: {news.error}</Text>
           ) : news.digest ? (
-            <Report text={newsText(news.digest, ctx, news.appUrl)} hide={hide} />
+            <Report build={() => newsText(news.digest!, ctx, news.appUrl)} hide={hide} />
           ) : (
             <Text dimColor>Még nincs hírösszefoglaló.</Text>
           )
         ) : (
-          <Report text={REPORTS[tab](ctx)} hide={hide} />
+          <Report build={() => REPORTS[tab](ctx)} hide={hide} />
         )}
       </Box>
       <Box marginTop={1}>

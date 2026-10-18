@@ -125,6 +125,19 @@ describe("terminal charts", () => {
     expect(d.series.length).toBeGreaterThan(1);
   });
 
+  it("a chart that cannot be built shows a message, not a crash", () => {
+    const c = ctx();
+    (c as unknown as { series: unknown }).series = null;
+    expect(frame(c, "value")).toContain("A grafikon nem építhető fel");
+  });
+
+  it("the forecast title says the horizon that is really drawn", () => {
+    const c = ctx();
+    const d = buildChart("forecast", c, { ...OPTS, range: FORECAST_YEARS.length - 1 });
+    const years = d.kind === "line" ? Math.round((d.series[0].values.length - 1) / 12) : 0;
+    expect(d.title).toContain(`${years} év`);
+  });
+
   it("an empty portfolio gives a message, not a crash", () => {
     const c = ctx();
     c.series = [];

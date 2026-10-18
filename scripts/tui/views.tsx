@@ -210,8 +210,18 @@ const plain = (html: string) =>
 // spaces): "1 234 567 Ft", "−35,93 M Ft".
 const FT_AMOUNT = /[+−-]?\d[\d\s.,]*\s?(?:M\s)?Ft/g;
 
-/** A bot report (Hozam, Előrejelzés, TBSZ) as plain text; amounts hide with the toggle. */
-export function Report({ text, hide }: { text: string; hide: boolean }) {
+/**
+ * A bot report (Hozam, Előrejelzés, TBSZ…) as plain text; amounts hide with the
+ * toggle. `build` runs here so a report failing on odd data shows a message
+ * instead of ending the program.
+ */
+export function Report({ build, hide }: { build: () => string; hide: boolean }) {
+  let text: string;
+  try {
+    text = build();
+  } catch (e) {
+    return <Text color="red">A riport nem készíthető el: {e instanceof Error ? e.message : String(e)}</Text>;
+  }
   const body = plain(text);
   return <Text>{hide ? body.replace(FT_AMOUNT, HIDDEN) : body}</Text>;
 }

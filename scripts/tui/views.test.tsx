@@ -50,11 +50,23 @@ describe("terminal views", () => {
     const texts = [returnsText, forecastText, tbszText, planText, glideText, liquidationText];
     const news = newsText(fixtureDigest(), c, "https://example.test/");
     for (const text of [...texts.map((t) => t(c)), news]) {
-      const shown = frame(<Report text={text} hide={false} />);
+      const shown = frame(<Report build={() => text} hide={false} />);
       expect(shown).not.toMatch(/<\/?[a-z]+>/);
-      expect(frame(<Report text={text} hide />)).not.toMatch(AMOUNT);
+      expect(frame(<Report build={() => text} hide />)).not.toMatch(AMOUNT);
     }
-    expect(frame(<Report text={forecastText(c)} hide={false} />)).toMatch(AMOUNT);
+    expect(frame(<Report build={() => forecastText(c)} hide={false} />)).toMatch(AMOUNT);
+  });
+
+  it("a report that fails shows a message instead of ending the program", () => {
+    const out = frame(
+      <Report
+        build={() => {
+          throw new Error("rossz adat");
+        }}
+        hide
+      />,
+    );
+    expect(out).toContain("A riport nem készíthető el: rossz adat");
   });
 
   it("hide the goal names in privacy mode", () => {

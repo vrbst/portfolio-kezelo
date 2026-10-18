@@ -422,10 +422,12 @@ function dailyChart(ctx: Context, o: ChartOptions): ChartData {
 }
 
 function forecastChart(ctx: Context, o: ChartOptions): ChartData {
-  const years = FORECAST_YEARS[o.range % FORECAST_YEARS.length];
-  const title = `Előrejelzés (névleges Ft) – ${years} év`;
+  const asked = FORECAST_YEARS[o.range % FORECAST_YEARS.length];
   const { result } = forecastFor(ctx);
-  const pts = result.points.slice(0, years * 12 + 1);
+  const pts = result.points.slice(0, asked * 12 + 1);
+  // The settings may cap the horizon below what was asked: say what is drawn.
+  const years = Math.round((pts.length - 1) / 12);
+  const title = `Előrejelzés (névleges Ft) – ${years} év${years < asked ? ` (a beállított horizont ${years} év)` : ""}`;
   if (pts.length < 2) return empty(title);
   const last = pts[pts.length - 1];
   const m = money(o.hide);

@@ -145,10 +145,14 @@ export function ChartsView({
 }) {
   const { range, mode, pick, hide } = options;
   // Some charts re-mark the whole history: build once per setting, not per redraw.
-  const data = useMemo(
-    () => buildChart(chart, ctx, { range, mode, pick, hide, columns: Math.max(10, columns - 2) }),
-    [chart, ctx, range, mode, pick, hide, columns],
-  );
+  const data = useMemo((): ChartData => {
+    try {
+      return buildChart(chart, ctx, { range, mode, pick, hide, columns: Math.max(10, columns - 2) });
+    } catch (e) {
+      // One chart failing on odd data must not take the whole view down.
+      return { kind: "empty", title: CHART_TITLES[chart], message: `A grafikon nem építhető fel: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }, [chart, ctx, range, mode, pick, hide, columns]);
   return (
     <Box flexDirection="column">
       <ChartMenu chart={chart} />
