@@ -71,7 +71,7 @@ export default defineConfig({
     // UTC midnight, so one-day-off date bugs stay invisible. Tests default to
     // Budapest; CI also runs them with TZ=UTC and TZ=America/New_York.
     env: { TZ: process.env.TZ || "Europe/Budapest" },
-    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.{ts,tsx}"],
   },
   plugins: [
     emitVersionJson(),
