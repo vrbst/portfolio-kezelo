@@ -220,6 +220,24 @@ npm run test:e2e # böngészős teszt a megépített appon (Playwright)
 npm run build    # produkciós build a dist/ mappába
 ```
 
+## Terminálos nézet
+
+```bash
+npm run tui
+```
+
+Csak olvasható, Ink-alapú (React a terminálra) nézet ugyanarról a számításról,
+amit a Telegram-bot is használ (`scripts/notify/data.ts`), ezért a számai
+megegyeznek az appéval és a botéval. Alternatív képernyőn fut (mint a `mc`),
+kilépéskor a terminál előzménye visszajön. A bot gépén fut, mert a
+`.notify/.env`-ből és a GitHub-tokenből dolgozik.
+
+Fülek: Állás · Pozíciók · Teendők · Célok · Grafikon · Hozam · Előrejelzés ·
+TBSZ · Terv · Pálya · Eladás · Hírek. Billentyűk: `Tab`/`Shift+Tab`/`←`/`→`
+vagy `1`–`9` a fülváltás, `↑`/`↓` a pozíciók görgetése, `t` a grafikon
+időszaka, `r` az újratöltés, `q` a kilépés. A `p` az összegeket és a
+célneveket elrejti (indításkor rejtett), mint az app adatvédelmi módja.
+
 ## Tesztek
 
 Minden pull requesten és minden deploy előtt lefut

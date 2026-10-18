@@ -5,10 +5,12 @@ import {
   forecastText,
   glideText,
   liquidationText,
+  newsText,
   planText,
   returnsText,
   tbszText,
 } from "../notify/reports";
+import { fixtureDigest } from "../../src/test/newsFixture";
 import { Chart, Goals, Overview, Positions, Report, Todos } from "./views";
 
 afterEach(() => vi.useRealTimers());
@@ -47,7 +49,8 @@ describe("terminal views", () => {
   it("show the bot reports as plain text and hide their amounts in privacy mode", () => {
     const c = ctx();
     const texts = [returnsText, forecastText, tbszText, planText, glideText, liquidationText];
-    for (const text of texts.map((t) => t(c))) {
+    const news = newsText(fixtureDigest(), c, "https://example.test/");
+    for (const text of [...texts.map((t) => t(c)), news]) {
       const shown = frame(<Report text={text} hide={false} />);
       expect(shown).not.toMatch(/<\/?[a-z]+>/);
       expect(frame(<Report text={text} hide />)).not.toMatch(AMOUNT);

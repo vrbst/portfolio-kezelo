@@ -3,7 +3,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
-import { loadEnv } from "../notify/env";
+import { loadEnv, newsGithubToken } from "../notify/env";
+import { latestDigest, repoStore } from "../notify/news/job";
+import type { NewsDigest } from "../../src/lib/newsSchema";
 import { loadContext, type Context } from "../notify/data";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { CHART_RANGES } from "./ranges";
@@ -12,12 +14,13 @@ import {
   glideText,
   liquidationText,
   planText,
+  newsText,
   returnsText,
   tbszText,
 } from "../notify/reports";
 import { Chart, Goals, Overview, Positions, Report, Todos } from "./views";
 
-const TABS = ["Állás", "Pozíciók", "Teendők", "Célok", "Grafikon", "Hozam", "Előrejelzés", "TBSZ", "Terv", "Pálya", "Eladás"] as const;
+const TABS = ["Állás", "Pozíciók", "Teendők", "Célok", "Grafikon", "Hozam", "Előrejelzés", "TBSZ", "Terv", "Pálya", "Eladás", "Hírek"] as const;
 
 // Tabs 6+ show the Telegram bot report of the same name as plain text.
 const REPORTS: Record<number, (ctx: Context) => string> = {
@@ -28,11 +31,16 @@ const REPORTS: Record<number, (ctx: Context) => string> = {
   9: glideText,
   10: liquidationText,
 };
+const NEWS_TAB = 11;
+
+/** The latest news digest, or why there is none (the other tabs do not depend on it). */
+type News = { digest: NewsDigest | null; appUrl: string; error?: string };
 
 export function App() {
   const { exit } = useApp();
   const [ctx, setCtx] = useState<Context | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [news, setNews] = useState<News | null>(null);
   const [hide, setHide] = useState(true);
   const [run, setRun] = useState(0);
   const [tab, setTab] = useState(0);
@@ -41,9 +49,16 @@ export function App() {
 
   useEffect(() => {
     let live = true;
-    loadContext(loadEnv())
+    const env = loadEnv();
+    loadContext(env)
       .then((c) => live && setCtx(c))
       .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+    latestDigest(repoStore(env.syncRepo, newsGithubToken))
+      .then((digest) => live && setNews({ digest, appUrl: env.appUrl }))
+      .catch((e: unknown) =>
+        live &&
+        setNews({ digest: null, appUrl: env.appUrl, error: e instanceof Error ? e.message : String(e) }),
+      );
     return () => {
       live = false;
     };
@@ -52,6 +67,7 @@ export function App() {
   const reload = useCallback(() => {
     setError(null);
     setCtx(null);
+    setNews(null);
     setRun((n) => n + 1);
   }, []);
 
@@ -74,7 +90,7 @@ export function App() {
   });
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column" paddingX={1} height={Math.max(5, termRows - 1)}>
       <Box flexWrap="wrap">
         {TABS.map((t, i) => (
           <Box key={t} marginRight={1}>
@@ -84,7 +100,7 @@ export function App() {
           </Box>
         ))}
       </Box>
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={1} flexDirection="column" flexGrow={1}>
         {error ? (
           <Text color="red">Hiba: {error}</Text>
         ) : !ctx ? (
@@ -99,6 +115,16 @@ export function App() {
           <Goals ctx={ctx} hide={hide} />
         ) : tab === 4 ? (
           <Chart ctx={ctx} hide={hide} range={range} width={Math.max(20, termCols - 4)} />
+        ) : tab === NEWS_TAB ? (
+          !news ? (
+            <Text dimColor>Hírek betöltése…</Text>
+          ) : news.error ? (
+            <Text color="red">A hírek nem olvashatók: {news.error}</Text>
+          ) : news.digest ? (
+            <Report text={newsText(news.digest, ctx, news.appUrl)} hide={hide} />
+          ) : (
+            <Text dimColor>Még nincs hírösszefoglaló.</Text>
+          )
         ) : (
           <Report text={REPORTS[tab](ctx)} hide={hide} />
         )}
