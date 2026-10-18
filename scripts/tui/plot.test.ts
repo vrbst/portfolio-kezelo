@@ -56,6 +56,12 @@ describe("verticalBars", () => {
     expect(rows.map((r) => r[0])).toEqual([" ", " ", " ", "▄"]);
   });
 
+  it("keeps a tiny positive bar visible next to a huge one", () => {
+    const rows = text(verticalBars([{ value: 0.001 }, { value: 100 }], 5));
+    expect(rows[rows.length - 1][0]).toBe("▁");
+    expect(verticalBars([{ value: 0 }, { value: 100 }], 5).map((r) => r[0].text[0]).join("").trim()).toBe("");
+  });
+
   it("puts negative bars under a zero line", () => {
     const rows = text(verticalBars([{ value: 3 }, { value: -3 }], 5));
     const zero = rows.findIndex((r) => r.startsWith("─"));

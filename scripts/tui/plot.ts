@@ -153,7 +153,9 @@ export function verticalBars(bars: Bar[], height: number, barWidth = 1, gap = 1)
     const runs: Run[] = [];
     for (const b of bars) {
       // Eighths of a row this bar fills in row r (counted from the zero line).
-      const eighths = Math.round((Math.max(0, b.value) / unit - (r - 1)) * 8);
+      let eighths = Math.round((Math.max(0, b.value) / unit - (r - 1)) * 8);
+      // A bar that exists never vanishes: at least the thinnest block.
+      if (r === 1 && b.value > 0 && eighths < 1) eighths = 1;
       const ch = eighths >= 8 ? "█" : eighths <= 0 ? " " : UP[eighths];
       runs.push({ text: ch.repeat(barWidth), color: b.color }, { text: " ".repeat(gap) });
     }

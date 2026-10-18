@@ -30,6 +30,7 @@ export const CHART_IDS = [
   "drawdown",
   "monthly",
   "deposits",
+  "payouts",
   "daily",
   "forecast",
   "glide",
@@ -45,6 +46,7 @@ export const CHART_TITLES: Record<ChartId, string> = {
   drawdown: "Esés",
   monthly: "Havi hozam",
   deposits: "Befizetés",
+  payouts: "Kifizetés",
   daily: "Napi",
   forecast: "Előrejelzés",
   glide: "Pálya",
@@ -60,6 +62,7 @@ export const CHART_CONTROLS: Record<ChartId, string> = {
   drawdown: "t: időszak",
   monthly: "",
   deposits: "",
+  payouts: "",
   daily: "",
   forecast: "t: horizont",
   glide: "t: időszak",
@@ -313,6 +316,40 @@ function depositsChart(ctx: Context, o: ChartOptions): ChartData {
   };
 }
 
+/** Coupons and redemptions the bonds will pay in each of the next 12 months. */
+function payoutsChart(ctx: Context, o: ChartOptions): ChartData {
+  const title = "Várható kamat- és lejárat-kifizetések, következő 12 hónap";
+  const months: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(ctx.at.getFullYear(), ctx.at.getMonth() + i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const coupon = new Map<string, number>();
+  const maturity = new Map<string, number>();
+  for (const e of ctx.events) {
+    if (!e.amountHuf || (e.kind !== "coupon" && e.kind !== "maturity")) continue;
+    const m = monthOf(e.date);
+    const into = e.kind === "coupon" ? coupon : maturity;
+    into.set(m, (into.get(m) ?? 0) + e.amountHuf);
+  }
+  const total = (m: string) => (coupon.get(m) ?? 0) + (maturity.get(m) ?? 0);
+  if (!months.some((m) => total(m) > 0)) return empty(title, "Nincs közelgő kamat- vagy lejárat-kifizetés.");
+  const money_ = money(o.hide);
+  const sum = (mp: Map<string, number>) => months.reduce((a, m) => a + (mp.get(m) ?? 0), 0);
+  const top = months.reduce((a, m) => (total(m) > total(a) ? m : a));
+  return {
+    kind: "vbars",
+    title,
+    bars: months.map((m) => ({ value: total(m), color: maturity.get(m) ? colors.invested : colors.value })),
+    xFirst: months[0],
+    xLast: months[months.length - 1],
+    summary: [
+      `Kamat: ${money_(sum(coupon))} (kék) · lejárat: ${money_(sum(maturity))} (sárga: abban a hónapban lejárat is van)`,
+      `Legnagyobb hónap: ${top} ${money_(total(top))}`,
+    ],
+  };
+}
+
 function dailyChart(ctx: Context, o: ChartOptions): ChartData {
   const title = "Napi piaci mozgás (a befizetések nélkül)";
   const s = ctx.series;
@@ -497,6 +534,8 @@ export function buildChart(id: ChartId, ctx: Context, o: ChartOptions): ChartDat
       return monthlyChart(ctx, o);
     case "deposits":
       return depositsChart(ctx, o);
+    case "payouts":
+      return payoutsChart(ctx, o);
     case "daily":
       return dailyChart(ctx, o);
     case "forecast":
