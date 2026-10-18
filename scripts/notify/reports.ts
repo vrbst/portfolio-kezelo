@@ -355,7 +355,7 @@ export function goalsText(ctx: Context): string {
 }
 
 /** Same projection the Forecast page runs (settings + goals as expenses). */
-function forecastFor(ctx: Context) {
+export function forecastFor(ctx: Context) {
   const stored = loadForecastSettings();
   // "Kilátások alapján": the returns the page would run with (never saved back).
   const estimate =

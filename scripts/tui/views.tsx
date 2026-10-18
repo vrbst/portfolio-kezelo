@@ -3,17 +3,11 @@
 
 import { Box, Text } from "ink";
 import type { Context } from "../notify/data";
-import { dayLabel, ft, mft, pct, sft, shortName } from "../notify/reports";
+import { dayLabel, ft, mft, pct, sft } from "../notify/reports";
+import { HIDDEN, MASK, name } from "./text";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
-import { addDaysIso, todayLocal } from "../../src/lib/day";
 import { sparkline } from "./spark";
-import { CHART_RANGES } from "./ranges";
 
-const HIDDEN = "•••• Ft";
-const MASK = "••••";
-
-const name = (s: string) =>
-  shortName(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 
 const makeMoney = (hide: boolean) => (n: number, f: (n: number) => string = ft) =>
   hide ? HIDDEN : f(n);
@@ -40,6 +34,12 @@ export function Overview({ ctx, hide }: { ctx: Context; hide: boolean }) {
         Összes eredmény: {hide ? MASK : sft(s.totalPlHuf)} ({pct(s.totalReturnPct)})
       </Text>
       <Text>Befektetett tőke: {money(s.netDepositedHuf)}</Text>
+      {ctx.series.length > 1 && (
+        <Text>
+          <Text dimColor>Utolsó 90 nap: </Text>
+          <Text color="cyan">{sparkline(ctx.series.slice(-90).map((p) => p.value), 40)}</Text>
+        </Text>
+      )}
 
       <Box marginTop={1} flexDirection="column">
         <Text bold>Számlák</Text>
@@ -195,57 +195,6 @@ export function Goals({ ctx, hide }: { ctx: Context; hide: boolean }) {
           ))}
         </Box>
       )}
-    </Box>
-  );
-}
-
-/** Value sparkline for the chosen range; the amounts hide with the toggle. */
-export function Chart({
-  ctx,
-  hide,
-  range,
-  width,
-}: {
-  ctx: Context;
-  hide: boolean;
-  range: number;
-  width: number;
-}) {
-  const money = makeMoney(hide);
-  const r = CHART_RANGES[range];
-  const from = r.days ? addDaysIso(todayLocal(), -r.days) : "";
-  const pts = ctx.series.filter((p) => p.date >= from);
-  if (pts.length < 2) return <Text dimColor>Nincs elég adat ehhez az időszakhoz.</Text>;
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  const values = pts.map((p) => p.value);
-  // Market result: value change minus the net flows in the window.
-  const result = last.value - last.invested - (first.value - first.invested);
-  const change = first.value ? last.value / first.value - 1 : undefined;
-  const hi = Math.max(...values);
-  const lo = Math.min(...values);
-  const drawn = Math.min(width, pts.length);
-  return (
-    <Box flexDirection="column">
-      <Text bold>Vagyon – {r.label}</Text>
-      <Text color={dayColor(result)}>{sparkline(values, width)}</Text>
-      <Text dimColor>
-        {first.date}
-        {" ".repeat(Math.max(1, drawn - 20))}
-        {last.date}
-      </Text>
-      <Box marginTop={1} flexDirection="column">
-        <Text>
-          Most: {money(last.value)} · érték-változás: {pct(change, 1)}
-        </Text>
-        <Text>
-          Piaci eredmény az időszakban:{" "}
-          <Text color={dayColor(result)}>{hide ? MASK : sft(result)}</Text>
-        </Text>
-        <Text dimColor>
-          Minimum: {money(lo)} · maximum: {money(hi)}
-        </Text>
-      </Box>
     </Box>
   );
 }

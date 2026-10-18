@@ -11,7 +11,7 @@ import {
   tbszText,
 } from "../notify/reports";
 import { fixtureDigest } from "../../src/test/newsFixture";
-import { Chart, Goals, Overview, Positions, Report, Todos } from "./views";
+import { Goals, Overview, Positions, Report, Todos } from "./views";
 
 afterEach(() => vi.useRealTimers());
 
@@ -41,7 +41,6 @@ describe("terminal views", () => {
       <Positions key="p" ctx={c} hide offset={0} rows={20} />,
       <Todos key="t" ctx={c} hide />,
       <Goals key="g" ctx={c} hide />,
-      <Chart key="c" ctx={c} hide range={3} width={60} />,
     ];
     for (const v of views) expect(frame(v)).not.toMatch(AMOUNT);
   });
@@ -77,7 +76,7 @@ describe("terminal views", () => {
     expect(first).not.toEqual(second);
   });
 
-  it("draw a sparkline in the chart tab", () => {
-    expect(frame(<Chart ctx={ctx()} hide={false} range={3} width={60} />)).toMatch(/[▁-█]{5}/);
+  it("draw a 90 day trend sparkline on the overview", () => {
+    expect(frame(<Overview ctx={ctx()} hide />)).toMatch(/Utolsó 90 nap: [▁-█]{10}/);
   });
 });

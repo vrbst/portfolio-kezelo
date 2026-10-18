@@ -9,6 +9,8 @@ import type { NewsDigest } from "../../src/lib/newsSchema";
 import { loadContext, type Context } from "../notify/data";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { CHART_RANGES } from "./ranges";
+import { ALLOC_MODES, CHART_IDS, FORECAST_YEARS } from "./charts";
+import { ChartsView } from "./ChartsView";
 import {
   forecastText,
   glideText,
@@ -18,7 +20,7 @@ import {
   returnsText,
   tbszText,
 } from "../notify/reports";
-import { Chart, Goals, Overview, Positions, Report, Todos } from "./views";
+import { Goals, Overview, Positions, Report, Todos } from "./views";
 
 const TABS = ["Állás", "Pozíciók", "Teendők", "Célok", "Grafikon", "Hozam", "Előrejelzés", "TBSZ", "Terv", "Pálya", "Eladás", "Hírek"] as const;
 
@@ -45,7 +47,11 @@ export function App() {
   const [run, setRun] = useState(0);
   const [tab, setTab] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [chart, setChart] = useState(0);
   const [range, setRange] = useState(1);
+  const [forecastRange, setForecastRange] = useState(3);
+  const [mode, setMode] = useState(0);
+  const [pick, setPick] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -86,7 +92,14 @@ export function App() {
     else if (tab === 1 && key.downArrow)
       setOffset((o) => Math.min(Math.max(0, holdingCount - listRows), o + 1));
     else if (tab === 1 && key.upArrow) setOffset((o) => Math.max(0, o - 1));
-    else if (tab === 4 && input === "t") setRange((x) => (x + 1) % CHART_RANGES.length);
+    else if (tab === 4 && input === "c") setChart((x) => (x + 1) % CHART_IDS.length);
+    else if (tab === 4 && input === "C") setChart((x) => (x + CHART_IDS.length - 1) % CHART_IDS.length);
+    else if (tab === 4 && input === "t") {
+      if (CHART_IDS[chart] === "forecast") setForecastRange((x) => (x + 1) % FORECAST_YEARS.length);
+      else setRange((x) => (x + 1) % CHART_RANGES.length);
+    } else if (tab === 4 && input === "m") setMode((x) => (x + 1) % ALLOC_MODES.length);
+    else if (tab === 4 && key.downArrow) setPick((x) => x + 1);
+    else if (tab === 4 && key.upArrow) setPick((x) => x - 1);
   });
 
   return (
@@ -114,7 +127,18 @@ export function App() {
         ) : tab === 3 ? (
           <Goals ctx={ctx} hide={hide} />
         ) : tab === 4 ? (
-          <Chart ctx={ctx} hide={hide} range={range} width={Math.max(20, termCols - 4)} />
+          <ChartsView
+            ctx={ctx}
+            chart={CHART_IDS[chart]}
+            options={{
+              range: CHART_IDS[chart] === "forecast" ? forecastRange : range,
+              mode,
+              pick,
+              hide,
+            }}
+            columns={Math.max(30, termCols - 4)}
+            height={Math.max(6, termRows - 17)}
+          />
         ) : tab === NEWS_TAB ? (
           !news ? (
             <Text dimColor>Hírek betöltése…</Text>
@@ -132,7 +156,7 @@ export function App() {
       <Box marginTop={1}>
         <Text dimColor>
           Tab/←→/1–9: fül · p: összegek {hide ? "mutatása" : "elrejtése"} · r: újratöltés
-          {tab === 4 ? " · t: időszak" : ""} · q: kilépés
+          {tab === 4 ? " · c: grafikon" : ""} · q: kilépés
         </Text>
       </Box>
     </Box>
