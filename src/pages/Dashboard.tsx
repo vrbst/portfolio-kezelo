@@ -112,7 +112,7 @@ export default function Dashboard() {
   const priceUpdatedAt = usePortfolio((s) => s.priceUpdatedAt);
   const eurHuf = usePortfolio((s) => s.fx["EUR"]);
   const isMobile = useIsMobile();
-  const [mobileTab, setMobileTab] = useState<MobileTab>("holdings");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("market");
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<MobileTab>>(() => new Set(["holdings", "market"]));
   const selectTab = (t: MobileTab) => {
     setMobileTab(t);
@@ -881,7 +881,7 @@ export default function Dashboard() {
       </Card>
     );
 
-  const activeTab: MobileTab = mobileTab === "events" && !eventsCard ? "holdings" : mobileTab;
+  const activeTab: MobileTab = mobileTab === "events" && !eventsCard ? "market" : mobileTab;
 
   return (
     <div>
@@ -968,11 +968,6 @@ export default function Dashboard() {
             )}
           </div>
           <NoCardEnter>
-            {visitedTabs.has("holdings") && (
-              <div key="holdings" role="tabpanel" hidden={activeTab !== "holdings"}>
-                <HoldingsTable maxBodyHeight="26rem" />
-              </div>
-            )}
             {visitedTabs.has("market") && (
               <div
                 key="market"
@@ -982,6 +977,11 @@ export default function Dashboard() {
               >
                 <LivePricesPanel />
                 <NewsCard />
+              </div>
+            )}
+            {visitedTabs.has("holdings") && (
+              <div key="holdings" role="tabpanel" hidden={activeTab !== "holdings"}>
+                <HoldingsTable maxBodyHeight="26rem" />
               </div>
             )}
             {activeTab === "allocation" && (
@@ -1051,8 +1051,8 @@ export default function Dashboard() {
 type MobileTab = "holdings" | "market" | "allocation" | "events";
 
 const DASH_TABS: { key: MobileTab; label: string }[] = [
-  { key: "holdings", label: "Eszközök" },
   { key: "market", label: "Piac" },
+  { key: "holdings", label: "Eszközök" },
   { key: "allocation", label: "Allokáció" },
   { key: "events", label: "Események" },
 ];

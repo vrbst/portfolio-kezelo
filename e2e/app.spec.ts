@@ -591,7 +591,11 @@ test.describe("market news (Hírek)", () => {
 
     await show(page, "/");
     await expect(main).toContainText("Piaci hírek");
-    if (info.project.name === "mobile") await main.getByRole("tab", { name: "Piac" }).click();
+    if (info.project.name === "mobile") {
+      // On the phone the market tab comes first and is open by default.
+      await expect(main.getByRole("tab").first()).toHaveText("Piac");
+      await expect(main.getByRole("tab", { name: "Piac" })).toHaveAttribute("aria-selected", "true");
+    }
     await main.getByRole("link", { name: /Összes hír/ }).click();
     await expect(page).toHaveURL(/#\/hirek$/);
     expect(errors, "console / page errors").toEqual([]);
