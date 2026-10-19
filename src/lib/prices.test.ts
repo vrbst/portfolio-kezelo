@@ -8,6 +8,7 @@ import {
   pickOffHours,
   fxMarketOpen,
   intradaySwing,
+  isCurveLive,
   lastSessionLabel,
   lastTradeTime,
   quotedToday,
@@ -262,6 +263,28 @@ describe("off-hours stand-in listing", () => {
     expect(c).toContain("VWRA.L");
     expect(c).not.toContain("VWCE.DE");
     expect(altCandidates([], "BTC-EUR")).toEqual([]);
+  });
+});
+
+describe("isCurveLive: off-hours venue", () => {
+  const at = (h: number, m: number) => new Date(2026, 9, 19, h, m).getTime();
+  const q = {
+    price: 170,
+    session: { start: at(9, 0), end: at(17, 30) },
+    intraday: [170, 170.2],
+    intradayT: [at(8, 15), at(8, 20)],
+    marketTime: at(8, 24),
+    offHours: { exchange: "Hamburg", kind: "pre" as const },
+  };
+  it("a fresh trade on another venue before the open counts as live", () => {
+    expect(isCurveLive(q, at(8, 40))).toBe(true);
+  });
+  it("a stale one (last trade long ago) does not", () => {
+    expect(isCurveLive(q, at(9, 0) - 1)).toBe(false);
+    expect(isCurveLive({ ...q, marketTime: at(7, 0) }, at(8, 40))).toBe(false);
+  });
+  it("without an off-hours venue the closed market is still not live", () => {
+    expect(isCurveLive({ ...q, offHours: undefined }, at(8, 40))).toBe(false);
   });
 });
 

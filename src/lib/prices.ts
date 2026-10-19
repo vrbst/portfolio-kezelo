@@ -221,6 +221,9 @@ export function isTrading(q: LiveQuote | undefined, now: number): boolean {
   return !q?.session || (now >= q.session.start && now < q.session.end);
 }
 
+/** An off-hours venue whose last trade is this recent counts as live. */
+const OFF_HOURS_LIVE_MS = 30 * 60 * 1000;
+
 /**
  * Does the "today" curve show the session running right now? False when the
  * market is closed (evening, weekend: the curve is the last finished day) and
@@ -228,6 +231,9 @@ export function isTrading(q: LiveQuote | undefined, now: number): boolean {
  * then the latest bars are still the previous trading day's.
  */
 export function isCurveLive(q: LiveQuote | undefined, now: number): boolean {
+  // Another venue of the same security is trading right now (before the open,
+  // after the close): its curve is live, even though the primary is closed.
+  if (q?.offHours && q.marketTime != null && now - q.marketTime <= OFF_HOURS_LIVE_MS) return true;
   if (!isTrading(q, now)) return false;
   const last = q?.intradayT?.at(-1);
   return !q?.session || last == null || last >= q.session.start;

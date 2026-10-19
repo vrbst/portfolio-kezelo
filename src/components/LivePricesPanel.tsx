@@ -281,7 +281,11 @@ function PriceTile({
           (curveLive ? (
             <span
               className="live-dot relative h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
-              title="Élő árfolyam — a piac most nyitva"
+              title={
+                quote?.offHours
+                  ? offHoursTitle(quote.offHours.kind, quote.offHours.exchange, quote.exchange)
+                  : "Élő árfolyam — a piac most nyitva"
+              }
             />
           ) : (
             <span
