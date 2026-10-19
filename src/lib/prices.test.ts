@@ -215,10 +215,16 @@ describe("off-hours stand-in listing", () => {
     expect(quotedToday(q, now)).toBe(true);
   });
 
-  it("a venue without enough bars changes nothing: price and chart stay the primary's", async () => {
-    const q = await load(now, "IE00NOBARS0X", undefined, today(8, 52), 171.16, 1);
-    expect(q.offHours).toBeUndefined();
-    expect(q.price).toBe(170.94);
+  it("a venue with no bars (Stuttgart's ISIN line): its last trade is the price and the chart's last point", async () => {
+    const at = new Date(2026, 9, 19, 18, 28);
+    const day = (h: number, m: number) => new Date(2026, 9, 19, h, m).getTime();
+    const xetra = chart(170.88, "XETRA", day(17, 30), "EUR", [day(9, 0), day(17, 30)], 4);
+    const q = await load(at, "IE00NOBARS0X", xetra, day(18, 10), 170.66, 0);
+    expect(q.price).toBe(170.66);
+    expect(q.offHours).toEqual({ exchange: "Munich", kind: "post" });
+    expect(q.intradayT!.at(-1)).toBe(day(18, 10));
+    expect(q.intraday!.at(-1)).toBe(170.66);
+    expect(isCurveLive(q, at.getTime())).toBe(true);
   });
 
   it("the cross-check is reused for a few minutes instead of refetching every poll", async () => {
@@ -339,8 +345,24 @@ describe("mergeOffHoursBars", () => {
     expect(m.intradayT).toEqual([t1 - BAR, t1]);
   });
 
-  it("no bars on the other venue: nothing to merge", () => {
+  it("no bars and no trade time on the other venue: nothing to merge", () => {
     expect(mergeOffHoursBars({ price: 1 }, { price: 1 })).toBeUndefined();
+  });
+
+  it("a venue with only its last trade: the primary's bars, then a line to that trade", () => {
+    const xetra = bars(19, [17, 20], 3, () => 170); // 17:20–17:30
+    const primary = { price: 170, intraday: xetra.v, intradayT: xetra.t, session: { start: at(19, 9, 0), end: at(19, 17, 30) } };
+    const m = mergeOffHoursBars(primary, { price: 171, marketTime: at(19, 17, 52) })!;
+    expect(m.intradayT!.at(-1)).toBe(at(19, 17, 50)); // the trade's 5-minute slot
+    expect(m.intraday).toEqual([170, 170, 170, 170.25, 170.5, 170.75, 171]);
+  });
+
+  it("a trade later than the venue's last bar is added as its own point", () => {
+    const mu = bars(19, [18, 0], 2, () => 171); // 18:00, 18:05
+    const alt = { price: 172, marketTime: at(19, 18, 26), intraday: mu.v, intradayT: mu.t };
+    const m = mergeOffHoursBars({ price: 170 }, alt)!;
+    expect(m.intradayT!.at(-1)).toBe(at(19, 18, 25));
+    expect(m.intraday).toEqual([171, 171, 171.25, 171.5, 171.75, 172]);
   });
 });
 

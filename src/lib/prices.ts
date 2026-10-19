@@ -537,16 +537,24 @@ export function pickOffHours<Q extends LiveQuote & { currency?: string }>(
  * other listing's bars before / after them, on one 5-minute grid (gaps
  * interpolated) so the sparkline's index layout stays aligned with the clock. When the
  * primary has no bars of that day yet (before its open), its latest session
- * becomes the "previous day". Pure; returns undefined without alt bars.
+ * becomes the "previous day". The other listing's last trade is a point of
+ * its own when it is later than its bars: a venue that reports no bars at all
+ * (Stuttgart's ISIN line) still extends the curve to its trade. Pure; returns
+ * undefined with neither bars nor a trade time.
  */
 export function mergeOffHoursBars(
   primary: LiveQuote,
   alt: LiveQuote,
   interpolate = true,
 ): Pick<LiveQuote, "intraday" | "intradayT" | "prevDay" | "prevDayT" | "chartSession"> | undefined {
-  const aT = alt.intradayT ?? [];
-  const aV = alt.intraday ?? [];
-  if (aV.length < 2 || aT.length !== aV.length) return undefined;
+  const bars = alt.intradayT?.length === alt.intraday?.length;
+  const aT = bars ? [...(alt.intradayT ?? [])] : [];
+  const aV = bars ? [...(alt.intraday ?? [])] : [];
+  if (alt.marketTime != null && alt.marketTime > (aT.at(-1) ?? -Infinity)) {
+    aT.push(alt.marketTime);
+    aV.push(alt.price);
+  }
+  if (!aV.length) return undefined;
   const day = toLocalDay(aT.at(-1)!);
   const bucket = (t: number) => Math.floor(t / BAR_MS) * BAR_MS;
   const altBars = new Map<number, number>();
