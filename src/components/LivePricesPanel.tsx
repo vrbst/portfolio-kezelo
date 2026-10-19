@@ -278,14 +278,21 @@ function PriceTile({
           />
         ) : (
           live &&
-          (curveLive ? (
+          (curveLive && quote?.offHours ? (
+            // Pre / after-market: another venue trades, the primary is closed —
+            // a dot half green (live), half grey (closed), split on the diagonal.
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--color-positive) 50%, var(--color-muted) 50%)",
+              }}
+              title={offHoursTitle(quote.offHours.kind, quote.offHours.exchange, quote.exchange)}
+            />
+          ) : curveLive ? (
             <span
               className="live-dot relative h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-positive)]"
-              title={
-                quote?.offHours
-                  ? offHoursTitle(quote.offHours.kind, quote.offHours.exchange, quote.exchange)
-                  : "Élő árfolyam — a piac most nyitva"
-              }
+              title="Élő árfolyam — a piac most nyitva"
             />
           ) : (
             <span
