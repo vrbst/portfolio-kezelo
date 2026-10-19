@@ -64,13 +64,25 @@ const EVENT_QUERY: Record<EventKind, string | null> = {
   EZ_CPI: "eurozone inflation Eurostat",
   PMI: null,
   AKK_AUCTION: null,
+  EARNINGS: null,
   OTHER: null,
 };
 
 const HUNGARIAN: ReadonlySet<EventKind> = new Set(["MNB_RATE", "HU_CPI", "HU_GDP", "PMI", "AKK_AUCTION", "OTHER"]);
 
+/** "Tesla gyorsjelentés (Q3)" → "Tesla earnings": the company, searched in English. */
+export function earningsQuery(event: string): string {
+  const name = event
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/(^|\s)Q[1-4]\S*/gi, " ")
+    .replace(/\S*(gyorsjelentés|jelentés|negyedév|eredmény|beszámoló|első|második|harmadik|negyedik)\S*/giu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${name || event} earnings`;
+}
+
 export function coverageUrl(kind: EventKind, event: string): string {
-  const q = `${EVENT_QUERY[kind] ?? event} when:1d`;
+  const q = `${kind === "EARNINGS" ? earningsQuery(event) : (EVENT_QUERY[kind] ?? event)} when:1d`;
   const params = HUNGARIAN.has(kind) ? "hl=hu&gl=HU&ceid=HU:hu" : "hl=en-US&gl=US&ceid=US:en";
   return `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&${params}`;
 }

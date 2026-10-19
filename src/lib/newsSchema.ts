@@ -70,12 +70,29 @@ export const EVENT_KINDS = [
   "EZ_CPI",
   "PMI",
   "AKK_AUCTION",
+  "EARNINGS",
   "OTHER",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** Central banks: the decision and, later, the press conference. */
 export const RATE_KINDS: readonly EventKind[] = ["FED_RATE", "ECB_RATE", "MNB_RATE"];
+
+/**
+ * When in the US trading day a company reports: before the open or after the
+ * close. Sources agree on it even when they differ on the minute.
+ */
+export const SESSIONS = ["pre", "post"] as const;
+export type Session = (typeof SESSIONS)[number];
+
+export const SESSION_LABEL: Record<Session, string> = {
+  pre: "nyitás előtt",
+  post: "zárás után",
+};
+
+/** How a time is shown: an approximate one (from the session) says so. */
+export const timeLabel = (x: { time?: string; session?: Session }) =>
+  x.session ? `${SESSION_LABEL[x.session]}${x.time ? ` (~${x.time})` : ""}` : (x.time ?? "");
 
 export interface NewsUpcoming {
   /** YYYY-MM-DD */
@@ -84,6 +101,8 @@ export interface NewsUpcoming {
   why: string;
   /** HH:MM Budapest time, only when an official calendar gives it. */
   time?: string;
+  /** No exact time, but known to be before the US open / after the close (earnings). */
+  session?: Session;
   /** Worth a look for the result once it is out (scheduled, portfolio-moving). */
   followUp?: boolean;
   kind?: EventKind;
@@ -196,12 +215,13 @@ export const NEWS_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["date", "event", "why", "time", "followUp", "kind", "pressTime", "expected"],
+        required: ["date", "event", "why", "time", "session", "followUp", "kind", "pressTime", "expected"],
         properties: {
           date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
           event: { type: "string" },
           why: { type: "string" },
           time: { type: ["string", "null"] },
+          session: { type: ["string", "null"], enum: [...SESSIONS, null] },
           followUp: { type: "boolean" },
           kind: { type: ["string", "null"], enum: [...EVENT_KINDS, null] },
           pressTime: { type: ["string", "null"] },
@@ -258,11 +278,14 @@ function checkUpcoming(u: Record<string, unknown> & { date: string; event: strin
   const pressTime =
     typeof u.pressTime === "string" && TIME_RE.test(u.pressTime.trim()) ? u.pressTime.trim() : undefined;
   const kind = u.kind == null ? undefined : oneOf(EVENT_KINDS, u.kind) ? u.kind : "OTHER";
+  // An exact time wins: the session is only for when there is none.
+  const session = !time && oneOf(SESSIONS, u.session) ? u.session : undefined;
   return {
     date: u.date,
     event: u.event.trim(),
     why: u.why.trim(),
     ...(time ? { time } : {}),
+    ...(session ? { session } : {}),
     ...(u.followUp === true ? { followUp: true } : {}),
     ...(kind ? { kind } : {}),
     ...(pressTime ? { pressTime } : {}),
@@ -436,6 +459,8 @@ export interface EventResult {
   phase: EventPhase;
   date: string;
   time: string;
+  /** The time is approximate: the start of this session (earnings). */
+  session?: Session;
   kind: EventKind;
   event: string;
   actual: string;
@@ -471,6 +496,8 @@ export interface EventSubscription {
   phase: EventPhase;
   date: string;
   time: string;
+  /** The time is approximate: the start of this session (earnings). */
+  session?: Session;
   kind: EventKind;
   events: { event: string; expected?: string }[];
   status: SubscriptionStatus;
@@ -526,6 +553,7 @@ function checkResult(x: unknown): EventResult[] {
       phase: x.phase,
       date: x.date,
       time: x.time,
+      ...(oneOf(SESSIONS, x.session) ? { session: x.session } : {}),
       kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
       event: x.event.trim(),
       actual: x.actual.trim(),
@@ -568,6 +596,7 @@ function checkSubscription(x: unknown): EventSubscription[] {
       phase: x.phase,
       date: x.date,
       time: x.time,
+      ...(oneOf(SESSIONS, x.session) ? { session: x.session } : {}),
       kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
       events,
       status: x.status,

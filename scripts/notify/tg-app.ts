@@ -762,7 +762,8 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
     await publishEventsSafe(deps, deps.news(EVENT_JOB).store);
     return { v: 1, messages: [] };
   }
-  const latencyMin = slot.firstSeenAt
+  // An approximate slot's start is not the release: no latency to show.
+  const latencyMin = slot.firstSeenAt && !slot.session
     ? Math.max(0, Math.round((Date.parse(slot.firstSeenAt) - Date.parse(slot.startsAt)) / 60_000))
     : undefined;
   const results = toResults(slot, answer, {

@@ -12,17 +12,21 @@ import {
   NEWS_EVENTS_PATH,
   NEWS_IMPACTS,
   RATE_KINDS,
+  SESSION_LABEL,
   SURPRISES,
   SUBSCRIPTION_STATUS_LABEL,
   SURPRISE_LABEL,
   emptyEventsFile,
+  timeLabel,
   validateEventsFile,
   withEventResult,
+  type EventKind,
   type EventResult,
   type EventsFile,
   type EventSubscription,
   type NewsDigest,
   type NewsSource,
+  type Session,
   type Surprise,
   type SubscriptionStatus,
 } from "../../../src/lib/newsSchema";
@@ -55,6 +59,10 @@ export const KEEP_DAYS = 7;
 export const MAX_SEARCH_TRIES = 5;
 /** A search that holds a slot for longer than this crashed: the slot is free again. */
 export const TAKEN_STALE_MIN = 20;
+/** An approximate slot (session only): no news this long after the window opens → search anyway. */
+export const APPROX_DEADLINE_MIN = 120;
+/** An approximate slot is given up this long after its window opened. */
+export const APPROX_GIVE_UP_MIN = 300;
 
 const MIN = 60_000;
 
@@ -64,6 +72,47 @@ export function slotStart(date: string, time: string): Date {
   const [hh, mm] = time.split(":").map(Number);
   return new Date(y, m - 1, d, hh, mm);
 }
+
+/** New York wall-clock hour a session's window opens: early releases before the open, the close. */
+const SESSION_START_ET: Record<Session, number> = { pre: 6, post: 16 };
+
+/** Milliseconds `timeZone`'s wall clock is ahead of UTC at instant `t`. */
+function zoneOffsetMs(timeZone: string, t: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(t);
+  const p = Object.fromEntries(parts.map((x) => [x.type, Number(x.value)]));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - t;
+}
+
+/**
+ * The Budapest time (HH:MM) a session's window opens on `date`: computed here,
+ * not by the model, so the US and the EU switching clocks on different days
+ * can't put it an hour off.
+ */
+export function sessionTime(date: string, session: Session): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const wall = Date.UTC(y, m - 1, d, SESSION_START_ET[session]);
+  const at = wall - zoneOffsetMs("America/New_York", wall);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Budapest",
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(at);
+}
+
+/** How long after its start a slot is given up. */
+const giveUpMin = (s: { session?: Session }) => (s.session ? APPROX_GIVE_UP_MIN : GIVE_UP_MIN);
+
+/** A kind that identifies the announcement by itself (not OTHER, not one of many companies' earnings). */
+const specificKind = (k: EventKind | undefined) => k != null && k !== "OTHER" && k !== "EARNINGS";
 
 export const emptyEvents = (): EventsState => ({ slots: [], latency: {} });
 
@@ -85,11 +134,13 @@ const newSlot = (
   time: string,
   kind: EventSlot["kind"],
   events: EventSlot["events"],
+  session?: Session,
 ): EventSlot => ({
   key: `${phase}|${date}|${time}`,
   phase,
   date,
   time,
+  ...(session ? { session } : {}),
   kind,
   startsAt: slotStart(date, time).toISOString(),
   events,
@@ -108,8 +159,7 @@ function sameAnnouncement(slots: EventSlot[], date: string, time: string, items:
     (s) =>
       s.phase === "release" &&
       s.date === date &&
-      (s.events.some((e) => names.has(norm(e.event))) ||
-        items.some((u) => (u.kind ?? "OTHER") !== "OTHER" && u.kind === s.kind)),
+      (s.events.some((e) => names.has(norm(e.event))) || items.some((u) => specificKind(u.kind) && u.kind === s.kind)),
   );
   return match.find((s) => s.time === time) ?? match[0];
 }
@@ -121,7 +171,8 @@ function sameAnnouncement(slots: EventSlot[], date: string, time: string, items:
  * slot — new events join it while it is still open, otherwise they get a slot
  * of their own; a rate decision with a press conference gets a second slot for
  * it, also when a later digest brings the press time; at most MAX_SLOTS_PER_DAY
- * a day; ones long past are not registered.
+ * a day; ones long past are not registered. Earnings with no exact time but a
+ * session get an approximate slot from the session's start.
  */
 export function registerFollowUps(ev: EventsState | undefined, digest: NewsDigest, now: Date): EventsState {
   const cur = ev ?? emptyEvents();
@@ -134,17 +185,20 @@ export function registerFollowUps(ev: EventsState | undefined, digest: NewsDiges
     return key;
   };
   const add = (slot: EventSlot) => slots.push({ ...slot, key: uniqueKey(slot) });
-  const live = (date: string, time: string) => slotStart(date, time).getTime() + GIVE_UP_MIN * MIN > now.getTime();
+  const live = (date: string, time: string, session?: Session) =>
+    slotStart(date, time).getTime() + giveUpMin({ session }) * MIN > now.getTime();
 
   const groups = new Map<string, Upcoming[]>();
   for (const u of digest.upcoming) {
-    if (!u.followUp || !u.time || !live(u.date, u.time)) continue;
-    const k = `${u.date}|${u.time}`;
-    groups.set(k, [...(groups.get(k) ?? []), u]);
+    const time = u.time ?? (u.session ? sessionTime(u.date, u.session) : undefined);
+    if (!u.followUp || !time || !live(u.date, time, u.session)) continue;
+    const k = `${u.date}|${time}|${u.session ?? ""}`;
+    groups.set(k, [...(groups.get(k) ?? []), { ...u, time }]);
   }
   for (const [, items] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     const date = items[0].date;
     const time = items[0].time!;
+    const session = items[0].session;
     const rate = items.find((u) => u.pressTime && RATE_KINDS.includes(u.kind ?? "OTHER"));
     const entry = (u: Upcoming) => ({ event: u.event, ...(u.expected ? { expected: u.expected } : {}) });
     const known = sameAnnouncement(slots, date, time, items);
@@ -157,11 +211,11 @@ export function registerFollowUps(ev: EventsState | undefined, digest: NewsDiges
         ? items.filter(
             (u) =>
               !known.events.some((e) => norm(e.event) === norm(u.event)) &&
-              !((u.kind ?? "OTHER") !== "OTHER" && u.kind === known.kind),
+              !(specificKind(u.kind) && u.kind === known.kind),
           )
         : items;
       if (fresh.length && perDay(date) < MAX_SLOTS_PER_DAY)
-        add(newSlot("release", date, time, (rate ?? fresh[0]).kind ?? "OTHER", fresh.map(entry)));
+        add(newSlot("release", date, time, (rate ?? fresh[0]).kind ?? "OTHER", fresh.map(entry), session));
     }
     if (
       rate?.pressTime &&
@@ -182,15 +236,22 @@ export function slotsToProbe(ev: EventsState | undefined, now: Date): EventSlot[
       s.phase === "release" &&
       (s.status === "waiting" || s.status === "watching") &&
       slotStart(s.date, s.time).getTime() <= now.getTime() &&
-      now.getTime() - slotStart(s.date, s.time).getTime() < GIVE_UP_MIN * MIN,
+      now.getTime() - slotStart(s.date, s.time).getTime() < giveUpMin(s) * MIN,
   );
 }
 
-/** When a slot's search is due at the latest, without any coverage seen. */
+/**
+ * When a slot's search is due at the latest, without any coverage seen. An
+ * approximate slot waits long: its start is not the release, the news decide.
+ */
 export function deadline(ev: EventsState, slot: EventSlot): Date {
   const start = slotStart(slot.date, slot.time).getTime();
   const delay =
-    slot.phase === "press" ? PRESS_DELAY_MIN : (learnedDelayMin(ev.latency[slot.kind]) ?? FALLBACK_DELAY_MIN);
+    slot.phase === "press"
+      ? PRESS_DELAY_MIN
+      : slot.session
+        ? APPROX_DEADLINE_MIN
+        : (learnedDelayMin(ev.latency[slot.kind]) ?? FALLBACK_DELAY_MIN);
   return new Date(start + delay * MIN);
 }
 
@@ -210,7 +271,7 @@ export function advanceSlots(
   const slots = ev.slots.map((s): EventSlot => {
     if (s.status === "done" || s.status === "expired") return s;
     const start = slotStart(s.date, s.time).getTime();
-    if (now.getTime() - start >= GIVE_UP_MIN * MIN) return { ...s, status: "expired" };
+    if (now.getTime() - start >= giveUpMin(s) * MIN) return { ...s, status: "expired" };
     if (s.status === "searching") {
       const stale = s.takenAt && now.getTime() - Date.parse(s.takenAt) > TAKEN_STALE_MIN * MIN;
       return stale ? { ...s, status: "due", takenAt: undefined, dueAt: now.toISOString() } : s;
@@ -238,10 +299,11 @@ export function advanceSlots(
  * the successful search (an upper bound: it can't make the learned delay
  * shorter than the real one, and a slow case corrects a too short delay).
  * Samples are taken only when the result was really out, so a preview that
- * started a search too early never counts. Press conferences have none.
+ * started a search too early never counts. Press conferences and approximate
+ * slots (their start is not the release) have none.
  */
 export function recordLatency(ev: EventsState, slot: EventSlot, found: Date): EventsState {
-  if (slot.phase !== "release") return ev;
+  if (slot.phase !== "release" || slot.session) return ev;
   const end = slot.firstSeenAt ? Date.parse(slot.firstSeenAt) : found.getTime();
   const gap = Math.max(0, Math.round((end - Date.parse(slot.startsAt)) / MIN));
   return { ...ev, latency: { ...ev.latency, [slot.kind]: [...(ev.latency[slot.kind] ?? []), gap].slice(-LATENCY_KEEP) } };
@@ -368,11 +430,14 @@ export function buildEventPrompt(p: { slot: EventSlot; now: Date; exposure: stri
     .map((e) => `- ${e.event}${e.expected ? ` (a digest szerinti várakozás: ${e.expected})` : ""}`)
     .join("\n");
   const [y, m, d] = slot.date.split("-").map(Number);
-  const when = `${slot.date} (${WEEKDAYS[new Date(y, m - 1, d).getDay()]}) ${slot.time}, budapesti idő szerint`;
+  const day = `${slot.date} (${WEEKDAYS[new Date(y, m - 1, d).getDay()]})`;
+  const when = slot.session
+    ? `${day} az amerikai tőzsde ${slot.session === "pre" ? "nyitása előtt" : "zárása után"} (nagyjából ${slot.time}-tól, budapesti idő szerint)`
+    : `${day} ${slot.time}, budapesti idő szerint`;
   const task =
     slot.phase === "release"
       ? `Az alábbi bejelentés ${when} volt esedékes. Keress a weben, és tételenként add meg:
-- actual: a tényleges eredmény (számmal, a hivatalos közlés szerint);
+- actual: a tényleges eredmény (számmal, a hivatalos közlés szerint${slot.kind === "EARNINGS" ? "; gyorsjelentésnél az EPS és az árbevétel, és ha lényeges, az iránymutatás, pl. a beruházási terv" : ""});
 - expected: a piaci várakozás/konszenzus (forrásból, ne a digestből másold, ha eltér);
 - surprise: "above" (a várakozás felett), "below" (alatta), "inline" (megfelelt) vagy "unknown";
 - reaction: az első piaci reakció 1–2 mondatban (forint, hozamok, indexek – ami a lenti portfóliót érinti);
@@ -438,6 +503,7 @@ export function toResults(
     phase: slot.phase,
     date: slot.date,
     time: slot.time,
+    ...(slot.session ? { session: slot.session } : {}),
     kind: slot.kind,
     ...it,
     ...(meta.latencyMin != null ? { latencyMin: meta.latencyMin } : {}),
@@ -461,7 +527,7 @@ export function eventText(results: EventResult[]): string {
       const head =
         r.phase === "press"
           ? `🎙 <b>${esc(r.event)}: ${EVENT_PHASE_LABEL.press.toLowerCase()} (${r.time})</b>`
-          : `📊 <b>${esc(r.event)} (${r.time})</b>`;
+          : `📊 <b>${esc(r.event)} (${r.session ? SESSION_LABEL[r.session] : r.time})</b>`;
       const lines = [head];
       if (r.phase === "press") lines.push(esc(r.actual));
       else
@@ -499,6 +565,7 @@ export function subscriptionsOf(ev: EventsState): EventSubscription[] {
       phase: s.phase,
       date: s.date,
       time: s.time,
+      ...(s.session ? { session: s.session } : {}),
       kind: s.kind,
       events: s.events,
       status: SUB_STATUS[s.status],
@@ -531,7 +598,7 @@ export function watchLine(ev: EventsState | undefined, today: string): string | 
     .map((s) => {
       const press = mine.find((p) => p.phase === "press" && p.events[0]?.event === s.events[0]?.event);
       const more = s.events.length > 1 ? ` +${s.events.length - 1}` : "";
-      return `${clip(s.events[0]?.event ?? s.kind)}${more} ${s.time}${press ? ` (+ sajtótáj. ${press.time})` : ""}`;
+      return `${clip(s.events[0]?.event ?? s.kind)}${more} ${timeLabel(s)}${press ? ` (+ sajtótáj. ${press.time})` : ""}`;
     });
   return parts.length ? parts.join(", ") : undefined;
 }
@@ -541,7 +608,7 @@ export function followUpsText(ev: EventsState | undefined, now: Date, label = da
   const from = addDaysIso(toLocalDay(now), -1);
   const slots = (ev?.slots ?? []).filter((s) => s.date >= from);
   if (!slots.length)
-    return "🔔 Nincs figyelt bejelentés. A reggeli (és esti) hírkeresés jelöli ki őket, ha a pontos idejük ismert.";
+    return "🔔 Nincs figyelt bejelentés. A reggeli (és esti) hírkeresés jelöli ki őket, ha az idejük ismert (gyorsjelentésnél elég a napszak).";
   const subs = new Map(subscriptionsOf(ev!).map((s) => [s.key, s]));
   const lines = ["🔔 <b>Figyelt bejelentések</b>"];
   let day = "";
@@ -553,7 +620,7 @@ export function followUpsText(ev: EventsState | undefined, now: Date, label = da
     const sub = subs.get(s.key)!;
     const name = `${s.phase === "press" ? "🎙 " : ""}${clip(s.events[0]?.event ?? s.kind, 50)}${s.events.length > 1 ? ` +${s.events.length - 1}` : ""}`;
     const due = sub.expectedRunAt ? `, legkésőbb ${new Date(sub.expectedRunAt).toTimeString().slice(0, 5)}` : "";
-    lines.push(`• ${s.time} ${esc(name)} — ${SUBSCRIPTION_STATUS_LABEL[sub.status]}${due}`);
+    lines.push(`• ${timeLabel(s)} ${esc(name)} — ${SUBSCRIPTION_STATUS_LABEL[sub.status]}${due}`);
   }
   const learned = Object.entries(latencyOf(ev!));
   if (learned.length) {

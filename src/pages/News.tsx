@@ -25,6 +25,7 @@ import {
   itemsForAsset,
   rankedItems,
   seenKey,
+  timeLabel,
   type EventResult,
   type EventSubscription,
   type EventsFile,
@@ -222,9 +223,9 @@ function DigestView({ digest }: { digest: NewsDigest }) {
                   <div className="flex items-center gap-1.5 font-medium">
                     <span>
                       {newsDayLabel(u.date)}
-                      {u.time ? ` ${u.time}` : ""}: {u.event}
+                      {u.time || u.session ? ` ${timeLabel(u)}` : ""}: {u.event}
                     </span>
-                    {u.followUp && u.time && (
+                    {u.followUp && (u.time || u.session) && (
                       <span title="Az eredményét a bejelentés után automatikusan megkeresi">
                         <Bell size={13} className="text-[var(--color-brand)]" aria-label="Utókövetés" />
                       </span>
@@ -299,7 +300,7 @@ export function FollowUpCards({ file, today }: { file: EventsFile; today: string
               <li key={s.key} className="text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">
-                    {newsDayLabel(s.date)} {s.time}: {s.events.map((e) => e.event).join(", ")}
+                    {newsDayLabel(s.date)} {timeLabel(s)}: {s.events.map((e) => e.event).join(", ")}
                     {s.phase === "press" ? ` (${EVENT_PHASE_LABEL.press.toLowerCase()})` : ""}
                   </span>
                   <Badge tone={STATUS_TONE[s.status]}>{SUBSCRIPTION_STATUS_LABEL[s.status]}</Badge>
@@ -353,7 +354,7 @@ function ResultRow({ r }: { r: EventResult }) {
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <ImpactIcon impact={r.impact} size={16} />
         <span className="font-medium">
-          {newsDayLabel(r.date)} {r.time}: {r.event}
+          {newsDayLabel(r.date)} {timeLabel(r)}: {r.event}
         </span>
         {r.phase === "press" && <Badge>{EVENT_PHASE_LABEL.press}</Badge>}
         {r.phase === "release" && r.surprise !== "unknown" && (

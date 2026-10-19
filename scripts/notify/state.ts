@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { GlideSignals } from "../../src/lib/rebalance";
-import type { EventKind, EventPhase, EventResult, NewsEdition } from "../../src/lib/newsSchema";
+import type { EventKind, EventPhase, EventResult, NewsEdition, Session } from "../../src/lib/newsSchema";
 import type { WhyFactor } from "./news/why";
 
 export interface State {
@@ -103,6 +103,11 @@ export interface EventSlot {
   phase: EventPhase;
   date: string;
   time: string;
+  /**
+   * No exact time: `time` is the start of this US session (earnings). Only the
+   * news start the search, and the gap measured is no latency sample.
+   */
+  session?: Session;
   kind: EventKind;
   /** ISO of the announcement (the digest's Budapest time as a local instant). */
   startsAt: string;
