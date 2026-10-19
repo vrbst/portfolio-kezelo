@@ -90,19 +90,27 @@ export const SESSION_LABEL: Record<Session, string> = {
   post: "zárás után",
 };
 
-/** How a time is shown: an approximate one (from the session) says so. */
-export const timeLabel = (x: { time?: string; session?: Session }) =>
-  x.session ? `${SESSION_LABEL[x.session]}${x.time ? ` (~${x.time})` : ""}` : (x.time ?? "");
+/** How a time is shown: an approximate one (from the session, or the press) says so. */
+export const timeLabel = (x: { time?: string; session?: Session; approx?: boolean; timeApprox?: boolean }) =>
+  x.session
+    ? `${SESSION_LABEL[x.session]}${x.time ? ` (~${x.time})` : ""}`
+    : x.time && (x.approx || x.timeApprox)
+      ? `~${x.time}`
+      : (x.time ?? "");
 
 export interface NewsUpcoming {
   /** YYYY-MM-DD */
   date: string;
   event: string;
   why: string;
-  /** HH:MM Budapest time, only when an official calendar gives it. */
+  /** HH:MM Budapest time: from an official calendar, or (timeApprox) the press. */
   time?: string;
+  /** The time is not from an official calendar, only from the press. */
+  timeApprox?: boolean;
   /** No exact time, but known to be before the US open / after the close (earnings). */
   session?: Session;
+  /** A few words to find the news about the result (kinds with no search of their own). */
+  query?: string;
   /** Worth a look for the result once it is out (scheduled, portfolio-moving). */
   followUp?: boolean;
   kind?: EventKind;
@@ -215,13 +223,27 @@ export const NEWS_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["date", "event", "why", "time", "session", "followUp", "kind", "pressTime", "expected"],
+        required: [
+          "date",
+          "event",
+          "why",
+          "time",
+          "timeApprox",
+          "session",
+          "followUp",
+          "kind",
+          "query",
+          "pressTime",
+          "expected",
+        ],
         properties: {
           date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
           event: { type: "string" },
           why: { type: "string" },
           time: { type: ["string", "null"] },
+          timeApprox: { type: "boolean" },
           session: { type: ["string", "null"], enum: [...SESSIONS, null] },
+          query: { type: ["string", "null"] },
           followUp: { type: "boolean" },
           kind: { type: ["string", "null"], enum: [...EVENT_KINDS, null] },
           pressTime: { type: ["string", "null"] },
@@ -285,7 +307,9 @@ function checkUpcoming(u: Record<string, unknown> & { date: string; event: strin
     event: u.event.trim(),
     why: u.why.trim(),
     ...(time ? { time } : {}),
+    ...(time && u.timeApprox === true ? { timeApprox: true } : {}),
     ...(session ? { session } : {}),
+    ...(text(u.query) ? { query: u.query.trim().slice(0, 80) } : {}),
     ...(u.followUp === true ? { followUp: true } : {}),
     ...(kind ? { kind } : {}),
     ...(pressTime ? { pressTime } : {}),
@@ -461,6 +485,8 @@ export interface EventResult {
   time: string;
   /** The time is approximate: the start of this session (earnings). */
   session?: Session;
+  /** The time is approximate (from the press, or the session's start). */
+  approx?: true;
   kind: EventKind;
   event: string;
   actual: string;
@@ -498,6 +524,8 @@ export interface EventSubscription {
   time: string;
   /** The time is approximate: the start of this session (earnings). */
   session?: Session;
+  /** The time is approximate (from the press, or the session's start). */
+  approx?: true;
   kind: EventKind;
   events: { event: string; expected?: string }[];
   status: SubscriptionStatus;
@@ -554,6 +582,7 @@ function checkResult(x: unknown): EventResult[] {
       date: x.date,
       time: x.time,
       ...(oneOf(SESSIONS, x.session) ? { session: x.session } : {}),
+      ...(x.approx === true ? { approx: true as const } : {}),
       kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
       event: x.event.trim(),
       actual: x.actual.trim(),
@@ -597,6 +626,7 @@ function checkSubscription(x: unknown): EventSubscription[] {
       date: x.date,
       time: x.time,
       ...(oneOf(SESSIONS, x.session) ? { session: x.session } : {}),
+      ...(x.approx === true ? { approx: true as const } : {}),
       kind: oneOf(EVENT_KINDS, x.kind) ? x.kind : "OTHER",
       events,
       status: x.status,

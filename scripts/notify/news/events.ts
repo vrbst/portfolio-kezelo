@@ -109,7 +109,7 @@ export function sessionTime(date: string, session: Session): string {
 }
 
 /** How long after its start a slot is given up. */
-const giveUpMin = (s: { session?: Session }) => (s.session ? APPROX_GIVE_UP_MIN : GIVE_UP_MIN);
+const giveUpMin = (s: { approx?: boolean }) => (s.approx ? APPROX_GIVE_UP_MIN : GIVE_UP_MIN);
 
 /** A kind that identifies the announcement by itself (not OTHER, not one of many companies' earnings). */
 const specificKind = (k: EventKind | undefined) => k != null && k !== "OTHER" && k !== "EARNINGS";
@@ -134,13 +134,13 @@ const newSlot = (
   time: string,
   kind: EventSlot["kind"],
   events: EventSlot["events"],
-  session?: Session,
+  approx?: { session?: Session } | false,
 ): EventSlot => ({
   key: `${phase}|${date}|${time}`,
   phase,
   date,
   time,
-  ...(session ? { session } : {}),
+  ...(approx ? { ...(approx.session ? { session: approx.session } : {}), approx: true as const } : {}),
   kind,
   startsAt: slotStart(date, time).toISOString(),
   events,
@@ -171,8 +171,8 @@ function sameAnnouncement(slots: EventSlot[], date: string, time: string, items:
  * slot — new events join it while it is still open, otherwise they get a slot
  * of their own; a rate decision with a press conference gets a second slot for
  * it, also when a later digest brings the press time; at most MAX_SLOTS_PER_DAY
- * a day; ones long past are not registered. Earnings with no exact time but a
- * session get an approximate slot from the session's start.
+ * a day; ones long past are not registered. A time from the press, or earnings
+ * with no time but a session (from the session's start), give an approximate slot.
  */
 export function registerFollowUps(ev: EventsState | undefined, digest: NewsDigest, now: Date): EventsState {
   const cur = ev ?? emptyEvents();
@@ -185,22 +185,27 @@ export function registerFollowUps(ev: EventsState | undefined, digest: NewsDiges
     return key;
   };
   const add = (slot: EventSlot) => slots.push({ ...slot, key: uniqueKey(slot) });
-  const live = (date: string, time: string, session?: Session) =>
-    slotStart(date, time).getTime() + giveUpMin({ session }) * MIN > now.getTime();
+  const live = (date: string, time: string, approx = false) =>
+    slotStart(date, time).getTime() + giveUpMin({ approx }) * MIN > now.getTime();
+  const approxOf = (u: Upcoming) => !!(u.session || u.timeApprox);
 
   const groups = new Map<string, Upcoming[]>();
   for (const u of digest.upcoming) {
     const time = u.time ?? (u.session ? sessionTime(u.date, u.session) : undefined);
-    if (!u.followUp || !time || !live(u.date, time, u.session)) continue;
+    if (!u.followUp || !time || !live(u.date, time, approxOf(u))) continue;
     const k = `${u.date}|${time}|${u.session ?? ""}`;
     groups.set(k, [...(groups.get(k) ?? []), { ...u, time }]);
   }
   for (const [, items] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     const date = items[0].date;
     const time = items[0].time!;
-    const session = items[0].session;
+    const approx = items.some(approxOf) && { session: items[0].session };
     const rate = items.find((u) => u.pressTime && RATE_KINDS.includes(u.kind ?? "OTHER"));
-    const entry = (u: Upcoming) => ({ event: u.event, ...(u.expected ? { expected: u.expected } : {}) });
+    const entry = (u: Upcoming) => ({
+      event: u.event,
+      ...(u.expected ? { expected: u.expected } : {}),
+      ...(u.query ? { query: u.query } : {}),
+    });
     const known = sameAnnouncement(slots, date, time, items);
     if (known && (known.status === "waiting" || known.status === "watching" || known.status === "due")) {
       for (const u of items)
@@ -215,7 +220,7 @@ export function registerFollowUps(ev: EventsState | undefined, digest: NewsDiges
           )
         : items;
       if (fresh.length && perDay(date) < MAX_SLOTS_PER_DAY)
-        add(newSlot("release", date, time, (rate ?? fresh[0]).kind ?? "OTHER", fresh.map(entry), session));
+        add(newSlot("release", date, time, (rate ?? fresh[0]).kind ?? "OTHER", fresh.map(entry), approx));
     }
     if (
       rate?.pressTime &&
@@ -249,7 +254,7 @@ export function deadline(ev: EventsState, slot: EventSlot): Date {
   const delay =
     slot.phase === "press"
       ? PRESS_DELAY_MIN
-      : slot.session
+      : slot.approx
         ? APPROX_DEADLINE_MIN
         : (learnedDelayMin(ev.latency[slot.kind]) ?? FALLBACK_DELAY_MIN);
   return new Date(start + delay * MIN);
@@ -303,7 +308,7 @@ export function advanceSlots(
  * slots (their start is not the release) have none.
  */
 export function recordLatency(ev: EventsState, slot: EventSlot, found: Date): EventsState {
-  if (slot.phase !== "release" || slot.session) return ev;
+  if (slot.phase !== "release" || slot.approx) return ev;
   const end = slot.firstSeenAt ? Date.parse(slot.firstSeenAt) : found.getTime();
   const gap = Math.max(0, Math.round((end - Date.parse(slot.startsAt)) / MIN));
   return { ...ev, latency: { ...ev.latency, [slot.kind]: [...(ev.latency[slot.kind] ?? []), gap].slice(-LATENCY_KEEP) } };
@@ -433,7 +438,7 @@ export function buildEventPrompt(p: { slot: EventSlot; now: Date; exposure: stri
   const day = `${slot.date} (${WEEKDAYS[new Date(y, m - 1, d).getDay()]})`;
   const when = slot.session
     ? `${day} az amerikai tőzsde ${slot.session === "pre" ? "nyitása előtt" : "zárása után"} (nagyjából ${slot.time}-tól, budapesti idő szerint)`
-    : `${day} ${slot.time}, budapesti idő szerint`;
+    : `${day} ${slot.time}${slot.approx ? " körül (sajtóhír szerinti időpont)" : ""}, budapesti idő szerint`;
   const task =
     slot.phase === "release"
       ? `Az alábbi bejelentés ${when} volt esedékes. Keress a weben, és tételenként add meg:
@@ -504,6 +509,7 @@ export function toResults(
     date: slot.date,
     time: slot.time,
     ...(slot.session ? { session: slot.session } : {}),
+    ...(slot.approx ? { approx: true as const } : {}),
     kind: slot.kind,
     ...it,
     ...(meta.latencyMin != null ? { latencyMin: meta.latencyMin } : {}),
@@ -527,7 +533,7 @@ export function eventText(results: EventResult[]): string {
       const head =
         r.phase === "press"
           ? `🎙 <b>${esc(r.event)}: ${EVENT_PHASE_LABEL.press.toLowerCase()} (${r.time})</b>`
-          : `📊 <b>${esc(r.event)} (${r.session ? SESSION_LABEL[r.session] : r.time})</b>`;
+          : `📊 <b>${esc(r.event)} (${r.session ? SESSION_LABEL[r.session] : timeLabel(r)})</b>`;
       const lines = [head];
       if (r.phase === "press") lines.push(esc(r.actual));
       else
@@ -566,8 +572,9 @@ export function subscriptionsOf(ev: EventsState): EventSubscription[] {
       date: s.date,
       time: s.time,
       ...(s.session ? { session: s.session } : {}),
+      ...(s.approx ? { approx: true as const } : {}),
       kind: s.kind,
-      events: s.events,
+      events: s.events.map((e) => ({ event: e.event, ...(e.expected ? { expected: e.expected } : {}) })),
       status: SUB_STATUS[s.status],
       ...(expected ? { expectedRunAt: expected } : {}),
       ...(s.firstSeenAt ? { firstSeenAt: s.firstSeenAt } : {}),

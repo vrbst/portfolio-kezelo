@@ -103,15 +103,18 @@ export interface EventSlot {
   phase: EventPhase;
   date: string;
   time: string;
+  /** No exact time: `time` is the start of this US session (earnings). Always with `approx`. */
+  session?: Session;
   /**
-   * No exact time: `time` is the start of this US session (earnings). Only the
+   * The time is approximate (from the press, or the session's start): only the
    * news start the search, and the gap measured is no latency sample.
    */
-  session?: Session;
+  approx?: true;
   kind: EventKind;
   /** ISO of the announcement (the digest's Budapest time as a local instant). */
   startsAt: string;
-  events: { event: string; expected?: string }[];
+  /** `query`: what the news are searched for instead of the name (kinds with no search of their own). */
+  events: { event: string; expected?: string; query?: string }[];
   status: "waiting" | "watching" | "due" | "searching" | "done" | "expired";
   tries: number;
   /** ISO: the earliest the next AI search may start (a retry waits). */

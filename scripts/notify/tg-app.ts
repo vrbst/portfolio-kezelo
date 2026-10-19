@@ -660,7 +660,7 @@ async function followEvents(deps: Deps): Promise<void> {
     await Promise.all(
       slotsToProbe(before, now).map(async (s) => {
         const since = slotStart(s.date, s.time);
-        const names = s.events.length ? s.events.map((e) => e.event) : [s.kind];
+        const names = s.events.length ? s.events.map((e) => e.query ?? e.event) : [s.kind];
         probes[s.key] = combineCoverage(await Promise.all(names.map((n) => probe(s.kind, n, since))));
       }),
     );
@@ -763,7 +763,7 @@ async function eventsJob(deps: Deps): Promise<HubResponse> {
     return { v: 1, messages: [] };
   }
   // An approximate slot's start is not the release: no latency to show.
-  const latencyMin = slot.firstSeenAt && !slot.session
+  const latencyMin = slot.firstSeenAt && !slot.approx
     ? Math.max(0, Math.round((Date.parse(slot.firstSeenAt) - Date.parse(slot.startsAt)) / 60_000))
     : undefined;
   const results = toResults(slot, answer, {

@@ -78,6 +78,7 @@ function setup(opts: { upcoming?: NewsUpcoming[]; answers?: unknown[]; ai?: Part
   const events = fakeEngine(opts.answers ?? []);
   const started: string[] = [];
   const probed: string[] = [];
+  const searched: string[] = [];
   let coverage: Coverage | null = { count: 0, earliest: "" };
   const deps: Deps = {
     load: async () => contextAt(clock, withNotify({ newsMorning: "notify", newsEvening: "notify", ...opts.ai })),
@@ -85,8 +86,9 @@ function setup(opts: { upcoming?: NewsUpcoming[]; answers?: unknown[]; ai?: Part
     env,
     news: () => ({ engine: news, store, cacheDir: join(dir, "news"), appUrl: "https://example.com/app/" }),
     events: () => events,
-    probe: async (kind) => {
+    probe: async (kind, text) => {
       probed.push(kind);
+      searched.push(text);
       return coverage;
     },
     runJob: async (job) => {
@@ -106,6 +108,7 @@ function setup(opts: { upcoming?: NewsUpcoming[]; answers?: unknown[]; ai?: Part
     events,
     started,
     probed,
+    searched,
     at,
     eventsFile,
     setCoverage: (c: Coverage | null) => (coverage = c),
@@ -170,6 +173,27 @@ describe("registering from the digest", () => {
 });
 
 describe("the tick", () => {
+  it("a time from the press: approximate slot, the news searched for the digest's query", async () => {
+    const budget: NewsUpcoming = {
+      date: "2026-10-14",
+      event: "A 2027-es költségvetés bemutatása az Országgyűlésben",
+      why: "A hiánypálya a forintot mozgatja.",
+      time: "13:00",
+      timeApprox: true,
+      followUp: true,
+      kind: "OTHER",
+      query: "2027-es költségvetés",
+    };
+    const s = setup({ upcoming: [budget] });
+    const r = await s.morning();
+    expect(r.messages![0].html).toMatch(/Ma figyelem: A 2027-es költségvetés.* ~13:00/);
+    expect(slots()[0]).toMatchObject({ time: "13:00", approx: true });
+    s.at(13, 10);
+    await s.tick();
+    expect(s.searched).toEqual(["2027-es költségvetés"]);
+    expect(s.eventsFile().subscriptions[0]).toMatchObject({ approx: true, events: [{ event: budget.event }] });
+  });
+
   it("does not touch the news before the announcement", async () => {
     const s = setup();
     await s.morning();

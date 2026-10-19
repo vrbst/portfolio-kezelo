@@ -26,8 +26,9 @@ import {
 } from "./events";
 import { coverageUrl, earningsQuery } from "./rss";
 
-// Earnings have no exact time, only a session (before the open / after the
-// close): they are followed from the session's start, and the news decide.
+// Announcements with no official time: earnings with only a session (before
+// the open / after the close), followed from the session's start, and times
+// known only from the press. The news decide when the search starts.
 
 const MIN = 60_000;
 const at = (d: number, h: number, min = 0) => new Date(2026, 9, d, h, min);
@@ -162,11 +163,65 @@ describe("how an approximate slot is shown", () => {
   });
 });
 
+describe("a time from the press", () => {
+  const budget = {
+    event: "2027-es költségvetés bemutatása",
+    time: "13:00",
+    timeApprox: true,
+    followUp: true,
+    kind: "OTHER" as const,
+    query: "2027-es költségvetés",
+  };
+  const body = (u: Record<string, unknown>) => {
+    const d = fixtureDigest("2026-10-21", "morning");
+    return validateDigestBody({ headline: d.headline, items: d.items, upcoming: [{ date: "2026-10-21", event: "X", why: "Y", ...u }] })
+      .upcoming[0];
+  };
+
+  it("timeApprox needs a time; the query is kept trimmed", () => {
+    expect(body({ time: "13:00", timeApprox: true, query: " 2027-es költségvetés " })).toMatchObject({
+      time: "13:00",
+      timeApprox: true,
+      query: "2027-es költségvetés",
+    });
+    expect(body({ time: null, timeApprox: true, query: null })).not.toHaveProperty("timeApprox");
+    expect(body({ time: null, timeApprox: true, query: null })).not.toHaveProperty("query");
+  });
+
+  it("gives an approximate slot that waits for the news, searched for the query", () => {
+    const ev = register([budget], undefined, at(21, 9));
+    const [slot] = ev.slots;
+    expect(slot).toMatchObject({ time: "13:00", approx: true, events: [{ event: budget.event, query: budget.query }] });
+    expect(slot.session).toBeUndefined();
+    const t0 = slotStart(slot.date, slot.time).getTime();
+    expect(deadline(ev, slot).getTime()).toBe(t0 + APPROX_DEADLINE_MIN * MIN);
+    expect(recordLatency(ev, { ...slot, firstSeenAt: new Date(t0 + 5 * MIN).toISOString() }, new Date(t0)).latency).toEqual({});
+  });
+
+  it("is shown as approximate, the query stays out of the file", () => {
+    const ev = register([budget], undefined, at(21, 9));
+    expect(watchLine(ev, "2026-10-21")).toBe("2027-es költségvetés bemutatása ~13:00");
+    expect(buildEventPrompt({ slot: ev.slots[0], now: at(21, 13, 30), exposure: [] })).toContain(
+      "13:00 körül (sajtóhír szerinti időpont)",
+    );
+    const [sub] = subscriptionsOf(ev);
+    expect(sub).toMatchObject({ approx: true, events: [{ event: budget.event }] });
+    expect(sub.events[0]).not.toHaveProperty("query");
+  });
+
+  it("an official time stays exact", () => {
+    const ev = register([{ ...budget, timeApprox: undefined }], undefined, at(21, 9));
+    expect(ev.slots[0].approx).toBeUndefined();
+    expect(watchLine(ev, "2026-10-21")).toBe("2027-es költségvetés bemutatása 13:00");
+  });
+});
+
 describe("earnings news search", () => {
   it("searches the company in English", () => {
     expect(earningsQuery("Tesla gyorsjelentés")).toBe("Tesla earnings");
     expect(earningsQuery("Meta harmadik negyedéves gyorsjelentése (Q3)")).toBe("Meta earnings");
     expect(earningsQuery("Microsoft Q3-as jelentés")).toBe("Microsoft earnings");
+    expect(earningsQuery("Tesla earnings")).toBe("Tesla earnings");
     const url = coverageUrl("EARNINGS", "Tesla gyorsjelentés");
     expect(decodeURIComponent(url)).toContain("q=Tesla earnings when:1d");
     expect(url).toContain("hl=en-US");

@@ -111,11 +111,13 @@ ${already.length ? already.join("\n") : "- (nincs korábbi)"}
 - affects: a portfólió érintett elemei rövid névvel (pl. "VWCE", "WBIT", "EUR/HUF", "FixMÁP", "DKJ", "PMÁP").
 - title: legfeljebb ~80 karakter; summary: 1–3 mondat, és mondja ki, miért számít ennek a portfóliónak.
 - headline: egyetlen mondat, a nap lényege.
-- upcoming: ${morning ? "a mai nap és " : ""}a következő ~7 nap fontos eseményei (kamatdöntés, inflációs adat, aukció, választás, piacmozgató gyorsjelentés), dátummal és hogy miért számít. Minden eseményhez mind a kilenc mezőt add meg:
-  - time: a bejelentés pontos ideje "HH:MM" alakban, BUDAPESTI idő szerint — csak ha hivatalos naptárból tudod (KSH, MNB, Fed, BLS, Eurostat, EKB, ÁKK); különben null. Ne becsülj. (Az USA-beli időpontokat váltsd át budapesti időre.)
+- upcoming: ${morning ? "a mai nap és " : ""}a következő ~7 nap fontos eseményei (kamatdöntés, inflációs adat, aukció, választás, piacmozgató gyorsjelentés), dátummal és hogy miért számít. Minden eseményhez mind a tizenegy mezőt add meg:
+  - time: a bejelentés ideje "HH:MM" alakban, BUDAPESTI idő szerint — hivatalos naptárból (KSH, MNB, Fed, BLS, Eurostat, EKB, ÁKK, Országgyűlés), vagy ha csak megbízható sajtóhír közli, abból; különben null. Ne becsülj. (Az USA-beli időpontokat váltsd át budapesti időre.)
+  - timeApprox: true, ha a time nem hivatalos naptárból, csak sajtóhírből való; különben false.
   - session: csak gyorsjelentésnél, ha nincs pontos time: "pre", ha a cég az amerikai tőzsdenyitás előtt jelent, "post", ha zárás után (a cég bejelentése vagy megbízható naptár szerint, akkor is, ha a források a percben eltérnek); különben null.
-  - followUp: true csak akkor, ha az esemény ütemezett, az ideje ismert (pontos time, vagy gyorsjelentésnél a session), az eredménye számszerű vagy döntés, és a lenti portfóliót érdemben mozgathatja (pl. inflációs adat, kamatdöntés, foglalkoztatási adat, GDP, ÁKK-aukció eredménye, a világindexet vagy a piaci hangulatot mozgató nagy cég gyorsjelentése); egyébként false. Naponta legfeljebb 3 ilyen legyen.
+  - followUp: true csak akkor, ha az esemény ütemezett, az ideje ismert (pontos time, vagy gyorsjelentésnél a session), az eredménye számszerű vagy döntés, és a lenti portfóliót érdemben mozgathatja (pl. inflációs adat, kamatdöntés, foglalkoztatási adat, GDP, ÁKK-aukció eredménye, a magyar költségvetés vagy hiánycél bemutatása, hitelminősítés, a világindexet vagy a piaci hangulatot mozgató nagy cég gyorsjelentése); egyébként false. Naponta legfeljebb 3 ilyen legyen.
   - kind: a fajtája a listából: ${EVENT_KINDS.join(", ")}; gyorsjelentésnél EARNINGS; ha egyik sem illik, OTHER; ha nincs követés, null.
+  - query: OTHER fajtánál, ha followUp true: 2–4 szavas magyar keresőkifejezés, amellyel a Google Hírekben az eredményről szóló cikkek megtalálhatók (pl. "2027-es költségvetés", "Moody's Magyarország"); különben null.
   - Gyorsjelentésből cégenként külön tétel legyen, és az event a cég nevével kezdődjön (pl. "Tesla gyorsjelentés", "Meta gyorsjelentés").
   - pressTime: kamatdöntésnél a sajtótájékoztató kezdete "HH:MM" budapesti idő szerint, ha hivatalosan ismert; különben null.
   - expected: a várakozás/konszenzus rövid szöveggel (pl. "3,0% é/é"), ha megbízható forrásból ismert; különben null.

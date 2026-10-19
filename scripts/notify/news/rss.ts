@@ -72,6 +72,7 @@ const HUNGARIAN: ReadonlySet<EventKind> = new Set(["MNB_RATE", "HU_CPI", "HU_GDP
 
 /** "Tesla gyorsjelentés (Q3)" → "Tesla earnings": the company, searched in English. */
 export function earningsQuery(event: string): string {
+  if (/\bearnings\b/i.test(event)) return event.trim();
   const name = event
     .replace(/\([^)]*\)/g, " ")
     .replace(/(^|\s)Q[1-4]\S*/gi, " ")
