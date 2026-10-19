@@ -308,6 +308,14 @@ describe("mergeOffHoursBars", () => {
     expect(mergeOffHoursBars({ price: 170 }, alt, false)!.intraday).toEqual([170, 170, 170, 170, 172]);
   });
 
+  it("a venue with a single 5-minute slot so far (two trades in one bucket) still gives a chart", () => {
+    const t1 = at(19, 8, 5);
+    const alt = { price: 171, intraday: [171.2, 171.1], intradayT: [t1 + 1000, t1 + 18_000], session: { start: at(19, 8, 0), end: at(19, 22, 0) } };
+    const m = mergeOffHoursBars({ price: 170, intraday: [170, 170], intradayT: [at(16, 17, 25), at(16, 17, 30)] }, alt)!;
+    expect(m.intraday).toEqual([171.1, 171.1]); // the one slot, held one bar back
+    expect(m.intradayT).toEqual([t1 - BAR, t1]);
+  });
+
   it("no bars on the other venue: nothing to merge", () => {
     expect(mergeOffHoursBars({ price: 1 }, { price: 1 })).toBeUndefined();
   });

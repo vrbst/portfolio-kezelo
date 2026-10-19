@@ -564,6 +564,9 @@ export function mergeOffHoursBars(
     const v = t >= priFirst && t <= priLast ? priBars.get(t) : altBars.get(t);
     if (v != null) points.push([t, v]);
   }
+  // A venue that has only just started trading (or traded twice in one slot)
+  // gives a single point: hold it one bar back so the curve has a line.
+  if (points.length === 1) points.unshift([points[0][0] - BAR_MS, points[0][1]]);
   // Thin venues trade a few times an evening: the empty 5-minute slots between
   // two trades are filled in a straight line (or held, without `interpolate`).
   const intraday: number[] = [];
