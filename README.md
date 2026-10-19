@@ -235,7 +235,8 @@ kilépéskor a terminál előzménye visszajön. A bot gépén fut, mert a
 Fülek: Állás · Pozíciók · Teendők · Célok · Grafikon · Hozam · Előrejelzés ·
 TBSZ · Terv · Pálya · Eladás · Hírek. Billentyűk: `Tab`/`Shift+Tab`/`←`/`→`
 vagy `1`–`9` a fülváltás, `↑`/`↓` a pozíciók görgetése, `t` a grafikon
-időszaka, `r` az újratöltés, `q` a kilépés. A Grafikon fülön tizenhárom grafikon van
+időszaka, `r` az újratöltés, `?` a súgó (az összes billentyű, a nyitott fül sajátjaival
+elöl), `q` a kilépés. A Grafikon fülön tizenhárom grafikon van
 (`c`/`C` vált köztük): vagyon és befektetett tőke, számlánkénti vagyon, eredmény, hozam a mércével,
 esés a csúcstól, célpálya-súlyok, havi hozam, havi befizetés, várható kifizetések, napi mozgás, előrejelzés,
 allokáció (`m`: típus/deviza/számla) és pozíciónkénti árfolyam (`↑`/`↓`: papír);

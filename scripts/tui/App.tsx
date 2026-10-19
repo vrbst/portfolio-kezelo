@@ -11,6 +11,7 @@ import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { CHART_RANGES } from "./ranges";
 import { ALLOC_MODES, CHART_IDS, FORECAST_YEARS } from "./charts";
 import { ChartsView } from "./ChartsView";
+import { HelpView } from "./HelpView";
 import {
   forecastText,
   glideText,
@@ -52,6 +53,7 @@ export function App() {
   const [forecastRange, setForecastRange] = useState(3);
   const [mode, setMode] = useState(0);
   const [pick, setPick] = useState(0);
+  const [help, setHelp] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -83,7 +85,11 @@ export function App() {
 
   useInput((input, key) => {
     if (input === "q") exit();
-    else if (input === "p") setHide((h) => !h);
+    else if (input === "?") setHelp((h) => !h);
+    // While the help is open it only answers Esc (and ? and q above).
+    else if (help) {
+      if (key.escape) setHelp(false);
+    } else if (input === "p") setHide((h) => !h);
     else if (input === "r") reload();
     else if (key.tab) setTab((t) => (t + (key.shift ? TABS.length - 1 : 1)) % TABS.length);
     else if (key.rightArrow) setTab((t) => (t + 1) % TABS.length);
@@ -114,7 +120,9 @@ export function App() {
         ))}
       </Box>
       <Box marginTop={1} flexDirection="column" flexGrow={1}>
-        {error ? (
+        {help ? (
+          <HelpView tab={tab} tabs={TABS} />
+        ) : error ? (
           <Text color="red">Hiba: {error}</Text>
         ) : !ctx ? (
           <Text dimColor>Betöltés…</Text>
@@ -155,8 +163,9 @@ export function App() {
       </Box>
       <Box marginTop={1}>
         <Text dimColor>
-          Tab/←→/1–9: fül · p: összegek {hide ? "mutatása" : "elrejtése"} · r: újratöltés
-          {tab === 4 ? " · c: grafikon" : ""} · q: kilépés
+          {help
+            ? "?/Esc: vissza · q: kilépés"
+            : `Tab/←→/1–9: fül · p: összegek ${hide ? "mutatása" : "elrejtése"} · r: újratöltés${tab === 4 ? " · c: grafikon" : ""} · ?: súgó · q: kilépés`}
         </Text>
       </Box>
     </Box>

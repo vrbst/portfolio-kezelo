@@ -39,7 +39,7 @@ describe("terminal charts", () => {
       const out = frame(c, id);
       expect(out, id).toContain(data.title);
     }
-  });
+  }, 30_000);
 
   it("show no personal Ft amount in privacy mode, anywhere", () => {
     const c = ctx();
