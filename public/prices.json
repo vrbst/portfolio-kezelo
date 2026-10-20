@@ -1,12 +1,12 @@
 {
-  "updatedAt": "2026-10-19T20:59:07.367Z",
+  "updatedAt": "2026-10-20T19:57:25.170Z",
   "fx": {
-    "EUR": 363.4,
-    "USD": 323.74
+    "EUR": 364.68,
+    "USD": 325.17
   },
   "prices": {
     "IE00BK5BQT80": {
-      "price": 170.18,
+      "price": 170.14,
       "currency": "EUR",
       "symbol": "IE00BK5BQT80.SG",
       "label": "VWCE",
