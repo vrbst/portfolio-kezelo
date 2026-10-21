@@ -901,6 +901,27 @@ describe("Miért mozdult?", () => {
       await call(jobReq(), s.deps);
       expect(s.started).toHaveLength(2);
     });
+
+    const dailyLines = async (s: ReturnType<typeof swingSetup>) =>
+      (await call(jobReq(), s.deps)).messages!.flatMap((m) => m.html.split("\n")).filter((l) => /<\/b> ma, /.test(l));
+
+    it("the same move is not announced twice: the daily crossing after a reversal off a low at the previous close", async () => {
+      const s = swingSetup([-0.001, 0.0199]);
+      expect(await s.swings()).toHaveLength(1); // +2.1% off the low, the day still +1.99%
+      expect(s.started).toEqual(["news-why"]);
+      s.answerAll();
+      await call(jobReq("news-why"), s.deps);
+      s.setDay([-0.001, 0.0205]); // now the day crosses 2% too: the same move
+      expect(await dailyLines(s)).toEqual([]);
+      expect(s.started).toEqual(["news-why"]); // and no second search
+    });
+
+    it("a daily crossing far from the reported reversal's low is still its own alert", async () => {
+      const s = swingSetup([-0.03, 0.0199]);
+      expect(await s.swings()).toHaveLength(1);
+      s.setDay([-0.03, 0.0205]);
+      expect(await dailyLines(s)).toHaveLength(1);
+    });
   });
 
   it("override settings: malformed entries are ignored", () => {

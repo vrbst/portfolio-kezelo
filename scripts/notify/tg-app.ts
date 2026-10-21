@@ -1263,6 +1263,22 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     seen
       .filter((s) => !why.explained.includes(swingKey(key, s)))
       .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))[0];
+  // The daily level crossing right after a reversal that was already reported
+  // is the same move seen twice: the day's low (high) sat at the previous
+  // close, so "+0.5% off the low" and "+0.5% today" differ only by rounding.
+  // The level moves on, but neither a message nor a second search follows.
+  const coveredBySwing = (key: string, ch: number, q: LiveQuote, step: number) => {
+    const sw = intradaySwing(q, now);
+    const rep = moves.swing?.[key];
+    if (!sw || !rep) return false;
+    const [reported, off] = ch > 0 ? [rep.up, sw.up] : [rep.down, sw.down];
+    return reported > 0 && level(ch, step) <= level(reported, step) && level((1 + ch) / (1 + off) - 1, step) === 0;
+  };
+  const settle = (key: string, ch: number, q: LiveQuote, step: number) => {
+    if (!coveredBySwing(key, ch, q, step)) return false;
+    if (!why.explained.includes(key)) why.explained.push(key);
+    return true;
+  };
   const moved: { factor: WhyFactor; daily: boolean }[] = [];
   const dc = ctx.dayChange;
   if (dc?.pct != null && dc.note === "ma" && marketMovedToday) {
@@ -1288,12 +1304,14 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
     const ids = [i?.ticker, name, i?.isin, h.instrumentKey];
     const step = positionStep(h.instrumentKey, ids);
     if (crosses(ch, moves.pos[h.instrumentKey] ?? 0, step)) {
+      const same = settle(h.instrumentKey, ch, q, step);
       moves.pos[h.instrumentKey] = Math.abs(ch);
       // HUF move of the position today: value now minus value at prev close.
       const move = h.marketValueHuf - h.marketValueHuf / (1 + ch);
-      posLines.push(
-        `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma, árfolyam: ${px(q.price, h.currency)} (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
-      );
+      if (!same)
+        posLines.push(
+          `${ch > 0 ? "🚀" : "🔻"} <b>${name}: ${pct(ch, 1)}</b> ma, árfolyam: ${px(q.price, h.currency)} (${sft(move)}, pozíció: ${mft(h.marketValueHuf)})`,
+        );
     }
     const sw = swingMoves(h.instrumentKey, ch, q, step);
     for (const s of sw.fired)
@@ -1325,10 +1343,12 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
   if (marketMovedToday && eur?.prevClose && eur.price && quotedToday(eur, now)) {
     const ch = eur.price / eur.prevClose - 1;
     if (crosses(ch, moves.pos[FX_KEY] ?? 0, positionStep(FX_KEY, ["EUR"]))) {
+      const same = settle(FX_KEY, ch, eur, positionStep(FX_KEY, ["EUR"]));
       moves.pos[FX_KEY] = Math.abs(ch);
-      posLines.push(
-        `${ch > 0 ? "🚀" : "🔻"} <b>EUR/HUF: ${pct(ch, 1)}</b> ma (${eur.price.toFixed(2).replace(".", ",")} Ft)`,
-      );
+      if (!same)
+        posLines.push(
+          `${ch > 0 ? "🚀" : "🔻"} <b>EUR/HUF: ${pct(ch, 1)}</b> ma (${eur.price.toFixed(2).replace(".", ",")} Ft)`,
+        );
     }
     const sw = swingMoves(FX_KEY, ch, eur, positionStep(FX_KEY, ["EUR"]));
     for (const s of sw.fired)
