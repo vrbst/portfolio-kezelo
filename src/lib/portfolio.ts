@@ -300,14 +300,19 @@ export function computeAccountSummary(
       cost: number;
       costHuf: number;
       costDateMs: number;
-      /** When the current position was opened (ms). */
-      heldFromMs: number;
       ccy: Currency;
       realized: number;
     }
   >();
   // instrument key -> local days with an imported `interest` booking
   const interestDays = new Map<string, number[]>();
+  // instrument key -> face-value changes over time (for the presumed coupon)
+  const qtyChanges = new Map<string, { ms: number; qty: number }[]>();
+  const noteQty = (key: string, t: Transaction, qty: number) => {
+    const arr = qtyChanges.get(key) ?? [];
+    arr.push({ ms: Date.parse(t.date), qty });
+    qtyChanges.set(key, arr);
+  };
   let realizedPlHuf = 0;
   let interestHuf = 0;
   let feesHuf = 0;
@@ -354,13 +359,12 @@ export function computeAccountSummary(
           cost: 0,
           costHuf: 0,
           costDateMs: 0,
-          heldFromMs: 0,
           ccy: inst?.currency ?? ccy,
           realized: 0,
         };
         const qty = t.quantity ?? 0;
         const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
-        if (p.qty <= 1e-9) p.heldFromMs = Date.parse(t.date);
+        noteQty(t.instrumentKey, t, qty);
         p.qty += qty;
         p.cost += spend;
         // Lock the HUF cost at the FX actually paid on the purchase date.
@@ -379,6 +383,7 @@ export function computeAccountSummary(
         const proceeds = Math.abs(t.netAmount ?? t.grossAmount ?? 0);
         if (p && p.qty > 0) {
           const soldQty = qty > 0 ? Math.min(qty, p.qty) : p.qty;
+          noteQty(t.instrumentKey, t, -soldQty);
           const soldFrac = soldQty / p.qty;
           const costOut = p.cost * soldFrac;
           const realized = proceeds - costOut;
@@ -411,11 +416,11 @@ export function computeAccountSummary(
         interestHuf += toHuf(amt, ccy, fx);
         addCash(ccy, amt);
         const dayMs = t.instrumentKey ? localDayMs(t.date) : NaN;
-        if (t.instrumentKey && Number.isFinite(dayMs))
-          interestDays.set(t.instrumentKey, [
-            ...(interestDays.get(t.instrumentKey) ?? []),
-            dayMs,
-          ]);
+        if (t.instrumentKey && Number.isFinite(dayMs)) {
+          const days = interestDays.get(t.instrumentKey) ?? [];
+          days.push(dayMs);
+          interestDays.set(t.instrumentKey, days);
+        }
         break;
       }
       case "deposit":
@@ -475,10 +480,9 @@ export function computeAccountSummary(
       // imported yet: count that coupon as cash, so the position doesn't dip.
       const presumed = presumedCoupon(
         inst,
-        p.qty,
         bondNowMs,
         interestDays.get(key) ?? [],
-        p.heldFromMs,
+        qtyChanges.get(key) ?? [],
       );
       if (presumed) {
         presumedCoupons.push(presumed);

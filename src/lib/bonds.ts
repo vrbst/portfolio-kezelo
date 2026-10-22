@@ -263,19 +263,21 @@ export const PRESUMED_COUPON_DAYS = 45;
  * cash-to-be: the caller counts it as HUF cash, and it vanishes by itself as
  * soon as a matching `interest` tx (within COUPON_CREDITED_DAYS) is imported.
  *
- * `heldFromMs` is when the current position was opened — a coupon dated on or
- * before that was never earned. The maturity-day coupon is left to the
- * redemption reminder (accrual does not restart there).
+ * `qtyChanges` are the position's face-value changes over time (buys +, sales
+ * and redemptions −). The coupon is paid on the face held BEFORE the coupon
+ * day, so later top-ups / sales don't change it, and a position opened on or
+ * after the coupon day earned nothing. The maturity-day coupon is left to the
+ * redemption reminder (accrual does not restart there). HUF bonds only: the
+ * amount is a forint figure.
  */
 export function presumedCoupon(
   inst: Instrument | undefined,
-  faceQty: number,
   valuationMs: number,
   interestDaysMs: number[],
-  heldFromMs: number,
+  qtyChanges: { ms: number; qty: number }[],
 ): PresumedCoupon | undefined {
   const bond = inst?.bond;
-  if (!inst || !hasCouponTerms(bond) || faceQty <= 0) return undefined;
+  if (!inst || inst.currency !== "HUF" || !hasCouponTerms(bond)) return undefined;
   const first = parseDayMs(bond.firstCouponDate);
   if (!Number.isFinite(first) || valuationMs < first) return undefined;
   const interval =
@@ -290,7 +292,8 @@ export function presumedCoupon(
   }
   const matMs = parseDayMs(bond.maturity ?? inst.maturity);
   if (Number.isFinite(matMs) && latest >= matMs) return undefined;
-  if (heldFromMs >= latest) return undefined;
+  const faceQty = qtyChanges.reduce((s, c) => (c.ms < latest ? s + c.qty : s), 0);
+  if (faceQty <= 1e-9) return undefined;
   if (latest < valuationMs - PRESUMED_COUPON_DAYS * 86_400_000) return undefined;
   const credited = interestDaysMs.some(
     (ms) => Math.abs(ms - latest) <= COUPON_CREDITED_DAYS * 86_400_000,

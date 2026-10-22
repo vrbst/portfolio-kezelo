@@ -92,6 +92,24 @@ describe("presumed coupon until the statement is imported", () => {
     expect(s.presumedCoupons.map((p) => p.date)).toEqual(["2026-10-26"]);
   });
 
+  it("a top-up after the coupon day does not enlarge the presumed coupon", () => {
+    const topUp = [...txs, buy("FIX", at(2026, 10, 24))];
+    const s = summary(FIX, topUp, new Date(2026, 9, 26, 12));
+    expect(s.presumedCoupons).toEqual([{ instrumentKey: "FIX", date: "2026-10-23", amountHuf: 17_500 }]);
+  });
+
+  it("a partial sale after the coupon day does not shrink it", () => {
+    const sale = tx({ accountId: "mak", date: at(2026, 10, 24), type: "sell", instrumentKey: "FIX", quantity: 400_000, pricePerUnit: 1, currency: "HUF", grossAmount: 400_000, netAmount: 400_000 });
+    const s = summary(FIX, [...txs, sale], new Date(2026, 9, 26, 12));
+    expect(s.presumedCoupons).toEqual([{ instrumentKey: "FIX", date: "2026-10-23", amountHuf: 17_500 }]);
+  });
+
+  it("a bond that is not in forint gets no (forint) presumed coupon", () => {
+    const eurBond: Instrument = { ...FIX, key: "EURFIX", currency: "EUR" };
+    const s = summary(eurBond, [deposit, buy("EURFIX")], new Date(2026, 9, 22, 16, 1));
+    expect(s.presumedCoupons).toEqual([]);
+  });
+
   it("is not counted a second time as a future cash flow", () => {
     const now = new Date(2026, 9, 22, 16, 1);
     const s = summary(FIX, txs, now);
