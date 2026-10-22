@@ -3,7 +3,14 @@
 // ---------------------------------------------------------------------------
 
 import type { Account, Currency, Instrument, Transaction } from "./model";
-import { BOND_TYPES, bondMarketValue, bondValuationMs } from "./bonds";
+import {
+  BOND_TYPES,
+  bondMarketValue,
+  bondValuationMs,
+  presumedCoupon,
+  type PresumedCoupon,
+} from "./bonds";
+import { localDayMs } from "./day";
 
 // Facade: bonds/series/returns/income/holdings/lots grew out of this file —
 // re-export them so every existing `from "./portfolio"` import keeps working
@@ -80,10 +87,17 @@ export interface AccountSummary {
   interestHuf: number;
   feesHuf: number;
   taxHuf: number;
+  /**
+   * Bond coupons assumed paid (counted in `cash` and `interestHuf`) because
+   * their statement is not imported yet; the import replaces them.
+   */
+  presumedCoupons: PresumedCoupon[];
 }
 
 export interface PortfolioSummary {
   accounts: AccountSummary[];
+  /** All accounts' presumed coupons, see {@link AccountSummary.presumedCoupons}. */
+  presumedCoupons: PresumedCoupon[];
   totalValueHuf: number;
   holdingsValueHuf: number;
   cashValueHuf: number;
@@ -286,10 +300,14 @@ export function computeAccountSummary(
       cost: number;
       costHuf: number;
       costDateMs: number;
+      /** When the current position was opened (ms). */
+      heldFromMs: number;
       ccy: Currency;
       realized: number;
     }
   >();
+  // instrument key -> local days with an imported `interest` booking
+  const interestDays = new Map<string, number[]>();
   let realizedPlHuf = 0;
   let interestHuf = 0;
   let feesHuf = 0;
@@ -336,11 +354,13 @@ export function computeAccountSummary(
           cost: 0,
           costHuf: 0,
           costDateMs: 0,
+          heldFromMs: 0,
           ccy: inst?.currency ?? ccy,
           realized: 0,
         };
         const qty = t.quantity ?? 0;
         const spend = Math.abs(t.grossAmount ?? t.netAmount ?? 0);
+        if (p.qty <= 1e-9) p.heldFromMs = Date.parse(t.date);
         p.qty += qty;
         p.cost += spend;
         // Lock the HUF cost at the FX actually paid on the purchase date.
@@ -390,6 +410,12 @@ export function computeAccountSummary(
         const amt = t.netAmount ?? t.grossAmount ?? 0;
         interestHuf += toHuf(amt, ccy, fx);
         addCash(ccy, amt);
+        const dayMs = t.instrumentKey ? localDayMs(t.date) : NaN;
+        if (t.instrumentKey && Number.isFinite(dayMs))
+          interestDays.set(t.instrumentKey, [
+            ...(interestDays.get(t.instrumentKey) ?? []),
+            dayMs,
+          ]);
         break;
       }
       case "deposit":
@@ -423,6 +449,7 @@ export function computeAccountSummary(
   let holdingsValueHuf = 0;
   let costBasisHuf = 0;
   let unrealizedPlHuf = 0;
+  const presumedCoupons: PresumedCoupon[] = [];
 
   for (const [key, p] of positions) {
     if (p.qty <= 1e-9) continue;
@@ -444,6 +471,20 @@ export function computeAccountSummary(
       if (bv.redeemableValue < bv.value - 0.5)
         redeemableCcy = bv.redeemableValue;
       bondNeedsData = bv.needsData;
+      // The valuation day may already be past a coupon whose statement is not
+      // imported yet: count that coupon as cash, so the position doesn't dip.
+      const presumed = presumedCoupon(
+        inst,
+        p.qty,
+        bondNowMs,
+        interestDays.get(key) ?? [],
+        p.heldFromMs,
+      );
+      if (presumed) {
+        presumedCoupons.push(presumed);
+        addCash(ccy, presumed.amountHuf);
+        interestHuf += presumed.amountHuf;
+      }
     } else if (currentPrice != null) {
       marketValueCcy = p.qty * currentPrice;
     } else {
@@ -520,6 +561,7 @@ export function computeAccountSummary(
     interestHuf,
     feesHuf,
     taxHuf,
+    presumedCoupons,
   };
 }
 
@@ -565,6 +607,7 @@ export function computePortfolio(
 
   return {
     accounts: summaries,
+    presumedCoupons: summaries.flatMap((s) => s.presumedCoupons),
     totalValueHuf,
     holdingsValueHuf,
     cashValueHuf,

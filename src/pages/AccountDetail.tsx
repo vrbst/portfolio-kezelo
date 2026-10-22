@@ -21,6 +21,7 @@ import {
   StatCard,
   Badge,
   EmptyState,
+  Amt,
 } from "../components/ui";
 import TbszTimeline from "../components/TbszTimeline";
 import AccountLimitsCard from "../components/AccountLimitsCard";
@@ -342,6 +343,19 @@ export default function AccountDetail() {
           </>
         )}
       </div>
+
+      {accSummary.presumedCoupons.length > 0 && (
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          A készpénzben{" "}
+          <Amt>
+            {formatMoney(
+              accSummary.presumedCoupons.reduce((s, p) => s + p.amountHuf, 0),
+            )}
+          </Amt>{" "}
+          feltételezett kamatfizetés van (még nincs importálva); az import
+          helyettesíti.
+        </p>
+      )}
 
       {account.kind === "tbsz" && account.tbszYear && (
         <div className="mt-6 space-y-6">

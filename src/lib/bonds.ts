@@ -245,6 +245,63 @@ export function couponAmountHuf(
   return faceValue * (rateOn(bond, addMonths(d, -interval)) ?? 0) * (interval / 12);
 }
 
+export interface PresumedCoupon {
+  instrumentKey: string;
+  /** Nominal coupon day (ISO day). */
+  date: string;
+  amountHuf: number;
+}
+
+/** A presumed coupon older than this is dropped: a never-imported one is stale. */
+export const PRESUMED_COUPON_DAYS = 45;
+
+/**
+ * The coupon that has just rolled out of the accrued interest but whose
+ * `interest` booking has not been imported yet. The valuation day passes the
+ * coupon day (see bondValuationMs) before the statement arrives, so without
+ * this the position would lose a whole coupon until the import. Returned as
+ * cash-to-be: the caller counts it as HUF cash, and it vanishes by itself as
+ * soon as a matching `interest` tx (within COUPON_CREDITED_DAYS) is imported.
+ *
+ * `heldFromMs` is when the current position was opened — a coupon dated on or
+ * before that was never earned. The maturity-day coupon is left to the
+ * redemption reminder (accrual does not restart there).
+ */
+export function presumedCoupon(
+  inst: Instrument | undefined,
+  faceQty: number,
+  valuationMs: number,
+  interestDaysMs: number[],
+  heldFromMs: number,
+): PresumedCoupon | undefined {
+  const bond = inst?.bond;
+  if (!inst || !hasCouponTerms(bond) || faceQty <= 0) return undefined;
+  const first = parseDayMs(bond.firstCouponDate);
+  if (!Number.isFinite(first) || valuationMs < first) return undefined;
+  const interval =
+    bond.couponIntervalMonths && bond.couponIntervalMonths > 0
+      ? bond.couponIntervalMonths
+      : 12;
+  let latest = first;
+  for (let k = 1; k < 600; k++) {
+    const cur = couponAt(first, interval, k);
+    if (!Number.isFinite(cur) || cur > valuationMs) break;
+    latest = cur;
+  }
+  const matMs = parseDayMs(bond.maturity ?? inst.maturity);
+  if (Number.isFinite(matMs) && latest >= matMs) return undefined;
+  if (heldFromMs >= latest) return undefined;
+  if (latest < valuationMs - PRESUMED_COUPON_DAYS * 86_400_000) return undefined;
+  const credited = interestDaysMs.some(
+    (ms) => Math.abs(ms - latest) <= COUPON_CREDITED_DAYS * 86_400_000,
+  );
+  if (credited) return undefined;
+  const date = toLocalDay(latest);
+  const amountHuf = couponAmountHuf(bond, faceQty, date);
+  if (!amountHuf || amountHuf <= 0) return undefined;
+  return { instrumentKey: inst.key, date, amountHuf };
+}
+
 /** Next coupon date strictly after `now` from the series terms, or undefined. */
 export function nextCouponDate(
   bond: BondTerms | undefined,
@@ -323,6 +380,10 @@ export function futureBondCashflows(
   today.setHours(0, 0, 0, 0);
   const nowMs = today.getTime();
   const credited = creditedCouponDays(transactions);
+  // Presumed (not yet imported) coupons are already counted as cash.
+  const presumed = new Set(
+    (summary.presumedCoupons ?? []).map((p) => `${p.instrumentKey}|${p.date}`),
+  );
   const out: Cashflow[] = [];
 
   for (const acc of summary.accounts) {
@@ -352,7 +413,12 @@ export function futureBondCashflows(
             );
             const iso = toLocalDay(cur);
             const amt = couponAmountHuf(bond, face, iso);
-            if (!alreadyPaid && amt && amt > 0)
+            if (
+              !alreadyPaid &&
+              !presumed.has(`${inst.key}|${iso}`) &&
+              amt &&
+              amt > 0
+            )
               out.push({
                 date: iso,
                 kind: "coupon",
