@@ -166,7 +166,7 @@ export interface LiveQuote {
    * Set when the primary listing is closed (`pre`: no trade yet today, `post`:
    * session over) and `price` comes from another listing of the same
    * security that still trades (e.g. Munich): that exchange's name. The
-   * `prevClose` stays the primary's.
+   * `prevClose` is the primary's (see offHoursPrevClose).
    */
   offHours?: { exchange: string; kind: OffHoursKind };
 }
@@ -630,6 +630,19 @@ export function offHoursKind(
   return today && (sessionEnd == null || now < sessionEnd) ? "pre" : "closed";
 }
 
+/**
+ * The base of today's move while another venue stands in. If the primary
+ * traded today (`post`) its previous close is right; before its open or on a
+ * day it was silent Yahoo's `previousClose` is still the close BEFORE the
+ * last session, so the last close (`price`) is the base.
+ */
+export function offHoursPrevClose(
+  kind: OffHoursKind,
+  primary: Pick<LiveQuote, "price" | "prevClose">,
+): number | undefined {
+  return kind === "post" ? primary.prevClose : primary.price;
+}
+
 /** How long a cross-check's results are reused (the refresh polls every few minutes). */
 const OFF_HOURS_TTL_MS = 3 * 60 * 1000;
 const offHoursCache = new Map<string, { at: number; alts: YahooQuote[] }>();
@@ -667,7 +680,9 @@ async function applyOffHours(
   const merged = alt && mergeOffHoursBars(live, alt);
   if (!alt || !merged) return;
   const kind = offHoursKind(live.marketTime, alt.marketTime!, now.getTime(), live.session?.end);
+  const prevClose = offHoursPrevClose(kind, live);
   Object.assign(live, merged);
+  live.prevClose = prevClose;
   live.price = alt.price;
   live.marketTime = alt.marketTime;
   live.offHours = { exchange: alt.exchange ?? "másik tőzsde", kind };

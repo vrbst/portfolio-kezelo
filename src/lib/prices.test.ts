@@ -4,6 +4,7 @@ import {
   fetchLiveFx,
   fetchLivePrices,
   offHoursKind,
+  offHoursPrevClose,
   mergeOffHoursBars,
   pickOffHours,
   fxMarketOpen,
@@ -377,6 +378,20 @@ describe("offHoursKind", () => {
   });
   it("closed: the primary was silent all day (holiday evening)", () => {
     expect(offHoursKind(at(15, 17, 35), at(16, 20), at(16, 21), at(16, 17, 30))).toBe("closed");
+  });
+});
+
+describe("offHoursPrevClose", () => {
+  // 2026-10-23, before the Xetra open: Yahoo still serves Thursday's close as
+  // the price (169.28) and Wednesday's (171.32) as the previous close.
+  const primary = { price: 169.28, prevClose: 171.32 };
+  it("pre / closed: the base of today's move is the primary's last close, not the one before it", () => {
+    expect(offHoursPrevClose("pre", primary)).toBe(169.28);
+    expect(offHoursPrevClose("closed", primary)).toBe(169.28);
+    expect(168.7 / offHoursPrevClose("pre", primary)! - 1).toBeCloseTo(-0.0034, 4);
+  });
+  it("post: the primary traded today, its previous close is the base", () => {
+    expect(offHoursPrevClose("post", { price: 170, prevClose: 169 })).toBe(169);
   });
 });
 
