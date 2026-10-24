@@ -1,6 +1,8 @@
 import type { Transaction } from "../model";
 import { parseLightyear } from "./lightyear";
 import { parseTreasury } from "./treasury";
+import { isOneMoneyCsv, parseOneMoney } from "./oneMoney";
+import { mergeCashflow } from "../cashflow";
 import { emptyParsed, type ParsedImport } from "./types";
 import { sameTx } from "./match";
 
@@ -18,6 +20,8 @@ export async function parseFile(file: File): Promise<ParsedImport> {
 
   if (lower.endsWith(".csv")) {
     const text = await file.text();
+    // Checked first: a note in an 1Money row may contain "ISIN" or "Ticker".
+    if (isOneMoneyCsv(text)) return parseOneMoney(name, text);
     // Lightyear statements carry these headers.
     if (/Ticker|ISIN|Net Amt\./i.test(text) || /LY-/i.test(name)) {
       return parseLightyear(name, text);
@@ -69,6 +73,23 @@ export async function parseFiles(files: File[]): Promise<ParsedImport> {
       warnings,
     ),
     warnings,
+    cashflow: mergeCashflowImports(results.map((r) => r.cashflow)),
+  };
+}
+
+/** Several 1Money exports: a month in more than one keeps the newer import. */
+function mergeCashflowImports(
+  parts: (ParsedImport["cashflow"] | undefined)[],
+): ParsedImport["cashflow"] | undefined {
+  const used = parts.filter((p): p is NonNullable<typeof p> => !!p);
+  if (used.length === 0) return undefined;
+  return {
+    months: mergeCashflow(
+      [],
+      used.flatMap((p) => p.months),
+    ),
+    through: used.map((p) => p.through).sort().pop() ?? "",
+    skippedTransfers: used.reduce((s, p) => s + p.skippedTransfers, 0),
   };
 }
 

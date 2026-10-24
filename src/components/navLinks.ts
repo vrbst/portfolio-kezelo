@@ -10,6 +10,7 @@ import {
   Bell,
   Sparkles,
   Newspaper,
+  PiggyBank,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ export const NAV = {
   home: { to: "/", label: "Áttekintés", short: "Kezdő", icon: LayoutDashboard, end: true },
   accounts: { to: "/accounts", label: "Számlák", short: "Számlák", icon: Wallet, end: false },
   income: { to: "/income", label: "Hozam", short: "Hozam", icon: Receipt, end: false },
+  cashflow: { to: "/cashflow", label: "Pénzáramlás", short: "Pénzáramlás", icon: PiggyBank, end: false },
   calendar: { to: "/calendar", label: "Naptár", short: "Naptár", icon: CalendarDays, end: false },
   forecast: { to: "/forecast", label: "Előrejelzés", short: "Előrejelzés", icon: LineChart, end: false },
   goals: { to: "/goals", label: "Célok", short: "Célok", icon: Target, end: false },
@@ -37,7 +39,7 @@ export const NAV = {
 
 export const SIDEBAR_GROUPS: NavItem[][] = [
   [NAV.home],
-  [NAV.accounts, NAV.income, NAV.calendar],
+  [NAV.accounts, NAV.income, NAV.cashflow, NAV.calendar],
   [NAV.forecast, NAV.goals],
   [NAV.alerts, NAV.news, NAV.ai],
   [NAV.import, NAV.settings],
@@ -47,6 +49,7 @@ export const MOBILE_TABS: NavItem[] = [NAV.home, NAV.accounts, NAV.calendar, NAV
 
 export const MOBILE_MORE: NavItem[] = [
   NAV.income,
+  NAV.cashflow,
   NAV.forecast,
   NAV.goals,
   NAV.news,

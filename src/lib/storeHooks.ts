@@ -18,6 +18,7 @@ import { withBondRates, type BondRatesFile } from "./bondRates";
 import {
   computeAlerts,
   bondImportAlerts,
+  cashflowImportAlerts,
   reminderAlerts,
   type Alert,
   type Reminder,
@@ -91,6 +92,12 @@ import {
   type NotifySettings,
   type PlanOrder,
 } from "./planPrefs";
+import {
+  loadCashflow,
+  loadCashflowSettings,
+  type CashflowMonth,
+  type CashflowSettings,
+} from "./cashflow";
 import {
   accountContext,
   missingVenueAlerts,
@@ -263,6 +270,8 @@ const cachedAlerts = sharedMemo(
     accountCtx: AccountContext,
     reserved: Map<string, number>,
     reservedSoon: Map<string, number>,
+    cashflowMonths: CashflowMonth[],
+    cashflow: CashflowSettings,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved),
     ...missingVenueAlerts(
@@ -287,6 +296,7 @@ const cachedAlerts = sharedMemo(
     ...reserveConflictAlerts(
       reserveConflicts(savingsGoals, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
     ),
+    ...(cashflow.remind ? cashflowImportAlerts(cashflowMonths, day) : []),
   ],
 );
 
@@ -365,6 +375,8 @@ export function useActiveAlerts(): Alert[] {
     config.reserveGraceDays,
     savings,
   );
+  const cashflowMonths = useCashflow();
+  const cashflowSettings = useCashflowSettings();
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -385,6 +397,8 @@ export function useActiveAlerts(): Alert[] {
     accountCtx,
     reserved,
     reservedSoon,
+    cashflowMonths,
+    cashflowSettings,
   );
 }
 
@@ -805,6 +819,15 @@ export function useBrokerFees(): BrokerFees {
 /** The monthly plan's goal order (user-set; see planPrefs). */
 export function usePlanOrder(): PlanOrder {
   return usePref(loadPlanOrder);
+}
+
+/** Monthly income / spending sums imported from 1Money. */
+export function useCashflow(): CashflowMonth[] {
+  return usePref(loadCashflow);
+}
+
+export function useCashflowSettings(): CashflowSettings {
+  return usePref(loadCashflowSettings);
 }
 
 /** Month-end leftover settings (Beállítások). */

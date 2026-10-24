@@ -35,6 +35,13 @@ import {
 } from "./planPrefs";
 import type { AccountLimits, PurchaseAccounts } from "./accountRules";
 import { loadNewsSeen, mergeNewsSeen } from "./newsSeen";
+import {
+  loadCashflow,
+  loadCashflowSettings,
+  mergeCashflow,
+  type CashflowMonth,
+  type CashflowSettings,
+} from "./cashflow";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -70,6 +77,9 @@ export interface SyncedPrefs {
   moveAlerts?: StampedPref<MoveAlertSettings>;
   /** Telegram notifications: which, how and when (the bot reads it too). */
   notify?: StampedPref<NotifySettings>;
+  /** Monthly income / spending sums from 1Money exports — merged per month. */
+  cashflow?: StampedPref<CashflowMonth[]>;
+  cashflowSettings?: StampedPref<CashflowSettings>;
 }
 
 export type PrefKind =
@@ -87,7 +97,9 @@ export type PrefKind =
   | "leftover"
   | "newsSeen"
   | "moveAlerts"
-  | "notify";
+  | "notify"
+  | "cashflow"
+  | "cashflowSettings";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -105,6 +117,8 @@ const KINDS: PrefKind[] = [
   "newsSeen",
   "moveAlerts",
   "notify",
+  "cashflow",
+  "cashflowSettings",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -123,6 +137,8 @@ const VALUE_KEY: Record<PrefKind, string> = {
   newsSeen: "pf-news-seen",
   moveAlerts: "pf-move-alerts",
   notify: "pf-notify",
+  cashflow: "pf-cashflow",
+  cashflowSettings: "pf-cashflow-settings",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -140,6 +156,8 @@ const STAMP_KEY: Record<PrefKind, string> = {
   newsSeen: "pf-news-seen-updated",
   moveAlerts: "pf-move-alerts-updated",
   notify: "pf-notify-updated",
+  cashflow: "pf-cashflow-updated",
+  cashflowSettings: "pf-cashflow-settings-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -159,6 +177,8 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   newsSeen: loadNewsSeen,
   moveAlerts: loadMoveAlertSettings,
   notify: loadNotifySettings,
+  cashflow: loadCashflow,
+  cashflowSettings: loadCashflowSettings,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {
@@ -269,6 +289,7 @@ const UNION: Partial<Record<PrefKind, (a: unknown, b: unknown) => unknown>> = {
   income: (a, b) =>
     mergeIncomeState(a as IncomeState | null, b as IncomeState | null),
   newsSeen: (a, b) => mergeNewsSeen(a, b),
+  cashflow: (a, b) => mergeCashflow(a, b),
 };
 
 /** Per-field last-write-wins merge; `over` wins timestamp ties. */

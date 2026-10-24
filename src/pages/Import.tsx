@@ -13,6 +13,7 @@ import type { Transaction } from "../lib/model";
 import { usePortfolio } from "../lib/store";
 import { PageHeader, Card, Badge } from "../components/ui";
 import { formatDate } from "../lib/format";
+import { applyCashflowImport, cashflowChanges, loadCashflow } from "../lib/cashflow";
 
 export default function Import() {
   const navigate = useNavigate();
@@ -22,9 +23,11 @@ export default function Import() {
   const [dragging, setDragging] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [preview, setPreview] = useState<ParsedImport | null>(null);
-  const [done, setDone] = useState<{ added: number; skipped: number } | null>(
-    null,
-  );
+  const [done, setDone] = useState<{
+    added: number;
+    skipped: number;
+    cashflowMonths: number;
+  } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
   // The same rule importParsed applies (matchExisting): a parsed row is
@@ -41,6 +44,14 @@ export default function Import() {
   const isExisting = (t: Transaction) => existingRows.has(t);
   const existingCount = existingRows.size;
   const newCount = preview ? preview.transactions.length - existingCount : 0;
+
+  // 1Money export: monthly sums, saved apart from the transactions.
+  const cfChanges = useMemo(
+    () => (preview?.cashflow ? cashflowChanges(loadCashflow(), preview.cashflow.months) : null),
+    [preview],
+  );
+  const cfToSave = cfChanges ? cfChanges.added + cfChanges.updated : 0;
+  const nothingToImport = newCount === 0 && cfToSave === 0;
 
   // New transactions first, so the rows that will actually be imported are the
   // ones visible in the (truncated) preview table.
@@ -73,7 +84,8 @@ export default function Import() {
   async function confirmImport() {
     if (!preview) return;
     const res = await importParsed(preview);
-    setDone(res);
+    if (preview.cashflow) applyCashflowImport(preview.cashflow);
+    setDone({ ...res, cashflowMonths: cfToSave });
     setPreview(null);
   }
 
@@ -81,7 +93,7 @@ export default function Import() {
     <div>
       <PageHeader
         title="Importálás"
-        info="Lightyear (.csv) és Magyar Államkincstár (.xls) kivonatokat tölthetsz be; többet is egyszerre."
+        info="Lightyear (.csv) és Magyar Államkincstár (.xls) kivonatokat, valamint az 1Money (.csv) exportját tölthetsz be; többet is egyszerre. Az 1Moneyból csak havi összegek kerülnek be."
       />
 
       <motion.div
@@ -112,7 +124,7 @@ export default function Import() {
             : "Húzd ide a fájlokat, vagy kattints a tallózáshoz"}
         </div>
         <div className="text-sm text-[var(--color-muted)]">
-          Támogatott: Lightyear CSV, Magyar Államkincstár XLS/XLSX
+          Támogatott: Lightyear CSV, Magyar Államkincstár XLS/XLSX, 1Money CSV
         </div>
         <input
           ref={inputRef}
@@ -150,6 +162,8 @@ export default function Import() {
                 {done.added} új tranzakció hozzáadva
                 {done.skipped > 0 &&
                   `, ${done.skipped} már létezett (kihagyva)`}
+                {done.cashflowMonths > 0 &&
+                  `, ${done.cashflowMonths} hónap bevétele és kiadása rögzítve`}
                 .
               </div>
             </div>
@@ -168,20 +182,37 @@ export default function Import() {
         >
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold">Előnézet</h2>
-            <Badge tone="brand">{preview.accounts.length} számla</Badge>
-            <Badge tone="positive">{newCount} új tranzakció</Badge>
-            {existingCount > 0 && (
-              <Badge tone="neutral">{existingCount} már meglévő</Badge>
+            {preview.cashflow ? (
+              <>
+                <Badge tone="brand">
+                  1Money: {preview.cashflow.months.length} hónap
+                </Badge>
+                <Badge tone="positive">{cfChanges?.added ?? 0} új hónap</Badge>
+                {(cfChanges?.updated ?? 0) > 0 && (
+                  <Badge tone="neutral">{cfChanges?.updated} frissül</Badge>
+                )}
+                {(cfChanges?.same ?? 0) > 0 && (
+                  <Badge tone="neutral">{cfChanges?.same} változatlan</Badge>
+                )}
+              </>
+            ) : null}
+            {preview.transactions.length > 0 && (
+              <>
+                <Badge tone="brand">{preview.accounts.length} számla</Badge>
+                <Badge tone="positive">{newCount} új tranzakció</Badge>
+                {existingCount > 0 && (
+                  <Badge tone="neutral">{existingCount} már meglévő</Badge>
+                )}
+                <Badge tone="brand">{preview.instruments.length} értékpapír</Badge>
+              </>
             )}
-            <Badge tone="brand">{preview.instruments.length} értékpapír</Badge>
           </div>
 
-          {newCount === 0 && (
+          {nothingToImport && (
             <Card className="flex items-center gap-3 p-4">
               <CheckCircle2 className="h-5 w-5 text-[var(--color-positive)]" />
               <div className="text-sm text-[var(--color-muted)]">
-                Minden tranzakció már szerepel az adataidban — nincs új
-                importálandó.
+                Minden már szerepel az adataidban — nincs új importálandó.
               </div>
             </Card>
           )}
@@ -227,6 +258,7 @@ export default function Import() {
             </Card>
           )}
 
+          {preview.transactions.length > 0 && (
           <Card className="overflow-hidden">
             <div className="border-b border-[var(--color-border)] px-4 py-3 text-sm font-medium">
               Tranzakciók (új elöl)
@@ -280,6 +312,7 @@ export default function Import() {
               </div>
             )}
           </Card>
+          )}
 
           <div className="flex justify-end gap-3">
             <button className="btn-ghost" onClick={() => setPreview(null)}>
@@ -288,11 +321,16 @@ export default function Import() {
             <button
               className="btn-primary"
               onClick={confirmImport}
-              disabled={newCount === 0}
+              disabled={nothingToImport}
             >
-              {newCount > 0
-                ? `${newCount} új tranzakció importálása`
-                : "Nincs új importálandó"}
+              {nothingToImport
+                ? "Nincs új importálandó"
+                : [
+                    newCount > 0 && `${newCount} új tranzakció`,
+                    cfToSave > 0 && `${cfToSave} hónap pénzáramlása`,
+                  ]
+                    .filter(Boolean)
+                    .join(" + ") + " importálása"}
             </button>
           </div>
         </motion.div>

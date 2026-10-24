@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  CASHFLOW_CATEGORIES,
   fixtureBondRates,
+  fixtureCashflow,
   fixtureHistory,
   fixturePriceFile,
   fixtureSnapshot,
@@ -20,6 +22,7 @@ const PAGES = [
   ["/accounts", "Számlák"],
   ["/accounts/mak", "Kincstár számla"],
   ["/income", "Hozam"],
+  ["/cashflow", "Pénzáramlás"],
   ["/calendar", "Naptár"],
   ["/forecast", "Előrejelzés"],
   ["/goals", "Célok"],
@@ -67,7 +70,7 @@ async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean 
   await page.waitForLoadState("networkidle");
   const snap = fixtureSnapshot();
   await page.evaluate(
-    async ({ snap, prefKeys, privacy, sync }) => {
+    async ({ snap, prefKeys, privacy, sync, cashflow }) => {
       const db: IDBDatabase = await new Promise((res, rej) => {
         const r = indexedDB.open("portfolio");
         r.onsuccess = () => res(r.result);
@@ -90,11 +93,13 @@ async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean 
         localStorage.setItem(key, JSON.stringify(p.value));
         localStorage.setItem(`${key}-updated`, p.updatedAt);
       }
+      localStorage.setItem("pf-cashflow", JSON.stringify(cashflow));
+      localStorage.setItem("pf-cashflow-updated", "2026-10-02T08:00:00.000Z");
       localStorage.setItem("pf-privacy", privacy ? "1" : "0");
       if (sync)
         localStorage.setItem("portfolio.syncConfig", JSON.stringify({ token: "t", owner: "teszt", repo: "adat", path: "data.json" }));
     },
-    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy, sync: !!opts.sync },
+    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy, sync: !!opts.sync, cashflow: fixtureCashflow() },
   );
   await page.reload();
   await page.waitForLoadState("networkidle");
@@ -217,6 +222,64 @@ test.describe("privacy mode", () => {
       expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
     });
   }
+});
+
+test.describe("cash flow page (1Money)", () => {
+  test("control: without privacy mode the categories and amounts ARE readable", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/cashflow");
+    await expect(page.locator("main")).toContainText("Teszt-Lakás");
+    const seen = await readableSecrets(page, CASHFLOW_CATEGORIES);
+    expect(seen.some((t) => t.includes("Teszt-Lakás"))).toBe(true);
+    expect(seen.some((t) => /\d.*Ft/.test(t))).toBe(true);
+  });
+
+  test("privacy mode: no category name and no amount is readable", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    // With an income category left out, the note about the excluded money shows too.
+    await page.evaluate(() =>
+      localStorage.setItem("pf-cashflow-settings", JSON.stringify({ excluded: ["income:Teszt-Fizetés"], remind: true })),
+    );
+    await show(page, "/cashflow");
+    await expect(page.locator("main")).toContainText("Kategóriák");
+    await expect(page.locator("main")).toContainText("A kizárt bevételek");
+    expect(await readableSecrets(page, CASHFLOW_CATEGORIES), "readable in privacy mode").toEqual([]);
+  });
+
+  test("a category can be left out of the averages", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/cashflow");
+    const main = page.locator("main");
+    const avg = main.locator(".card", { hasText: "Havi kiadás (átlag)" }).first();
+    // 9 invented months: food 90–106 e Ft + rent 150 e Ft, so ≈ 248 e Ft a month.
+    await expect(avg).toContainText("248");
+    await main.getByLabel("Teszt-Lakás (kiadás) beleszámít az átlagokba").uncheck();
+    await expect(avg).not.toContainText("248");
+    await expect(avg).toContainText("98");
+    // The choice survives a reload (it is a synced setting).
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(main.getByLabel("Teszt-Lakás (kiadás) beleszámít az átlagokba")).not.toBeChecked();
+  });
+
+  test("the monthly to-do shows up when last month is missing and goes away with the setting", async ({ page }) => {
+    await openSeeded(page);
+    // The clock stands at 14 Oct. Leave September out (an export of 2 Sep ends before it).
+    const upToAugust = fixtureCashflow()
+      .filter((m) => m.month <= "2026-08")
+      .map((m) => ({ ...m, through: "2026-09-02" }));
+    await page.evaluate((months) => localStorage.setItem("pf-cashflow", JSON.stringify(months)), upToAugust);
+    await show(page, "/alerts");
+    await expect(page.locator("main")).toContainText(/Aktív\s*\(7\)/);
+    await expect(page.locator("main")).toContainText("1Money-export feltöltése – 2026. szeptember");
+    await show(page, "/cashflow");
+    await page.locator("main").getByLabel(/Havi teendő/).uncheck();
+    // reopen, not show: an alert list that went empty keeps something pulsing.
+    await reopen(page, "/alerts");
+    // It is no longer active: one fewer in "Aktív" (7 → 6), and it moved to the fulfilled history.
+    await expect(page.locator("main")).toContainText(/Aktív\s*\(6\)/);
+    await expect(page.locator("main")).toContainText(/Teljesült\s*\(\d+\)\s*1Money-export feltöltése/);
+  });
 });
 
 test.describe("holdings: one table everywhere, details in a sheet", () => {

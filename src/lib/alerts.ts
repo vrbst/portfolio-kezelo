@@ -9,6 +9,7 @@ import type { PortfolioSummary, BondImportReminder } from "./portfolio";
 import type { Transaction } from "./model";
 import { upcomingEvents } from "./events";
 import { formatMoney, formatDate } from "./format";
+import { isComplete, monthEnd, prevMonth, type CashflowMonth } from "./cashflow";
 
 export type AlertSeverity = "high" | "medium" | "info";
 
@@ -282,6 +283,37 @@ export function bondImportAlerts(reminders: BondImportReminder[]): Alert[] {
           actionLabel: "Importálás",
         };
   });
+}
+
+const MONTH_NAMES = [
+  "január", "február", "március", "április", "május", "június",
+  "július", "augusztus", "szeptember", "október", "november", "december",
+];
+
+/**
+ * Monthly nudge: the previous month's 1Money export is missing (or was taken
+ * before that month ended). Only for those who have imported one before, and
+ * it fulfils itself with the import. `day` is today's local "YYYY-MM-DD".
+ */
+export function cashflowImportAlerts(months: CashflowMonth[], day: string): Alert[] {
+  if (months.length === 0) return [];
+  const prev = prevMonth(day.slice(0, 7));
+  const have = months.find((m) => m.month === prev);
+  // No spending in a month leaves no row at all, so a later month that is
+  // there says the export reached past it.
+  const covered = have ? isComplete(have) : months.some((m) => m.month > prev && m.through >= monthEnd(prev));
+  if (covered) return [];
+  const name = `${prev.slice(0, 4)}. ${MONTH_NAMES[+prev.slice(5, 7) - 1]}`;
+  return [
+    {
+      id: `cashflow-import:${prev}`,
+      severity: "info",
+      title: `1Money-export feltöltése – ${name}`,
+      detail: `Az 1Money-ban készíts új CSV-exportot, és töltsd fel, hogy a(z) ${name} is bekerüljön a pénzáramlásba.`,
+      to: "/import",
+      actionLabel: "Importálás",
+    },
+  ];
 }
 
 // ---- Manual reminders (user-created to-dos, synced) ------------------------

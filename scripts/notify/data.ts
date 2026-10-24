@@ -31,6 +31,7 @@ import {
 import {
   computeAlerts,
   bondImportAlerts,
+  cashflowImportAlerts,
   reminderAlerts,
   DEFAULT_ALERT_CONFIG,
   type Alert,
@@ -57,6 +58,7 @@ import {
   loadBrokerFees,
   loadPurchaseAccounts,
 } from "../../src/lib/planPrefs";
+import { loadCashflow, loadCashflowSettings } from "../../src/lib/cashflow";
 import {
   accountContext,
   missingVenueAlerts,
@@ -427,6 +429,7 @@ export function buildContext(input: ContextInput): Context {
       fx,
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
+    ...(loadCashflowSettings().remind ? cashflowImportAlerts(loadCashflow(), day) : []),
     ...incomeAlerts(income),
     ...reserveConflictAlerts(reserveConflicts(savingsGoals, transactions, instMap, fx)),
   ].filter((a) => alertState[a.id]?.status !== "dismissed");

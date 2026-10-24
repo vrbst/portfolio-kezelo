@@ -18,6 +18,7 @@ import type { GlideConfig } from "../lib/glidePath";
 import type { Goal } from "../lib/goals";
 import type { HistoryFile, LiveQuote, PriceFile } from "../lib/prices";
 import type { BondRatesFile } from "../lib/bondRates";
+import type { CashflowMonth } from "../lib/cashflow";
 
 /** Local wall-clock time → the ISO instant the importers store. */
 export const local = (y: number, m: number, d: number, hh = 10, mi = 0) =>
@@ -308,6 +309,27 @@ export const fixturePrefs = (): SyncedPrefs => ({
   }),
   income: stamped({ since: "2026-09-01", allocated: [] }),
 });
+
+/**
+ * Invented 1Money months (Jan–Sep 2026, the export taken on 2 Oct, so September
+ * is complete). Kept out of fixturePrefs: the bot's reports must not change.
+ */
+export const CASHFLOW_CATEGORIES = ["Teszt-Élelmiszer", "Teszt-Lakás", "Teszt-Fizetés"];
+
+export const fixtureCashflow = (): CashflowMonth[] =>
+  Array.from({ length: 9 }, (_, i) => {
+    const month = `2026-${String(i + 1).padStart(2, "0")}`;
+    const food = 90_000 + i * 2_000;
+    return {
+      month,
+      income: 600_000,
+      expense: food + 150_000,
+      incomeBy: { "Teszt-Fizetés": 600_000 },
+      expenseBy: { "Teszt-Élelmiszer": food, "Teszt-Lakás": 150_000 },
+      through: "2026-10-02",
+      importedAt: "2026-10-02T08:00:00.000Z",
+    };
+  });
 
 // ---- prices -----------------------------------------------------------------
 

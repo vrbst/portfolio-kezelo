@@ -34,6 +34,7 @@ import Accounts from "./pages/Accounts";
 import AccountDetail from "./pages/AccountDetail";
 import Import from "./pages/Import";
 import Income from "./pages/Income";
+import Cashflow from "./pages/Cashflow";
 import Calendar from "./pages/Calendar";
 import Forecast from "./pages/Forecast";
 import Goals from "./pages/Goals";
@@ -51,6 +52,7 @@ const router = createHashRouter([
       { path: "accounts", element: <Accounts /> },
       { path: "accounts/:id", element: <AccountDetail /> },
       { path: "income", element: <Income /> },
+      { path: "cashflow", element: <Cashflow /> },
       { path: "calendar", element: <Calendar /> },
       { path: "forecast", element: <Forecast /> },
       { path: "goals", element: <Goals /> },
