@@ -512,3 +512,55 @@ export function cashflowCategories(months: CashflowMonth[]): { name: string; kin
   }
   return [...sums.values()].sort((a, b) => b.total - a.total);
 }
+
+/** What the AI gets to see of the cash flow: sums only — no category, item or note. */
+export interface CashflowAiSummary {
+  /** Complete months the averages cover. */
+  months: number;
+  since?: string;
+  /** Monthly averages in whole forints (the regular ones, without the excluded). */
+  incomeHuf: number;
+  expenseHuf: number;
+  savingHuf: number;
+  rate?: number;
+  /** Saving over income in the last 3 complete months (the trend); undefined with fewer. */
+  last3Rate?: number;
+  /** Income left out as one-off, monthly average. */
+  excludedIncomeHuf: number;
+  reserve?: { months: number; targetHuf: number; heldHuf: number };
+}
+
+/**
+ * The cash flow in a few numbers for the AI context: the 12-month (or
+ * since-the-start-month) averages the Pénzáramlás page shows, the trend of the
+ * last three months and the emergency reserve. `goalHeld` is the cash savings
+ * goals hold (not part of the reserve).
+ */
+export function cashflowAiSummary(
+  rawMonths: CashflowMonth[],
+  skips: CashflowSkip[],
+  settings: CashflowSettings,
+  summary: PortfolioSummary,
+  goalHeld?: Map<string, number>,
+): CashflowAiSummary | undefined {
+  const months = applySkips(rawMonths, skips);
+  const totals = cashflowTotals(months, settings);
+  const avg = cashflowAverage(totals, 12, settings.since);
+  if (!avg) return undefined;
+  const last3 = monthsFrom(totals, settings.since).filter((t) => t.complete).slice(-3);
+  const income3 = last3.reduce((s, t) => s + t.income, 0);
+  const res = settings.reserveMonths ? emergencyReserve(summary, months, settings, goalHeld) : undefined;
+  return {
+    months: avg.months,
+    since: settings.since,
+    incomeHuf: avg.income,
+    expenseHuf: avg.expense,
+    savingHuf: avg.saving,
+    rate: avg.rate,
+    last3Rate: last3.length === 3 && income3 > 0 ? last3.reduce((s, t) => s + t.saving, 0) / income3 : undefined,
+    excludedIncomeHuf: avg.excludedIncome,
+    ...(res?.target
+      ? { reserve: { months: settings.reserveMonths!, targetHuf: res.target.target, heldHuf: res.held } }
+      : {}),
+  };
+}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixtureCashflow } from "../../src/test/fixture";
 import { contextAt } from "./testContext";
+import { analysisContext } from "./analysis/job";
 
 // The bot sees the monthly 1Money to-do like the app does (same prefs, same rule).
 
@@ -84,5 +85,32 @@ describe("bot: monthly 1Money export to-do", () => {
   it("never imported → no to-do (the default fixture stays as it was)", () => {
     const ctx = contextAt([2026, 10, 14, 10]);
     expect(ids(ctx).some((id) => id.startsWith("cashflow-import:"))).toBe(false);
+  });
+});
+
+describe("bot: the nightly AI analysis sees the cash flow as sums", () => {
+  it("the 1Money sums are in the AI snapshot, without any category name", () => {
+    const ctx = contextAt([2026, 10, 14, 10], withCashflow("2026-10-02", "2026-09"));
+    const text = analysisContext(ctx);
+    expect(text).toContain("Pénzáramlás");
+    expect(text).toMatch(/9 lezárt hónap/);
+    expect(text).toMatch(/havi bevétel 600\s000 Ft/);
+    for (const name of ["Teszt-Fizetés", "Teszt-Lakás", "Teszt-Élelmiszer"]) expect(text).not.toContain(name);
+  });
+
+  it("an item taken out lowers the spending the AI sees", () => {
+    const ctx = contextAt([2026, 10, 14, 10], (s) => {
+      withCashflow("2026-10-02", "2026-09")(s);
+      s.prefs!.cashflowSkips = {
+        updatedAt: "2026-10-03T08:00:00.000Z",
+        value: [{ id: "x", month: "2026-09", kind: "expense", category: "Teszt-Lakás", huf: 90_000 }],
+      };
+    });
+    // 9 months, average spending 248 000 − 90 000 / 9 = 238 000
+    expect(analysisContext(ctx)).toMatch(/kiadás 238\s000 Ft/);
+  });
+
+  it("no 1Money data → no section (the nightly analysis stays as it was)", () => {
+    expect(analysisContext(contextAt([2026, 10, 14, 10]))).not.toContain("Pénzáramlás");
   });
 });
