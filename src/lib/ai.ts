@@ -10,6 +10,7 @@ import type { Alert } from "./alerts";
 import { tbszExitScenarios, type TbszStatus } from "./tbsz";
 import type { UpcomingEvent } from "./events";
 import type { SavingsProgress } from "./savings";
+import type { CashflowAiSummary } from "./cashflow";
 import { bandBaseNote, type AllocationState } from "./rebalance";
 import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
@@ -308,6 +309,8 @@ export interface AiContextExtras {
   glide?: AllocationState | null;
   /** This month's net deposits against the monthly saving budget. */
   budget?: { monthlyHuf: number; thisMonthNetHuf: number };
+  /** Household cash flow from the 1Money exports: sums only. */
+  cashflow?: CashflowAiSummary;
   /** Passive income: last 12 months realised, next 12 months expected. */
   passive?: { last12Huf: number; next12CouponHuf: number; next12MaturityHuf: number };
   bonds?: { advice: BondAdvice[]; market: BondMarket | null };
@@ -470,6 +473,22 @@ export function buildAiPortfolioContext(
       "",
       `Havi megtakarítási keret: ${huf(extras.budget.monthlyHuf)} Ft, ebben a hónapban eddig nettó befizetve ${huf(extras.budget.thisMonthNetHuf)} Ft`,
     );
+
+  // --- Household cash flow (1Money): sums only, no categories ---
+  if (extras?.cashflow) {
+    const c = extras.cashflow;
+    lines.push(
+      "",
+      `Pénzáramlás (az 1Money-exportból, ${c.months} lezárt hónap${c.since ? `, ${c.since}-tól` : ""}; a befektetésnek könyvelt és az egyszeri tételek nélkül): havi bevétel ${huf(c.incomeHuf)} Ft, kiadás ${huf(c.expenseHuf)} Ft, megtakarítás ${huf(c.savingHuf)} Ft${c.rate != null ? ` (megtakarítási ráta ${pct(c.rate)}` : ""}${c.rate != null && c.last3Rate != null ? `; az utolsó 3 hónapban ${pct(c.last3Rate)}` : ""}${c.rate != null ? ")" : ""}`,
+      "Ez a rendszeres bevételből a költések után megmaradó összeg (a pénzügyi mozgástér), nem a brókerbe befizetett összeg: azt a Havi megtakarítási keret mutatja.",
+    );
+    if (c.excludedIncomeHuf >= 1000)
+      lines.push(`Egyszeri, nem rendszeres bevétel (eladás stb.) havi átlagban ${huf(c.excludedIncomeHuf)} Ft; ez nincs a fenti bevételben.`);
+    if (c.reserve)
+      lines.push(
+        `Vésztartalék: ${c.reserve.months} havi kiadás = ${huf(c.reserve.targetHuf)} Ft, ebből meglévő ${huf(c.reserve.heldHuf)} Ft`,
+      );
+  }
 
   // --- Passive income ---
   if (extras?.passive)

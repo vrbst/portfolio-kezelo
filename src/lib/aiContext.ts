@@ -22,9 +22,11 @@ import { upcomingEvents } from "./events";
 import { tbszStatus } from "./tbsz";
 import {
   computeSavingsProgress,
+  reservedCashByAccount,
   savingsGoalExpenses,
   type SavingsGoal,
 } from "./savings";
+import { cashflowAiSummary, loadCashflow, loadCashflowSettings, loadCashflowSkips } from "./cashflow";
 import { effectiveMonthKey, type GoalProgress } from "./goals";
 import { forecastMilestones, projectFromSettings } from "./forecast";
 import type { OutlookFile } from "./outlook";
@@ -158,6 +160,14 @@ export function buildFullAiContext(i: AiContextInput): string {
         : {}),
     },
     glide: i.glide,
+    // The 1Money cash flow: sums only (read from the synced prefs, in the app and in the bot alike).
+    cashflow: cashflowAiSummary(
+      loadCashflow(),
+      loadCashflowSkips(),
+      loadCashflowSettings(),
+      summary,
+      reservedCashByAccount(i.savingsGoals, today, transactions, fx, undefined, savingsProgress),
+    ),
     bonds,
     budget: {
       monthlyHuf: assumptions.monthlySavingHuf,
