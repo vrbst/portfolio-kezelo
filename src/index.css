@@ -1196,3 +1196,133 @@ html[data-skin="retro"] .recharts-default-tooltip {
     animation: none;
   }
 }
+
+/* ======================================================================== */
+/* ----- Asszisztens skin -------------------------------------------------- */
+/* ======================================================================== */
+/* Opt-in look (lib/skin.ts) in the design language of the assistant project
+ * (web/home.css, assistant.css): pure black, orange #ff9500 highlights, grey
+ * #8a8a8a secondary text, Segoe UI, hairline white borders, rounded cards, no
+ * ambient colour. Forced for one window with ?skin=asszisztens. Scoped under
+ * html[data-skin="asszisztens"] and unlayered, like the other skins. */
+html[data-skin="asszisztens"] {
+  --color-bg: #000000;
+  --color-bg-soft: #0a0a0a;
+  --color-surface: #0e0e0e;
+  --color-surface-2: #1a1a1a;
+  --color-border: #262626;
+  --color-muted: #8a8a8a;
+  --color-text: #ffffff;
+
+  --color-brand: #ff9500;
+  --color-brand-2: #ffb340;
+  --color-accent: #ff9500;
+  --color-positive: #4cd98a;
+  --color-negative: #ff6b63;
+  --color-warning: #ffb340;
+
+  --color-chart-axis: #8a8a8a;
+  --color-chart-alt: #ffb340;
+
+  --font-sans:
+    "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-display: var(--font-sans);
+
+  /* The glow of the assistant's "home" dot. */
+  --shadow-glow: 0 0 20px -6px rgb(255 149 0 / 0.45);
+
+  color-scheme: dark;
+  accent-color: var(--color-brand);
+}
+html[data-skin="asszisztens"] ::selection {
+  background: var(--color-brand);
+  color: #000;
+}
+html[data-skin="asszisztens"] body::before {
+  display: none;
+}
+html[data-skin="asszisztens"] :is(h1, h2) {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+html[data-skin="asszisztens"] .font-display {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Cards: near-black, hairline border, soft shadow like the assistant's panel. */
+html[data-skin="asszisztens"] .card {
+  background: rgb(14 14 14 / 0.95);
+  border-color: rgb(255 255 255 / 0.12);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+}
+html[data-skin="asszisztens"] .card-hover:hover {
+  border-color: var(--color-brand);
+}
+
+/* Gradient text / numbers → solid white (the clock's digits). */
+html[data-skin="asszisztens"] .text-gradient,
+html[data-skin="asszisztens"] .rolling-gradient {
+  background: none !important;
+  color: var(--color-text) !important;
+  -webkit-text-fill-color: currentColor;
+}
+html[data-skin="asszisztens"] .aurora {
+  background: none;
+  animation: none;
+}
+
+/* Buttons: orange with black text (primary), outlined grey (ghost). */
+html[data-skin="asszisztens"] .btn-primary {
+  background: var(--color-brand);
+  color: #000;
+  font-weight: 600;
+}
+html[data-skin="asszisztens"] .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+html[data-skin="asszisztens"] .btn-ghost {
+  background: transparent;
+  color: var(--color-muted);
+  border-color: rgb(255 255 255 / 0.12);
+}
+html[data-skin="asszisztens"] .btn-ghost:hover:not(:disabled) {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-brand);
+}
+
+/* Fields: translucent black, like the assistant's inputs. */
+html[data-skin="asszisztens"]
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
+  background-color: rgb(0 0 0 / 0.45);
+  border-color: rgb(255 255 255 / 0.12);
+}
+html[data-skin="asszisztens"] :focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Sidebar and mobile tab bar: the active entry reads in orange. */
+html[data-skin="asszisztens"] aside {
+  background: #000;
+  border-color: rgb(255 255 255 / 0.12);
+}
+html[data-skin="asszisztens"] aside a[aria-current="page"] > div {
+  color: var(--color-brand);
+}
+html[data-skin="asszisztens"] nav.fixed {
+  background: #000;
+  border-color: rgb(255 255 255 / 0.12);
+}
+html[data-skin="asszisztens"] nav.fixed a[aria-current="page"] {
+  color: var(--color-brand);
+}
+
+/* Recharts tooltip: the assistant's dark card. */
+html[data-skin="asszisztens"] .recharts-default-tooltip {
+  background: rgb(14 14 14 / 0.95) !important;
+  border: 1px solid rgb(255 255 255 / 0.12) !important;
+  border-radius: 14px !important;
+  color: var(--color-text) !important;
+}

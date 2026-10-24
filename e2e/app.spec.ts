@@ -1206,6 +1206,27 @@ test.describe("delete all data", () => {
   });
 });
 
+test.describe("?skin= link", () => {
+  test("forces the Asszisztens skin for that window and leaves the stored skin alone", async ({ page }) => {
+    await openSeeded(page);
+    await page.evaluate(() => localStorage.setItem("pf-skin", "terminal"));
+
+    await page.goto("./?skin=asszisztens#/settings");
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("html")).toHaveAttribute("data-skin", "asszisztens");
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#000000");
+    await expect(page.getByRole("button", { name: /Asszisztens/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("a megnyitó link állította be")).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem("pf-skin"))).toBe("terminal");
+
+    // A plain link opens with the stored skin again.
+    await page.goto("./#/settings");
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("html")).toHaveAttribute("data-skin", "terminal");
+  });
+});
+
 test.describe("leftovers of the removed Google sync", () => {
   test("a stored sign-in and access token are cleared when the app starts", async ({ page }) => {
     await openSeeded(page);

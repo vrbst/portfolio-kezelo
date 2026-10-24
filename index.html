@@ -8,14 +8,20 @@
     <meta name="theme-color" content="#0b1020" />
     <title>Portfólió</title>
     <script>
-      // Apply the chosen skin before first paint (see src/lib/skin.ts).
+      // Apply the chosen skin before first paint (see src/lib/skin.ts). A
+      // ?skin= link wins over the stored skin (and is never stored).
       try {
         var colors = {
           terminal: "#050805",
           paper: "#fff1e5",
           retro: "#008080",
+          asszisztens: "#000000",
         };
-        var s = localStorage.getItem("pf-skin");
+        var u = new URLSearchParams(location.search).get("skin");
+        var s =
+          u === "classic" || colors.hasOwnProperty(u)
+            ? u
+            : localStorage.getItem("pf-skin");
         if (colors.hasOwnProperty(s)) {
           var r = document.documentElement;
           r.dataset.skin = s;

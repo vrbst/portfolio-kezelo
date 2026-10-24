@@ -2,7 +2,14 @@ import { useState } from "react";
 import { Wallet } from "lucide-react";
 import { formatMoney, formatCompact } from "../../lib/format";
 import { MONTHS } from "./shared";
-import { CHART, PAPER, RETRO, skinned, TERM } from "../../lib/skin";
+import {
+  ASSZISZTENS,
+  CHART,
+  PAPER,
+  RETRO,
+  skinned,
+  TERM,
+} from "../../lib/skin";
 
 export type IncomeKind = "kamat" | "lejarat" | "osztalek";
 
@@ -19,6 +26,11 @@ const KIND_COLOR = skinned({
   terminal: { kamat: TERM.cyan, osztalek: TERM.green, lejarat: TERM.blue },
   paper: { kamat: PAPER.teal, osztalek: PAPER.green, lejarat: PAPER.blue },
   retro: { kamat: RETRO.teal, osztalek: RETRO.green, lejarat: RETRO.navy },
+  asszisztens: {
+    kamat: ASSZISZTENS.teal,
+    osztalek: ASSZISZTENS.green,
+    lejarat: ASSZISZTENS.sky,
+  },
 });
 
 const KIND_META: { key: IncomeKind; label: string }[] = [
