@@ -21,6 +21,38 @@ export interface CashflowMonth {
   importedAt: string;
 }
 
+/**
+ * One income or expense item of the export. Kept ONLY on the device that
+ * imported it (see cashflowItems.ts) — never synced: its note can name people.
+ */
+export interface CashflowItem {
+  /** Stable between parses of the same export; another category → another id. */
+  id: string;
+  /** "YYYY-MM". */
+  month: string;
+  /** "YYYY-MM-DD". */
+  day: string;
+  kind: "income" | "expense";
+  category: string;
+  /** Whole forints. */
+  huf: number;
+  account: string;
+  note: string;
+}
+
+/**
+ * An item the user took out of the figures. It IS synced (so every device and
+ * the bot subtract it) but holds no note, account or date — just what the
+ * subtraction needs.
+ */
+export interface CashflowSkip {
+  id: string;
+  month: string;
+  kind: "income" | "expense";
+  category: string;
+  huf: number;
+}
+
 export interface CashflowSettings {
   /** Categories that aren't living costs or earnings (e.g. investing booked as an expense). */
   excluded: string[];
@@ -73,6 +105,83 @@ export function saveCashflow(months: CashflowMonth[]) {
   } catch {
     /* ignore */
   }
+}
+
+const SKIPS_KEY = "pf-cashflow-skips";
+
+const isSkip = (s: unknown): s is CashflowSkip =>
+  !!s &&
+  typeof s === "object" &&
+  typeof (s as CashflowSkip).id === "string" &&
+  /^\d{4}-\d{2}$/.test((s as CashflowSkip).month) &&
+  ((s as CashflowSkip).kind === "income" || (s as CashflowSkip).kind === "expense") &&
+  typeof (s as CashflowSkip).category === "string" &&
+  Number.isFinite((s as CashflowSkip).huf);
+
+export function loadCashflowSkips(): CashflowSkip[] {
+  try {
+    const raw = localStorage.getItem(SKIPS_KEY);
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v.filter(isSkip) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCashflowSkips(skips: CashflowSkip[]) {
+  try {
+    const byId = new Map(skips.map((s) => [s.id, s]));
+    const json = JSON.stringify([...byId.values()].sort((a, b) => a.month.localeCompare(b.month) || a.id.localeCompare(b.id)));
+    if (localStorage.getItem(SKIPS_KEY) === json) return;
+    localStorage.setItem(SKIPS_KEY, json);
+    touchPref("cashflowSkips");
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * The months with the skipped items taken out of their category and the month
+ * sums. The input is not changed; a category emptied by it disappears.
+ */
+export function applySkips(months: CashflowMonth[], skips: CashflowSkip[]): CashflowMonth[] {
+  if (skips.length === 0) return months;
+  const byMonth = new Map<string, CashflowSkip[]>();
+  for (const s of skips) byMonth.set(s.month, [...(byMonth.get(s.month) ?? []), s]);
+  return months.map((m) => {
+    const mine = byMonth.get(m.month);
+    if (!mine) return m;
+    const incomeBy = { ...m.incomeBy };
+    const expenseBy = { ...m.expenseBy };
+    for (const s of mine) {
+      const by = s.kind === "income" ? incomeBy : expenseBy;
+      if (!(s.category in by)) continue;
+      const left = Math.max(0, by[s.category] - s.huf);
+      // Under a forint is rounding dust of the month sum, not a category.
+      if (left >= 1) by[s.category] = left;
+      else delete by[s.category];
+    }
+    const sum = (by: Record<string, number>) => Object.values(by).reduce((a, b) => a + b, 0);
+    return { ...m, incomeBy, expenseBy, income: sum(incomeBy), expense: sum(expenseBy) };
+  });
+}
+
+/**
+ * After an import: a skip stays only if its item is still in the new export
+ * (a recategorised item has a new id). Skips of months the import doesn't
+ * cover are left alone.
+ */
+export function reconcileSkips(
+  skips: CashflowSkip[],
+  items: { id: string; month: string }[],
+  importedMonths: string[],
+): { kept: CashflowSkip[]; dropped: CashflowSkip[] } {
+  const ids = new Set(items.map((i) => i.id));
+  const covered = new Set(importedMonths);
+  const kept: CashflowSkip[] = [];
+  const dropped: CashflowSkip[] = [];
+  for (const s of skips) (!covered.has(s.month) || ids.has(s.id) ? kept : dropped).push(s);
+  return { kept, dropped };
 }
 
 /** Union by month; of two copies of a month the later import wins. */

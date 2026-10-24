@@ -60,6 +60,18 @@ describe("bot: monthly 1Money export to-do", () => {
       expect(a?.detail).toContain("vésztartalékon felül");
     });
 
+    it("an item taken out lowers the spending, so the reserve target — the bot counts it too", () => {
+      const withSkip = (s: Parameters<NonNullable<Parameters<typeof contextAt>[1]>>[0]) => {
+        reserve(1, ["mak"])(s);
+        s.prefs!.cashflowSkips = {
+          updatedAt: "2026-10-03T08:00:00.000Z",
+          value: [{ id: "x", month: "2026-09", kind: "expense", category: "Teszt-Lakás", huf: 80_000 }],
+        };
+      };
+      // 9 months: the average spending falls by 80 000 / 9 → the 1-month target is 239 111 instead of 248 000.
+      expect(idle(contextAt([2026, 10, 14, 10], withSkip))?.detail).toMatch(/^124\s319\sFt fekszik/);
+    });
+
     it("all the free cash is the reserve → no idle-cash alert", () => {
       expect(idle(contextAt([2026, 10, 14, 10], reserve(2, ["mak"])))).toBeUndefined();
     });

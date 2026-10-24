@@ -1,9 +1,11 @@
 import type { Account, Instrument, Transaction } from "../model";
-import type { CashflowMonth } from "../cashflow";
+import type { CashflowItem, CashflowMonth } from "../cashflow";
 
 /** Monthly income / spending sums from an 1Money export (no single items). */
 export interface CashflowImport {
   months: CashflowMonth[];
+  /** Every single item — kept on this device only, never synced. */
+  items: CashflowItem[];
   /** The last day the export covers ("YYYY-MM-DD"). */
   through: string;
   /** Transfers between own accounts, left out. */

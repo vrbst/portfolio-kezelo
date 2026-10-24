@@ -18,6 +18,9 @@ import {
   monthEnd,
   prevMonth,
   saveCashflowSettings,
+  applySkips,
+  reconcileSkips,
+  type CashflowSkip,
   type CashflowMonth,
 } from "./cashflow";
 import { cashflowImportAlerts } from "./alerts";
@@ -80,8 +83,8 @@ describe("parseOneMoney", () => {
     expect(JSON.stringify(cf)).not.toContain("123456");
   });
 
-  it("stores no single item, account or note", () => {
-    const json = JSON.stringify(cf);
+  it("the part that is synced (the months) holds no single item, account or note", () => {
+    const json = JSON.stringify(cf.months);
     for (const secret of ["Kártya", "Bank", "idéz", "sortörés"]) expect(json).not.toContain(secret);
   });
 
@@ -104,6 +107,42 @@ describe("parseOneMoney", () => {
     const o = parseOneMoney("x.csv", [HEAD, row("2026. 09. 10.", "Kiadás", "A", "Utazás", "20", "EUR")].join("\n"));
     expect(o.cashflow).toBeUndefined();
     expect(o.warnings.join(" ")).toContain("nincs forintos összegük");
+  });
+});
+
+describe("parseOneMoney: single items (kept on this device only)", () => {
+  const cf = parseOneMoney("1Money_2026_ 10_ 24_.csv", BOM_CSV, new Date("2026-10-24T10:00:00Z")).cashflow!;
+
+  it("lists every income and expense item, transfers left out", () => {
+    expect(cf.items).toHaveLength(5);
+    const sale = cf.items.find((i) => i.category === "Utazás")!;
+    expect(sale).toMatchObject({ day: "2026-09-10", month: "2026-09", kind: "expense", huf: 8000, account: "EUR kártya" });
+    const note = cf.items.find((i) => i.day === "2026-09-30")!;
+    // the line break becomes a space (the sample row's inner quotes are not escaped, so they drop out)
+    expect(note.note).toBe("vesz, idéz sortörés");
+  });
+
+  it("the items add up to the month sums", () => {
+    for (const m of cf.months) {
+      const mine = cf.items.filter((i) => i.month === m.month);
+      expect(mine.filter((i) => i.kind === "income").reduce((s, i) => s + i.huf, 0)).toBeCloseTo(m.income, -1);
+      expect(mine.filter((i) => i.kind === "expense").reduce((s, i) => s + i.huf, 0)).toBeCloseTo(m.expense, -1);
+    }
+  });
+
+  it("ids are stable between parses and unique, even for identical items", () => {
+    const twin = [HEAD, row("2026. 09. 10.", "Kiadás", "A", "Étel", "500", "HUF"), row("2026. 09. 10.", "Kiadás", "A", "Étel", "500", "HUF")].join("\n");
+    const a = parseOneMoney("x.csv", twin).cashflow!.items;
+    const b = parseOneMoney("x.csv", twin).cashflow!.items;
+    expect(a.map((i) => i.id)).toEqual(b.map((i) => i.id));
+    expect(new Set(a.map((i) => i.id)).size).toBe(2);
+    const first = parseOneMoney("1Money_2026_ 10_ 24_.csv", BOM_CSV).cashflow!.items;
+    expect(new Set(first.map((i) => i.id)).size).toBe(first.length);
+  });
+
+  it("a recategorised item gets another id (its exclusion no longer applies)", () => {
+    const one = (cat: string) => parseOneMoney("x.csv", [HEAD, row("2026. 09. 10.", "Kiadás", "A", cat, "500", "HUF")].join("\n")).cashflow!.items[0].id;
+    expect(one("Étel")).not.toBe(one("Egyéb"));
   });
 });
 
@@ -231,6 +270,60 @@ describe("an average that starts at a month (new life stage)", () => {
 
   it("a start after the last complete month leaves nothing", () => {
     expect(cashflowAverage(cashflowTotals(months), 12, "2026-10")).toBeUndefined();
+  });
+});
+
+describe("single items taken out (skips)", () => {
+  const m1: CashflowMonth = {
+    month: "2026-09",
+    income: 900,
+    expense: 500,
+    incomeBy: { Fizetés: 600, Egyéb: 300 },
+    expenseBy: { Élelmiszer: 200, Egyéb: 300 },
+    through: "2026-10-24",
+    importedAt: "2026-10-24T00:00:00Z",
+  };
+  const skip = (patch: Partial<CashflowSkip> = {}): CashflowSkip => ({ id: "s1", month: "2026-09", kind: "income", category: "Egyéb", huf: 250, ...patch });
+
+  it("an income item leaves its category and the month income", () => {
+    const [m] = applySkips([m1], [skip()]);
+    expect(m.income).toBe(650);
+    expect(m.incomeBy).toEqual({ Fizetés: 600, Egyéb: 50 });
+    expect(m.expense).toBe(500);
+  });
+
+  it("an expense item leaves its category and the month expense; the same name on the other side is untouched", () => {
+    const [m] = applySkips([m1], [skip({ kind: "expense", huf: 100 })]);
+    expect(m.expense).toBe(400);
+    expect(m.expenseBy).toEqual({ Élelmiszer: 200, Egyéb: 200 });
+    expect(m.incomeBy.Egyéb).toBe(300);
+  });
+
+  it("a category emptied by the skips disappears from the list", () => {
+    const [m] = applySkips([m1], [skip({ huf: 300 })]);
+    expect(m.incomeBy).toEqual({ Fizetés: 600 });
+  });
+
+  it("other months, unknown categories and nothing to skip are left alone; the input is not changed", () => {
+    expect(applySkips([m1], [skip({ month: "2026-08" }), skip({ category: "Nincs" })])).toEqual([m1]);
+    const same = [m1];
+    expect(applySkips(same, [])).toBe(same);
+    applySkips([m1], [skip()]);
+    expect(m1.income).toBe(900);
+  });
+
+  it("never below zero", () => {
+    const [m] = applySkips([m1], [skip({ huf: 5000 })]);
+    expect(m.income).toBe(600);
+    expect(m.incomeBy.Egyéb).toBeUndefined();
+  });
+
+  it("reconcile: skips whose item is still in the new import stay, the others are dropped", () => {
+    const items = [{ id: "s1", month: "2026-09" }, { id: "other", month: "2026-09" }];
+    const skips = [skip(), skip({ id: "s2" }), skip({ id: "s3", month: "2026-05" })];
+    const r = reconcileSkips(skips, items, ["2026-09"]);
+    expect(r.kept.map((s) => s.id)).toEqual(["s1", "s3"]); // s3's month is not in the import: untouched
+    expect(r.dropped.map((s) => s.id)).toEqual(["s2"]);
   });
 });
 

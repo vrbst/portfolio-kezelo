@@ -93,11 +93,14 @@ import {
   type PlanOrder,
 } from "./planPrefs";
 import {
+  applySkips,
   emergencyReserve,
   loadCashflow,
   loadCashflowSettings,
+  loadCashflowSkips,
   type CashflowMonth,
   type CashflowSettings,
+  type CashflowSkip,
 } from "./cashflow";
 import {
   accountContext,
@@ -377,7 +380,7 @@ export function useActiveAlerts(): Alert[] {
     config.reserveGraceDays,
     savings,
   );
-  const cashflowMonths = useCashflow();
+  const cashflowMonths = useEffectiveCashflow();
   const cashflowSettings = useCashflowSettings();
   const emergency = useMemo(
     () => emergencyReserve(summary, cashflowMonths, cashflowSettings, reserved).byAccount,
@@ -831,6 +834,18 @@ export function usePlanOrder(): PlanOrder {
 /** Monthly income / spending sums imported from 1Money. */
 export function useCashflow(): CashflowMonth[] {
   return usePref(loadCashflow);
+}
+
+/** The single items the user took out of the figures. */
+export function useCashflowSkips(): CashflowSkip[] {
+  return usePref(loadCashflowSkips);
+}
+
+/** The monthly sums with the skipped items taken out: what every calculation should use. */
+export function useEffectiveCashflow(): CashflowMonth[] {
+  const months = useCashflow();
+  const skips = useCashflowSkips();
+  return useMemo(() => applySkips(months, skips), [months, skips]);
 }
 
 export function useCashflowSettings(): CashflowSettings {

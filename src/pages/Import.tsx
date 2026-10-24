@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   UploadCloud,
@@ -13,7 +13,8 @@ import type { Transaction } from "../lib/model";
 import { usePortfolio } from "../lib/store";
 import { PageHeader, Card, Badge } from "../components/ui";
 import { formatDate } from "../lib/format";
-import { applyCashflowImport, cashflowChanges, loadCashflow } from "../lib/cashflow";
+import { cashflowChanges, loadCashflow } from "../lib/cashflow";
+import { importCashflow, loadCashflowItems } from "../lib/cashflowItems";
 
 export default function Import() {
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ export default function Import() {
     added: number;
     skipped: number;
     cashflowMonths: number;
+    droppedSkips: number;
   } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
 
@@ -51,7 +53,26 @@ export default function Import() {
     [preview],
   );
   const cfToSave = cfChanges ? cfChanges.added + cfChanges.updated : 0;
-  const nothingToImport = newCount === 0 && cfToSave === 0;
+  // The single items are kept on this device: a device that has not got them yet
+  // (or has other ones, after a recategorising in 1Money) imports them even if the sums are the same.
+  const [localItems, setLocalItems] = useState<{ id: string; month: string }[] | null>(null);
+  useEffect(() => {
+    if (!preview?.cashflow) return;
+    let live = true;
+    void loadCashflowItems().then((all) => live && setLocalItems(all));
+    return () => {
+      live = false;
+    };
+  }, [preview]);
+  const itemsDiffer = useMemo(() => {
+    const cf = preview?.cashflow;
+    if (!cf || !localItems) return false;
+    const months = new Set(cf.months.map((m) => m.month));
+    const have = new Set(localItems.filter((i) => months.has(i.month)).map((i) => i.id));
+    const incoming = new Set(cf.items.map((i) => i.id));
+    return have.size !== incoming.size || [...incoming].some((id) => !have.has(id));
+  }, [preview, localItems]);
+  const nothingToImport = newCount === 0 && cfToSave === 0 && !itemsDiffer;
 
   // New transactions first, so the rows that will actually be imported are the
   // ones visible in the (truncated) preview table.
@@ -84,8 +105,8 @@ export default function Import() {
   async function confirmImport() {
     if (!preview) return;
     const res = await importParsed(preview);
-    if (preview.cashflow) applyCashflowImport(preview.cashflow);
-    setDone({ ...res, cashflowMonths: cfToSave });
+    const cf = preview.cashflow ? await importCashflow(preview.cashflow) : { droppedSkips: 0 };
+    setDone({ ...res, cashflowMonths: cfToSave, droppedSkips: cf.droppedSkips });
     setPreview(null);
   }
 
@@ -164,6 +185,8 @@ export default function Import() {
                   `, ${done.skipped} már létezett (kihagyva)`}
                 {done.cashflowMonths > 0 &&
                   `, ${done.cashflowMonths} hónap bevétele és kiadása rögzítve`}
+                {done.droppedSkips > 0 &&
+                  `. ${done.droppedSkips} kihúzott tétel már nincs az exportban (átkategorizáltad?), ezeket újra ki kell húznod`}
                 .
               </div>
             </div>
@@ -328,6 +351,7 @@ export default function Import() {
                 : [
                     newCount > 0 && `${newCount} új tranzakció`,
                     cfToSave > 0 && `${cfToSave} hónap pénzáramlása`,
+                    cfToSave === 0 && itemsDiffer && "1Money-tételek",
                   ]
                     .filter(Boolean)
                     .join(" + ") + " importálása"}

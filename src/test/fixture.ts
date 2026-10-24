@@ -18,7 +18,7 @@ import type { GlideConfig } from "../lib/glidePath";
 import type { Goal } from "../lib/goals";
 import type { HistoryFile, LiveQuote, PriceFile } from "../lib/prices";
 import type { BondRatesFile } from "../lib/bondRates";
-import type { CashflowMonth } from "../lib/cashflow";
+import type { CashflowItem, CashflowMonth } from "../lib/cashflow";
 
 /** Local wall-clock time → the ISO instant the importers store. */
 export const local = (y: number, m: number, d: number, hh = 10, mi = 0) =>
@@ -329,6 +329,33 @@ export const fixtureCashflow = (): CashflowMonth[] =>
       through: "2026-10-02",
       importedAt: "2026-10-02T08:00:00.000Z",
     };
+  });
+
+/**
+ * The single items behind fixtureCashflow(): per month one pay, one rent and two
+ * food items that add up to the month's sums. Local to the device (not synced).
+ */
+export const CASHFLOW_ITEM_TEXTS = ["Teszt-Megjegyzés", "Teszt-Számla"];
+
+export const fixtureCashflowItems = (): CashflowItem[] =>
+  fixtureCashflow().flatMap((m, i) => {
+    const food = m.expenseBy["Teszt-Élelmiszer"];
+    const item = (n: number, kind: "income" | "expense", category: string, huf: number, day: string): CashflowItem => ({
+      id: `fx-${m.month}-${n}`,
+      month: m.month,
+      day: `${m.month}-${day}`,
+      kind,
+      category,
+      huf,
+      account: "Teszt-Számla",
+      note: `Teszt-Megjegyzés ${i + 1}/${n}`,
+    });
+    return [
+      item(1, "income", "Teszt-Fizetés", m.income, "05"),
+      item(2, "expense", "Teszt-Lakás", m.expenseBy["Teszt-Lakás"], "10"),
+      item(3, "expense", "Teszt-Élelmiszer", 60_000, "12"),
+      item(4, "expense", "Teszt-Élelmiszer", food - 60_000, "20"),
+    ];
   });
 
 // ---- prices -----------------------------------------------------------------

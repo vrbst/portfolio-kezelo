@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { cashflowSuggestion } from "../lib/cashflow";
 import {
-  useCashflow,
+  useEffectiveCashflow,
   useCashflowSettings,
   useMonthlyBudget,
   usePortfolio,
@@ -240,7 +240,7 @@ export default function Forecast() {
   const monthlySaving = settings.monthlySavingOverride ?? detected.monthlyHuf;
 
   // What the 1Money data says is left over a month — only a suggestion.
-  const cashflowMonths = useCashflow();
+  const cashflowMonths = useEffectiveCashflow();
   const cashflowSettings = useCashflowSettings();
   const cashflowHint = useMemo(
     () => cashflowSuggestion(cashflowMonths, cashflowSettings),

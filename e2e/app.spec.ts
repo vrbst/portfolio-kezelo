@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   CASHFLOW_CATEGORIES,
+  CASHFLOW_ITEM_TEXTS,
   fixtureBondRates,
   fixtureCashflow,
+  fixtureCashflowItems,
   fixtureHistory,
   fixturePriceFile,
   fixtureSnapshot,
@@ -70,13 +72,14 @@ async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean 
   await page.waitForLoadState("networkidle");
   const snap = fixtureSnapshot();
   await page.evaluate(
-    async ({ snap, prefKeys, privacy, sync, cashflow }) => {
+    async ({ snap, prefKeys, privacy, sync, cashflow, cashflowItems }) => {
       const db: IDBDatabase = await new Promise((res, rej) => {
         const r = indexedDB.open("portfolio");
         r.onsuccess = () => res(r.result);
         r.onerror = () => rej(r.error);
       });
-      const tx = db.transaction(["accounts", "instruments", "transactions", "meta"], "readwrite");
+      const tx = db.transaction(["accounts", "instruments", "transactions", "meta", "cashflowItems"], "readwrite");
+      for (const it of cashflowItems) tx.objectStore("cashflowItems").put(it);
       for (const a of snap.accounts) tx.objectStore("accounts").put(a);
       for (const i of snap.instruments) tx.objectStore("instruments").put(i);
       for (const t of snap.transactions) tx.objectStore("transactions").put(t);
@@ -99,7 +102,7 @@ async function openSeeded(page: Page, opts: { privacy?: boolean; sync?: boolean 
       if (sync)
         localStorage.setItem("portfolio.syncConfig", JSON.stringify({ token: "t", owner: "teszt", repo: "adat", path: "data.json" }));
     },
-    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy, sync: !!opts.sync, cashflow: fixtureCashflow() },
+    { snap, prefKeys: PREF_KEYS, privacy: !!opts.privacy, sync: !!opts.sync, cashflow: fixtureCashflow(), cashflowItems: fixtureCashflowItems() },
   );
   await page.reload();
   await page.waitForLoadState("networkidle");
@@ -308,6 +311,91 @@ test.describe("cash flow page (1Money)", () => {
     await expect(income).toContainText(/2\D400\D000/);
     await expect(spending).toContainText("2026. június óta");
     await expect(page.locator("main")).toContainText("2026. június – 2026. szeptember");
+  });
+
+  test("a category opens into its single items; one can be taken out, listed, and put back", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/cashflow");
+    const spending = page.getByTestId("cf-expense");
+    const open = spending.getByRole("button", { name: "Teszt-Lakás (kiadás) tételei" });
+    await expect(open).toHaveAttribute("aria-expanded", "false");
+    await open.click();
+    await expect(open).toHaveAttribute("aria-expanded", "true");
+    const rows = spending.getByTestId("cf-item");
+    await expect(rows).toHaveCount(9);
+    await expect(spending.getByTestId("cf-items-summary")).toContainText("9 tétel");
+    await expect(spending).toContainText(/1\D350\D000/);
+
+    await rows.first().getByRole("checkbox").uncheck();
+    // 9 × 150 000 − one rent
+    await expect(spending).toContainText(/1\D200\D000/);
+    await expect(spending.getByTestId("cf-items-summary")).toContainText("ebből 1 kihúzva");
+    await expect(open).toContainText("1 kihúzva");
+    await expect(page.getByTestId("cf-skip")).toHaveCount(1);
+    await expect(page.locator("main")).toContainText("Kihúzott tételek (1)");
+
+    // Synced setting: survives a reload.
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByTestId("cf-skip")).toHaveCount(1);
+    await expect(page.getByTestId("cf-expense")).toContainText(/1\D200\D000/);
+
+    await page.getByRole("button", { name: /Visszavesz/ }).click();
+    await expect(page.getByTestId("cf-skip")).toHaveCount(0);
+    await expect(page.getByTestId("cf-expense")).toContainText(/1\D350\D000/);
+  });
+
+  test("privacy mode: the single items' notes, accounts and amounts are hidden too", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/cashflow");
+    await page.getByTestId("cf-expense").getByRole("button", { name: "Teszt-Élelmiszer (kiadás) tételei" }).click();
+    await expect(page.getByTestId("cf-item").first()).toBeVisible();
+    expect(await readableSecrets(page, [...CASHFLOW_CATEGORIES, ...CASHFLOW_ITEM_TEXTS]), "readable in privacy mode").toEqual([]);
+  });
+
+  test("importing a CSV: the items are kept here, a skipped item that is recategorised later is dropped with a note", async ({ page }) => {
+    const head =
+      '"DÁTUM","TÍPUS","FIÓKBÓL","FIÓKBA/KATEGÓRIÁHOZ","ÖSSZEG","VALUTA","ÖSSZEG 2","VALUTA 2","CÍMKÉK","MEGJEGYZÉSEK:"';
+    const row = (d: string, t: string, cat: string, a: string, note: string) =>
+      `"${d}","${t}","Teszt-Számla","${cat}","${a}","HUF","${a}","HUF","","${note}"`;
+    const csv = (secondCategory: string) =>
+      Buffer.from(
+        [
+          head,
+          row("2026. 09. 06.", "Kiadás", secondCategory, "20000", "Masodik"),
+          row("2026. 09. 05.", "Kiadás", "Import-Étel", "10000", "Elso"),
+          row("2026. 09. 01.", "Bevétel", "Import-Fizetés", "500000", "Fizetes"),
+        ].join("\n"),
+        "utf8",
+      );
+    const file = (buffer: Buffer) => ({ name: "1Money_2026_ 10_ 24_.csv", mimeType: "text/csv", buffer });
+
+    await openSeeded(page);
+    await reopen(page, "/import");
+    await page.locator('input[type="file"]').setInputFiles(file(csv("Import-Étel")));
+    await expect(page.locator("main")).toContainText("1Money: 1 hónap");
+    await page.getByRole("button", { name: /importálása/ }).click();
+    await expect(page.locator("main")).toContainText("Sikeres importálás");
+
+    await reopen(page, "/cashflow");
+    const spending = page.getByTestId("cf-expense");
+    await spending.getByRole("button", { name: "Import-Étel (kiadás) tételei" }).click();
+    const rows = spending.getByTestId("cf-item");
+    await expect(rows).toHaveCount(2);
+    await rows.filter({ hasText: "Masodik" }).getByRole("checkbox").uncheck();
+    await expect(spending.locator("tr", { hasText: "Import-Étel" }).first()).toContainText(/\b10\D000/);
+    await expect(page.getByTestId("cf-skip")).toHaveCount(1);
+
+    // The same item, now in another category: its skip is dropped and the user is told.
+    await reopen(page, "/import");
+    await page.locator('input[type="file"]').setInputFiles(file(csv("Import-Egyéb")));
+    await expect(page.locator("main")).toContainText("1Money: 1 hónap");
+    await page.getByRole("button", { name: /importálása/ }).click();
+    await expect(page.locator("main")).toContainText("1 kihúzott tétel már nincs az exportban");
+
+    await reopen(page, "/cashflow");
+    await expect(page.getByTestId("cf-skip")).toHaveCount(0);
+    await expect(page.getByTestId("cf-expense")).toContainText("Import-Egyéb");
   });
 
   test("the emergency reserve: a target from the spending, held on the chosen account, no longer idle cash", async ({ page }) => {

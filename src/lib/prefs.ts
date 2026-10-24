@@ -38,9 +38,11 @@ import { loadNewsSeen, mergeNewsSeen } from "./newsSeen";
 import {
   loadCashflow,
   loadCashflowSettings,
+  loadCashflowSkips,
   mergeCashflow,
   type CashflowMonth,
   type CashflowSettings,
+  type CashflowSkip,
 } from "./cashflow";
 
 export interface StampedPref<T> {
@@ -80,6 +82,8 @@ export interface SyncedPrefs {
   /** Monthly income / spending sums from 1Money exports — merged per month. */
   cashflow?: StampedPref<CashflowMonth[]>;
   cashflowSettings?: StampedPref<CashflowSettings>;
+  /** Single 1Money items the user took out of the figures (no notes). */
+  cashflowSkips?: StampedPref<CashflowSkip[]>;
 }
 
 export type PrefKind =
@@ -99,7 +103,8 @@ export type PrefKind =
   | "moveAlerts"
   | "notify"
   | "cashflow"
-  | "cashflowSettings";
+  | "cashflowSettings"
+  | "cashflowSkips";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -119,6 +124,7 @@ const KINDS: PrefKind[] = [
   "notify",
   "cashflow",
   "cashflowSettings",
+  "cashflowSkips",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -139,6 +145,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   notify: "pf-notify",
   cashflow: "pf-cashflow",
   cashflowSettings: "pf-cashflow-settings",
+  cashflowSkips: "pf-cashflow-skips",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -158,6 +165,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   notify: "pf-notify-updated",
   cashflow: "pf-cashflow-updated",
   cashflowSettings: "pf-cashflow-settings-updated",
+  cashflowSkips: "pf-cashflow-skips-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -179,6 +187,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   notify: loadNotifySettings,
   cashflow: loadCashflow,
   cashflowSettings: loadCashflowSettings,
+  cashflowSkips: loadCashflowSkips,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

@@ -83,11 +83,19 @@ function mergeCashflowImports(
 ): ParsedImport["cashflow"] | undefined {
   const used = parts.filter((p): p is NonNullable<typeof p> => !!p);
   if (used.length === 0) return undefined;
+  // A month's items come from the same file its sums do (the newer import).
+  const winner = new Map<string, (typeof used)[number]>();
+  for (const p of used)
+    for (const m of p.months) {
+      const cur = winner.get(m.month)?.months.find((x) => x.month === m.month);
+      if (!cur || m.importedAt >= cur.importedAt) winner.set(m.month, p);
+    }
   return {
     months: mergeCashflow(
       [],
       used.flatMap((p) => p.months),
     ),
+    items: used.flatMap((p) => p.items.filter((i) => winner.get(i.month) === p)),
     through: used.map((p) => p.through).sort().pop() ?? "",
     skippedTransfers: used.reduce((s, p) => s + p.skippedTransfers, 0),
   };

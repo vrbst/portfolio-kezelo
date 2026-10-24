@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { Account, Instrument, Transaction } from "./model";
+import type { CashflowItem } from "./cashflow";
 
 export interface PricePoint {
   /** `${instrumentKey}` */
@@ -23,6 +24,8 @@ export const db = new Dexie("portfolio") as Dexie & {
   transactions: EntityTable<Transaction, "id">;
   prices: EntityTable<PricePoint & { id: string }, "id">;
   meta: EntityTable<MetaKV, "key">;
+  /** Single 1Money items: this device only, never synced. */
+  cashflowItems: EntityTable<CashflowItem, "id">;
 };
 
 db.version(1).stores({
@@ -33,6 +36,11 @@ db.version(1).stores({
   meta: "key",
 });
 
+// v2: the single 1Money items (see cashflow.ts).
+db.version(2).stores({
+  cashflowItems: "id, month",
+});
+
 /** Wipe everything (used by "reset" in settings). */
 export async function clearAllData() {
   await Promise.all([
@@ -41,6 +49,7 @@ export async function clearAllData() {
     db.transactions.clear(),
     db.prices.clear(),
     db.meta.clear(),
+    db.cashflowItems.clear(),
   ]);
 }
 

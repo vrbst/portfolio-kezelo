@@ -1,18 +1,25 @@
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ChevronRight } from "lucide-react";
 import { PageHeader, Card, StatCard, EmptyState, Amt } from "../components/ui";
 import CashflowChart from "../components/CashflowChart";
+import CashflowItemList from "../components/CashflowItemList";
 import InfoTip from "../components/InfoTip";
+import { loadCashflowItems } from "../lib/cashflowItems";
 import {
   useCashflow,
   useCashflowSettings,
+  useCashflowSkips,
   usePortfolio,
   usePortfolioSummary,
   useReservedCash,
 } from "../lib/store";
 import {
+  applySkips,
   cashflowAverage,
   cashflowCategories,
+  saveCashflowSkips,
+  type CashflowItem,
   cashflowTotals,
   emergencyReserve,
   excludeKey,
@@ -31,9 +38,24 @@ const RANGES = [
 ] as const;
 
 export default function Cashflow() {
-  const months = useCashflow();
+  const rawMonths = useCashflow();
+  const skips = useCashflowSkips();
+  // What every figure uses: the monthly sums without the items the user took out.
+  const months = useMemo(() => applySkips(rawMonths, skips), [rawMonths, skips]);
   const settings = useCashflowSettings();
   const [range, setRange] = useState<number>(12);
+
+  // The single items live on this device only; reload after every import.
+  const [items, setItems] = useState<CashflowItem[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadCashflowItems().then((all) => live && setItems(all));
+    return () => {
+      live = false;
+    };
+  }, [rawMonths]);
+  const [open, setOpen] = useState<string[]>([]);
+  const skippedIds = useMemo(() => new Set(skips.map((s) => s.id)), [skips]);
 
   const totals = useMemo(() => cashflowTotals(months, settings), [months, settings]);
   // Only the current life stage (from the start month on) is shown: chart and categories alike.
@@ -48,10 +70,17 @@ export default function Cashflow() {
   // The months a stage can start at: any complete one (the running month has no average yet).
   const startOptions = useMemo(() => totals.filter((t) => t.complete).map((t) => t.month).reverse(), [totals]);
 
+  // The names come from the stored sums, the totals from the figures without the skipped items:
+  // a category whose every item is taken out stays in the list (at 0) so it can be opened again.
   const categories = useMemo(() => {
     const keep = new Set(shown.map((t) => t.month));
-    return cashflowCategories(months.filter((m) => keep.has(m.month)));
-  }, [months, shown]);
+    const key = (c: { kind: string; name: string }) => `${c.kind}:${c.name}`;
+    const effective = new Map(cashflowCategories(months.filter((m) => keep.has(m.month))).map((c) => [key(c), c.total]));
+    return cashflowCategories(rawMonths.filter((m) => keep.has(m.month)))
+      .map((c) => ({ ...c, total: effective.get(key(c)) ?? 0 }))
+      .sort((a, b) => b.total - a.total);
+  }, [rawMonths, months, shown]);
+  const shownMonths = useMemo(() => new Set(shown.map((t) => t.month)), [shown]);
   // Income first, then spending; each biggest first (cashflowCategories sorts by total).
   const sections = [
     { kind: "income" as const, title: "Bevételek", rows: categories.filter((c) => c.kind === "income") },
@@ -75,13 +104,13 @@ export default function Cashflow() {
     [summary, months, settings, goalHeld],
   );
 
-  if (months.length === 0) {
+  if (rawMonths.length === 0) {
     return (
       <div>
         <PageHeader title="Pénzáramlás" />
         <EmptyState
           title="Még nincs bevétel- és kiadásadat"
-          description="Az 1Money-ban készíts CSV-exportot, és töltsd fel az Importálás oldalon. Csak havi összegek kerülnek be, egyes tételek nem."
+          description="Az 1Money-ban készíts CSV-exportot, és töltsd fel az Importálás oldalon. A havi összegek szinkronizálódnak, az egyes tételek csak ezen az eszközön maradnak."
           action={
             <Link to="/import" className="btn-primary">
               Importálás
@@ -102,12 +131,20 @@ export default function Cashflow() {
     });
   };
 
+  const toggleItem = (it: CashflowItem) =>
+    saveCashflowSkips(
+      skippedIds.has(it.id)
+        ? skips.filter((s) => s.id !== it.id)
+        : [...skips, { id: it.id, month: it.month, kind: it.kind, category: it.category, huf: it.huf }],
+    );
+  const toggleOpen = (key: string) => setOpen((o) => (o.includes(key) ? o.filter((k) => k !== key) : [...o, key]));
+
   const last = shown[shown.length - 1];
   return (
     <div>
       <PageHeader
         title="Pénzáramlás"
-        info="Havi bevétel és kiadás az 1Money-exportból. Csak összegek vannak itt kategóriánként, egyes tételek, számlák és megjegyzések nem. Az átlag csak a lezárt hónapokból számol. Ha megadod az átlag kezdetét, a grafikon és a kategóriák is csak az azóta eltelt hónapokat mutatják."
+        info="Havi bevétel és kiadás az 1Money-exportból. A kategóriák összegei és a kihúzott tételek szinkronizálódnak, az egyes tételek (számlával, megjegyzéssel) csak azon az eszközön vannak meg, ahol a CSV-t importáltad. A kategória nevére kattintva lenyílnak a tételei, és egyenként kihúzhatod őket. Az átlag csak a lezárt hónapokból számol. Ha megadod az átlag kezdetét, a grafikon és a kategóriák is csak az azóta eltelt hónapokat mutatják."
         subtitle={
           last
             ? `${monthLabel(shown[0].month, true)} – ${monthLabel(last.month, true)}${last.complete ? "" : " (az utolsó hónap még nem teljes)"}`
@@ -240,26 +277,65 @@ export default function Cashflow() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sec.rows.map((c) => (
-                      <tr
-                        key={`${c.kind}:${c.name}`}
-                        className={`border-b border-[var(--color-border)]/50 last:border-0 ${excluded.has(excludeKey(c.kind, c.name)) ? "opacity-50" : ""}`}
-                      >
-                        <td className="px-4 py-2">
-                          <input
-                            type="checkbox"
-                            checked={!excluded.has(excludeKey(c.kind, c.name))}
-                            onChange={() => toggle(c.kind, c.name)}
-                            aria-label={`${c.name} (${c.kind === "income" ? "bevétel" : "kiadás"}) beleszámít az átlagokba`}
-                          />
-                        </td>
-                        <td className="priv px-4 py-2">{c.name}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-[var(--color-muted)]">
-                          {sectionTotal > 0 ? formatPercent(c.total / sectionTotal, 0) : "—"}
-                        </td>
-                        <td className="amt px-4 py-2 text-right tabular-nums">{formatMoney(c.total)}</td>
-                      </tr>
-                    ))}
+                    {sec.rows.map((c) => {
+                      const key = `${c.kind}:${c.name}`;
+                      const isOpen = open.includes(key);
+                      const mine = (items ?? [])
+                        .filter((i) => i.kind === c.kind && i.category === c.name && shownMonths.has(i.month))
+                        .sort((a, b) => b.huf - a.huf);
+                      const skippedHere = skips.filter(
+                        (s) => s.kind === c.kind && s.category === c.name && shownMonths.has(s.month),
+                      ).length;
+                      return (
+                        <Fragment key={key}>
+                          <tr
+                            className={`border-b border-[var(--color-border)]/50 last:border-0 ${excluded.has(excludeKey(c.kind, c.name)) ? "opacity-50" : ""}`}
+                          >
+                            <td className="px-4 py-2">
+                              <input
+                                type="checkbox"
+                                checked={!excluded.has(excludeKey(c.kind, c.name))}
+                                onChange={() => toggle(c.kind, c.name)}
+                                aria-label={`${c.name} (${c.kind === "income" ? "bevétel" : "kiadás"}) beleszámít az átlagokba`}
+                              />
+                            </td>
+                            <td className="px-4 py-2">
+                              <button
+                                className="flex items-center gap-1 text-left hover:underline"
+                                aria-expanded={isOpen}
+                                aria-label={`${c.name} (${c.kind === "income" ? "bevétel" : "kiadás"}) tételei`}
+                                onClick={() => toggleOpen(key)}
+                              >
+                                <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                                <span className="priv">{c.name}</span>
+                                {skippedHere > 0 && (
+                                  <span className="ml-1 text-xs text-[var(--color-muted)]">({skippedHere} kihúzva)</span>
+                                )}
+                              </button>
+                            </td>
+                            <td className="px-4 py-2 text-right tabular-nums text-[var(--color-muted)]">
+                              {sectionTotal > 0 ? formatPercent(c.total / sectionTotal, 0) : "—"}
+                            </td>
+                            <td className="amt px-4 py-2 text-right tabular-nums">{formatMoney(c.total)}</td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="border-b border-[var(--color-border)]/50">
+                              <td colSpan={4} className="p-0">
+                                {mine.length > 0 ? (
+                                  <CashflowItemList name={c.name} items={mine} skipped={skippedIds} onToggle={toggleItem} />
+                                ) : (
+                                  <p className="px-4 py-3 text-sm text-[var(--color-muted)]">
+                                    {items === null
+                                      ? "Betöltés…"
+                                      : "A tételek ezen az eszközön nincsenek meg. Importáld itt is a CSV-t, hogy lásd őket."}
+                                  </p>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -267,6 +343,37 @@ export default function Cashflow() {
           );
         })}
       </Card>
+
+      {skips.length > 0 && (
+        <Card className="mt-6 overflow-hidden" id="kihuzott">
+          <h2 className="border-b border-[var(--color-border)] px-4 py-3 text-lg font-semibold">
+            Kihúzott tételek ({skips.length})
+          </h2>
+          <ul>
+            {[...skips]
+              .sort((a, b) => b.month.localeCompare(a.month))
+              .map((s) => (
+                <li
+                  key={s.id}
+                  data-testid="cf-skip"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--color-border)]/50 px-4 py-2 text-sm last:border-0"
+                >
+                  <span className="tabular-nums text-[var(--color-muted)]">{monthLabel(s.month, true)}</span>
+                  <span className="text-[var(--color-muted)]">{s.kind === "income" ? "Bevétel" : "Kiadás"}</span>
+                  <span className="priv">{s.category}</span>
+                  <span className="amt ml-auto tabular-nums">{formatMoney(s.huf)}</span>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => saveCashflowSkips(skips.filter((x) => x.id !== s.id))}
+                    aria-label={`Visszavesz: ${s.category}, ${monthLabel(s.month, true)}`}
+                  >
+                    Visszavesz
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </Card>
+      )}
 
       <Card className="mt-6 p-4" id="vesztartalek">
         <h2 className="flex items-center gap-2 text-lg font-semibold">

@@ -1,6 +1,7 @@
 import { parseCsv } from "./csv";
 import { emptyParsed, type ParsedImport } from "./types";
-import type { CashflowMonth } from "../cashflow";
+import type { CashflowItem, CashflowMonth } from "../cashflow";
+import { hashId } from "./util";
 
 // 1Money (Android) CSV export: one row per expense / income / transfer.
 // Only monthly sums per category are kept — never single items, accounts or
@@ -47,6 +48,8 @@ export function parseOneMoney(fileName: string, text: string, now = new Date()):
   const at = (r: string[], name: string) => r[header.indexOf(name)]?.trim() ?? "";
 
   const months = new Map<string, CashflowMonth>();
+  const items: CashflowItem[] = [];
+  const seen = new Map<string, number>();
   let last = "";
   let skipped = 0;
   let unconverted = 0;
@@ -69,6 +72,25 @@ export function parseOneMoney(fileName: string, text: string, now = new Date()):
       continue;
     }
     const month = day.slice(0, 7);
+    const kind = type === "Bevétel" ? "income" : "expense";
+    const itemCategory = at(r, "FIÓKBA/KATEGÓRIÁHOZ") || "Egyéb";
+    const account = at(r, "FIÓKBÓL");
+    const note = at(r, "MEGJEGYZÉSEK:").replace(/\s+/g, " ");
+    // Identical items on a day get the order they appear in; the id is two
+    // 32-bit hashes (a clash would skip the wrong item).
+    const key = [day, kind, itemCategory, Math.round(huf * 100), account, note].join("|");
+    const nth = seen.get(key) ?? 0;
+    seen.set(key, nth + 1);
+    items.push({
+      id: hashId(key, nth) + hashId("#", nth, key),
+      month,
+      day,
+      kind,
+      category: itemCategory,
+      huf: Math.round(huf * 100) / 100,
+      account,
+      note,
+    });
     const cur =
       months.get(month) ??
       ({ month, income: 0, expense: 0, incomeBy: {}, expenseBy: {}, through: "", importedAt: "" } as CashflowMonth);
@@ -95,6 +117,7 @@ export function parseOneMoney(fileName: string, text: string, now = new Date()):
   const through = [last, fileDay(fileName)].filter(Boolean).sort().pop() ?? last;
   const importedAt = now.toISOString();
   out.cashflow = {
+    items,
     through,
     skippedTransfers: skipped,
     months: [...months.values()]
