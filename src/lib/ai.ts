@@ -482,8 +482,14 @@ export function buildAiPortfolioContext(
       `Pénzáramlás (az 1Money-exportból, ${c.months} lezárt hónap${c.since ? `, ${c.since}-tól` : ""}; a befektetésnek könyvelt és az egyszeri tételek nélkül): havi bevétel ${huf(c.incomeHuf)} Ft, kiadás ${huf(c.expenseHuf)} Ft, megtakarítás ${huf(c.savingHuf)} Ft${c.rate != null ? ` (megtakarítási ráta ${pct(c.rate)}` : ""}${c.rate != null && c.last3Rate != null ? `; az utolsó 3 hónapban ${pct(c.last3Rate)}` : ""}${c.rate != null ? ")" : ""}`,
       "Ez a rendszeres bevételből a költések után megmaradó összeg (a pénzügyi mozgástér), nem a brókerbe befizetett összeg: azt a Havi megtakarítási keret mutatja.",
     );
-    if (c.excludedIncomeHuf >= 1000)
-      lines.push(`Egyszeri, nem rendszeres bevétel (eladás stb.) havi átlagban ${huf(c.excludedIncomeHuf)} Ft; ez nincs a fenti bevételben.`);
+    if (c.excludedExpenseHuf >= 1000 || c.excludedIncomeHuf >= 1000)
+      lines.push(
+        `Kizárt tételek (a befektetésnek könyvelt és az egyszeri ügyletek; havi átlag): kiadás ${huf(c.excludedExpenseHuf)} Ft, bevétel ${huf(c.excludedIncomeHuf)} Ft (pl. állampapír-kamat, eladás); ezek nincsenek a fenti bevételben és kiadásban. A brókerbe befizetett összeg ezekből és korábbi megtakarításból is fedezhető, ezért lehet nagyobb a havi maradéknál.`,
+      );
+    if (c.current)
+      lines.push(
+        `Folyó hónap (${c.current.month}, ${c.current.through}-ig): bevétel ${huf(c.current.incomeHuf)} Ft, kiadás ${huf(c.current.expenseHuf)} Ft, eddigi maradék ${huf(c.current.savingHuf)} Ft; a hónap hátralévő költései még nincsenek benne.`,
+      );
     if (c.reserve)
       lines.push(
         `Vésztartalék: ${c.reserve.months} havi kiadás = ${huf(c.reserve.targetHuf)} Ft, ebből meglévő ${huf(c.reserve.heldHuf)} Ft`,

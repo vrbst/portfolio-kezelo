@@ -62,6 +62,45 @@ describe("cashflowAiSummary", () => {
     expect(cashflowAiSummary(running, [], { excluded: [], remind: true }, emptySummary)!.months).toBe(2);
   });
 
+  it("the excluded items: investing and one-off spending out, income back, as monthly averages", () => {
+    const withInvesting = months.map((m) => ({
+      ...m,
+      expense: m.expense + 300_000,
+      expenseBy: { ...m.expenseBy, "Titkos-Befektetés": 300_000 },
+      income: m.income + 100_000,
+      incomeBy: { ...m.incomeBy, "Titkos-Kamat": 100_000 },
+    }));
+    const s = cashflowAiSummary(
+      withInvesting,
+      [],
+      { excluded: ["expense:Titkos-Befektetés", "income:Titkos-Kamat"], remind: true },
+      emptySummary,
+    )!;
+    expect(s.excludedExpenseHuf).toBe(300_000);
+    expect(s.excludedIncomeHuf).toBe(100_000);
+    // the regular figures are unchanged by them
+    expect(s.incomeHuf).toBe(900_000);
+    expect(Math.round(s.expenseHuf)).toBe(766_667);
+  });
+
+  it("the running month so far, apart from the averages", () => {
+    const withRunning = [...months, month("2026-10", 900_000, 400_000, { through: "2026-10-24" })];
+    const s = cashflowAiSummary(withRunning, [], { excluded: [], remind: true }, emptySummary)!;
+    expect(s.months).toBe(6);
+    expect(s.current).toEqual({ month: "2026-10", incomeHuf: 900_000, expenseHuf: 400_000, savingHuf: 500_000, through: "2026-10-24" });
+    expect(cashflowAiSummary(months, [], { excluded: [], remind: true }, emptySummary)!.current).toBeUndefined();
+  });
+
+  it("the running month follows the exclusions and the skipped items too", () => {
+    const running = month("2026-10", 900_000, 400_000, {
+      through: "2026-10-24",
+      expenseBy: { "Titkos-Lakás": 100_000, "Titkos-Befektetés": 300_000 },
+    });
+    const skip: CashflowSkip = { id: "y", month: "2026-10", kind: "expense", category: "Titkos-Lakás", huf: 40_000 };
+    const s = cashflowAiSummary([...months, running], [skip], { excluded: ["expense:Titkos-Befektetés"], remind: true }, emptySummary)!;
+    expect(s.current!.expenseHuf).toBe(60_000);
+  });
+
   it("no data / no closed month → nothing", () => {
     expect(cashflowAiSummary([], [], { excluded: [], remind: true }, emptySummary)).toBeUndefined();
   });
@@ -101,6 +140,31 @@ describe("the AI context text", () => {
   it("tells the model what the figures mean and what they are not", () => {
     expect(text).toMatch(/befektetés/i);
     expect(text).toMatch(/nem a brókerbe/i);
+  });
+
+  it("tells the excluded items, the running month and that a deposit can exceed the leftover", () => {
+    const full = cashflowAiSummary(
+      [
+        month("2026-08", 900_000, 700_000, { expenseBy: { "Titkos-Lakás": 700_000 } }),
+        month("2026-09", 900_000, 700_000),
+        month("2026-10", 897_000, 609_000, { through: "2026-10-24" }),
+      ].map((m) => (m.month === "2026-08" ? { ...m, expense: 1_000_000, expenseBy: { "Titkos-Lakás": 700_000, "Titkos-Befektetés": 300_000 } } : m)),
+      [],
+      { excluded: ["expense:Titkos-Befektetés"], remind: true },
+      emptySummary,
+    )!;
+    const t = buildAiPortfolioContext(emptySummary, {}, returns, { cashflow: full });
+    expect(t).toMatch(/Kizárt tételek/);
+    expect(t).toMatch(/befektetésnek könyvelt/);
+    expect(t).toMatch(/Folyó hónap \(2026-10, 2026-10-24-ig\): bevétel 897\s000 Ft, kiadás 609\s000 Ft, eddigi maradék 288\s000 Ft/);
+    expect(t).toMatch(/hátralévő költései még nincsenek benne/);
+    expect(t).toMatch(/lehet nagyobb a havi maradéknál/);
+    expect(t).not.toContain("Titkos");
+  });
+
+  it("no excluded items and no running month → those lines are left out", () => {
+    expect(text).not.toContain("Kizárt tételek");
+    expect(text).not.toContain("Folyó hónap");
   });
 
   it("never carries a category name", () => {
