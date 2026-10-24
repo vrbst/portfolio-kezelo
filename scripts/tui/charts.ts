@@ -470,7 +470,7 @@ function glideChart(ctx: Context, o: ChartOptions): ChartData {
     history: ctx.history,
     summary: ctx.summary,
     today,
-    reserved: reservedCashByAccount(loadSavingsGoals(), today),
+    reserved: reservedCashByAccount(loadSavingsGoals(), today, ctx.transactions, ctx.fx, undefined, ctx.savings),
   });
   const first = ctx.transactions.reduce((m, t) => (t.date < m ? t.date : m), ctx.transactions[0].date);
   // Month starts over the whole ledger history, then today at live prices.

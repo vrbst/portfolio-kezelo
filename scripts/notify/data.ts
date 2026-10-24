@@ -337,8 +337,23 @@ export function buildContext(input: ContextInput): Context {
   const alertState: AlertState = snapshot.alertState ?? {};
   const deletedReminders = new Set(snapshot.deletedReminderIds ?? []);
   const glideVersions = loadGlideVersions();
+  const savings = computeSavingsProgress(
+    savingsGoals,
+    accounts,
+    transactions,
+    instMap,
+    prices,
+    fx,
+  );
   // Cash set aside for savings goals is not free cash (glide path, idle cash).
-  const reserved = reservedCashByAccount(savingsGoals, toLocalDay(at.getTime()));
+  const reserved = reservedCashByAccount(
+    savingsGoals,
+    toLocalDay(at.getTime()),
+    transactions,
+    fx,
+    undefined,
+    savings,
+  );
   // Measured against the path the money that actually came in moved (flowPath).
   const glide = glideStateFrom(
     liveGlideVersions(glideVersions, {
@@ -358,14 +373,6 @@ export function buildContext(input: ContextInput): Context {
     reserved,
   );
   const glideConfig = latestConfig(glideVersions);
-  const savings = computeSavingsProgress(
-    savingsGoals,
-    accounts,
-    transactions,
-    instMap,
-    prices,
-    fx,
-  );
   // Incoming money not yet distributed — only once the app has switched the
   // tracking on (its start day and the "distributed" marks sync from there).
   const day = toLocalDay(at.getTime());
@@ -405,7 +412,7 @@ export function buildContext(input: ContextInput): Context {
       undefined,
       transactions,
       reservedCashByAccount(savingsGoals, day, transactions, fx, env.reserveGraceDays, savings),
-      reservedCashByAccount(savingsGoals, day, transactions, fx, undefined, savings),
+      reserved,
     ),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(

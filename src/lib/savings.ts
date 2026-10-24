@@ -1184,7 +1184,11 @@ export function computeSavingsProgress(
       thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now) + reservedNowMonth,
       reservedHuf,
       autoCashHuf: cash.cashHuf,
-      heldCashByAccount: needHeldCash(cash.heldByAccount, surplusHuf),
+      heldCashByAccount: needHeldCash(
+        cash.heldByAccount,
+        surplusHuf,
+        new Map(summaryNow.accounts.map((a) => [a.account.id, a.cashValueHuf])),
+      ),
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
       surplusHuf,
@@ -1213,16 +1217,20 @@ export function savingMonthDays(
  * The goal's cash in accounts (see GoalCash.heldByAccount) minus what the goal
  * does not need: when its instruments and picked coupons already cover the
  * target, that much of the cash is free money, not held (spread over the
- * accounts in proportion).
+ * accounts in proportion). It can't be more than the cash the account still
+ * has: a payout spent or moved elsewhere no longer holds anything.
  */
 function needHeldCash(
   held: Record<string, number>,
   surplusHuf: number,
+  cashHuf: Map<string, number>,
 ): Record<string, number> | undefined {
   const total = Object.values(held).reduce((a, b) => a + b, 0);
   if (!(total > 0)) return undefined;
   const keep = Math.max(0, total - surplusHuf) / total;
-  return Object.fromEntries(Object.entries(held).map(([id, huf]) => [id, huf * keep]));
+  return Object.fromEntries(
+    Object.entries(held).map(([id, huf]) => [id, Math.min(huf * keep, Math.max(0, cashHuf.get(id) ?? 0))]),
+  );
 }
 
 /** One scheduled future coupon payment (the accounts holding the bond summed). */

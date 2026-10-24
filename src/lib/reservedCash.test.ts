@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Account, Transaction } from "./model";
+import type { Account, Instrument, Transaction } from "./model";
 import { computePortfolio } from "./portfolio";
 import {
   computeSavingsProgress,
@@ -137,6 +137,55 @@ describe("cash a goal holds without a pick (matured payout, hold-window coupon)"
 
   it("without progress nothing changes", () => {
     expect(reservedCashByAccount([g(1_000_000)], day, txs).size).toBe(0);
+  });
+
+  it("a payout that was spent holds nothing: capped by the account's cash", () => {
+    const spent: Transaction[] = [
+      ...txs,
+      { id: "w", accountId: "k", date: "2026-10-28", type: "withdrawal", currency: "HUF", grossAmount: 450_000, netAmount: -450_000 },
+    ];
+    const goals = [g(1_000_000)];
+    const progress = computeSavingsProgress(goals, [K], spent, insts, new Map(), {}, NOW);
+    // 620 000 − 450 000 = 170 000 left on the account.
+    expect(reservedCashByAccount(goals, day, spent, {}, undefined, progress).get("k")).toBe(170_000);
+  });
+
+  it("a coupon credited in the goal's hold-cash window is set aside, in the account it landed", () => {
+    const FIX = { key: "fix", name: "FixMÁP", type: "gov_bond" as const, currency: "HUF", faceValue: 1 };
+    const all = new Map<string, Instrument>([...insts, [FIX.key, FIX]]);
+    const coupon = (accountId: string): Transaction[] => [
+      ...TXS,
+      { id: "c", accountId, date: "2026-10-10", type: "interest", instrumentKey: FIX.key, currency: "HUF", quantity: 1_000_000, grossAmount: 80_000, netAmount: 80_000 },
+    ];
+    // The DKJ matures 10-28 (30 days before it: nothing more is bought for the
+    // goal from 09-28), so the coupon waits in cash for the goal.
+    const goals = [{ ...g(1_000_000), includeCoupons: true }];
+    const at = new Date("2026-10-12T12:00:00");
+    const held = (accountId: string) => {
+      const t = coupon(accountId);
+      const progress = computeSavingsProgress(goals, [K], t, all, new Map(), {}, at);
+      return reservedCashByAccount(goals, "2026-10-12", t, {}, undefined, progress).get(accountId);
+    };
+    expect(held("k")).toBe(80_000);
+    // Another account's coupon: the cap by that account's cash zeroes it here.
+    expect(held("other") ?? 0).toBe(0);
+  });
+
+  it("a goal past its date holds nothing", () => {
+    const goals = [g(1_000_000)];
+    const progress = computeSavingsProgress(goals, [K], txs, insts, new Map(), {}, NOW);
+    expect(reservedCashByAccount(goals, "2026-11-02", txs, {}, undefined, progress).size).toBe(0);
+  });
+
+  it("the glide path sees the held cash as not free, like the idle-cash alert", () => {
+    const goals = [g(1_000_000)];
+    const progress = computeSavingsProgress(goals, [K], txs, insts, new Map(), {}, NOW);
+    const reserved = reservedCashByAccount(goals, day, txs, {}, undefined, progress);
+    const sum = computePortfolio([K], txs, insts, new Map(), {}, NOW);
+    const cash = (r?: Map<string, number>) =>
+      positionsFromSummary(sum, {}, true, day, {}, r).find((p) => p.key === "cash:HUF")!.valueHuf;
+    expect(cash()).toBe(620_000);
+    expect(cash(reserved)).toBe(120_000);
   });
 });
 
