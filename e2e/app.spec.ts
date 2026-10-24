@@ -282,6 +282,34 @@ test.describe("cash flow page (1Money)", () => {
     await expect(main.locator(".card", { hasText: "Havi bevétel (átlag)" }).first()).toContainText("9 lezárt hónap");
   });
 
+  test("the category lists: income first, spending after; with a start month only what happened since", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/cashflow");
+    const income = page.getByTestId("cf-income");
+    const spending = page.getByTestId("cf-expense");
+    await expect(income).toContainText("Bevételek");
+    await expect(income).toContainText("Teszt-Fizetés");
+    await expect(income).not.toContainText("Teszt-Lakás");
+    await expect(spending).toContainText("Kiadások");
+    await expect(spending).toContainText("Teszt-Lakás");
+    await expect(spending).not.toContainText("Teszt-Fizetés");
+    // Income comes first on the page.
+    const [yIncome, ySpending] = [(await income.boundingBox())!.y, (await spending.boundingBox())!.y];
+    expect(yIncome).toBeLessThan(ySpending);
+    // All 9 invented months: 9 × 150 000 rent, 9 × 600 000 pay.
+    await expect(spending).toContainText(/1\D350\D000/);
+    await expect(income).toContainText(/5\D400\D000/);
+    await expect(income.getByText("100%")).toBeVisible();
+
+    // From June on: 4 months (June–September).
+    await page.getByLabel("Az átlag kezdete").selectOption("2026-06");
+    await expect(spending).toContainText(/\b600\D000/);
+    await expect(spending).not.toContainText(/1\D350\D000/);
+    await expect(income).toContainText(/2\D400\D000/);
+    await expect(spending).toContainText("2026. június óta");
+    await expect(page.locator("main")).toContainText("2026. június – 2026. szeptember");
+  });
+
   test("the emergency reserve: a target from the spending, held on the chosen account, no longer idle cash", async ({ page }) => {
     await openSeeded(page);
     await show(page, "/alerts");

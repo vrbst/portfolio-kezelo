@@ -234,6 +234,11 @@ export function cashflowTotals(
   });
 }
 
+/** The months (or their totals) from the start month on — the current life stage. */
+export function monthsFrom<T extends { month: string }>(months: T[], since?: string): T[] {
+  return since ? months.filter((m) => m.month >= since) : months;
+}
+
 export interface CashflowAverage {
   /** Complete months the average covers. */
   months: number;

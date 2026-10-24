@@ -9,6 +9,7 @@ import {
   allocateReserve,
   emergencyReserve,
   isFixBond,
+  monthsFrom,
   reserveTarget,
   isComplete,
   loadCashflow,
@@ -230,6 +231,20 @@ describe("an average that starts at a month (new life stage)", () => {
 
   it("a start after the last complete month leaves nothing", () => {
     expect(cashflowAverage(cashflowTotals(months), 12, "2026-10")).toBeUndefined();
+  });
+});
+
+describe("monthsFrom", () => {
+  const all = [month("2026-05", 1, 1, "2026-10-24"), month("2026-06", 2, 2, "2026-10-24"), month("2026-07", 3, 3, "2026-10-24")];
+  it("keeps the months from the start month on (it included)", () => {
+    expect(monthsFrom(all, "2026-06").map((m) => m.month)).toEqual(["2026-06", "2026-07"]);
+    expect(monthsFrom(cashflowTotals(all), "2026-07").map((m) => m.month)).toEqual(["2026-07"]);
+  });
+  it("no start month → everything", () => {
+    expect(monthsFrom(all, undefined)).toHaveLength(3);
+  });
+  it("a start after the last month leaves nothing", () => {
+    expect(monthsFrom(all, "2026-09")).toEqual([]);
   });
 });
 

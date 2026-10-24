@@ -17,6 +17,7 @@ import {
   emergencyReserve,
   excludeKey,
   isFixBond,
+  monthsFrom,
   monthLabel,
   saveCashflowSettings,
 } from "../lib/cashflow";
@@ -35,7 +36,11 @@ export default function Cashflow() {
   const [range, setRange] = useState<number>(12);
 
   const totals = useMemo(() => cashflowTotals(months, settings), [months, settings]);
-  const shown = range > 0 ? totals.slice(-range) : totals;
+  // Only the current life stage (from the start month on) is shown: chart and categories alike.
+  const shown = useMemo(() => {
+    const stage = monthsFrom(totals, settings.since);
+    return range > 0 ? stage.slice(-range) : stage;
+  }, [totals, range, settings.since]);
   const average = useMemo(
     () => cashflowAverage(totals, range > 0 ? range : 1200, settings.since),
     [totals, range, settings.since],
@@ -47,6 +52,11 @@ export default function Cashflow() {
     const keep = new Set(shown.map((t) => t.month));
     return cashflowCategories(months.filter((m) => keep.has(m.month)));
   }, [months, shown]);
+  // Income first, then spending; each biggest first (cashflowCategories sorts by total).
+  const sections = [
+    { kind: "income" as const, title: "Bevételek", rows: categories.filter((c) => c.kind === "income") },
+    { kind: "expense" as const, title: "Kiadások", rows: categories.filter((c) => c.kind === "expense") },
+  ];
   const excluded = new Set(settings.excluded);
   const accounts = usePortfolio((s) => s.accounts);
   const summary = usePortfolioSummary();
@@ -92,13 +102,17 @@ export default function Cashflow() {
     });
   };
 
-  const last = totals[totals.length - 1];
+  const last = shown[shown.length - 1];
   return (
     <div>
       <PageHeader
         title="Pénzáramlás"
-        info="Havi bevétel és kiadás az 1Money-exportból. Csak összegek vannak itt kategóriánként, egyes tételek, számlák és megjegyzések nem. Az átlag csak a lezárt hónapokból számol."
-        subtitle={`${monthLabel(totals[0].month, true)} – ${monthLabel(last.month, true)}${last.complete ? "" : " (az utolsó hónap még nem teljes)"}`}
+        info="Havi bevétel és kiadás az 1Money-exportból. Csak összegek vannak itt kategóriánként, egyes tételek, számlák és megjegyzések nem. Az átlag csak a lezárt hónapokból számol. Ha megadod az átlag kezdetét, a grafikon és a kategóriák is csak az azóta eltelt hónapokat mutatják."
+        subtitle={
+          last
+            ? `${monthLabel(shown[0].month, true)} – ${monthLabel(last.month, true)}${last.complete ? "" : " (az utolsó hónap még nem teljes)"}`
+            : "Az átlag kezdete után még nincs hónap."
+        }
         action={
           <div className="flex gap-1" role="group" aria-label="Időszak">
             {RANGES.map((r) => (
@@ -120,8 +134,9 @@ export default function Cashflow() {
           <label htmlFor="cf-since" className="flex items-center gap-1.5 text-sm font-medium">
             Az átlag kezdete
             <InfoTip>
-              Az új élethelyzet (pl. a hitel megszűnése) előtti hónapok kimaradnak az átlagokból és a javaslatból, a
-              grafikonon viszont ott maradnak. Ha nincs határ, a legutóbbi lezárt hónapok átlaga számít.
+              Az új élethelyzet (pl. a hitel megszűnése) előtti hónapok kimaradnak az átlagokból, a javaslatból, a
+              grafikonból és a kategóriák listájából is, így könnyebb észrevenni, melyik tétel ugrik ki. Ha nincs
+              határ, a legutóbbi lezárt hónapok átlaga számít.
             </InfoTip>
           </label>
           <select
@@ -200,40 +215,57 @@ export default function Cashflow() {
             A kihúzott kategória nem számít bele az átlagokba (pl. a befektetésnek könyvelt kiadás vagy egy visszatérítés).
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-[var(--color-muted)]">
-              <tr className="border-b border-[var(--color-border)]">
-                <th className="px-4 py-2 font-medium">Számít</th>
-                <th className="px-4 py-2 font-medium">Kategória</th>
-                <th className="px-4 py-2 font-medium">Fajta</th>
-                <th className="px-4 py-2 text-right font-medium">Összesen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((c) => (
-                <tr
-                  key={`${c.kind}:${c.name}`}
-                  className={`border-b border-[var(--color-border)]/50 last:border-0 ${excluded.has(excludeKey(c.kind, c.name)) ? "opacity-50" : ""}`}
-                >
-                  <td className="px-4 py-2">
-                    <input
-                      type="checkbox"
-                      checked={!excluded.has(excludeKey(c.kind, c.name))}
-                      onChange={() => toggle(c.kind, c.name)}
-                      aria-label={`${c.name} (${c.kind === "income" ? "bevétel" : "kiadás"}) beleszámít az átlagokba`}
-                    />
-                  </td>
-                  <td className="priv px-4 py-2">{c.name}</td>
-                  <td className="px-4 py-2 text-[var(--color-muted)]">
-                    {c.kind === "income" ? "Bevétel" : "Kiadás"}
-                  </td>
-                  <td className="amt px-4 py-2 text-right tabular-nums">{formatMoney(c.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {sections.map((sec) => {
+          const sectionTotal = sec.rows.reduce((t, c) => t + c.total, 0);
+          return (
+            <div key={sec.kind} className="overflow-x-auto" data-testid={`cf-${sec.kind}`}>
+              <h3 className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-semibold">
+                {sec.title}
+                {settings.since && (
+                  <span className="ml-2 font-normal text-[var(--color-muted)]">
+                    ({monthLabel(settings.since, true)} óta)
+                  </span>
+                )}
+              </h3>
+              {sec.rows.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-[var(--color-muted)]">Nincs tétel az időszakban.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-left text-xs text-[var(--color-muted)]">
+                    <tr className="border-b border-[var(--color-border)]">
+                      <th className="px-4 py-2 font-medium">Számít</th>
+                      <th className="px-4 py-2 font-medium">Kategória</th>
+                      <th className="px-4 py-2 text-right font-medium">Részesedés</th>
+                      <th className="px-4 py-2 text-right font-medium">Összesen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sec.rows.map((c) => (
+                      <tr
+                        key={`${c.kind}:${c.name}`}
+                        className={`border-b border-[var(--color-border)]/50 last:border-0 ${excluded.has(excludeKey(c.kind, c.name)) ? "opacity-50" : ""}`}
+                      >
+                        <td className="px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={!excluded.has(excludeKey(c.kind, c.name))}
+                            onChange={() => toggle(c.kind, c.name)}
+                            aria-label={`${c.name} (${c.kind === "income" ? "bevétel" : "kiadás"}) beleszámít az átlagokba`}
+                          />
+                        </td>
+                        <td className="priv px-4 py-2">{c.name}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-[var(--color-muted)]">
+                          {sectionTotal > 0 ? formatPercent(c.total / sectionTotal, 0) : "—"}
+                        </td>
+                        <td className="amt px-4 py-2 text-right tabular-nums">{formatMoney(c.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          );
+        })}
       </Card>
 
       <Card className="mt-6 p-4" id="vesztartalek">
