@@ -1,6 +1,6 @@
 import InfoTip from "../InfoTip";
 import { Palette, Check } from "lucide-react";
-import { useSkin, type Skin } from "../../lib/skin";
+import { skinFromUrl, useSkin, type Skin } from "../../lib/skin";
 import { Card } from "../ui";
 
 /**
@@ -12,6 +12,8 @@ export default function AppearanceSettings() {
   const crt = useSkin((s) => s.crt);
   const setSkin = useSkin((s) => s.setSkin);
   const setCrt = useSkin((s) => s.setCrt);
+  // The address still carries ?skin= until the user picks a skin by hand.
+  const fromUrl = skinFromUrl() === skin;
 
   return (
     <Card className="mt-4 p-6">
@@ -164,7 +166,52 @@ export default function AppearanceSettings() {
             </div>
           </div>
         </SkinOption>
+
+        <SkinOption
+          value="asszisztens"
+          current={skin}
+          onPick={setSkin}
+          label="Asszisztens"
+          hint="Fekete, narancs kiemelés, mint az asszisztens"
+        >
+          <div
+            className="flex h-full flex-col justify-center gap-1 px-3"
+            style={{
+              background: "#000",
+              border: "1px solid rgb(255 255 255 / 0.12)",
+              borderRadius: 12,
+              fontFamily: '"Segoe UI", system-ui, sans-serif',
+            }}
+          >
+            <span className="text-[10px]" style={{ color: "#ff9500" }}>
+              <span
+                aria-hidden
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 7,
+                  marginRight: 5,
+                  borderRadius: "50%",
+                  background: "#ff9500",
+                  border: "1px solid #fff",
+                  boxShadow: "0 0 8px rgb(255 149 0 / 0.6)",
+                }}
+              />
+              Teljes érték
+            </span>
+            <span className="text-lg font-semibold" style={{ color: "#fff" }}>
+              12 345 678 Ft
+            </span>
+          </div>
+        </SkinOption>
       </div>
+
+      {fromUrl && (
+        <p className="mt-3 text-xs text-[var(--color-muted)]">
+          Ezt a megjelenést a megnyitó link állította be; a gépen mentett
+          beállítás nem változott.
+        </p>
+      )}
 
       {skin === "terminal" && (
         <label className="mt-4 flex items-center gap-2 text-sm">

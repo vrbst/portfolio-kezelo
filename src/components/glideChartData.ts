@@ -1,7 +1,7 @@
 // Plain data helpers for the glide-path charts (kept out of the component
 // files so fast refresh keeps working).
 
-import { PAPER, RETRO, skinned, TERM } from "../lib/skin";
+import { ASSZISZTENS, PAPER, RETRO, skinned, TERM } from "../lib/skin";
 import type { WeightPoint } from "../lib/rebalance";
 
 /** Distinct, dark-theme-friendly colours for the buckets (cycled). */
@@ -41,6 +41,15 @@ export const BUCKET_COLORS = skinned({
     RETRO.fuchsia,
     RETRO.purple,
     RETRO.maroon,
+  ],
+  asszisztens: [
+    ASSZISZTENS.orange,
+    ASSZISZTENS.sky,
+    ASSZISZTENS.green,
+    ASSZISZTENS.violet,
+    ASSZISZTENS.amber,
+    ASSZISZTENS.pink,
+    ASSZISZTENS.teal,
   ],
 });
 

@@ -1,7 +1,14 @@
 // Shared calendar model: day items, categories/colours and the per-day
 // aggregate used by the month grids, the zoomed month and the day panel.
 
-import { currentSkin, PAPER, RETRO, skinned, TERM } from "../../lib/skin";
+import {
+  ASSZISZTENS,
+  currentSkin,
+  PAPER,
+  RETRO,
+  skinned,
+  TERM,
+} from "../../lib/skin";
 
 export const MONTHS = [
   "január",
@@ -96,6 +103,16 @@ export const CAT_COLOR: Record<DayCat, string> = skinned({
     goal: RETRO.fuchsia,
     expense: RETRO.maroon,
     dca: RETRO.purple,
+  },
+  asszisztens: {
+    coupon: ASSZISZTENS.teal,
+    maturity: ASSZISZTENS.sky,
+    tbsz: ASSZISZTENS.amber,
+    in: ASSZISZTENS.green,
+    out: ASSZISZTENS.red,
+    goal: ASSZISZTENS.violet,
+    expense: ASSZISZTENS.orange,
+    dca: ASSZISZTENS.white,
   },
 });
 

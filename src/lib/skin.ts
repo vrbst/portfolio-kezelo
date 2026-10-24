@@ -2,8 +2,13 @@
 // "terminal" (phosphor green on black, monospace, square boxes, optional CRT
 // overlay), "paper" (a light financial-newspaper look: salmon paper, ink,
 // serif headings) and "retro" (Windows 95: grey bevelled boxes on a teal
-// desktop, navy title bars). Device-local, NOT synced — each device keeps its
-// own look.
+// desktop, navy title bars) and "asszisztens" (the assistant's design language:
+// black, orange #ff9500, grey, Segoe UI). Device-local, NOT synced — each
+// device keeps its own look.
+//
+// A `?skin=<name>` link forces a skin for that window only: it wins over the
+// stored one but is never written to localStorage (index.html does the same
+// before first paint).
 //
 // CSS: every skin's rules live under html[data-skin="…"] (index.css), so the
 // classic stylesheet is untouched. index.html sets the attribute before
@@ -13,9 +18,15 @@
 
 import { create } from "zustand";
 
-export type Skin = "classic" | "terminal" | "paper" | "retro";
+export type Skin = "classic" | "terminal" | "paper" | "retro" | "asszisztens";
 
-const SKINS: readonly Skin[] = ["classic", "terminal", "paper", "retro"];
+const SKINS: readonly Skin[] = [
+  "classic",
+  "terminal",
+  "paper",
+  "retro",
+  "asszisztens",
+];
 
 const SKIN_KEY = "pf-skin";
 const CRT_KEY = "pf-crt";
@@ -26,7 +37,30 @@ const THEME_COLOR: Record<Skin, string> = {
   terminal: "#050805",
   paper: "#fff1e5",
   retro: "#008080",
+  asszisztens: "#000000",
 };
+
+/** The skin a `?skin=` link asks for, if it names a valid one. */
+export function skinFromUrl(): Skin | null {
+  try {
+    const v = new URLSearchParams(location.search).get("skin");
+    return SKINS.includes(v as Skin) ? (v as Skin) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Drop `?skin=` from the address (hash route kept) once the user picks a skin. */
+function clearUrlSkin() {
+  try {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("skin")) return;
+    url.searchParams.delete("skin");
+    history.replaceState(history.state, "", url);
+  } catch {
+    /* ignore */
+  }
+}
 
 function loadSkin(): Skin {
   try {
@@ -66,7 +100,7 @@ function applyToDocument(skin: Skin, crt: boolean) {
 
 // Read synchronously at import so module-level colour tables resolve right on
 // the very first render.
-let current: Skin = loadSkin();
+let current: Skin = skinFromUrl() ?? loadSkin();
 
 export function currentSkin(): Skin {
   return current;
@@ -85,6 +119,7 @@ export const useSkin = create<SkinState>((set, get) => ({
   crt: loadCrt(),
   setSkin: (skin) => {
     current = skin;
+    clearUrlSkin();
     save(SKIN_KEY, skin);
     applyToDocument(skin, get().crt);
     set({ skin });
@@ -173,6 +208,25 @@ const R = {
   surface: "#c0c0c0",
 };
 
+// Asszisztens palette: the assistant's orange on black, with iOS-style system
+// accents that stay readable on it.
+const A = {
+  orange: "#ff9500",
+  amber: "#ffb340",
+  green: "#4cd98a",
+  red: "#ff6b63",
+  sky: "#5ac8fa",
+  violet: "#bf5af2",
+  teal: "#40c8e0",
+  pink: "#ff6fa8",
+  grey: "#8a8a8a",
+  white: "#f2f2f2",
+  grid: "#222222",
+  axis: "#8a8a8a",
+  cursor: "#3a3a3a",
+  surface: "#0e0e0e",
+};
+
 /** Fixed chart colours (grid, axes, main series, tooltip box). */
 export const CHART = skinned({
   classic: {
@@ -224,6 +278,18 @@ export const CHART = skinned({
     positive: R.green,
     negative: R.red,
   },
+  asszisztens: {
+    grid: A.grid,
+    axis: A.axis,
+    cursor: A.cursor,
+    text: "#ffffff",
+    surface: A.surface,
+    brand: A.orange,
+    alt: A.amber,
+    highlight: A.sky,
+    positive: A.green,
+    negative: A.red,
+  },
 });
 
 /** Categorical series colours (cycled) — e.g. allocation slices. */
@@ -232,9 +298,11 @@ export const SERIES_COLORS = skinned({
   terminal: [T.green, T.cyan, T.yellow, T.magenta, T.blue, T.orange],
   paper: [P.blue, P.claret, P.teal, P.ochre, P.plum, P.moss],
   retro: [R.navy, R.red, R.teal, R.olive, R.purple, R.green],
+  asszisztens: [A.orange, A.sky, A.green, A.violet, A.amber, A.pink],
 });
 
 /** Per-skin counterparts used by the other colour tables. */
 export const TERM = T;
 export const PAPER = P;
 export const RETRO = R;
+export const ASSZISZTENS = A;
