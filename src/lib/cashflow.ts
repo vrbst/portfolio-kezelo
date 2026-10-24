@@ -5,6 +5,7 @@
 import { touchPref } from "./prefs";
 import { addDaysIso } from "./day";
 import type { CashflowImport } from "./parsers/types";
+import type { PortfolioSummary } from "./portfolio";
 
 export interface CashflowMonth {
   /** "YYYY-MM". */
@@ -30,6 +31,15 @@ export interface CashflowSettings {
    * loan is paid off): earlier months stay in the charts but not in the averages.
    */
   since?: string;
+  /** Emergency reserve: this many months of spending (1–36); unset = no reserve. */
+  reserveMonths?: number;
+  /** The accounts whose cash is the reserve, in the order they fill it. */
+  reserveAccounts?: string[];
+  /**
+   * Securities (instrument keys) that are the reserve — e.g. a fixed-rate
+   * government bond. Counted first; cash only fills what they leave missing.
+   */
+  reserveHoldings?: string[];
 }
 
 const MONTHS_KEY = "pf-cashflow";
@@ -85,11 +95,20 @@ export function loadCashflowSettings(): CashflowSettings {
       excluded: list.filter((x: unknown): x is string => typeof x === "string"),
       remind: v?.remind !== false,
       since: validMonth(v?.since),
+      reserveMonths: validReserveMonths(v?.reserveMonths),
+      reserveAccounts: stringList(v?.reserveAccounts),
+      reserveHoldings: stringList(v?.reserveHoldings),
     };
   } catch {
     return { excluded: [], remind: true };
   }
 }
+
+const stringList = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+
+const validReserveMonths =(n: unknown): number | undefined =>
+  typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 36 ? n : undefined;
 
 const validMonth = (s: unknown): string | undefined =>
   typeof s === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(s) ? s : undefined;
@@ -100,6 +119,9 @@ export function saveCashflowSettings(s: CashflowSettings) {
       excluded: [...new Set(s.excluded)].sort(),
       remind: s.remind,
       ...(validMonth(s.since) ? { since: s.since } : {}),
+      ...(validReserveMonths(s.reserveMonths) ? { reserveMonths: s.reserveMonths } : {}),
+      ...(s.reserveAccounts?.length ? { reserveAccounts: [...new Set(s.reserveAccounts)] } : {}),
+      ...(s.reserveHoldings?.length ? { reserveHoldings: [...new Set(s.reserveHoldings)] } : {}),
     });
     if (localStorage.getItem(SETTINGS_KEY) === json) return;
     localStorage.setItem(SETTINGS_KEY, json);
@@ -267,6 +289,96 @@ export function cashflowSuggestion(
   const avg = cashflowAverage(cashflowTotals(months, settings), n, settings.since);
   if (!avg) return undefined;
   return { amount: Math.round(avg.saving / 1000) * 1000, months: avg.months, since: settings.since };
+}
+
+export interface ReserveTarget {
+  /** Whole forints: `reserveMonths` × the average monthly spending. */
+  target: number;
+  monthlyExpense: number;
+  /** Complete months the average is based on. */
+  months: number;
+}
+
+/** The emergency reserve to aim for; undefined when off or without a closed month. */
+export function reserveTarget(
+  months: CashflowMonth[],
+  settings: Pick<CashflowSettings, "excluded" | "since" | "reserveMonths">,
+  n = 12,
+): ReserveTarget | undefined {
+  if (!settings.reserveMonths) return undefined;
+  const avg = cashflowAverage(cashflowTotals(months, settings), n, settings.since);
+  if (!avg) return undefined;
+  return {
+    target: Math.round(avg.expense * settings.reserveMonths),
+    monthlyExpense: avg.expense,
+    months: avg.months,
+  };
+}
+
+/**
+ * How much of the target the chosen accounts hold: cash after what savings
+ * goals hold (`goalHeld`), account by account in the given order. An unknown
+ * account holds nothing.
+ */
+export function allocateReserve(
+  target: number,
+  accountIds: string[],
+  cash: Map<string, number>,
+  goalHeld: Map<string, number> = new Map(),
+): { byAccount: Map<string, number>; held: number } {
+  const byAccount = new Map<string, number>();
+  let left = target;
+  for (const id of accountIds) {
+    if (left <= 0) break;
+    const free = Math.max(0, (cash.get(id) ?? 0) - (goalHeld.get(id) ?? 0));
+    const take = Math.min(free, left);
+    if (take <= 0) continue;
+    byAccount.set(id, take);
+    left -= take;
+  }
+  return { byAccount, held: target - left };
+}
+
+/** The fixed-rate government bond ("Fix Magyar Állampapír" / "FixMÁP"), the usual reserve. */
+export const isFixBond = (name: string): boolean => /\bfix\s*m(agyar|[aá]p)/i.test(name);
+
+export interface EmergencyReserve {
+  /** Undefined = no reserve set up (or no month to base it on). */
+  target?: ReserveTarget;
+  /** Cash held on each account, to keep out of the idle-cash alert. */
+  byAccount: Map<string, number>;
+  /** Market value of the chosen securities (may exceed the target). */
+  heldHoldings: number;
+  /** Cash taken for what the securities leave missing. */
+  heldCash: number;
+  held: number;
+}
+
+/**
+ * The reserve as it stands today: the chosen securities' market value first,
+ * then — only for what is still missing — cash on the chosen accounts (after
+ * the goals' share).
+ */
+export function emergencyReserve(
+  summary: PortfolioSummary,
+  months: CashflowMonth[],
+  settings: Pick<CashflowSettings, "excluded" | "since" | "reserveMonths" | "reserveAccounts" | "reserveHoldings">,
+  goalHeld?: Map<string, number>,
+): EmergencyReserve {
+  const target = reserveTarget(months, settings);
+  if (!target) return { byAccount: new Map(), heldHoldings: 0, heldCash: 0, held: 0 };
+  const chosen = new Set(settings.reserveHoldings ?? []);
+  let heldHoldings = 0;
+  for (const a of summary.accounts)
+    for (const h of a.holdings) if (chosen.has(h.instrumentKey)) heldHoldings += h.marketValueHuf ?? 0;
+  const cash = new Map(summary.accounts.map((a) => [a.account.id, a.cashValueHuf]));
+  const { byAccount, held: heldCash } = allocateReserve(
+    Math.max(0, target.target - heldHoldings),
+    settings.reserveAccounts ?? [],
+    cash,
+    goalHeld,
+  );
+  return { target, byAccount, heldHoldings, heldCash, held: heldHoldings + heldCash };
 }
 
 /** Every category in the stored months, biggest spending first. */

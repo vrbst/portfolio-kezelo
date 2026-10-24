@@ -238,11 +238,15 @@ test.describe("cash flow page (1Money)", () => {
     await openSeeded(page, { privacy: true });
     // With an income category left out, the note about the excluded money shows too.
     await page.evaluate(() =>
-      localStorage.setItem("pf-cashflow-settings", JSON.stringify({ excluded: ["income:Teszt-Fizetés"], remind: true })),
+      localStorage.setItem(
+        "pf-cashflow-settings",
+        JSON.stringify({ excluded: ["income:Teszt-Fizetés"], remind: true, reserveMonths: 6, reserveAccounts: ["mak"] }),
+      ),
     );
     await show(page, "/cashflow");
     await expect(page.locator("main")).toContainText("Kategóriák");
     await expect(page.locator("main")).toContainText("A kizárt bevételek");
+    await expect(page.getByTestId("reserve-status")).toContainText("Cél:");
     expect(await readableSecrets(page, CASHFLOW_CATEGORIES), "readable in privacy mode").toEqual([]);
   });
 
@@ -278,6 +282,57 @@ test.describe("cash flow page (1Money)", () => {
     await expect(main.locator(".card", { hasText: "Havi bevétel (átlag)" }).first()).toContainText("9 lezárt hónap");
   });
 
+  test("the emergency reserve: a target from the spending, held on the chosen account, no longer idle cash", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/alerts");
+    await expect(page.locator("main")).toContainText("Parlagon álló készpénz – Államkincstár");
+    const active = async () => Number(/Aktív\s*\((\d+)\)/.exec(await page.locator("main").innerText())?.[1]);
+    const before = await active();
+    expect(before).toBeGreaterThan(0);
+
+    await show(page, "/cashflow");
+    const main = page.locator("main");
+    await main.getByLabel("Tartalék", { exact: true }).selectOption("6");
+    const status = page.getByTestId("reserve-status");
+    // 6 × 248 000 = 1 488 000 target; nothing held until an account is chosen
+    await expect(status).toContainText(/1\D488\D000/);
+    await expect(status).toContainText("Jelölj ki legalább egy értékpapírt vagy számlát");
+    await main.getByLabel(/Államkincstár/).check();
+    // 363 430 cash − 100 000 held for a goal = 263 430 in the reserve
+    await expect(status).toContainText(/263\D430/);
+    await expect(status).toContainText("Hiányzik");
+    await expect(main.getByRole("progressbar", { name: "Vésztartalék" })).toBeVisible();
+
+    // Reload keeps it, and the cash is no longer reported as idle.
+    await reopen(page, "/alerts");
+    await expect(page.locator("main")).toContainText(new RegExp(`Aktív\\s*\\(${before - 1}\\)`));
+    expect(await active()).toBe(before - 1);
+  });
+
+  test("the reserve can be a bond (the Fix bond): its value counts, the cash stays free", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/alerts");
+    const active = async () => Number(/Aktív\s*\((\d+)\)/.exec(await page.locator("main").innerText())?.[1]);
+    const before = await active();
+
+    await show(page, "/cashflow");
+    const main = page.locator("main");
+    await main.getByLabel("Tartalék", { exact: true }).selectOption("6");
+    // The Fix bond is offered first, and by choosing it alone the reserve is complete (it is worth more than 1 488 000).
+    const first = main.locator("fieldset").first().locator("label").first();
+    await expect(first).toContainText("Fix Magyar Állampapír");
+    await first.getByRole("checkbox").check();
+    const status = page.getByTestId("reserve-status");
+    await expect(status).toContainText("A tartalék megvan");
+    await expect(status).toContainText("papírban");
+    await expect(main.getByRole("progressbar", { name: "Vésztartalék" })).toHaveAttribute("aria-valuenow", "100");
+
+    // The cash is not part of the reserve, so it is still reported as idle: the alert count is unchanged.
+    await reopen(page, "/alerts");
+    await expect(page.locator("main")).toContainText(new RegExp(`Aktív\\s*\\(${before}\\)`));
+    await expect(page.locator("main")).toContainText("Parlagon álló készpénz – Államkincstár");
+  });
+
   test("the forecast suggests the monthly saving from 1Money; nothing changes until it is taken", async ({ page }) => {
     await openSeeded(page);
     await show(page, "/forecast");
@@ -301,12 +356,12 @@ test.describe("cash flow page (1Money)", () => {
       .filter((m) => m.month <= "2026-08")
       .map((m) => ({ ...m, through: "2026-09-02" }));
     await page.evaluate((months) => localStorage.setItem("pf-cashflow", JSON.stringify(months)), upToAugust);
-    await show(page, "/alerts");
+    // reopen + auto-waiting expectations, not show(): its fade-in wait times out under load.
+    await reopen(page, "/alerts");
     await expect(page.locator("main")).toContainText(/Aktív\s*\(7\)/);
     await expect(page.locator("main")).toContainText("1Money-export feltöltése – 2026. szeptember");
-    await show(page, "/cashflow");
+    await reopen(page, "/cashflow");
     await page.locator("main").getByLabel(/Havi teendő/).uncheck();
-    // reopen, not show: an alert list that went empty keeps something pulsing.
     await reopen(page, "/alerts");
     // It is no longer active: one fewer in "Aktív" (7 → 6), and it moved to the fulfilled history.
     await expect(page.locator("main")).toContainText(/Aktív\s*\(6\)/);

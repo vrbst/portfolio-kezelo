@@ -58,7 +58,7 @@ import {
   loadBrokerFees,
   loadPurchaseAccounts,
 } from "../../src/lib/planPrefs";
-import { loadCashflow, loadCashflowSettings } from "../../src/lib/cashflow";
+import { emergencyReserve, loadCashflow, loadCashflowSettings } from "../../src/lib/cashflow";
 import {
   accountContext,
   missingVenueAlerts,
@@ -415,6 +415,7 @@ export function buildContext(input: ContextInput): Context {
       transactions,
       reservedCashByAccount(savingsGoals, day, transactions, fx, env.reserveGraceDays, savings),
       reserved,
+      emergencyReserve(summary, loadCashflow(), loadCashflowSettings(), reserved).byAccount,
     ),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(

@@ -93,6 +93,7 @@ import {
   type PlanOrder,
 } from "./planPrefs";
 import {
+  emergencyReserve,
   loadCashflow,
   loadCashflowSettings,
   type CashflowMonth,
@@ -272,8 +273,9 @@ const cachedAlerts = sharedMemo(
     reservedSoon: Map<string, number>,
     cashflowMonths: CashflowMonth[],
     cashflow: CashflowSettings,
+    emergency: Map<string, number>,
   ) => [
-    ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved),
+    ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved, emergency),
     ...missingVenueAlerts(
       purchase,
       accounts,
@@ -377,6 +379,10 @@ export function useActiveAlerts(): Alert[] {
   );
   const cashflowMonths = useCashflow();
   const cashflowSettings = useCashflowSettings();
+  const emergency = useMemo(
+    () => emergencyReserve(summary, cashflowMonths, cashflowSettings, reserved).byAccount,
+    [summary, cashflowMonths, cashflowSettings, reserved],
+  );
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -399,6 +405,7 @@ export function useActiveAlerts(): Alert[] {
     reservedSoon,
     cashflowMonths,
     cashflowSettings,
+    emergency,
   );
 }
 

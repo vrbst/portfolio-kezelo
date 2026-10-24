@@ -3,12 +3,20 @@ import { Link } from "react-router-dom";
 import { PageHeader, Card, StatCard, EmptyState, Amt } from "../components/ui";
 import CashflowChart from "../components/CashflowChart";
 import InfoTip from "../components/InfoTip";
-import { useCashflow, useCashflowSettings } from "../lib/storeHooks";
+import {
+  useCashflow,
+  useCashflowSettings,
+  usePortfolio,
+  usePortfolioSummary,
+  useReservedCash,
+} from "../lib/store";
 import {
   cashflowAverage,
   cashflowCategories,
   cashflowTotals,
+  emergencyReserve,
   excludeKey,
+  isFixBond,
   monthLabel,
   saveCashflowSettings,
 } from "../lib/cashflow";
@@ -40,6 +48,22 @@ export default function Cashflow() {
     return cashflowCategories(months.filter((m) => keep.has(m.month)));
   }, [months, shown]);
   const excluded = new Set(settings.excluded);
+  const accounts = usePortfolio((s) => s.accounts);
+  const summary = usePortfolioSummary();
+  const goalHeld = useReservedCash();
+  // The securities one can pick as the reserve: each held one once, the Fix bond first.
+  const holdingOptions = useMemo(() => {
+    const byKey = new Map<string, { key: string; name: string }>();
+    for (const a of summary.accounts)
+      for (const h of a.holdings)
+        if (!byKey.has(h.instrumentKey)) byKey.set(h.instrumentKey, { key: h.instrumentKey, name: h.instrument?.name ?? h.instrumentKey });
+    const fix = (n: string) => (isFixBond(n) ? 0 : 1);
+    return [...byKey.values()].sort((x, y) => fix(x.name) - fix(y.name) || x.name.localeCompare(y.name, "hu"));
+  }, [summary]);
+  const reserve = useMemo(
+    () => emergencyReserve(summary, months, settings, goalHeld),
+    [summary, months, settings, goalHeld],
+  );
 
   if (months.length === 0) {
     return (
@@ -210,6 +234,141 @@ export default function Cashflow() {
             </tbody>
           </table>
         </div>
+      </Card>
+
+      <Card className="mt-6 p-4" id="vesztartalek">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          Vésztartalék
+          <InfoTip>
+            Hány havi kiadásnak megfelelő készpénzt akarsz tartalékban tartani. A cél az átlagos havi kiadásodból
+            (a kizárt kategóriák és az átlag kezdete szerint) számolódik. A kijelölt számlák készpénze adja a
+            tartalékot, ami a célokra félretett pénz után marad. Ez a rész nem számít parlagon álló készpénznek.
+          </InfoTip>
+        </h2>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label htmlFor="cf-reserve" className="text-sm">
+            Tartalék
+          </label>
+          <select
+            id="cf-reserve"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={settings.reserveMonths ?? 0}
+            onChange={(e) =>
+              saveCashflowSettings({ ...settings, reserveMonths: Number(e.target.value) || undefined })
+            }
+          >
+            <option value={0}>Nincs</option>
+            {[...new Set([3, 6, 9, 12, 18, 24, ...(settings.reserveMonths ? [settings.reserveMonths] : [])])]
+              .sort((a, b) => a - b)
+              .map((n) => (
+                <option key={n} value={n}>
+                  {n} havi kiadás
+                </option>
+              ))}
+          </select>
+        </div>
+        {settings.reserveMonths && (
+          <>
+            <fieldset className="mt-3">
+              <legend className="mb-1 text-xs text-[var(--color-muted)]">
+                Melyik értékpapírok a tartalék? (az értékük számít)
+              </legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {holdingOptions.length === 0 && (
+                  <span className="text-sm text-[var(--color-muted)]">Nincs értékpapír a portfólióban.</span>
+                )}
+                {holdingOptions.map((h) => (
+                  <label key={h.key} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={(settings.reserveHoldings ?? []).includes(h.key)}
+                      onChange={(e) =>
+                        saveCashflowSettings({
+                          ...settings,
+                          reserveHoldings: e.target.checked
+                            ? [...(settings.reserveHoldings ?? []), h.key]
+                            : (settings.reserveHoldings ?? []).filter((x) => x !== h.key),
+                        })
+                      }
+                    />
+                    <span className="priv">{h.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="mt-3">
+              <legend className="mb-1 text-xs text-[var(--color-muted)]">
+                Készpénz is a tartalék? Melyik számlák (csak a papírok után hiányzó részre)
+              </legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {accounts.map((a) => (
+                  <label key={a.id} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={(settings.reserveAccounts ?? []).includes(a.id)}
+                      onChange={(e) =>
+                        saveCashflowSettings({
+                          ...settings,
+                          reserveAccounts: e.target.checked
+                            ? [...(settings.reserveAccounts ?? []), a.id]
+                            : (settings.reserveAccounts ?? []).filter((x) => x !== a.id),
+                        })
+                      }
+                    />
+                    {a.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="mt-3 text-sm" data-testid="reserve-status">
+              {reserve.target ? (
+                <>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span>
+                      Cél: <Amt>{formatMoney(reserve.target.target)}</Amt>
+                      <span className="text-[var(--color-muted)]">
+                        {" "}
+                        ({settings.reserveMonths} × <Amt>{formatMoney(reserve.target.monthlyExpense)}</Amt>, {reserve.target.months} lezárt hónap)
+                      </span>
+                    </span>
+                    <span>
+                      Megvan: <Amt>{formatMoney(reserve.held)}</Amt>
+                      <span className="text-[var(--color-muted)]">
+                        {" "}
+                        (papírban <Amt>{formatMoney(reserve.heldHoldings)}</Amt>, készpénzben{" "}
+                        <Amt>{formatMoney(reserve.heldCash)}</Amt>)
+                      </span>
+                    </span>
+                  </div>
+                  <div
+                    className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-border)]"
+                    role="progressbar"
+                    aria-label="Vésztartalék"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.min(100, Math.round((reserve.held / reserve.target.target) * 100))}
+                  >
+                    <div
+                      className="h-full bg-[var(--color-brand)]"
+                      style={{ width: `${Math.min(100, (reserve.held / reserve.target.target) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--color-muted)]">
+                    {(settings.reserveAccounts ?? []).length === 0 && (settings.reserveHoldings ?? []).length === 0
+                      ? "Jelölj ki legalább egy értékpapírt vagy számlát."
+                      : reserve.held >= reserve.target.target
+                        ? "A tartalék megvan."
+                        : <>Hiányzik: <Amt>{formatMoney(reserve.target.target - reserve.held)}</Amt></>}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-[var(--color-muted)]">
+                  Még nincs lezárt hónap az átlaghoz, ezért a cél sem számolható.
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </Card>
 
       <Card className="mt-6 p-4">

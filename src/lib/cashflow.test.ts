@@ -6,6 +6,10 @@ import {
   cashflowChanges,
   cashflowSuggestion,
   cashflowTotals,
+  allocateReserve,
+  emergencyReserve,
+  isFixBond,
+  reserveTarget,
   isComplete,
   loadCashflow,
   loadCashflowSettings,
@@ -16,6 +20,7 @@ import {
   type CashflowMonth,
 } from "./cashflow";
 import { cashflowImportAlerts } from "./alerts";
+import type { PortfolioSummary } from "./portfolio";
 
 // Invented data only — never a real export.
 const HEAD =
@@ -259,6 +264,120 @@ describe("cashflowSuggestion", () => {
   });
 });
 
+describe("emergency reserve", () => {
+  const months = [
+    month("2026-07", 500_000, 300_000, "2026-10-24"),
+    month("2026-08", 500_000, 100_000, "2026-10-24"),
+    month("2026-09", 500_000, 100_000, "2026-10-24"),
+  ];
+  const on = { excluded: [], reserveMonths: 6 };
+
+  it("the target is N months of the average spending", () => {
+    // average (300 + 100 + 100) / 3 = 166 667 → 6 months
+    const t = reserveTarget(months, on)!;
+    expect(t.monthlyExpense).toBeCloseTo(166_667, 0);
+    expect(t.target).toBe(1_000_000);
+    expect(t.months).toBe(3);
+  });
+
+  it("follows the start month and the excluded categories", () => {
+    expect(reserveTarget(months, { ...on, since: "2026-08" })!.target).toBe(600_000);
+    const withInvesting = months.map((m) => ({ ...m, expense: m.expense + 50_000, expenseBy: { ...m.expenseBy, Befektetés: 50_000 } }));
+    expect(reserveTarget(withInvesting, { ...on, excluded: ["expense:Befektetés"] })!.target).toBe(1_000_000);
+  });
+
+  it("no target when off, without data, or without a closed month", () => {
+    expect(reserveTarget(months, { excluded: [] })).toBeUndefined();
+    expect(reserveTarget(months, { excluded: [], reserveMonths: 0 })).toBeUndefined();
+    expect(reserveTarget([], on)).toBeUndefined();
+    expect(reserveTarget([month("2026-10", 1, 1, "2026-10-24")], on)).toBeUndefined();
+  });
+
+  describe("allocateReserve", () => {
+    const cash = new Map([["a", 400_000], ["b", 300_000], ["c", 900_000]]);
+    it("fills the chosen accounts in order, up to their cash and the target", () => {
+      const r = allocateReserve(600_000, ["a", "b"], cash);
+      expect([...r.byAccount]).toEqual([["a", 400_000], ["b", 200_000]]);
+      expect(r.held).toBe(600_000);
+    });
+    it("reports what is still missing", () => {
+      const r = allocateReserve(2_000_000, ["a", "b"], cash);
+      expect(r.held).toBe(700_000);
+    });
+    it("cash a goal holds is not available to the reserve", () => {
+      const r = allocateReserve(600_000, ["a", "b"], cash, new Map([["a", 350_000]]));
+      expect([...r.byAccount]).toEqual([["a", 50_000], ["b", 300_000]]);
+      expect(r.held).toBe(350_000);
+    });
+    it("unknown accounts and no accounts hold nothing", () => {
+      expect(allocateReserve(600_000, ["zzz"], cash).held).toBe(0);
+      expect(allocateReserve(600_000, [], cash).byAccount.size).toBe(0);
+    });
+  });
+});
+
+describe("emergencyReserve: securities count, cash only fills the rest", () => {
+  const months = [month("2026-08", 500_000, 100_000, "2026-10-24"), month("2026-09", 500_000, 100_000, "2026-10-24")];
+  // 6 months × 100 000 = 600 000 target.
+  const settings = { excluded: [], reserveMonths: 6 };
+  const acc = (id: string, cash: number, holdings: { key: string; value?: number }[] = []) => ({
+    account: { id },
+    cashValueHuf: cash,
+    holdings: holdings.map((h) => ({ instrumentKey: h.key, marketValueHuf: h.value, instrument: { name: h.key } })),
+  });
+  const summary = {
+    accounts: [
+      acc("mak", 300_000, [{ key: "fixmap", value: 450_000 }, { key: "dkj", value: 900_000 }]),
+      acc("ly", 200_000, [{ key: "fixmap", value: 100_000 }]),
+    ],
+  } as unknown as PortfolioSummary;
+
+  it("the chosen securities' value, across accounts", () => {
+    const r = emergencyReserve(summary, months, { ...settings, reserveHoldings: ["fixmap"] });
+    expect(r.heldHoldings).toBe(550_000);
+    // 50 000 still missing; no cash account chosen → nothing from cash.
+    expect(r.heldCash).toBe(0);
+    expect(r.held).toBe(550_000);
+    expect(r.target!.target).toBe(600_000);
+  });
+
+  it("cash is taken only for what the securities leave missing", () => {
+    const r = emergencyReserve(summary, months, { ...settings, reserveHoldings: ["fixmap"], reserveAccounts: ["mak"] });
+    expect(r.heldCash).toBe(50_000);
+    expect([...r.byAccount]).toEqual([["mak", 50_000]]);
+    expect(r.held).toBe(600_000);
+  });
+
+  it("securities above the target leave the cash free (idle) and are not capped", () => {
+    const r = emergencyReserve(summary, months, { ...settings, reserveHoldings: ["fixmap", "dkj"], reserveAccounts: ["mak"] });
+    expect(r.heldHoldings).toBe(1_450_000);
+    expect(r.heldCash).toBe(0);
+    expect(r.byAccount.size).toBe(0);
+  });
+
+  it("a security without a value counts as nothing; unknown keys too", () => {
+    const s = { accounts: [acc("mak", 0, [{ key: "fixmap" }])] } as unknown as PortfolioSummary;
+    expect(emergencyReserve(s, months, { ...settings, reserveHoldings: ["fixmap", "nincs"] }).heldHoldings).toBe(0);
+  });
+
+  it("no target → nothing is held either", () => {
+    const r = emergencyReserve(summary, months, { excluded: [], reserveHoldings: ["fixmap"] });
+    expect(r.target).toBeUndefined();
+    expect(r.held).toBe(0);
+  });
+});
+
+describe("isFixBond", () => {
+  it("recognises the fixed-rate government bond by either name", () => {
+    for (const n of ["Fix Magyar Állampapír 2030/I", "FixMÁP 2031/T", "FIXMÁP", "fix magyar állampapír"])
+      expect(isFixBond(n), n).toBe(true);
+  });
+  it("and nothing else", () => {
+    for (const n of ["Diszkont Kincstárjegy D270310", "VWCE", "Prémium Magyar Állampapír", "Fixed Income ETF"])
+      expect(isFixBond(n), n).toBe(false);
+  });
+});
+
 describe("cashflowChanges", () => {
   it("counts new, changed and same months", () => {
     const stored = [month("2026-08", 1, 1, "2026-09-02"), month("2026-09", 5, 5, "2026-09-10")];
@@ -327,6 +446,23 @@ describe("storage", () => {
     expect(loadCashflowSettings().since).toBeUndefined();
     store.set("pf-cashflow-settings", JSON.stringify({ excluded: [], remind: true, since: "márc" }));
     expect(loadCashflowSettings().since).toBeUndefined();
+  });
+
+  it("settings: the reserve securities are kept as strings", () => {
+    saveCashflowSettings({ excluded: [], remind: true, reserveMonths: 6, reserveHoldings: ["fixmap", "fixmap", "x"] });
+    expect(loadCashflowSettings().reserveHoldings).toEqual(["fixmap", "x"]);
+    store.set("pf-cashflow-settings", JSON.stringify({ excluded: [], reserveHoldings: [1, "fixmap", null] }));
+    expect(loadCashflowSettings().reserveHoldings).toEqual(["fixmap"]);
+  });
+
+  it("settings: the reserve is kept as whole months 1–36 and the accounts as strings", () => {
+    saveCashflowSettings({ excluded: [], remind: true, reserveMonths: 6, reserveAccounts: ["k", "l"] });
+    expect(loadCashflowSettings()).toMatchObject({ reserveMonths: 6, reserveAccounts: ["k", "l"] });
+    for (const bad of [0, -1, 37, 2.5, "6", null]) {
+      store.set("pf-cashflow-settings", JSON.stringify({ excluded: [], reserveMonths: bad, reserveAccounts: [1, "k"] }));
+      expect(loadCashflowSettings().reserveMonths, String(bad)).toBeUndefined();
+      expect(loadCashflowSettings().reserveAccounts).toEqual(["k"]);
+    }
   });
 
   it("unreadable storage gives empty data", () => {

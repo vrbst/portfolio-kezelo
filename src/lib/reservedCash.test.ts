@@ -68,6 +68,30 @@ describe("cash set aside is not free cash", () => {
     expect(idle(reservedCashByAccount([goal()], DAY))).toHaveLength(0);
   });
 
+  it("the emergency reserve is not idle either, and the alert says so", () => {
+    const cfg = { ...DEFAULT_ALERT_CONFIG, idleCashHuf: 100_000 };
+    const idle = (emergency?: Map<string, number>, goals: SavingsGoal[] = []) =>
+      computeAlerts(
+        summary,
+        cfg,
+        new Date(`${DAY}T12:00:00`),
+        TXS,
+        reservedCashByAccount(goals, DAY),
+        reservedCashByAccount(goals, DAY),
+        emergency,
+      ).filter((a) => a.id.startsWith("idle-cash"));
+    expect(idle()).toHaveLength(1);
+    // The whole 600 000 is the reserve → nothing idle.
+    expect(idle(new Map([["k", 600_000]]))).toHaveLength(0);
+    // 400 000 of it → 200 000 idle, and the text names the reserve.
+    const part = idle(new Map([["k", 400_000]]));
+    expect(part).toHaveLength(1);
+    expect(part[0].detail).toMatch(/^200\s000\sFt fekszik/);
+    expect(part[0].detail).toMatch(/vésztartalékon felül/);
+    // Together with a goal's cash: 550 000 + 50 000 = all of it.
+    expect(idle(new Map([["k", 50_000]]), [goal()])).toHaveLength(0);
+  });
+
   it("set-aside cash is idle unless the goal is due within the grace days", () => {
     const cfg = { ...DEFAULT_ALERT_CONFIG, idleCashHuf: 100_000, reserveGraceDays: 30 };
     const idle = (g: SavingsGoal, days = cfg.reserveGraceDays) =>

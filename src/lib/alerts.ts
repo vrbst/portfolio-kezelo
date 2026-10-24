@@ -162,6 +162,8 @@ export function computeAlerts(
    * `reserved` (goals further away) is idle, and the alert says so.
    */
   reservedAll?: Map<string, number>,
+  /** The emergency reserve held on each account: not idle either. */
+  emergency?: Map<string, number>,
 ): Alert[] {
   const out: Alert[] = [];
 
@@ -180,12 +182,14 @@ export function computeAlerts(
   // 1) Idle cash above the threshold, per account.
   for (const acc of summary.accounts) {
     const near = reserved?.get(acc.account.id) ?? 0;
-    const idle = acc.cashValueHuf - near;
+    const held = emergency?.get(acc.account.id) ?? 0;
+    const idle = acc.cashValueHuf - near - held;
     if (idle > config.idleCashHuf) {
       // Set aside for goals further away than the grace days: idle too.
       const far = Math.min(idle, Math.max(0, (reservedAll?.get(acc.account.id) ?? near) - near));
       const notes = [
         near > 0 && "a hamarosan esedékes célokra félretett részen felül",
+        held > 0 && "a vésztartalékon felül",
         far >= 1 &&
           `ebből ${formatMoney(far)} célra félretett, de a céldátum ${config.reserveGraceDays} napnál messzebb van — addig lejáró papírban (pl. DKJ) is várhatna`,
       ].filter(Boolean);
