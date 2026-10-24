@@ -194,6 +194,22 @@ describe("goalHistory", () => {
     expect(h.find((x) => x.day === "2026-06-30")!.valueHuf).toBeCloseTo(400_000);
   });
 
+  it("shows a dip between month ends (a sale, then a re-buy)", () => {
+    const txs = [
+      ...TXS,
+      tx({ id: "s", date: "2026-09-10", type: "sell", instrumentKey: DKJ.key, quantity: 100_000, grossAmount: 99_000, netAmount: 99_000 }),
+      tx({ id: "b2", date: "2026-09-20", type: "buy", instrumentKey: DKJ.key, quantity: 100_000, grossAmount: 99_000, netAmount: -99_000 }),
+    ];
+    const h = goalHistory(GOAL, [GOAL], [ACC], txs, instruments, new Map(), {}, 400_000, NOW);
+    // Both month ends (Aug 31, Sep 30) hold 400 000 — only the event day shows the dip.
+    expect(h.find((x) => x.day === "2026-08-31")!.valueHuf).toBeCloseTo(400_000);
+    expect(h.find((x) => x.day === "2026-09-30")!.valueHuf).toBeCloseTo(400_000);
+    expect(h.find((x) => x.day === "2026-09-10")!.valueHuf).toBeCloseTo(300_000);
+    const days = h.map((x) => x.day);
+    expect(days).toEqual([...days].sort());
+    expect(new Set(days).size).toBe(days.length);
+  });
+
   it("ends exactly at the card's own value, whatever a replay would give", () => {
     const h = goalHistory(GOAL, [GOAL], [ACC], TXS, instruments, new Map(), {}, 777_000, NOW);
     expect(h.at(-1)).toEqual({ day: "2026-10-05", valueHuf: 777_000 });

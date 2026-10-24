@@ -193,8 +193,13 @@ export function goalSchedule(
   return { startDay, endDay: target, rows: full, path };
 }
 
-/** Month-end days from `startDay` to `today` (at most `max`, thinned evenly), then today itself. */
-function sampleDays(startDay: string, today: string, max = 36): string[] {
+/**
+ * The days to replay: the start, every `events` day (a trade, a coupon, a
+ * cash set aside — the value can only change then, and a month-end sample
+ * would hide a dip in between), month ends (at most `max`, thinned evenly),
+ * and today.
+ */
+function sampleDays(startDay: string, today: string, events: string[], max = 36): string[] {
   const days: string[] = [];
   let y = +startDay.slice(0, 4);
   let m = +startDay.slice(5, 7) - 1;
@@ -209,7 +214,9 @@ function sampleDays(startDay: string, today: string, max = 36): string[] {
   }
   const step = Math.ceil(days.length / max) || 1;
   const thinned = days.filter((_, i) => (days.length - 1 - i) % step === 0);
-  return [startDay, ...thinned, today].filter((d, i, a) => a.indexOf(d) === i && d <= today);
+  return [startDay, ...thinned, ...events, today]
+    .filter((d, i, a) => d >= startDay && d <= today && a.indexOf(d) === i)
+    .sort();
 }
 
 /**
@@ -234,7 +241,16 @@ export function goalHistory(
   const today = toLocalDay(now);
   const start = goalStartDay(goal);
   if (start >= today) return [];
-  return sampleDays(start, today).map((day) => {
+  // Days the goal's value can change: trades of its instruments, any coupon /
+  // interest credit, and the cash set aside by hand.
+  const keys = new Set(goal.instrumentKeys);
+  const events = [
+    ...txs
+      .filter((t) => t.type === "interest" || (t.instrumentKey && keys.has(t.instrumentKey)))
+      .map((t) => txDay(t.date)),
+    ...(goal.reserves ?? []).map((r) => r.date),
+  ];
+  return sampleDays(start, today, events).map((day) => {
     if (day === today) return { day, valueHuf: currentHuf };
     const at = new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), 12);
     const upTo = txs.filter((t) => txDay(t.date) <= day);
