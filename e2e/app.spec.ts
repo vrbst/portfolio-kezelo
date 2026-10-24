@@ -262,6 +262,38 @@ test.describe("cash flow page (1Money)", () => {
     await expect(main.getByLabel("Teszt-Lakás (kiadás) beleszámít az átlagokba")).not.toBeChecked();
   });
 
+  test("the average can start at a month: fewer months count, and it survives a reload", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/cashflow");
+    const main = page.locator("main");
+    const avg = main.locator(".card", { hasText: "Havi bevétel (átlag)" }).first();
+    await expect(avg).toContainText("9 lezárt hónap");
+    await main.getByLabel("Az átlag kezdete").selectOption("2026-06");
+    await expect(avg).toContainText("4 lezárt hónap");
+    await expect(avg).toContainText("kezdet: 2026. június");
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(main.getByLabel("Az átlag kezdete")).toHaveValue("2026-06");
+    await main.getByRole("button", { name: "Nincs határ" }).click();
+    await expect(main.locator(".card", { hasText: "Havi bevétel (átlag)" }).first()).toContainText("9 lezárt hónap");
+  });
+
+  test("the forecast suggests the monthly saving from 1Money; nothing changes until it is taken", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/forecast");
+    const hint = page.getByTestId("cashflow-hint");
+    // 9 invented months: 600 000 income − 248 000 spending ≈ 352 000 a month
+    await expect(hint).toContainText(/352\D000/);
+    await expect(hint).toContainText("9 lezárt hónap alapján");
+    const field = page.locator("main input[inputmode]").first();
+    const before = await field.inputValue();
+    expect(before).not.toMatch(/352\D?000/);
+    await hint.getByRole("button", { name: "Átveszem" }).click();
+    await expect(field).toHaveValue(/352\D?000/);
+    await expect(hint).toContainText("átvéve");
+    await expect(hint.getByRole("button", { name: "Átveszem" })).toHaveCount(0);
+  });
+
   test("the monthly to-do shows up when last month is missing and goes away with the setting", async ({ page }) => {
     await openSeeded(page);
     // The clock stands at 14 Oct. Leave September out (an export of 2 Sep ends before it).

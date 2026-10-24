@@ -13,7 +13,10 @@ import {
   SlidersHorizontal,
   History,
 } from "lucide-react";
+import { cashflowSuggestion } from "../lib/cashflow";
 import {
+  useCashflow,
+  useCashflowSettings,
   useMonthlyBudget,
   usePortfolio,
   usePortfolioSummary,
@@ -235,6 +238,14 @@ export default function Forecast() {
   );
 
   const monthlySaving = settings.monthlySavingOverride ?? detected.monthlyHuf;
+
+  // What the 1Money data says is left over a month — only a suggestion.
+  const cashflowMonths = useCashflow();
+  const cashflowSettings = useCashflowSettings();
+  const cashflowHint = useMemo(
+    () => cashflowSuggestion(cashflowMonths, cashflowSettings),
+    [cashflowMonths, cashflowSettings],
+  );
 
   // Medium-term goals become planned expenses on their target date: the goal
   // amount leaves the portfolio then (a planned purchase). Reloaded on any pref
@@ -791,6 +802,40 @@ export default function Forecast() {
                 />
               </div>
             </div>
+
+            {cashflowHint && (
+              <div className="mt-4 border-t border-[var(--color-border)] pt-3" data-testid="cashflow-hint">
+                <p className="text-xs font-medium text-[var(--color-muted)]">1Money szerint szabadon marad</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {cashflowHint.amount > 0 ? (
+                    <>
+                      <span className="text-sm tabular-nums">
+                        ≈ <span className="amt">{huf(cashflowHint.amount)} Ft</span> / hó
+                      </span>
+                      {settings.monthlySavingOverride === cashflowHint.amount ? (
+                        <span className="text-xs text-[var(--color-muted)]">átvéve</span>
+                      ) : (
+                        <button
+                          className="btn-ghost ml-auto"
+                          onClick={() =>
+                            setSettings((s) => ({ ...s, monthlySavingOverride: cashflowHint.amount }))
+                          }
+                        >
+                          Átveszem
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-sm">nincs szabad keret</span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-muted)]">
+                  {cashflowHint.months} lezárt hónap alapján
+                  {cashflowHint.since ? ` (kezdet: ${formatMonthLabel(cashflowHint.since)})` : ""}. A kizárt
+                  kategóriák nincsenek benne. <Link to="/cashflow" className="underline">Pénzáramlás</Link>
+                </p>
+              </div>
+            )}
 
             {detected.oneOffs.length > 0 && (
               <div className="mt-4 border-t border-[var(--color-border)] pt-3">

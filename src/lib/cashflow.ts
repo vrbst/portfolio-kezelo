@@ -25,6 +25,11 @@ export interface CashflowSettings {
   excluded: string[];
   /** The monthly "upload the new export" to-do (and the bot's message). */
   remind: boolean;
+  /**
+   * First month ("YYYY-MM") the averages count, for a new life stage (e.g. the
+   * loan is paid off): earlier months stay in the charts but not in the averages.
+   */
+  since?: string;
 }
 
 const MONTHS_KEY = "pf-cashflow";
@@ -79,15 +84,23 @@ export function loadCashflowSettings(): CashflowSettings {
     return {
       excluded: list.filter((x: unknown): x is string => typeof x === "string"),
       remind: v?.remind !== false,
+      since: validMonth(v?.since),
     };
   } catch {
     return { excluded: [], remind: true };
   }
 }
 
+const validMonth = (s: unknown): string | undefined =>
+  typeof s === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(s) ? s : undefined;
+
 export function saveCashflowSettings(s: CashflowSettings) {
   try {
-    const json = JSON.stringify({ excluded: [...new Set(s.excluded)].sort(), remind: s.remind });
+    const json = JSON.stringify({
+      excluded: [...new Set(s.excluded)].sort(),
+      remind: s.remind,
+      ...(validMonth(s.since) ? { since: s.since } : {}),
+    });
     if (localStorage.getItem(SETTINGS_KEY) === json) return;
     localStorage.setItem(SETTINGS_KEY, json);
     touchPref("cashflowSettings");
@@ -210,9 +223,16 @@ export interface CashflowAverage {
   rate?: number;
 }
 
-/** Average of the last `n` COMPLETE months (a running month would drag it down). */
-export function cashflowAverage(totals: CashflowTotals[], n = 12): CashflowAverage | undefined {
-  const used = totals.filter((t) => t.complete).slice(-n);
+/**
+ * Average of the last `n` COMPLETE months (a running month would drag it down),
+ * none of them before `since` ("YYYY-MM", the start of a new life stage).
+ */
+export function cashflowAverage(
+  totals: CashflowTotals[],
+  n = 12,
+  since?: string,
+): CashflowAverage | undefined {
+  const used = totals.filter((t) => t.complete && (!since || t.month >= since)).slice(-n);
   if (used.length === 0) return undefined;
   const avg = (f: (t: CashflowTotals) => number) => used.reduce((s, t) => s + f(t), 0) / used.length;
   const income = avg((t) => t.income);
@@ -225,6 +245,28 @@ export function cashflowAverage(totals: CashflowTotals[], n = 12): CashflowAvera
     saving: income - expense,
     rate: income > 0 ? (income - expense) / income : undefined,
   };
+}
+
+export interface CashflowSuggestion {
+  /** What is left over a month (income − spending), rounded to a thousand HUF. May be ≤ 0. */
+  amount: number;
+  /** Complete months it is based on. */
+  months: number;
+  since?: string;
+}
+
+/**
+ * The monthly saving the 1Money data points to — a suggestion for the Forecast
+ * page's "havi megtakarítás", never applied by itself.
+ */
+export function cashflowSuggestion(
+  months: CashflowMonth[],
+  settings: Pick<CashflowSettings, "excluded" | "since">,
+  n = 12,
+): CashflowSuggestion | undefined {
+  const avg = cashflowAverage(cashflowTotals(months, settings), n, settings.since);
+  if (!avg) return undefined;
+  return { amount: Math.round(avg.saving / 1000) * 1000, months: avg.months, since: settings.since };
 }
 
 /** Every category in the stored months, biggest spending first. */

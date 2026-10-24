@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader, Card, StatCard, EmptyState, Amt } from "../components/ui";
 import CashflowChart from "../components/CashflowChart";
+import InfoTip from "../components/InfoTip";
 import { useCashflow, useCashflowSettings } from "../lib/storeHooks";
 import {
   cashflowAverage,
@@ -27,7 +28,12 @@ export default function Cashflow() {
 
   const totals = useMemo(() => cashflowTotals(months, settings), [months, settings]);
   const shown = range > 0 ? totals.slice(-range) : totals;
-  const average = useMemo(() => cashflowAverage(totals, range > 0 ? range : 1200), [totals, range]);
+  const average = useMemo(
+    () => cashflowAverage(totals, range > 0 ? range : 1200, settings.since),
+    [totals, range, settings.since],
+  );
+  // The months a stage can start at: any complete one (the running month has no average yet).
+  const startOptions = useMemo(() => totals.filter((t) => t.complete).map((t) => t.month).reverse(), [totals]);
 
   const categories = useMemo(() => {
     const keep = new Set(shown.map((t) => t.month));
@@ -85,12 +91,45 @@ export default function Cashflow() {
         }
       />
 
+      <Card className="mb-3 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="cf-since" className="flex items-center gap-1.5 text-sm font-medium">
+            Az átlag kezdete
+            <InfoTip>
+              Az új élethelyzet (pl. a hitel megszűnése) előtti hónapok kimaradnak az átlagokból és a javaslatból, a
+              grafikonon viszont ott maradnak. Ha nincs határ, a legutóbbi lezárt hónapok átlaga számít.
+            </InfoTip>
+          </label>
+          <select
+            id="cf-since"
+            className="max-w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
+            value={settings.since ?? ""}
+            onChange={(e) => saveCashflowSettings({ ...settings, since: e.target.value || undefined })}
+          >
+            <option value="">Nincs határ</option>
+            {settings.since && !startOptions.includes(settings.since) && (
+              <option value={settings.since}>{monthLabel(settings.since, true)}</option>
+            )}
+            {startOptions.map((m) => (
+              <option key={m} value={m}>
+                {monthLabel(m, true)}
+              </option>
+            ))}
+          </select>
+          {settings.since && (
+            <button className="btn-ghost" onClick={() => saveCashflowSettings({ ...settings, since: undefined })}>
+              Nincs határ
+            </button>
+          )}
+        </div>
+      </Card>
+
       {average ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Havi bevétel (átlag)"
             value={<Amt>{formatMoney(average.income)}</Amt>}
-            sub={`${average.months} lezárt hónap`}
+            sub={`${average.months} lezárt hónap${settings.since ? ` (kezdet: ${monthLabel(settings.since, true)})` : ""}`}
           />
           <StatCard label="Havi kiadás (átlag)" value={<Amt>{formatMoney(average.expense)}</Amt>} index={1} />
           <StatCard label="Havi megtakarítás (átlag)" value={<Amt>{formatMoney(average.saving)}</Amt>} index={2} />

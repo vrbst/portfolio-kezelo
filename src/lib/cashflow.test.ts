@@ -4,6 +4,7 @@ import {
   applyCashflowImport,
   cashflowAverage,
   cashflowChanges,
+  cashflowSuggestion,
   cashflowTotals,
   isComplete,
   loadCashflow,
@@ -199,6 +200,65 @@ describe("cashflowTotals / cashflowAverage", () => {
   });
 });
 
+describe("an average that starts at a month (new life stage)", () => {
+  // Spending drops from 300 to 100 once the loan is gone (from 2026-08).
+  const months = [
+    month("2026-05", 500, 300, "2026-10-24"),
+    month("2026-06", 500, 300, "2026-10-24"),
+    month("2026-07", 500, 300, "2026-10-24"),
+    month("2026-08", 500, 100, "2026-10-24"),
+    month("2026-09", 500, 100, "2026-10-24"),
+    month("2026-10", 500, 50, "2026-10-24"), // running
+  ];
+
+  it("skips the months before it", () => {
+    const t = cashflowTotals(months);
+    expect(cashflowAverage(t, 12)!.expense).toBe(220); // (3 × 300 + 2 × 100) / 5
+    const a = cashflowAverage(t, 12, "2026-08")!;
+    expect(a.months).toBe(2);
+    expect(a.expense).toBe(100);
+  });
+
+  it("still takes only the last n months after it", () => {
+    expect(cashflowAverage(cashflowTotals(months), 1, "2026-06")!.months).toBe(1);
+  });
+
+  it("a start after the last complete month leaves nothing", () => {
+    expect(cashflowAverage(cashflowTotals(months), 12, "2026-10")).toBeUndefined();
+  });
+});
+
+describe("cashflowSuggestion", () => {
+  const months = [
+    month("2026-07", 500_000, 300_000, "2026-10-24"),
+    month("2026-08", 500_000, 100_400, "2026-10-24"),
+    month("2026-09", 500_000, 100_000, "2026-10-24"),
+  ];
+
+  it("the monthly saving left over, rounded to a thousand", () => {
+    // (200 000 + 399 600 + 400 000) / 3 = 333 200
+    expect(cashflowSuggestion(months, { excluded: [] })).toEqual({ amount: 333_000, months: 3, since: undefined });
+    expect(cashflowSuggestion(months, { excluded: [], since: "2026-08" })).toEqual({ amount: 400_000, months: 2, since: "2026-08" });
+  });
+
+  it("uses the excluded categories too", () => {
+    const withInvesting = months.map((m) => ({ ...m, expense: m.expense + 100_000, expenseBy: { ...m.expenseBy, Befektetés: 100_000 } }));
+    expect(cashflowSuggestion(withInvesting, { excluded: ["expense:Befektetés"] })!.amount).toBe(
+      cashflowSuggestion(months, { excluded: [] })!.amount,
+    );
+  });
+
+  it("no data / no closed month → no suggestion", () => {
+    expect(cashflowSuggestion([], { excluded: [] })).toBeUndefined();
+    expect(cashflowSuggestion([month("2026-10", 1, 1, "2026-10-24")], { excluded: [] })).toBeUndefined();
+  });
+
+  it("can be zero or negative (nothing left over)", () => {
+    const tight = [month("2026-09", 100_000, 150_000, "2026-10-24")];
+    expect(cashflowSuggestion(tight, { excluded: [] })!.amount).toBe(-50_000);
+  });
+});
+
 describe("cashflowChanges", () => {
   it("counts new, changed and same months", () => {
     const stored = [month("2026-08", 1, 1, "2026-09-02"), month("2026-09", 5, 5, "2026-09-10")];
@@ -258,6 +318,15 @@ describe("storage", () => {
     expect(loadCashflowSettings()).toEqual({ excluded: [], remind: true });
     saveCashflowSettings({ excluded: ["b", "a", "b"], remind: false });
     expect(loadCashflowSettings()).toEqual({ excluded: ["a", "b"], remind: false });
+  });
+
+  it("settings: the start month is kept, junk is dropped, clearing it works", () => {
+    saveCashflowSettings({ excluded: [], remind: true, since: "2026-03" });
+    expect(loadCashflowSettings().since).toBe("2026-03");
+    saveCashflowSettings({ excluded: [], remind: true });
+    expect(loadCashflowSettings().since).toBeUndefined();
+    store.set("pf-cashflow-settings", JSON.stringify({ excluded: [], remind: true, since: "márc" }));
+    expect(loadCashflowSettings().since).toBeUndefined();
   });
 
   it("unreadable storage gives empty data", () => {
