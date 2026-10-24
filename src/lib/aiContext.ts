@@ -155,6 +155,7 @@ export function buildFullAiContext(i: AiContextInput): string {
           opt: m.point.opt,
         })),
       shortfall: result.shortfall.real ?? result.shortfall.pess,
+      steps: assumptions.savingSteps,
       ...(estimate && settings.returnSource === "outlook"
         ? { returns: describeReturns(assumptions.annualReturn, estimate) }
         : {}),

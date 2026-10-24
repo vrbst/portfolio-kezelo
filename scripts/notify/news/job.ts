@@ -37,6 +37,8 @@ export interface NewsDeps {
   /** Local copies of the digests (a rerun after a failed upload reuses them). */
   cacheDir: string;
   appUrl: string;
+  /** The user's investment preferences (from the assistant); absent in tests. */
+  profile?: () => string;
 }
 
 /** The private sync repo through the Contents API, with a write token. */
@@ -151,6 +153,7 @@ export async function makeDigest(
       edition,
       exposure: portfolioExposure(ctx),
       previous: (index?.entries ?? []).filter((d) => digestKey(d) < key),
+      profile: deps.profile?.(),
     });
     const started = Date.now();
     const { body, costUsd } = await askDigest(deps.engine, prompt);

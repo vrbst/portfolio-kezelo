@@ -44,12 +44,14 @@ import {
   type BacktestPoint,
   type ForecastSettings,
   type ValueSample,
+  obligationSteps,
   type PlannedExpense,
   type ScenarioKey,
   type ReinvestTarget,
 } from "../lib/forecast";
 import { PREFS_EVENT } from "../lib/prefs";
 import ForecastReturnSource from "../components/ForecastReturnSource";
+import ObligationsEditor from "../components/ObligationsEditor";
 import { useEffectiveForecast } from "../lib/useEffectiveForecast";
 import { loadAiKey, loadAiModel, callClaude, FORECAST_PROMPT } from "../lib/ai";
 import ForecastChart, {
@@ -276,6 +278,7 @@ export default function Forecast() {
       annualReturn: eff.annualReturn,
       monthlySavingHuf: monthlySaving,
       savingGrowth: settings.savingGrowth,
+      savingSteps: obligationSteps(settings.obligations),
       reinvestTarget: settings.reinvestTarget,
       reinvestBondRate: settings.reinvestBondRate,
       months: settings.months,
@@ -802,6 +805,11 @@ export default function Forecast() {
                 />
               </div>
             </div>
+
+            <ObligationsEditor
+              value={settings.obligations}
+              onChange={(obligations) => setSettings((s) => ({ ...s, obligations }))}
+            />
 
             {cashflowHint && (
               <div className="mt-4 border-t border-[var(--color-border)] pt-3" data-testid="cashflow-hint">

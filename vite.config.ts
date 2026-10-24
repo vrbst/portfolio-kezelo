@@ -72,6 +72,9 @@ export default defineConfig({
     // Budapest; CI also runs them with TZ=UTC and TZ=America/New_York.
     env: { TZ: process.env.TZ || "Europe/Budapest" },
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.{ts,tsx}"],
+    // The heavy ones (the whole bot context, every report, a TUI frame) take 2–3 s alone and
+    // cross the 5 s default on a loaded machine; a real hang still fails, just later.
+    testTimeout: 20_000,
   },
   plugins: [
     emitVersionJson(),

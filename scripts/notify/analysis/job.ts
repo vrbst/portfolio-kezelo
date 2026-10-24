@@ -23,6 +23,7 @@ import { loadSavingsGoals } from "../../../src/lib/savings";
 import { toLocalDay } from "../../../src/lib/day";
 import type { Context } from "../data";
 import type { NewsEngine } from "../news/engine";
+import { profileSection } from "../profile";
 import { extractJson, type NewsStore } from "../news/job";
 
 export interface AnalysisDeps {
@@ -30,6 +31,8 @@ export interface AnalysisDeps {
   store: NewsStore;
   /** Local copies of the analyses (a rerun after a failed upload reuses them). */
   cacheDir: string;
+  /** The user's investment preferences (from the assistant); absent in tests. */
+  profile?: () => string;
 }
 
 /** The app's AI snapshot, from the notifier's context. */
@@ -55,11 +58,13 @@ export function analysisContext(ctx: Context): string {
 }
 
 /** Everything the model gets in one prompt (Claude Code has no system block). */
-export function buildAnalysisPrompt(context: string, previous: NightlyAnalysis | null): string {
+export function buildAnalysisPrompt(context: string, previous: NightlyAnalysis | null, profile?: string): string {
   const prev = previousForPrompt(previous ?? undefined);
+  const prefs = profileSection(profile).trim();
   return [
     SYSTEM,
     `--- Portfólió pillanatkép ---\n${context}`,
+    ...(prefs ? [prefs] : []),
     prev ? `${STRUCTURED_ANALYSIS_PROMPT}\n\n${prev}` : STRUCTURED_ANALYSIS_PROMPT,
     "A válasz kizárólag a megadott JSON-séma szerinti objektum legyen.",
   ].join("\n\n");
@@ -145,7 +150,7 @@ export async function makeAnalysis(
     const started = Date.now();
     const { data, costUsd } = await askAnalysis(
       deps.engine,
-      buildAnalysisPrompt(analysisContext(ctx), previous),
+      buildAnalysisPrompt(analysisContext(ctx), previous, deps.profile?.()),
     );
     console.error(
       `analysis: ${data.sections.length} cards in ${Math.round((Date.now() - started) / 1000)} s` +
