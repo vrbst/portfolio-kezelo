@@ -152,6 +152,14 @@ describe("invariants on any day", () => {
             expect(p.monthlyNeededHuf).toBeGreaterThanOrEqual(-EPS);
             // A goal can't take in more incoming money than it lacks (fe5c2a2).
             expect(p.couponRoomHuf).toBeLessThanOrEqual(p.gapHuf + EPS);
+            // A surplus exists only for a covered goal, and never exceeds what
+            // is projected; the unneeded coupon money fits in the projection too.
+            expect(p.surplusHuf).toBeGreaterThanOrEqual(0);
+            expect(p.unneededCouponsHuf).toBeGreaterThanOrEqual(-EPS);
+            if (p.surplusHuf > EPS) expect(p.reached).toBe(true);
+            expect(p.surplusHuf + p.unneededCouponsHuf).toBeLessThanOrEqual(
+              Math.max(0, p.projectedHuf - p.targetHuf) + EPS,
+            );
           }
 
           if (ctx.glide && ctx.glide.totalHuf > 0) {

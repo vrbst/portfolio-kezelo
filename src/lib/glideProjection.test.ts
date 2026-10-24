@@ -109,6 +109,8 @@ function progress(goal: Partial<SavingsGoal>, patch: Partial<SavingsProgress> = 
     autoCashHuf: 0,
     monthAdjective: "októberi",
     reached: false,
+    surplusHuf: 0,
+    unneededCouponsHuf: 0,
     ...patch,
   };
 }

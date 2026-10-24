@@ -536,6 +536,52 @@ test.describe("glide-path editor", () => {
   });
 });
 
+test.describe("medium-term goals (Középtávú célok)", () => {
+  test("a goal is added in the dialog and its card appears", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/goals");
+    await page.getByRole("button", { name: "Új cél" }).last().click();
+    const dialog = page.getByRole("dialog", { name: "Új cél" });
+    await expect(dialog).toBeVisible();
+    // Nothing is saved without a name: the reason is shown in the dialog.
+    await dialog.getByRole("button", { name: "Cél felvétele" }).click();
+    await expect(dialog.getByText("Adj nevet a célnak.")).toBeVisible();
+    await dialog.getByPlaceholder("pl. Autó").fill("E2E cél");
+    await dialog.getByLabel("Célösszeg (Ft)").fill("900000");
+    await dialog.getByLabel("Céldátum").fill("2035-12-31");
+    await expect(dialog.getByText(/Havi/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Cél felvétele" }).click();
+    await expect(dialog).toBeHidden();
+    // The new goal's card title (the budget strip above also lists the name, truncated).
+    await expect(
+      page.locator("span.priv.font-medium:not(.truncate)", { hasText: "E2E cél" }),
+    ).toBeVisible();
+    expect(errors, "console / page errors").toEqual([]);
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+  });
+
+  test("the schedule popup shows the chart and the planned amounts", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/goals");
+    await page.getByRole("button", { name: "Ütemterv" }).first().click();
+    const dialog = page.getByRole("dialog", { name: /Ütemterv/ });
+    await expect(dialog.getByText("Tervezett összegek")).toBeVisible();
+    await expect(dialog.locator("svg.recharts-surface").first()).toBeVisible();
+    await expect(dialog.getByText("Céldátum", { exact: true })).toBeVisible();
+    expect(errors, "console / page errors").toEqual([]);
+  });
+
+  test("privacy mode: nothing personal is readable in the schedule popup", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/goals");
+    await page.getByRole("button", { name: "Ütemterv" }).first().click();
+    const dialog = page.getByRole("dialog", { name: /Ütemterv/ });
+    await expect(dialog.getByText("Tervezett összegek")).toBeVisible();
+    const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name), '[role="dialog"]');
+    expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
+  });
+});
+
 test.describe("market news (Hírek)", () => {
   /**
    * The sync repo with an invented digest; the snapshot file is not there.

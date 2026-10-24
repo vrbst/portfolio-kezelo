@@ -135,7 +135,7 @@ export const DEFAULT_MIN_DAYS_TO_MATURITY = 30;
 const DAY_MS = 86_400_000;
 
 /** Maturity day (YYYY-MM-DD) of a bond / T-bill, undefined if it has none. */
-function maturityDay(inst: Instrument | undefined): string | undefined {
+export function maturityDay(inst: Instrument | undefined): string | undefined {
   const m = inst?.bond?.maturity ?? inst?.maturity;
   // A stored ISO timestamp (UTC) is read back as the LOCAL day — slicing it
   // would give the day before for a local-midnight maturity.
@@ -274,6 +274,15 @@ export interface SavingsProgress {
   monthAdjective: string;
   /** The projection already covers the target. */
   reached: boolean;
+  /**
+   * What the assigned instruments, cash and PICKED coupons bring beyond the
+   * target on its date (0 if none) — free money once the goal is paid. Coupons
+   * counted via includeCoupons never make a surplus: the forecast takes only
+   * the shortfall from them (see unneededCouponsHuf).
+   */
+  surplusHuf: number;
+  /** Of the includeCoupons ("every free coupon") money, what the goal no longer needs. */
+  unneededCouponsHuf: number;
 }
 
 export interface SavingsMonthlyStatus {
@@ -606,27 +615,32 @@ export function savingsGoalAlerts(
  * computeSavingsProgress, which counts the current month in.
  */
 function paydaysUntil(now: Date, targetMs: number): number {
-  if (!Number.isFinite(targetMs)) return 0;
+  return paydayList(now, targetMs).length;
+}
+
+/** The future pay days (YYYY-MM-DD) on or before the target — see paydaysUntil. */
+export function paydayList(now: Date, targetMs: number): string[] {
+  if (!Number.isFinite(targetMs)) return [];
   const nowMs = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
     12,
   ).getTime();
-  let count = 0;
+  const days: string[] = [];
   let y = now.getFullYear();
   let m = now.getMonth();
   // Walk forward month by month; stop at the first pay day past the target.
   for (let guard = 0; guard < 1200; guard++) {
     const pay = new Date(y, m, lastWorkingDayOfMonth(y, m), 12).getTime();
     if (pay > targetMs) break;
-    if (pay > nowMs) count++;
+    if (pay > nowMs) days.push(toLocalDay(pay));
     if (++m > 11) {
       m = 0;
       y++;
     }
   }
-  return count;
+  return days;
 }
 
 /** Buy/sell of one of the goal's instruments, or the same type as one (so a
@@ -1120,8 +1134,29 @@ export function computeSavingsProgress(
       autoCashHuf: cash.cashHuf,
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
+      surplusHuf: Math.max(0, assignedAtDate + pickedCouponsHuf - targetHuf),
+      unneededCouponsHuf: Math.max(
+        0,
+        projectedHuf - targetHuf - Math.max(0, assignedAtDate + pickedCouponsHuf - targetHuf),
+      ),
     };
   });
+}
+
+/**
+ * The days (YYYY-MM-DD) the goal's monthly savings fall due: the current
+ * effective month (today) plus every pay day up to the target — one per month
+ * of SavingsProgress.monthsLeft. Before a later saving start (savingStartsOn)
+ * the first is that day and the rest are the pay days after it.
+ */
+export function savingMonthDays(
+  p: Pick<SavingsProgress, "goal" | "savingStartsOn" | "daysLeft">,
+  now: Date = new Date(),
+): string[] {
+  if (p.daysLeft <= 0) return [];
+  const targetMs = parseDateMs(p.goal.targetDate);
+  const from = p.savingStartsOn ? new Date(parseDateMs(p.savingStartsOn)) : now;
+  return [toLocalDay(from), ...paydayList(from, targetMs)];
 }
 
 /** One scheduled future coupon payment (the accounts holding the bond summed). */
