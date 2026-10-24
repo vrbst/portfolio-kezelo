@@ -177,13 +177,13 @@ export function goalSchedule(
     return { ...r, cumulativeHuf: value };
   });
 
-  // Step line from today (or the later saving start) to the target date.
-  const pathStart = startDay > today ? startDay : today;
-  const path: PathPoint[] = [{ day: pathStart, valueHuf: p.assignedValueHuf }];
+  // Step line from today to the target date — even when the monthly saving
+  // starts later: coupons and cash can arrive before that start.
+  const path: PathPoint[] = [{ day: today, valueHuf: p.assignedValueHuf }];
   for (const r of full) {
     if (!r.adds || r.done) continue;
     const last = path[path.length - 1];
-    const day = r.day < pathStart ? pathStart : r.day;
+    const day = r.day < today ? today : r.day;
     if (day === last.day) last.valueHuf = r.cumulativeHuf;
     else path.push({ day, valueHuf: r.cumulativeHuf });
   }
@@ -214,25 +214,33 @@ function sampleDays(startDay: string, today: string, max = 36): string[] {
 
 /**
  * What the goal held on past days: the progress recomputed from the
- * transactions up to each sample day (month ends from the start day). Prices
- * and rates are today's, so it shows how the goal was filled, not old marks.
+ * transactions up to each sample day (month ends from the start day), with
+ * ALL goals — coupons are split among them (see goalCash). Prices and rates
+ * are today's, so it shows how the goal was filled, not old marks. The last
+ * point is `currentHuf`, the card's own "Most a célra", so the line ends
+ * exactly where the card says the goal stands.
  */
 export function goalHistory(
   goal: SavingsGoal,
+  goals: SavingsGoal[],
   accounts: Account[],
   txs: Transaction[],
   instruments: Map<string, Instrument>,
   prices: PriceMap,
   fx: Record<string, number>,
+  currentHuf: number,
   now: Date = new Date(),
 ): PathPoint[] {
   const today = toLocalDay(now);
   const start = goalStartDay(goal);
   if (start >= today) return [];
   return sampleDays(start, today).map((day) => {
-    const at = day === today ? now : new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), 12);
+    if (day === today) return { day, valueHuf: currentHuf };
+    const at = new Date(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), 12);
     const upTo = txs.filter((t) => txDay(t.date) <= day);
-    const [p] = computeSavingsProgress([goal], accounts, upTo, instruments, prices, fx, at);
-    return { day, valueHuf: p.assignedValueHuf };
+    const p = computeSavingsProgress(goals, accounts, upTo, instruments, prices, fx, at).find(
+      (x) => x.goal.id === goal.id,
+    );
+    return { day, valueHuf: p?.assignedValueHuf ?? 0 };
   });
 }

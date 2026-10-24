@@ -37,8 +37,12 @@ const KIND: Record<ScheduleKind, { label: string; icon: typeof Coins; color: str
 };
 
 const dayTs = (day: string) => Date.parse(`${day}T12:00:00`);
-const axisLabel = (ts: number) =>
-  new Intl.DateTimeFormat("hu-HU", { year: "2-digit", month: "short" }).format(ts);
+/** Short spans label days ("júl. 10."), long ones months ("26. júl."). */
+const axisLabel = (ts: number, spanDays: number) =>
+  new Intl.DateTimeFormat(
+    "hu-HU",
+    spanDays <= 150 ? { month: "short", day: "numeric" } : { year: "2-digit", month: "short" },
+  ).format(ts);
 
 interface ChartRow {
   ts: number;
@@ -106,11 +110,11 @@ export default function GoalScheduleDialog({
   );
   // Replays the goal at every month end — costly, so only with the dialog open.
   const history = useMemo(
-    () => goalHistory(g, accounts, transactions, map, prices, fx),
-    [g, accounts, transactions, map, prices, fx],
+    () => goalHistory(g, goals, accounts, transactions, map, prices, fx, p.assignedValueHuf),
+    [g, goals, accounts, transactions, map, prices, fx, p.assignedValueHuf],
   );
 
-  const { rows, ymax, endValue } = useMemo(() => {
+  const { rows, from, ymax, endValue } = useMemo(() => {
     const byDay = new Map<string, ChartRow>();
     const at = (day: string) => {
       let r = byDay.get(day);
@@ -120,16 +124,19 @@ export default function GoalScheduleDialog({
     for (const h of history) at(h.day).actual = h.valueHuf;
     for (const pt of schedule.path) at(pt.day).expected = pt.valueHuf;
     // The straight line from where the goal started to the target.
-    const startValue = history[0]?.valueHuf ?? 0;
-    at(schedule.startDay).ideal = startValue;
+    // (from today when the goal's start is still ahead).
+    const startValue = history[0]?.valueHuf ?? p.assignedValueHuf;
+    at(schedule.startDay < today ? schedule.startDay : today).ideal = startValue;
     at(schedule.endDay).ideal = g.targetHuf;
     at(today);
     const sorted = [...byDay.values()].sort((a, b) => a.ts - b.ts);
+    const from = sorted[0].day;
     const end = schedule.path.at(-1)?.valueHuf ?? p.projectedHuf;
     const top = Math.max(g.targetHuf, end, ...history.map((h) => h.valueHuf));
-    return { rows: sorted, ymax: Math.ceil((top * 1.08) / 1000) * 1000, endValue: end };
-  }, [history, schedule, g.targetHuf, p.projectedHuf, today]);
+    return { rows: sorted, from, ymax: Math.ceil((top * 1.08) / 1000) * 1000, endValue: end };
+  }, [history, schedule, g.targetHuf, p.projectedHuf, p.assignedValueHuf, today]);
 
+  const spanDays = Math.round((dayTs(schedule.endDay) - dayTs(from)) / 86_400_000);
   const fmt = (v: number) => (privacy ? MASK : formatMoney(v));
   // Beyond the target on its date (only a covered goal has no planned savings
   // to fill the gap, so only then does the expected value pass the target).
@@ -180,8 +187,8 @@ export default function GoalScheduleDialog({
                   dataKey="ts"
                   type="number"
                   scale="time"
-                  domain={[dayTs(schedule.startDay), dayTs(schedule.endDay)]}
-                  tickFormatter={axisLabel}
+                  domain={[dayTs(from), dayTs(schedule.endDay)]}
+                  tickFormatter={(ts: number) => axisLabel(ts, spanDays)}
                   tick={{ fill: CHART.axis, fontSize: 12 }}
                   stroke={CHART.grid}
                   minTickGap={40}
@@ -216,7 +223,7 @@ export default function GoalScheduleDialog({
                   <ReferenceArea
                     y1={g.targetHuf}
                     y2={endValue}
-                    x1={dayTs(schedule.startDay)}
+                    x1={dayTs(from)}
                     x2={dayTs(schedule.endDay)}
                     fill={CHART.positive}
                     fillOpacity={0.12}
@@ -248,7 +255,7 @@ export default function GoalScheduleDialog({
                 />
                 <Area
                   dataKey="actual"
-                  type="monotone"
+                  type="stepAfter"
                   stroke={CHART.brand}
                   fill={CHART.brand}
                   fillOpacity={0.12}

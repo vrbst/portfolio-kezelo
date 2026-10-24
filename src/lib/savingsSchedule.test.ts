@@ -120,6 +120,17 @@ describe("goalSchedule", () => {
     expect(schedule.rows.find((r) => r.kind === "maturity")).toMatchObject({ day: "2026-12-01", adds: false });
   });
 
+  it("the path starts today even when the saving starts later: a coupon before the start counts", () => {
+    // Target far ahead, monthly saving from Nov 2027 — but the 10 Oct 2026 coupon comes first.
+    const { p, schedule } = build({ ...GOAL, targetDate: "2027-12-15", saveFrom: "2027-11-01" });
+    expect(schedule.path[0]).toMatchObject({ day: "2026-10-05", valueHuf: p.assignedValueHuf });
+    const atCoupon = schedule.path.find((pt) => pt.day === "2026-10-10");
+    expect(atCoupon?.valueHuf).toBeCloseTo(p.assignedValueHuf + 300_000);
+    // …and every step is on its own day (nothing piled onto the saving start)
+    const days = schedule.path.map((pt) => pt.day);
+    expect(new Set(days).size).toBe(days.length);
+  });
+
   it("a covered goal has no saving rows", () => {
     const { schedule } = build({ ...GOAL, targetHuf: 300_000 });
     expect(schedule.rows.some((r) => r.kind === "saving")).toBe(false);
@@ -174,12 +185,17 @@ describe("reminderSettings", () => {
 
 describe("goalHistory", () => {
   it("is empty before the start, otherwise runs from the start day to today", () => {
-    expect(goalHistory({ ...GOAL, createdAt: "2026-10-05" }, [ACC], TXS, instruments, new Map(), {}, NOW)).toEqual([]);
-    const h = goalHistory(GOAL, [ACC], TXS, instruments, new Map(), {}, NOW);
+    expect(goalHistory({ ...GOAL, createdAt: "2026-10-05" }, [GOAL], [ACC], TXS, instruments, new Map(), {}, 400_000, NOW)).toEqual([]);
+    const h = goalHistory(GOAL, [GOAL], [ACC], TXS, instruments, new Map(), {}, 400_000, NOW);
     expect(h[0].day).toBe("2026-01-01");
     expect(h.at(-1)!.day).toBe("2026-10-05");
     // the T-bill was bought on 1 June: nothing before, its face value after
     expect(h.find((x) => x.day === "2026-05-31")!.valueHuf).toBe(0);
     expect(h.find((x) => x.day === "2026-06-30")!.valueHuf).toBeCloseTo(400_000);
+  });
+
+  it("ends exactly at the card's own value, whatever a replay would give", () => {
+    const h = goalHistory(GOAL, [GOAL], [ACC], TXS, instruments, new Map(), {}, 777_000, NOW);
+    expect(h.at(-1)).toEqual({ day: "2026-10-05", valueHuf: 777_000 });
   });
 });
