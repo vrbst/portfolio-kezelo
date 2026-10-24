@@ -288,6 +288,12 @@ export interface SavingsProgress {
   reservedHuf: number;
   /** Money counted automatically: matured payouts + hold-window coupons. */
   autoCashHuf: number;
+  /**
+   * Of autoCashHuf, what the goal still needs and holds in accounts, by
+   * account (a surplus over the target is free money, so it is left out).
+   * reservedCashByAccount takes it as set aside.
+   */
+  heldCashByAccount?: Record<string, number>;
   /** Adjective of the current effective month, e.g. "szeptemberi". */
   monthAdjective: string;
   /** The projection already covers the target. */
@@ -780,7 +786,9 @@ function assignedValue(
  * ledger (`txs`), the credited coupons a goal picked (couponIds) are held
  * on their account too. With `withinDays`, only the goals due within that
  * many days of `day` count — the idle-cash alert uses it: money parked for a
- * far-off goal is still idle (it could sit in a DKJ until then).
+ * far-off goal is still idle (it could sit in a DKJ until then). With the
+ * goals' `progress`, the cash they hold without a pick (a matured payout,
+ * hold-window coupons) counts too, minus what they no longer need.
  */
 export function reservedCashByAccount(
   goals: SavingsGoal[],
@@ -788,6 +796,7 @@ export function reservedCashByAccount(
   txs: Transaction[] = [],
   fx: Record<string, number> = {},
   withinDays?: number,
+  progress?: SavingsProgress[],
 ): Map<string, number> {
   const out = new Map<string, number>();
   const add = (acc: string, huf: number) => out.set(acc, (out.get(acc) ?? 0) + huf);
@@ -808,6 +817,11 @@ export function reservedCashByAccount(
       const owner = d <= day ? couponOwner(goals, t.instrumentKey, d) : undefined;
       if (owner && ahead.includes(owner)) add(t.accountId, incomeHuf(t, fx));
     }
+  // With the goals' progress: the matured payout and hold-window coupons the
+  // goal still needs (heldCashByAccount) wait in the account too.
+  for (const p of progress ?? [])
+    if (ahead.some((g) => g.id === p.goal.id))
+      for (const [acc, huf] of Object.entries(p.heldCashByAccount ?? {})) if (huf > 0) add(acc, huf);
   return out;
 }
 
@@ -894,6 +908,17 @@ function holdCashFrom(
   return last > created ? last : created;
 }
 
+interface GoalCash {
+  cashHuf: number;
+  coupons: { day: string; huf: number }[];
+  /**
+   * The part of cashHuf that sits in an account without being picked (couponIds,
+   * which reservedCashByAccount holds on its own): the matured payout and the
+   * hold-window coupons, by account.
+   */
+  heldByAccount: Record<string, number>;
+}
+
 /**
  * Money that is already the goal's although it is not in a security:
  *  - the payout of its instruments that matured by the target date (the DKJ
@@ -910,10 +935,14 @@ function goalCash(
   txs: Transaction[],
   instruments: Map<string, Instrument>,
   fx: Record<string, number>,
-): Map<string, { cashHuf: number; coupons: { day: string; huf: number }[] }> {
-  const out = new Map<string, { cashHuf: number; coupons: { day: string; huf: number }[] }>(
-    goals.map((g) => [g.id, { cashHuf: 0, coupons: [] }]),
+): Map<string, GoalCash> {
+  const out = new Map<string, GoalCash>(
+    goals.map((g) => [g.id, { cashHuf: 0, coupons: [], heldByAccount: {} }]),
   );
+  const hold = (id: string, accountId: string, huf: number) => {
+    const o = out.get(id)!;
+    o.heldByAccount[accountId] = (o.heldByAccount[accountId] ?? 0) + huf;
+  };
   for (const g of goals) {
     const keys = new Set(g.instrumentKeys);
     const created = txDay(g.createdAt);
@@ -921,7 +950,9 @@ function goalCash(
     for (const t of txs) {
       if (t.type !== "redemption" || !t.instrumentKey || !keys.has(t.instrumentKey)) continue;
       const day = toLocalDay(dayMsOf(t.date));
-      if (day >= created && day <= target) out.get(g.id)!.cashHuf += incomeHuf(t, fx);
+      if (day < created || day > target) continue;
+      out.get(g.id)!.cashHuf += incomeHuf(t, fx);
+      hold(g.id, t.accountId, incomeHuf(t, fx));
     }
   }
   const windows = goals
@@ -953,6 +984,7 @@ function goalCash(
       const o = out.get(id)!;
       o.cashHuf += huf;
       o.coupons.push({ day, huf });
+      hold(id, t.accountId, huf);
     }
   }
   return out;
@@ -1152,6 +1184,7 @@ export function computeSavingsProgress(
       thisMonthNetHuf: netThisEffectiveMonth(goal, txs, instruments, fx, now) + reservedNowMonth,
       reservedHuf,
       autoCashHuf: cash.cashHuf,
+      heldCashByAccount: needHeldCash(cash.heldByAccount, surplusHuf),
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
       surplusHuf,
@@ -1174,6 +1207,22 @@ export function savingMonthDays(
   const targetMs = parseDateMs(p.goal.targetDate);
   const from = p.savingStartsOn ? new Date(parseDateMs(p.savingStartsOn)) : now;
   return [toLocalDay(from), ...paydayList(from, targetMs)];
+}
+
+/**
+ * The goal's cash in accounts (see GoalCash.heldByAccount) minus what the goal
+ * does not need: when its instruments and picked coupons already cover the
+ * target, that much of the cash is free money, not held (spread over the
+ * accounts in proportion).
+ */
+function needHeldCash(
+  held: Record<string, number>,
+  surplusHuf: number,
+): Record<string, number> | undefined {
+  const total = Object.values(held).reduce((a, b) => a + b, 0);
+  if (!(total > 0)) return undefined;
+  const keep = Math.max(0, total - surplusHuf) / total;
+  return Object.fromEntries(Object.entries(held).map(([id, huf]) => [id, huf * keep]));
 }
 
 /** One scheduled future coupon payment (the accounts holding the bond summed). */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Account, Transaction } from "./model";
 import { computePortfolio } from "./portfolio";
 import {
+  computeSavingsProgress,
   freeCashOf,
   reserveConflictAlerts,
   reserveConflicts,
@@ -88,6 +89,54 @@ describe("cash set aside is not free cash", () => {
     expect(idle(goal(), 40)).toHaveLength(0);
     expect(reservedCashByAccount([goal()], DAY, [], {}, 34).get("k")).toBe(550_000);
     expect(reservedCashByAccount([goal()], DAY, [], {}, 33).size).toBe(0);
+  });
+});
+
+describe("cash a goal holds without a pick (matured payout, hold-window coupon)", () => {
+  // A DKJ bought for the goal matured on 10-28 and paid its face into the
+  // account: the goal's money, until the goal's date.
+  const DKJ = { key: "dkj", name: "DKJ", type: "tbill" as const, currency: "HUF", faceValue: 1, maturity: "2026-10-28" };
+  const insts = new Map([[DKJ.key, DKJ]]);
+  const NOW = new Date("2026-10-29T12:00:00");
+  const day = "2026-10-29";
+  const txs: Transaction[] = [
+    ...TXS,
+    { id: "buy", accountId: "k", date: "2026-08-01", type: "buy", instrumentKey: DKJ.key, currency: "HUF", quantity: 500_000, grossAmount: 480_000, netAmount: -480_000 },
+    { id: "red", accountId: "k", date: "2026-10-28", type: "redemption", instrumentKey: DKJ.key, currency: "HUF", quantity: 500_000, grossAmount: 500_000, netAmount: 500_000 },
+  ];
+  const g = (targetHuf: number) =>
+    goal({ targetHuf, targetDate: "2026-11-01", instrumentKeys: [DKJ.key], reserves: [] });
+  const idle = (goals: SavingsGoal[]) => {
+    const progress = computeSavingsProgress(goals, [K], txs, insts, new Map(), {}, NOW);
+    const cash = computePortfolio([K], txs, insts, new Map(), {}, NOW);
+    const cfg = { ...DEFAULT_ALERT_CONFIG, idleCashHuf: 100_000 };
+    return {
+      reserved: reservedCashByAccount(goals, day, txs, {}, cfg.reserveGraceDays, progress).get("k") ?? 0,
+      alerts: computeAlerts(
+        cash,
+        cfg,
+        NOW,
+        txs,
+        reservedCashByAccount(goals, day, txs, {}, cfg.reserveGraceDays, progress),
+        reservedCashByAccount(goals, day, txs, {}, undefined, progress),
+      ).filter((a) => a.id.startsWith("idle-cash")),
+    };
+  };
+
+  it("the payout the goal still needs is set aside, not idle", () => {
+    const r = idle([g(1_000_000)]);
+    expect(r.reserved).toBe(500_000);
+    // 620 000 on the account (600 000 − 480 000 + 500 000) − 500 000 held.
+    expect(r.alerts[0].detail).toMatch(/^120\s000\sFt fekszik/);
+  });
+
+  it("only what the goal needs: a surplus over the target is free money", () => {
+    // Target 400 000 → 100 000 of the payout is surplus.
+    expect(idle([g(400_000)]).reserved).toBe(400_000);
+  });
+
+  it("without progress nothing changes", () => {
+    expect(reservedCashByAccount([g(1_000_000)], day, txs).size).toBe(0);
   });
 });
 

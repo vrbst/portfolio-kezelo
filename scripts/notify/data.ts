@@ -404,8 +404,8 @@ export function buildContext(input: ContextInput): Context {
       },
       undefined,
       transactions,
-      reservedCashByAccount(savingsGoals, day, [], {}, env.reserveGraceDays),
-      reserved,
+      reservedCashByAccount(savingsGoals, day, transactions, fx, env.reserveGraceDays, savings),
+      reservedCashByAccount(savingsGoals, day, transactions, fx, undefined, savings),
     ),
     ...goalAlerts(goalProgress),
     ...reminderAlerts(

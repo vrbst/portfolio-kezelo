@@ -353,7 +353,10 @@ export function useActiveAlerts(): Alert[] {
   const purchase = usePurchaseAccounts();
   const day = useToday();
   const accountCtx = useAccountContext();
-  const reserved = useReservedCash();
+  const { savings } = useMonthlyBudget();
+  // With the goals' progress: the cash they hold without a pick (a matured
+  // payout, coupons in the hold window) is set aside too.
+  const reserved = cachedReservedAlerts(savingsGoals, day, transactions, fx, undefined, savings);
   // Only goals due within the grace days keep their set-aside cash from
   // counting as idle.
   const reservedSoon = cachedReservedSoon(
@@ -362,6 +365,7 @@ export function useActiveAlerts(): Alert[] {
     transactions,
     fx,
     config.reserveGraceDays,
+    savings,
   );
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
@@ -515,6 +519,7 @@ export function useGlideState(versions: GlideConfig[]): AllocationState | null {
 
 const cachedReserved = sharedMemo(reservedCashByAccount);
 const cachedReservedSoon = sharedMemo(reservedCashByAccount);
+const cachedReservedAlerts = sharedMemo(reservedCashByAccount);
 
 /** Cash set aside for savings goals, per account (not free cash) — today. */
 export function useReservedCash(): Map<string, number> {
