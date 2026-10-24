@@ -305,6 +305,8 @@ export interface CashflowTotals {
   expense: number;
   /** Income left out of `income` (one-off sales, money back from investing): real money, just not regular. */
   excludedIncome: number;
+  /** Spending left out of `expense` (investing, one-off spending). */
+  excludedExpense: number;
   saving: number;
   /** saving / income; undefined without income. */
   rate?: number;
@@ -336,6 +338,7 @@ export function cashflowTotals(
       income,
       expense,
       excludedIncome: sumSide(m.incomeBy, "income", ex, "left"),
+      excludedExpense: sumSide(m.expenseBy, "expense", ex, "left"),
       saving: income - expense,
       rate: income > 0 ? (income - expense) / income : undefined,
       complete: isComplete(m),
@@ -355,6 +358,8 @@ export interface CashflowAverage {
   expense: number;
   /** Average of the income that is left out (see CashflowTotals). */
   excludedIncome: number;
+  /** Average of the spending that is left out. */
+  excludedExpense: number;
   saving: number;
   rate?: number;
 }
@@ -378,6 +383,7 @@ export function cashflowAverage(
     income,
     expense,
     excludedIncome: avg((t) => t.excludedIncome),
+    excludedExpense: avg((t) => t.excludedExpense),
     saving: income - expense,
     rate: income > 0 ? (income - expense) / income : undefined,
   };
@@ -525,8 +531,12 @@ export interface CashflowAiSummary {
   rate?: number;
   /** Saving over income in the last 3 complete months (the trend); undefined with fewer. */
   last3Rate?: number;
-  /** Income left out as one-off, monthly average. */
+  /** Income left out (interest, sales, one-off), monthly average. */
   excludedIncomeHuf: number;
+  /** Spending left out (booked as investing, one-off), monthly average. */
+  excludedExpenseHuf: number;
+  /** The running month so far (not in the averages): what came in and went out until `through`. */
+  current?: { month: string; incomeHuf: number; expenseHuf: number; savingHuf: number; through: string };
   reserve?: { months: number; targetHuf: number; heldHuf: number };
 }
 
@@ -549,6 +559,9 @@ export function cashflowAiSummary(
   if (!avg) return undefined;
   const last3 = monthsFrom(totals, settings.since).filter((t) => t.complete).slice(-3);
   const income3 = last3.reduce((s, t) => s + t.income, 0);
+  // The latest month, if the export has not reached its end yet (and it is in the current stage).
+  const lastTotal = totals[totals.length - 1];
+  const running = lastTotal && !lastTotal.complete && (!settings.since || lastTotal.month >= settings.since) ? lastTotal : undefined;
   const res = settings.reserveMonths ? emergencyReserve(summary, months, settings, goalHeld) : undefined;
   return {
     months: avg.months,
@@ -559,6 +572,18 @@ export function cashflowAiSummary(
     rate: avg.rate,
     last3Rate: last3.length === 3 && income3 > 0 ? last3.reduce((s, t) => s + t.saving, 0) / income3 : undefined,
     excludedIncomeHuf: avg.excludedIncome,
+    excludedExpenseHuf: avg.excludedExpense,
+    ...(running
+      ? {
+          current: {
+            month: running.month,
+            incomeHuf: running.income,
+            expenseHuf: running.expense,
+            savingHuf: running.saving,
+            through: months.find((m) => m.month === running.month)?.through ?? "",
+          },
+        }
+      : {}),
     ...(res?.target
       ? { reserve: { months: settings.reserveMonths!, targetHuf: res.target.target, heldHuf: res.held } }
       : {}),

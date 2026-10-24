@@ -114,3 +114,28 @@ describe("bot: the nightly AI analysis sees the cash flow as sums", () => {
     expect(analysisContext(contextAt([2026, 10, 14, 10]))).not.toContain("Pénzáramlás");
   });
 });
+
+describe("bot: the AI snapshot says what was left out and how the running month stands", () => {
+  it("the running month (without what is left out) is in the nightly snapshot", () => {
+    const ctx = contextAt([2026, 10, 14, 10], (s) => {
+      withCashflow("2026-10-02", "2026-09")(s);
+      const months = s.prefs!.cashflow!.value;
+      months.push({
+        month: "2026-10",
+        income: 600_000,
+        expense: 350_000,
+        incomeBy: { "Teszt-Fizetés": 600_000 },
+        expenseBy: { "Teszt-Lakás": 150_000, "Teszt-Élelmiszer": 100_000, "Teszt-Befektetés": 100_000 },
+        through: "2026-10-12",
+        importedAt: "2026-10-12T08:00:00.000Z",
+      });
+      s.prefs!.cashflowSettings = { updatedAt: "2026-10-12T08:00:00.000Z", value: { excluded: ["expense:Teszt-Befektetés"], remind: true } };
+    });
+    const text = analysisContext(ctx);
+    // 600 000 − (150 000 + 100 000) so far, the 100 000 investing is left out
+    expect(text).toMatch(/Folyó hónap \(2026-10, 2026-10-12-ig\): bevétel 600\s000 Ft, kiadás 250\s000 Ft, eddigi maradék 350\s000 Ft/);
+    // the excluded line comes from the closed months (none of them has investing here)
+    expect(text).not.toContain("Kizárt tételek");
+    expect(text).not.toContain("Teszt-Befektetés");
+  });
+});
