@@ -11,6 +11,7 @@ import {
   computeSavingsProgress,
   maturityDay,
   maturityFitsGoal,
+  reminderSettings,
   type CouponOption,
   type SavingsGoal,
 } from "../../lib/savings";
@@ -121,8 +122,7 @@ export default function GoalEditorDialog({
     targetDate: date,
     instrumentKeys: keys,
     includeCoupons: mode === "all",
-    monthlyReminder: keys.length > 0 && reminder ? true : undefined,
-    minDaysToMaturity: keys.length > 0 && reminder && minDays !== "" ? Number(minDays) : undefined,
+    ...reminderSettings(goal, keys.length > 0, reminder, minDays),
     unbuyableKeys: unbuyable.filter((k) => keys.includes(k)).length
       ? unbuyable.filter((k) => keys.includes(k))
       : undefined,
@@ -152,7 +152,7 @@ export default function GoalEditorDialog({
     );
     return p;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, amount, date, later, saveFrom, keys, unbuyable, mode, couponIds, goals, accounts, transactions, imap, prices, fx]);
+  }, [name, amount, date, later, saveFrom, keys, unbuyable, mode, couponIds, reminder, minDays, today, goals, accounts, transactions, imap, prices, fx]);
 
   // After a failed save the message follows the fields: it goes away once fixed.
   const shownError = tried ? validate() : "";

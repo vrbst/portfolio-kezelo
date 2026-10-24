@@ -4,6 +4,7 @@ import { computePortfolio } from "./portfolio";
 import {
   computeSavingsProgress,
   futureCouponOptions,
+  reminderSettings,
   savingsMonthStates,
   type SavingsGoal,
 } from "./savings";
@@ -152,6 +153,22 @@ describe("surplus", () => {
     const p = surplusOf(GOAL);
     expect(p.surplusHuf).toBe(0);
     expect(p.unneededCouponsHuf).toBe(0);
+  });
+});
+
+describe("reminderSettings", () => {
+  it("keeps the stored minimum days when the reminder is off or no instrument is left", () => {
+    const prev = { minDaysToMaturity: 60 };
+    expect(reminderSettings(prev, true, false, "30")).toEqual({ monthlyReminder: undefined, minDaysToMaturity: 60 });
+    expect(reminderSettings(prev, false, true, "30")).toEqual({ monthlyReminder: undefined, minDaysToMaturity: 60 });
+  });
+
+  it("an active reminder writes the entered days (empty = the default)", () => {
+    expect(reminderSettings({ minDaysToMaturity: 60 }, true, true, "45")).toEqual({
+      monthlyReminder: true,
+      minDaysToMaturity: 45,
+    });
+    expect(reminderSettings(undefined, true, true, "")).toEqual({ monthlyReminder: true, minDaysToMaturity: undefined });
   });
 });
 

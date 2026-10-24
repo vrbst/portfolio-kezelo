@@ -182,6 +182,24 @@ export function maturityFitsGoal(maturity: string, goal: SavingsGoal, buyDay: st
   return maturity > earliest && maturity <= goal.targetDate.slice(0, 10);
 }
 
+/**
+ * The reminder fields of an edited goal. Only an active reminder (with an
+ * instrument) writes the minimum days; otherwise the stored N is kept, so
+ * switching the reminder off and on again does not reset it to the default.
+ */
+export function reminderSettings(
+  prev: Pick<SavingsGoal, "minDaysToMaturity"> | undefined,
+  hasInstruments: boolean,
+  reminder: boolean,
+  minDays: string,
+): Pick<SavingsGoal, "monthlyReminder" | "minDaysToMaturity"> {
+  const on = hasInstruments && reminder;
+  return {
+    monthlyReminder: on ? true : undefined,
+    minDaysToMaturity: on ? (minDays !== "" ? Number(minDays) : undefined) : prev?.minDaysToMaturity,
+  };
+}
+
 const STORE_KEY = "pf-savings";
 
 export function loadSavingsGoals(): SavingsGoal[] {
@@ -1030,6 +1048,8 @@ export function computeSavingsProgress(
     const projectedHuf = assignedAtDate + couponsHuf;
     const targetHuf = goal.targetHuf;
     const gapHuf = Math.max(0, targetHuf - projectedHuf);
+    // Beyond the target without the "every free coupon" money (see SavingsProgress.surplusHuf).
+    const surplusHuf = Math.max(0, assignedAtDate + pickedCouponsHuf - targetHuf);
     const daysLeft = future ? Math.round((dateMs - nowMs) / 86_400_000) : 0;
 
     // Quota from the month-start position: replay the portfolio without this
@@ -1134,11 +1154,8 @@ export function computeSavingsProgress(
       autoCashHuf: cash.cashHuf,
       monthAdjective: `${effectiveMonthLabel(now).split(" ").pop()}i`,
       reached: gapHuf <= 0,
-      surplusHuf: Math.max(0, assignedAtDate + pickedCouponsHuf - targetHuf),
-      unneededCouponsHuf: Math.max(
-        0,
-        projectedHuf - targetHuf - Math.max(0, assignedAtDate + pickedCouponsHuf - targetHuf),
-      ),
+      surplusHuf,
+      unneededCouponsHuf: Math.max(0, projectedHuf - targetHuf - surplusHuf),
     };
   });
 }
