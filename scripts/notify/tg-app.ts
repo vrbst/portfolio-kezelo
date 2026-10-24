@@ -12,10 +12,13 @@
 //     (news/), /hirek sends the latest again, /hirkereses searches now.
 // What has been sent already lives in .notify/state.json (state.ts).
 
+import { execFile } from "node:child_process";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
 import { deadlineForJob } from "./jobDeadline";
+import { loadProfile } from "./profile";
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
 import {
@@ -171,6 +174,8 @@ export interface Deps {
   renderPng?: (svg: string) => Promise<Buffer>;
   /** Start one of our jobs at the hub now (it runs apart from this request). */
   runJob?: (job: string) => Promise<"started" | "running">;
+  /** The user's investment preferences (from the assistant) for the AI prompts; absent in tests. */
+  profile?: () => string;
 }
 
 export function defaultDeps(): Deps {
@@ -201,6 +206,7 @@ export function defaultDeps(): Deps {
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "news"),
       appUrl: env.appUrl,
+      profile: () => loadProfile(),
     }),
     analysis: () => ({
       // No tools: it reasons over the snapshot alone, nothing to look up.
@@ -213,6 +219,7 @@ export function defaultDeps(): Deps {
       }),
       store: repoStore(env.syncRepo, newsGithubToken),
       cacheDir: resolve(NOTIFY_DIR, "analysis"),
+      profile: () => loadProfile(),
     }),
     why: () =>
       engine({
@@ -230,6 +237,7 @@ export function defaultDeps(): Deps {
       }),
     aiUsageFile,
     runJob: hubRunJob,
+    profile: () => loadProfile(),
     fundamentals: () => {
       let session: ReturnType<typeof yahooFetcher> | undefined;
       return {
@@ -290,19 +298,55 @@ export function aiUsageRecord(job: string, model: string, run: EngineRun, at = n
   };
 }
 
-/** POST /v1/apps/{app}/jobs/{job}/run at the hub that started this process. */
-async function hubRunJob(job: string): Promise<"started" | "running"> {
-  const { TG_HUB_URL: url, TG_HUB_APP: app, TG_HUB_KEY: key } = process.env;
-  if (!url || !app || !key) throw new Error("A hírkeresés csak a tg-hubon keresztül indítható.");
-  const res = await fetch(`${url}/v1/apps/${app}/jobs/${job}/run`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (res.status === 409) return "running";
-  if (!res.ok) throw new Error(`A tg-hub nem indította el a keresést (HTTP ${res.status}).`);
-  return "started";
+/** I/O of starting a job (the tests swap it). */
+export interface RunJobIo {
+  fetch: typeof globalThis.fetch;
+  /** Runs the hub's CLI; rejects (with code / stdout / stderr) on a non-zero exit. */
+  execFile: (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 }
+
+const defaultRunJobIo: RunJobIo = {
+  fetch: (input, init) => fetch(input, init),
+  execFile: (file, args) => promisify(execFile)(file, args, { timeout: 20_000, windowsHide: true }),
+};
+
+/**
+ * Starts a tg-hub job of this app. Two ways, per ..\CONVENTIONS.md ("Telegram és ütemezés"):
+ *   • in a process the hub started: POST /v1/apps/{app}/jobs/{job}/run with the app's own key
+ *     (TG_HUB_URL / TG_HUB_APP / TG_HUB_KEY, which the hub hands to its own runs);
+ *   • in a manual run (the terminal, or the assistant's hub): the hub's CLI at TG_HUB_ROOT, which has
+ *     its own access — this process never sees the hub's keys.
+ */
+export async function runHubJob(
+  job: string,
+  env: NodeJS.ProcessEnv = process.env,
+  io: RunJobIo = defaultRunJobIo,
+): Promise<"started" | "running"> {
+  const { TG_HUB_URL: url, TG_HUB_APP: app, TG_HUB_KEY: key, TG_HUB_ROOT: root } = env;
+  if (url && app && key) {
+    const res = await io.fetch(`${url}/v1/apps/${app}/jobs/${job}/run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 409) return "running";
+    if (!res.ok) throw new Error(`A tg-hub nem indította el a keresést (HTTP ${res.status}).`);
+    return "started";
+  }
+  if (!root) throw new Error("A hírkeresés csak a tg-hubon keresztül indítható.");
+  try {
+    await io.execFile(process.execPath, [resolve(root, "src", "cli.ts"), "run-job", "--app", app || "portfolio", "--job", job]);
+    return "started";
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    const out = `${err.stderr ?? ""}${err.stdout ?? ""}`.trim();
+    if (/\(409\)/.test(out)) return "running"; // already running
+    throw new Error(`A tg-hub CLI nem indította el a keresést: ${out || err.message || String(e)}`, { cause: e });
+  }
+}
+
+/** POST /v1/apps/{app}/jobs/{job}/run at the hub that started this process (or via the hub's CLI). */
+const hubRunJob = (job: string) => runHubJob(job);
 
 const msg = (html: string, urgent = false): HubMessage => ({
   html,
@@ -1135,6 +1179,7 @@ async function whyMoved(deps: Deps): Promise<HubResponse> {
     weekday: new Date(y, m - 1, d).getDay(),
     factors: req.factors,
     exposure: req.exposure,
+    profile: deps.profile?.(),
   });
   const started = Date.now();
   let result: Awaited<ReturnType<typeof askWhy>>;

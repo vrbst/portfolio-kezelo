@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectForecast, type ForecastAssumptions, type PlannedExpense } from "./forecast";
+import { obligationSteps, projectForecast, type ForecastAssumptions, type PlannedExpense } from "./forecast";
 import type { PortfolioSummary } from "./portfolio";
 import { savingsGoalExpenses, type SavingsGoal, type SavingsProgress } from "./savings";
 
@@ -225,5 +225,80 @@ describe("forecast – bond dates stored as the instant of local midnight", () =
     const iso = projectForecast(withMaturity(new Date(2029, 11, 1).toISOString()), assume(), [], NOW);
     expect(iso.couponHuf).toBeCloseTo(bare.couponHuf);
     expect(at(iso, "2029-11").real).toBeCloseTo(at(bare, "2029-11").real);
+  });
+});
+
+describe("forecast – obligations that end free up their monthly amount", () => {
+  // 100 000 Ft a month saved; a 35 000 Ft instalment is paid up to and including 2027-05.
+  const steps = obligationSteps([{ id: "o", monthlyHuf: 35_000, endMonth: "2027-05" }], NOW);
+  const base = run([], { monthlySavingHuf: 100_000 });
+  const stepped = run([], { monthlySavingHuf: 100_000, savingSteps: steps });
+  const extra = (month: string) => at(stepped, month).contributed - at(base, month).contributed;
+
+  it("nothing changes up to the last paid month", () => {
+    expect(extra("2027-04")).toBe(0);
+    expect(extra("2027-05")).toBe(0);
+  });
+
+  it("from the month after it the amount is added every month", () => {
+    expect(extra("2027-06")).toBe(35_000);
+    expect(extra("2027-07")).toBe(70_000);
+    expect(extra("2027-12")).toBe(7 * 35_000);
+  });
+
+  it("two obligations step up one after the other", () => {
+    const two = obligationSteps(
+      [
+        { id: "a", monthlyHuf: 35_000, endMonth: "2027-05" },
+        { id: "b", monthlyHuf: 118_000, endMonth: "2027-07" },
+      ],
+      NOW,
+    );
+    const r = run([], { monthlySavingHuf: 100_000, savingSteps: two });
+    const d = (m: string) => at(r, m).contributed - at(base, m).contributed;
+    expect(d("2027-06")).toBe(35_000);
+    expect(d("2027-07")).toBe(70_000); // b is still paid
+    expect(d("2027-08")).toBe(70_000 + 35_000 + 118_000);
+  });
+
+  it("the yearly raise applies to the base saving only, the freed amount stays as it is", () => {
+    const g = run([], { monthlySavingHuf: 100_000, savingGrowth: 0.1, savingSteps: steps });
+    const b = run([], { monthlySavingHuf: 100_000, savingGrowth: 0.1 });
+    expect(at(g, "2027-06").contributed - at(b, "2027-06").contributed).toBe(35_000);
+  });
+
+  it("no savings while the withdrawal phase runs", () => {
+    const w = run([], {
+      monthlySavingHuf: 100_000,
+      savingSteps: steps,
+      withdrawal: { enabled: true, start: "2027-03", monthlyHuf: 10_000 },
+    });
+    const wb = run([], { monthlySavingHuf: 100_000, withdrawal: { enabled: true, start: "2027-03", monthlyHuf: 10_000 } });
+    expect(at(w, "2027-08").contributed).toBe(at(wb, "2027-08").contributed);
+  });
+});
+
+describe("obligationSteps", () => {
+  it("the month after the last paid one; a step per obligation", () => {
+    expect(obligationSteps([{ id: "o", monthlyHuf: 35_000, endMonth: "2027-05" }], NOW)).toEqual([
+      { fromMonth: "2027-06", monthlyHuf: 35_000 },
+    ]);
+    expect(obligationSteps([{ id: "o", monthlyHuf: 1, endMonth: "2027-12" }], NOW)[0].fromMonth).toBe("2028-01");
+  });
+
+  it("skips the ended, the empty and the malformed", () => {
+    const list = [
+      { id: "a", monthlyHuf: 35_000, endMonth: "2026-09" }, // already over
+      { id: "b", monthlyHuf: 0, endMonth: "2028-01" },
+      { id: "c", monthlyHuf: 10_000, endMonth: "jövőre" },
+      { id: "d", monthlyHuf: -5, endMonth: "2028-01" },
+    ];
+    expect(obligationSteps(list, NOW)).toEqual([]);
+  });
+
+  it("the current month's last payment still counts as paid (frees up from next month)", () => {
+    expect(obligationSteps([{ id: "o", monthlyHuf: 5_000, endMonth: "2026-10" }], NOW)).toEqual([
+      { fromMonth: "2026-11", monthlyHuf: 5_000 },
+    ]);
   });
 });

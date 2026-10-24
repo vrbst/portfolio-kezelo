@@ -223,6 +223,49 @@ export interface WithdrawalPlan {
   monthlyHuf: number;
 }
 
+/**
+ * A fixed monthly cost that ends — an instalment, a lease. Once it is paid off
+ * its amount is free to save, so the monthly saving steps up.
+ */
+export interface Obligation {
+  id: string;
+  /** Free label (e.g. "Autólízing"); stays on this device's settings, not sent anywhere. */
+  name?: string;
+  monthlyHuf: number;
+  /** "YYYY-MM": the LAST month it is paid. */
+  endMonth: string;
+}
+
+/** From `fromMonth` on, `monthlyHuf` more is saved every month. */
+export interface SavingStep {
+  fromMonth: string;
+  monthlyHuf: number;
+}
+
+const nextMonthKey = (month: string): string => {
+  const y = +month.slice(0, 4);
+  const m = +month.slice(5, 7);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+};
+
+/**
+ * The steps the obligations make: the month after the last payment. Ended,
+ * empty and malformed ones are left out; the current month's last payment
+ * still counts as paid.
+ */
+export function obligationSteps(list: Obligation[], now: Date = new Date()): SavingStep[] {
+  const cur = monthKey(now.getTime());
+  return list
+    .filter(
+      (o) =>
+        Number.isFinite(o.monthlyHuf) &&
+        o.monthlyHuf > 0 &&
+        /^\d{4}-(0[1-9]|1[0-2])$/.test(o.endMonth) &&
+        o.endMonth >= cur,
+    )
+    .map((o) => ({ fromMonth: nextMonthKey(o.endMonth), monthlyHuf: o.monthlyHuf }));
+}
+
 export interface ForecastAssumptions {
   /** Annual expected return for growth assets per scenario (fraction, e.g. 0.06). */
   annualReturn: Record<ScenarioKey, number>;
@@ -230,6 +273,8 @@ export interface ForecastAssumptions {
   monthlySavingHuf: number;
   /** Yearly raise of the monthly saving (fraction), applied every 12 months. */
   savingGrowth?: number;
+  /** Amounts that become free to save when an obligation ends (not raised yearly). */
+  savingSteps?: SavingStep[];
   /** Where bond coupons + matured principal are reinvested. */
   reinvestTarget: ReinvestTarget;
   /** Annual rate for the "bond" reinvest target (fraction). */
@@ -530,7 +575,8 @@ function prepareProjection(
     if (i < wStart) {
       // Raised every 12 months from now: months 1–12 at the base amount.
       saving[i] =
-        a.monthlySavingHuf * Math.pow(1 + g, Math.floor((i - 1) / 12));
+        a.monthlySavingHuf * Math.pow(1 + g, Math.floor((i - 1) / 12)) +
+        (a.savingSteps ?? []).reduce((sum, st) => (keys[i] >= st.fromMonth ? sum + st.monthlyHuf : sum), 0);
     } else {
       // Entered in today's forint, indexed yearly from now on.
       withdrawal[i] =
@@ -950,6 +996,8 @@ export interface ForecastSettings {
   monthlySavingOverride: number | null;
   /** Yearly raise of the monthly saving (fraction). */
   savingGrowth: number;
+  /** Known fixed costs that end: the saving steps up afterwards. */
+  obligations: Obligation[];
   annualReturn: Record<ScenarioKey, number>;
   /**
    * Where the growth return and σ come from: typed in by hand (default), or
@@ -984,6 +1032,7 @@ export interface ForecastSettings {
 export const DEFAULT_SETTINGS: ForecastSettings = {
   monthlySavingOverride: null,
   savingGrowth: 0,
+  obligations: [],
   annualReturn: { pess: 0.03, real: 0.06, opt: 0.09 },
   returnSource: "manual",
   reinvestTarget: "growth",
@@ -1024,6 +1073,12 @@ export function loadForecastSettings(): ForecastSettings {
         ...(parsed.withdrawal ?? {}),
       },
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      obligations: Array.isArray(parsed.obligations)
+        ? parsed.obligations.filter(
+            (o): o is Obligation =>
+              !!o && typeof o.id === "string" && Number.isFinite(o.monthlyHuf) && typeof o.endMonth === "string",
+          )
+        : [],
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -1180,6 +1235,7 @@ export function projectFromSettings(
     annualReturn: settings.annualReturn,
     monthlySavingHuf: monthly,
     savingGrowth: settings.savingGrowth,
+    savingSteps: obligationSteps(settings.obligations, now),
     reinvestTarget: settings.reinvestTarget,
     reinvestBondRate: settings.reinvestBondRate,
     months: settings.months,

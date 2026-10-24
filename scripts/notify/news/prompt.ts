@@ -11,6 +11,7 @@ import {
   type NewsIndexEntry,
 } from "../../../src/lib/newsSchema";
 import type { Context } from "../data";
+import { profileSection } from "../profile";
 
 const TYPE_LABEL: Record<string, string> = {
   etf: "ETF",
@@ -67,6 +68,8 @@ export interface PromptInput {
   exposure: string[];
   /** Recent digests (newest first), to continue from and not repeat. */
   previous: NewsIndexEntry[];
+  /** The user's investment preferences (from the assistant), if any. */
+  profile?: string;
 }
 
 export function buildNewsPrompt(p: PromptInput): string {
@@ -90,7 +93,7 @@ export function buildNewsPrompt(p: PromptInput): string {
 ${task}
 
 A portfólió (súlyok a teljes vagyonból):
-${p.exposure.join("\n")}
+${p.exposure.join("\n")}${profileSection(p.profile)}
 
 Témák, amiket mindig nézz meg:
 - Forint: EUR/HUF és USD/HUF mozgása és oka.

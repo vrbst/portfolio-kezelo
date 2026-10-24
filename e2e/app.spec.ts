@@ -485,6 +485,59 @@ test.describe("cash flow page (1Money)", () => {
   });
 });
 
+test.describe("obligations that end (Előrejelzés)", () => {
+  test("add one, it is listed with when it frees up, survives a reload, and can be removed", async ({ page }) => {
+    await openSeeded(page);
+    await show(page, "/forecast");
+    const box = page.getByTestId("obligations");
+    await expect(box).toContainText("Lejáró kötelezettségek");
+    await box.getByLabel("Kötelezettség neve").fill("Teszt-Lízing");
+    await box.getByLabel("Kötelezettség havi összege").fill("118000");
+    await box.getByLabel("Utolsó fizetés hónapja").fill("2029-04");
+    await box.getByRole("button", { name: "Kötelezettség hozzáadása" }).click();
+    const row = box.getByTestId("obligation");
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("Teszt-Lízing");
+    await expect(row).toContainText(/118\D000/);
+    await expect(row).toContainText("utolsó fizetés 2029. 04., 2029. 05.-tól szabad");
+
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByTestId("obligations").getByTestId("obligation")).toHaveCount(1);
+
+    await page.getByTestId("obligations").getByRole("button", { name: "Teszt-Lízing törlése" }).click();
+    await expect(page.getByTestId("obligations").getByTestId("obligation")).toHaveCount(0);
+  });
+
+  test("an ended one stays listed as over; the add button waits for a valid entry", async ({ page }) => {
+    await openSeeded(page);
+    await page.evaluate(() => {
+      localStorage.setItem("pf-forecast", JSON.stringify({ obligations: [{ id: "o1", name: "Teszt-Régi", monthlyHuf: 20000, endMonth: "2026-08" }] }));
+      localStorage.setItem("pf-forecast-updated", "2026-10-14T08:00:00.000Z");
+    });
+    await show(page, "/forecast");
+    const box = page.getByTestId("obligations");
+    await expect(box.getByTestId("obligation")).toContainText("lejárt");
+    await expect(box.getByRole("button", { name: "Kötelezettség hozzáadása" })).toBeDisabled();
+    await box.getByLabel("Kötelezettség havi összege").fill("5000");
+    await box.getByLabel("Utolsó fizetés hónapja").fill("2026-08"); // in the past
+    await expect(box.getByRole("button", { name: "Kötelezettség hozzáadása" })).toBeDisabled();
+    await box.getByLabel("Utolsó fizetés hónapja").fill("2027-02");
+    await expect(box.getByRole("button", { name: "Kötelezettség hozzáadása" })).toBeEnabled();
+  });
+
+  test("privacy mode: the name and the amount are hidden", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await page.evaluate(() => {
+      localStorage.setItem("pf-forecast", JSON.stringify({ obligations: [{ id: "o1", name: "Teszt-Lízing", monthlyHuf: 118000, endMonth: "2029-04" }] }));
+      localStorage.setItem("pf-forecast-updated", "2026-10-14T08:00:00.000Z");
+    });
+    await show(page, "/forecast");
+    await expect(page.getByTestId("obligation")).toBeVisible();
+    expect(await readableSecrets(page, ["Teszt-Lízing", ...savingsGoals().map((g) => g.name)])).toEqual([]);
+  });
+});
+
 test.describe("holdings: one table everywhere, details in a sheet", () => {
   test("a dashboard row opens the instrument sheet with the buys; Esc closes it", async ({ page }) => {
     await openSeeded(page);

@@ -175,3 +175,26 @@ describe("the AI context text", () => {
     expect(buildAiPortfolioContext(emptySummary, {}, returns, {})).not.toContain("Pénzáramlás");
   });
 });
+
+describe("the AI context: obligations that end", () => {
+  const returns = computeReturns([], [], new Map(), new Map(), {});
+  const ctx = (steps?: { fromMonth: string; monthlyHuf: number }[]) =>
+    buildAiPortfolioContext(emptySummary, {}, returns, {
+      forecast: { monthlySavingHuf: 169_000, milestones: [], shortfall: null, ...(steps ? { steps } : {}) },
+    });
+
+  it("lists the steps by amount and month — no names", () => {
+    const t = ctx([
+      { fromMonth: "2027-06", monthlyHuf: 35_000 },
+      { fromMonth: "2029-04", monthlyHuf: 118_000 },
+    ]);
+    expect(t).toMatch(/Lejáró kötelezettségek/);
+    expect(t).toMatch(/\+35\s000 Ft\/hó 2027-06-tól/);
+    expect(t).toMatch(/\+118\s000 Ft\/hó 2029-04-tól/);
+  });
+
+  it("without steps there is no such line", () => {
+    expect(ctx()).not.toContain("Lejáró kötelezettségek");
+    expect(ctx([])).not.toContain("Lejáró kötelezettségek");
+  });
+});

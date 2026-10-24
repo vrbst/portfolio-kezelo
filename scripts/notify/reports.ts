@@ -14,6 +14,7 @@ import {
   loadForecastSettings,
   loadForecastSnapshots,
   monthlyBudgetHuf,
+  obligationSteps,
   projectForecast,
   type PlannedExpense,
 } from "../../src/lib/forecast";
@@ -377,6 +378,7 @@ export function forecastFor(ctx: Context) {
       annualReturn: settings.annualReturn,
       monthlySavingHuf: monthly,
       savingGrowth: settings.savingGrowth,
+      savingSteps: obligationSteps(settings.obligations, ctx.at),
       reinvestTarget: settings.reinvestTarget,
       reinvestBondRate: settings.reinvestBondRate,
       months: Math.max(settings.months, 120),

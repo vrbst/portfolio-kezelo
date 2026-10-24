@@ -302,6 +302,8 @@ export interface AiContextExtras {
     monthlySavingHuf: number;
     milestones: { years: number; real: number; pess: number; opt: number }[];
     shortfall: string | null;
+    /** Fixed costs that end: from `fromMonth` the saving is `monthlyHuf` higher. */
+    steps?: { fromMonth: string; monthlyHuf: number }[];
     /** Where the yearly returns come from — only set when they are not the manual ones. */
     returns?: string;
   };
@@ -511,6 +513,10 @@ export function buildAiPortfolioContext(
       `Előrejelzés (az app Előrejelzés oldala, névleges Ft, havi ${huf(f.monthlySavingHuf)} Ft megtakarítással):`,
     );
     if (f.returns) lines.push(`- Hozam-feltevés: ${f.returns}`);
+    if (f.steps?.length)
+      lines.push(
+        `- Lejáró kötelezettségek (az előrejelzés ezeknél lépcsőzetesen emeli a megtakarítást): ${f.steps.map((s) => `+${huf(s.monthlyHuf)} Ft/hó ${s.fromMonth}-tól`).join(", ")}`,
+      );
     for (const m of f.milestones)
       lines.push(
         `- +${m.years} év: reális ${huf(m.real)} Ft (sáv ${huf(m.pess)}–${huf(m.opt)})`,

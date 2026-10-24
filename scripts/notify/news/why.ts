@@ -1,6 +1,7 @@
 import type { NewsEngine } from "./engine";
 import { extractJson } from "./job";
 import { esc, pct } from "../reports";
+import { profileSection } from "../profile";
 
 export interface WhyFactor {
   key: string;
@@ -93,6 +94,8 @@ export function buildWhyPrompt(p: {
   weekday: number;
   factors: WhyFactor[];
   exposure?: string[];
+  /** The user's investment preferences (from the assistant), if any. */
+  profile?: string;
 }): string {
   const lines = p.factors.map((f) => {
     const head = `- factor: "${f.key}" — `;
@@ -128,7 +131,7 @@ export function buildWhyPrompt(p: {
   return `Te egy magyar magánbefektető piaci hírszerkesztője vagy. Ma ${p.day}, ${WEEKDAYS[p.weekday]}.
 
 Az alábbi tételek ma szokatlanul nagyot mozdultak. Keress a weben, és tényezőnként 2–3 mondatban magyarázd el, mi mozgatta őket ma:
-${lines.join("\n")}${exposure}
+${lines.join("\n")}${exposure}${profileSection(p.profile)}
 
 Szabályok:
 - Minden fenti tényezőhöz pontosan egy elem, a "factor" mezőben a fenti azonosítóval.
