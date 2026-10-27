@@ -1,5 +1,5 @@
 import { Fragment, useMemo, type ReactNode } from "react";
-import { usePortfolio, useSavingsGoals } from "../lib/store";
+import { usePortfolio, useAllSavingsGoals } from "../lib/store";
 
 /** Alert ids that belong to a savings goal (their text names its instruments). */
 const SAVINGS_ALERT = /^savings-(goal|ok):/;
@@ -41,7 +41,7 @@ export default function PrivateText({
   /** Also blur the amounts in the text (a plain generated sentence). */
   amounts?: boolean;
 }) {
-  const goals = useSavingsGoals();
+  const goals = useAllSavingsGoals();
   const instruments = usePortfolio((s) => s.instruments);
   const pattern = useMemo(() => {
     const terms = new Set<string>();

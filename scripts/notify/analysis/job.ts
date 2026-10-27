@@ -19,7 +19,7 @@ import {
   type Analysis,
   type NightlyAnalysis,
 } from "../../../src/lib/aiAnalysis";
-import { loadSavingsGoals } from "../../../src/lib/savings";
+import { loadActiveSavingsGoals } from "../../../src/lib/savings";
 import { toLocalDay } from "../../../src/lib/day";
 import type { Context } from "../data";
 import type { NewsEngine } from "../news/engine";
@@ -50,7 +50,7 @@ export function analysisContext(ctx: Context): string {
     dayChange: ctx.dayChange,
     goals: ctx.goalProgress,
     alerts: ctx.alerts,
-    savingsGoals: loadSavingsGoals(),
+    savingsGoals: loadActiveSavingsGoals(),
     glide: ctx.glide,
     outlook: ctx.outlook,
     now: ctx.at,

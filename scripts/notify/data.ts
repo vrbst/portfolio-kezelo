@@ -47,7 +47,7 @@ import {
   reservedCashByAccount,
   reserveConflictAlerts,
   reserveConflicts,
-  loadSavingsGoals,
+  loadActiveSavingsGoals,
   savingsGoalAlerts,
   computeSavingsProgress,
   type SavingsProgress,
@@ -341,7 +341,7 @@ export function buildContext(input: ContextInput): Context {
 
   const goals = snapshot.goals ?? [];
   const goalProgress = computeGoalProgress(goals, transactions, instruments, fx);
-  const savingsGoals = loadSavingsGoals();
+  const savingsGoals = loadActiveSavingsGoals();
   const alertState: AlertState = snapshot.alertState ?? {};
   const deletedReminders = new Set(snapshot.deletedReminderIds ?? []);
   const glideVersions = loadGlideVersions();

@@ -9,7 +9,7 @@ import { addDaysIso, toLocalDay, todayLocal, txDay } from "../../src/lib/day";
 import { latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
 import { liveGlideVersions } from "../../src/lib/flowPath";
 import { checkDays, positionsFromSummary, weightHistory } from "../../src/lib/rebalance";
-import { reservedCashByAccount, loadSavingsGoals } from "../../src/lib/savings";
+import { reservedCashByAccount, loadActiveSavingsGoals } from "../../src/lib/savings";
 import { summariesOnDays } from "../../src/lib/series";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import {
@@ -470,7 +470,7 @@ function glideChart(ctx: Context, o: ChartOptions): ChartData {
     history: ctx.history,
     summary: ctx.summary,
     today,
-    reserved: reservedCashByAccount(loadSavingsGoals(), today, ctx.transactions, ctx.fx, undefined, ctx.savings),
+    reserved: reservedCashByAccount(loadActiveSavingsGoals(), today, ctx.transactions, ctx.fx, undefined, ctx.savings),
   });
   const first = ctx.transactions.reduce((m, t) => (t.date < m ? t.date : m), ctx.transactions[0].date);
   // Month starts over the whole ledger history, then today at live prices.

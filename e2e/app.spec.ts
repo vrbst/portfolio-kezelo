@@ -879,6 +879,30 @@ test.describe("medium-term goals (Középtávú célok)", () => {
     expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
   });
 
+  test("a goal is closed after confirmation: it drops to the end, dimmed", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/goals");
+    const first = savingsGoals()[0].name;
+    const cards = page.locator("main div.rounded-xl.border.p-3");
+    const before = await cards.count();
+    await page.getByRole("button", { name: "Cél lezárása" }).first().click();
+    // Nothing happens until the confirmation.
+    await expect(page.getByText("Lezárva", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Mégse" }).first().click();
+    await page.getByRole("button", { name: "Cél lezárása" }).first().click();
+    await page.getByRole("button", { name: "Lezárás", exact: true }).click();
+    await expect(page.getByText("Lezárva", { exact: true })).toHaveCount(1);
+    await expect(cards).toHaveCount(before);
+    const last = cards.last();
+    await expect(last).toContainText(first);
+    await expect(last).toContainText("Lezárva");
+    await expect(last).toHaveCSS("opacity", /^0.[45]/);
+    // It can be reopened.
+    await last.getByRole("button", { name: "Cél újranyitása" }).click();
+    await expect(page.getByText("Lezárva", { exact: true })).toHaveCount(0);
+    expect(errors, "console / page errors").toEqual([]);
+  });
+
   test("the schedule popup shows the chart and the planned amounts", async ({ page }) => {
     const errors = await openSeeded(page);
     await show(page, "/goals");

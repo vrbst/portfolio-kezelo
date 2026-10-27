@@ -7,16 +7,19 @@ import {
   computeSavingsProgress,
   savingsMonthStates,
   loadSavingsGoals,
+  activeGoals,
   saveSavingsGoals,
   reserveConflicts,
   futureCouponOptions,
   type SavingsGoal,
 } from "../lib/savings";
 import GoalCard from "./savings/GoalCard";
+import ClosedGoalCard from "./savings/ClosedGoalCard";
 import GoalEditorDialog, { type EditorSection } from "./savings/GoalEditorDialog";
 import GoalScheduleDialog from "./savings/GoalScheduleDialog";
 import { PREFS_EVENT } from "../lib/prefs";
 import { Card } from "./ui";
+import { todayLocal } from "../lib/day";
 
 /**
  * Medium-term savings goals: a dated target amount backed by assigned
@@ -50,31 +53,35 @@ export default function SavingsTargets() {
     saveSavingsGoals(next);
   }
 
+  // Closed goals take no part in any calculation.
+  const open = useMemo(() => activeGoals(goals), [goals]);
+  const closed = useMemo(() => goals.filter((g) => g.closedAt), [goals]);
+
   const progress = useMemo(() => {
     const map = new Map(instruments.map((i) => [i.key, i]));
     return computeSavingsProgress(
-      goals,
+      open,
       accounts,
       transactions,
       map,
       prices,
       fx,
     );
-  }, [goals, accounts, transactions, instruments, prices, fx]);
+  }, [open, accounts, transactions, instruments, prices, fx]);
   // This month's remaining quota per goal — the Havi terv's own figure.
   const planHuf = useMemo(() => {
     const map = new Map(instruments.map((i) => [i.key, i]));
     return new Map(
-      savingsMonthStates(goals, accounts, transactions, map, prices, fx).map(
+      savingsMonthStates(open, accounts, transactions, map, prices, fx).map(
         (s) => [s.goalId, s.planHuf],
       ),
     );
-  }, [goals, accounts, transactions, instruments, prices, fx]);
+  }, [open, accounts, transactions, instruments, prices, fx]);
 
   // Buys that may have been paid from a goal's set-aside cash.
   const conflicts = useMemo(
-    () => reserveConflicts(goals, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
-    [goals, transactions, instruments, fx],
+    () => reserveConflicts(open, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
+    [open, transactions, instruments, fx],
   );
 
   // Instruments available to assign — everything currently held, name + value.
@@ -108,6 +115,16 @@ export default function SavingsTargets() {
   function remove(id: string) {
     persist(goals.filter((g) => g.id !== id));
   }
+  function closeGoal(id: string) {
+    update(id, { closedAt: todayLocal() });
+  }
+  function reopenGoal(id: string) {
+    persist(goals.map((g) => {
+      if (g.id !== id) return g;
+      const { closedAt: _closed, ...rest } = g;
+      return rest;
+    }));
+  }
   function saveGoal(goal: SavingsGoal) {
     persist(
       goals.some((g) => g.id === goal.id)
@@ -134,7 +151,7 @@ export default function SavingsTargets() {
         </button>
       </div>
 
-      {progress.length === 0 ? (
+      {progress.length === 0 && closed.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-muted)]">
           Még nincs középtávú cél. Vegyél fel egyet (pl. autó, nyaralás): célösszeg, dátum, és hogy
           melyik eszköz fedezi — az app kiszámolja a havi félretételt.
@@ -157,7 +174,11 @@ export default function SavingsTargets() {
               onSchedule={() => setScheduleId(p.goal.id)}
               onUpdate={update}
               onRemove={remove}
+              onClose={closeGoal}
             />
+          ))}
+          {closed.map((g) => (
+            <ClosedGoalCard key={g.id} goal={g} onReopen={reopenGoal} onRemove={remove} />
           ))}
         </div>
       )}
@@ -165,7 +186,7 @@ export default function SavingsTargets() {
       {editing && (editing.id === "new" || editedGoal) && (
         <GoalEditorDialog
           goal={editedGoal}
-          goals={goals}
+          goals={open}
           holdings={holdings}
           coupons={coupons}
           nameOf={nameOf}
@@ -178,7 +199,7 @@ export default function SavingsTargets() {
         <GoalScheduleDialog
           progress={scheduled}
           planHuf={planHuf.get(scheduled.goal.id) ?? 0}
-          goals={goals}
+          goals={open}
           coupons={coupons}
           onClose={() => setScheduleId(null)}
         />

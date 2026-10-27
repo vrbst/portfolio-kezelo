@@ -27,6 +27,7 @@ import { PREFS_EVENT } from "./prefs";
 import {
   computeSavingsProgress,
   loadSavingsGoals,
+  activeGoals,
   savingsGoalAlerts,
   type SavingsGoal,
   type SavingsProgress,
@@ -310,7 +311,7 @@ const cachedAlerts = sharedMemo(
  * them reactively so alerts recompute when a goal is added/edited (local) or
  * arrives from another device (remote). Both fire PREFS_EVENT.
  */
-export function useSavingsGoals(): SavingsGoal[] {
+export function useAllSavingsGoals(): SavingsGoal[] {
   const [goals, setGoals] = useState<SavingsGoal[]>(loadSavingsGoals);
   useEffect(() => {
     const on = () => setGoals(loadSavingsGoals());
@@ -318,6 +319,12 @@ export function useSavingsGoals(): SavingsGoal[] {
     return () => window.removeEventListener(PREFS_EVENT, on);
   }, []);
   return goals;
+}
+
+/** The goals still open — closed ones take no part in alerts or plans. */
+export function useSavingsGoals(): SavingsGoal[] {
+  const all = useAllSavingsGoals();
+  return useMemo(() => activeGoals(all), [all]);
 }
 
 export function useGoalNamesByInstrument(): Map<string, string[]> {

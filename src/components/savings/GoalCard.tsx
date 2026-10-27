@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BellRing, CalendarClock, ChartLine, Coins, Pencil, Trash2, Wallet } from "lucide-react";
+import { BellRing, CalendarClock, ChartLine, CircleCheck, Coins, Pencil, Trash2, Wallet } from "lucide-react";
 import InfoTip from "../InfoTip";
 import GoalReserves from "../GoalReserves";
 import { Badge } from "../ui";
@@ -31,6 +31,7 @@ export default function GoalCard({
   onSchedule,
   onUpdate,
   onRemove,
+  onClose,
 }: {
   progress: SavingsProgress;
   /** This month's remaining quota (savingsMonthStates — the Havi terv's figure). */
@@ -42,11 +43,14 @@ export default function GoalCard({
   onSchedule: () => void;
   onUpdate: (id: string, patch: Partial<SavingsGoal>) => void;
   onRemove: (id: string) => void;
+  /** Close the goal by hand (achieved or given up): it drops to the end, dimmed. */
+  onClose: (id: string) => void;
 }) {
   const g = p.goal;
   const instruments = useValuedInstruments();
   const today = useToday();
   const [confirming, setConfirming] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [showReserves, setShowReserves] = useState(false);
 
   const expired = p.daysLeft <= 0;
@@ -108,6 +112,25 @@ export default function GoalCard({
           >
             <Pencil className="h-4 w-4" />
           </button>
+          {confirmingClose ? (
+            <span className="flex items-center gap-1 text-xs">
+              <button className="text-[var(--color-brand)] underline" onClick={() => onClose(g.id)}>
+                Lezárás
+              </button>
+              <button className="text-[var(--color-muted)] underline" onClick={() => setConfirmingClose(false)}>
+                Mégse
+              </button>
+            </span>
+          ) : (
+            <button
+              className="text-[var(--color-muted)] hover:text-[var(--color-positive)]"
+              onClick={() => setConfirmingClose(true)}
+              title="Cél lezárása (teljesült vagy elengedted)"
+              aria-label="Cél lezárása"
+            >
+              <CircleCheck className="h-4 w-4" />
+            </button>
+          )}
           {confirming ? (
             <span className="flex items-center gap-1 text-xs">
               <button className="text-[var(--color-negative)] underline" onClick={() => onRemove(g.id)}>
