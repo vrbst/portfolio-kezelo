@@ -27,6 +27,7 @@ export default function Import() {
   const [done, setDone] = useState<{
     added: number;
     skipped: number;
+    fixed: number;
     cashflowMonths: number;
     droppedSkips: number;
   } | null>(null);
@@ -35,16 +36,21 @@ export default function Import() {
   // The same rule importParsed applies (matchExisting): a parsed row is
   // "existing" when the store holds the same transaction — a same-id but
   // different one is a hash collision and still gets imported.
-  const existingRows = useMemo(() => {
-    if (!preview) return new Set<Transaction>();
-    const { isNew } = matchExisting(
+  const { existingRows, fixedCount } = useMemo(() => {
+    if (!preview) return { existingRows: new Set<Transaction>(), fixedCount: 0 };
+    const { isNew, upgraded } = matchExisting(
       preview.transactions,
       new Map(transactions.map((t) => [t.id, t])),
     );
-    return new Set(preview.transactions.filter((_, i) => !isNew[i]));
+    return {
+      existingRows: new Set(preview.transactions.filter((_, i) => !isNew[i])),
+      fixedCount: upgraded.length,
+    };
   }, [preview, transactions]);
   const isExisting = (t: Transaction) => existingRows.has(t);
   const existingCount = existingRows.size;
+  // Stored rows the import rewrites (e.g. a maturity once booked as interest):
+  // not new, but there is something to do.
   const newCount = preview ? preview.transactions.length - existingCount : 0;
 
   // 1Money export: monthly sums, saved apart from the transactions.
@@ -72,7 +78,8 @@ export default function Import() {
     const incoming = new Set(cf.items.map((i) => i.id));
     return have.size !== incoming.size || [...incoming].some((id) => !have.has(id));
   }, [preview, localItems]);
-  const nothingToImport = newCount === 0 && cfToSave === 0 && !itemsDiffer;
+  const nothingToImport =
+    newCount === 0 && fixedCount === 0 && cfToSave === 0 && !itemsDiffer;
 
   // New transactions first, so the rows that will actually be imported are the
   // ones visible in the (truncated) preview table.
@@ -181,6 +188,7 @@ export default function Import() {
               <div className="font-medium">Sikeres importálás</div>
               <div className="text-sm text-[var(--color-muted)]">
                 {done.added} új tranzakció hozzáadva
+                {done.fixed > 0 && `, ${done.fixed} tétel javítva (lejárat: kamatból beváltás)`}
                 {done.skipped > 0 &&
                   `, ${done.skipped} már létezett (kihagyva)`}
                 {done.cashflowMonths > 0 &&
@@ -350,6 +358,7 @@ export default function Import() {
                 ? "Nincs új importálandó"
                 : [
                     newCount > 0 && `${newCount} új tranzakció`,
+                    fixedCount > 0 && `${fixedCount} tétel javítása`,
                     cfToSave > 0 && `${cfToSave} hónap pénzáramlása`,
                     cfToSave === 0 && itemsDiffer && "1Money-tételek",
                   ]

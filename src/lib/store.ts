@@ -149,6 +149,8 @@ interface PortfolioState {
   importParsed: (parsed: ParsedImport) => Promise<{
     added: number;
     skipped: number;
+    /** Stored rows rewritten (a maturity once booked as interest). */
+    fixed: number;
   }>;
   updateAccount: (id: string, patch: Partial<Account>) => Promise<void>;
   /** Account tombstones (id -> deletedAt), synced so a delete propagates. */
@@ -654,7 +656,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
       void get().refreshPrices();
       void get().refreshHistory();
     }
-    return { added: newTxs.length, skipped };
+    return { added: newTxs.length, skipped: skipped - upgraded.length, fixed: upgraded.length };
   },
 
   updateAccount: async (id, patch) => {
