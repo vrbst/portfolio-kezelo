@@ -19,11 +19,33 @@ export function matchExisting(
   skipped: number;
   /** Per parsed row (same order): will it be imported? */
   isNew: boolean[];
+  /** Stored rows to overwrite (same id): see the maturity case below. */
+  upgraded: Transaction[];
 } {
   const newTxs: Transaction[] = [];
   const isNew: boolean[] = [];
+  const upgraded: Transaction[] = [];
   const claimed = new Map<string, Transaction>();
   for (const t of parsed) {
+    // Older imports booked a discount bill's maturity („Esedékesség fizetés") as
+    // interest. The fixed parser says redemption — under a new id, since the type
+    // is part of the hash — so re-importing would add it next to the wrong row.
+    // Rewrite the stored one instead (same statement reference, so same row).
+    if (t.type === "redemption" && t.reference) {
+      const wrong = [...existing.values()].find(
+        (e) =>
+          e.type === "interest" &&
+          e.reference === t.reference &&
+          e.accountId === t.accountId &&
+          e.instrumentKey === t.instrumentKey &&
+          e.date === t.date,
+      );
+      if (wrong && !existing.has(t.id)) {
+        upgraded.push({ ...wrong, type: "redemption" });
+        isNew.push(false);
+        continue;
+      }
+    }
     let id = t.id;
     for (;;) {
       const prev = existing.get(id) ?? claimed.get(id);
@@ -41,7 +63,7 @@ export function matchExisting(
       id = `${id}~x`;
     }
   }
-  return { newTxs, skipped: parsed.length - newTxs.length, isNew };
+  return { newTxs, skipped: parsed.length - newTxs.length, isNew, upgraded };
 }
 
 /** Two rows with the same id but identical content = the same statement row. */

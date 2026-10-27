@@ -135,6 +135,9 @@ describe("parseTreasury", () => {
     ["12345678", "ÁPSZ", "Kamatfizetés", "T4", "Fix Magyar Állampapír 2030/I", "Teljesült", "", 65_000, "HUF", "2026.03.16.", 0],
     ["12345678", "ÁPSZ", "Beváltás", "T5", "Diszkont Kincstárjegy D261118", "Teljesült", 1_000_000, 1_000_000, "HUF", "2026.11.18.", ""],
     ["12345678", "ÁPSZ", "Ismeretlen", "T6", "MAGYAR FORINT", "Teljesült", "", 1, "HUF", "2026.11.19.", ""],
+    // A DKJ lejáratát a kincstár „Esedékesség fizetés"-ként exportálja: tőke, nem kamat.
+    ["12345678", "ÁPSZ", "Esedékesség fizetés", "T7", "Diszkont Kincstárjegy D261118", "Teljesült", 1_000_000, 1_000_000, "HUF", "2026.11.18.", ""],
+    ["12345678", "ÁPSZ", "Esedékesség fizetés", "T8", "Fix Magyar Állampapír 2030/I", "Teljesült", 5_000_000, 87_500, "HUF", "2026.11.18.", 0],
   ];
 
   for (const [lang, headers] of [["English", EN], ["Hungarian", HU]] as const) {
@@ -147,6 +150,8 @@ describe("parseTreasury", () => {
         ["buy", -960_200, false, "2026-03-03"],
         ["interest", 65_000, false, "2026-03-16"],
         ["redemption", 1_000_000, false, "2026-11-18"],
+        ["redemption", 1_000_000, false, "2026-11-18"],
+        ["interest", 87_500, false, "2026-11-18"],
       ]);
       const dkj = out.instruments.find((i) => i.name.includes("D261118"))!;
       expect(dkj).toMatchObject({ type: "tbill", maturity: "2026-11-18", faceValue: 1 });

@@ -111,7 +111,7 @@ export function parseTreasury(
 
   for (const r of rows) {
     const rawType = String(field(r, "Transaction type") ?? "").trim();
-    const type = TYPE_MAP[rawType.toLowerCase()];
+    let type = TYPE_MAP[rawType.toLowerCase()];
     if (!type) {
       out.warnings.push(
         `${fileName}: ismeretlen tranzakciótípus „${rawType}".`,
@@ -149,6 +149,9 @@ export function parseTreasury(
         };
         instruments.set(key, instrument);
       }
+      // A discount bill's maturity comes as „Esedékesség fizetés" too, but it is
+      // the principal coming back, not interest: it must close the position.
+      if (type === "interest" && instrument.type === "tbill") type = "redemption";
     }
 
     // Sign convention for net cash: inflows positive, outflows negative.
