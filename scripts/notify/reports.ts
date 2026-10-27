@@ -58,7 +58,7 @@ import {
   type LeftoverNeeds,
 } from "../../src/lib/leftover";
 import { effectiveMonthLabel } from "../../src/lib/goals";
-import { loadSavingsGoals } from "../../src/lib/savings";
+import { loadActiveSavingsGoals } from "../../src/lib/savings";
 import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
 import type { NightlyAnalysis } from "../../src/lib/aiAnalysis";
@@ -364,7 +364,7 @@ export function forecastFor(ctx: Context) {
   const settings = effectiveForecastSettings(stored, estimate);
   const detected = detectRecurringSavings(ctx.transactions, ctx.fx, ctx.at);
   const monthly = settings.monthlySavingOverride ?? detected.monthlyHuf;
-  const goalExpenses: PlannedExpense[] = loadSavingsGoals()
+  const goalExpenses: PlannedExpense[] = loadActiveSavingsGoals()
     .filter((g) => /^\d{4}-\d{2}-\d{2}/.test(g.targetDate) && g.targetHuf > 0)
     .map((g) => ({
       id: `goal:${g.id}`,
@@ -690,7 +690,7 @@ export function planReminderText(ctx: Context): string | null {
 
 function monthlyPlanOf(ctx: Context): MonthlyPlan {
   const needs = computePlanNeeds({
-    savingsGoals: loadSavingsGoals(),
+    savingsGoals: loadActiveSavingsGoals(),
     dcaGoals: ctx.snapshot.goals ?? [],
     accounts: ctx.snapshot.accounts,
     transactions: ctx.transactions,
@@ -728,7 +728,7 @@ function liveReminders(ctx: Context) {
 
 function leftoverOf(ctx: Context): { ln: LeftoverNeeds; budgetHuf: number } {
   const ln = leftoverNeeds({
-    savingsGoals: loadSavingsGoals(),
+    savingsGoals: loadActiveSavingsGoals(),
     dcaGoals: ctx.snapshot.goals ?? [],
     accounts: ctx.snapshot.accounts,
     transactions: ctx.transactions,

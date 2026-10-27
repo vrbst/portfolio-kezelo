@@ -112,6 +112,17 @@ export interface SavingsGoal {
    * from now.
    */
   saveFrom?: string;
+  /**
+   * YYYY-MM-DD: the goal was closed by hand (achieved or given up). A closed
+   * goal is kept in the list (dimmed, last) but takes no part in any
+   * calculation, reminder or plan — see {@link activeGoals}.
+   */
+  closedAt?: string;
+}
+
+/** The goals still being worked on (not closed). */
+export function activeGoals(goals: SavingsGoal[]): SavingsGoal[] {
+  return goals.filter((g) => !g.closedAt);
 }
 
 /** Cash set aside for a savings goal. */
@@ -211,6 +222,11 @@ export function loadSavingsGoals(): SavingsGoal[] {
   } catch {
     return [];
   }
+}
+
+/** The stored goals without the closed ones — what every calculation uses. */
+export function loadActiveSavingsGoals(): SavingsGoal[] {
+  return activeGoals(loadSavingsGoals());
 }
 
 export function saveSavingsGoals(goals: SavingsGoal[]) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Instrument, Transaction } from "./model";
 import {
+  activeGoals,
   buyState,
   computeSavingsProgress,
   holdCashAdvice,
@@ -500,5 +501,21 @@ describe("savings goal – a later saving start (saveFrom)", () => {
     expect(prog({ ...plain, saveFrom: "2026-10-20" }, "2026-10-05").monthlyNeededHuf).toBeCloseTo(
       prog(plain, "2026-10-05").monthlyNeededHuf,
     );
+  });
+});
+
+describe("closed goals", () => {
+  it("activeGoals drops the goals closed by hand", () => {
+    const open: SavingsGoal = {
+      id: "a",
+      name: "Nyitott",
+      targetHuf: 1,
+      targetDate: "2030-01-01",
+      instrumentKeys: [],
+      includeCoupons: false,
+      createdAt: "2026-01-01",
+    };
+    const closed: SavingsGoal = { ...open, id: "b", name: "Lezárt", closedAt: "2026-10-27" };
+    expect(activeGoals([closed, open]).map((g) => g.id)).toEqual(["a"]);
   });
 });

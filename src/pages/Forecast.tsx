@@ -59,7 +59,7 @@ import ForecastChart, {
   type PastForecast,
 } from "../components/ForecastChart";
 import type { ValuePoint } from "../lib/portfolio";
-import { loadSavingsGoals, savingsGoalExpenses } from "../lib/savings";
+import { loadActiveSavingsGoals, savingsGoalExpenses } from "../lib/savings";
 import {
   PageHeader,
   Card,
@@ -252,9 +252,9 @@ export default function Forecast() {
   // Medium-term goals become planned expenses on their target date: the goal
   // amount leaves the portfolio then (a planned purchase). Reloaded on any pref
   // change so adding/editing a goal updates the projection immediately.
-  const [savingsGoals, setSavingsGoals] = useState(loadSavingsGoals);
+  const [savingsGoals, setSavingsGoals] = useState(loadActiveSavingsGoals);
   useEffect(() => {
-    const onPrefs = () => setSavingsGoals(loadSavingsGoals());
+    const onPrefs = () => setSavingsGoals(loadActiveSavingsGoals());
     window.addEventListener(PREFS_EVENT, onPrefs);
     return () => window.removeEventListener(PREFS_EVENT, onPrefs);
   }, []);
