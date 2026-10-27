@@ -579,7 +579,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     const state = get();
     // A same-id but different stored transaction is a hash collision, not a
     // duplicate — matchExisting keeps such a row under a suffixed id.
-    const { newTxs, skipped } = matchExisting(
+    const { newTxs, skipped, upgraded } = matchExisting(
       parsed.transactions,
       new Map(state.transactions.map((t) => [t.id, t])),
     );
@@ -633,17 +633,21 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
     }
     const instruments = [...instrumentByKey.values()];
 
-    const transactions = [...state.transactions, ...newTxs];
+    const upgradedById = new Map(upgraded.map((t) => [t.id, t]));
+    const transactions = [
+      ...state.transactions.map((t) => upgradedById.get(t.id) ?? t),
+      ...newTxs,
+    ];
     const fx = { ...deriveFx(transactions), ...state.fx };
 
     await Promise.all([
       db.accounts.bulkPut(accounts),
       db.instruments.bulkPut(instruments),
-      db.transactions.bulkPut(newTxs),
+      db.transactions.bulkPut([...upgraded, ...newTxs]),
     ]);
 
     set({ accounts, instruments, transactions, fx });
-    if (newTxs.length > 0 || instrumentsChanged) scheduleAutoSync(set, get);
+    if (newTxs.length > 0 || upgraded.length > 0 || instrumentsChanged) scheduleAutoSync(set, get);
     // A newly seen security has no live quote or chart history yet — fetch
     // them now instead of waiting for the next 5-minute poll.
     if (newInstruments) {
