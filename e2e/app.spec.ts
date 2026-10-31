@@ -120,14 +120,28 @@ async function show(page: Page, path: string) {
   await expect(page.locator("main")).toBeVisible();
   // The page has faded in: the page wrappers Motion fades (inline opacity,
   // near the top of <main>) are fully opaque. Deeper ones may pulse forever.
-  await page.waitForFunction(
-    () =>
-      [...document.querySelectorAll<HTMLElement>("main, main > *, main > * > *, main > * > * > *")]
-        .filter((e) => e.style.opacity !== "")
-        .every((e) => getComputedStyle(e).opacity === "1"),
-    null,
-    { timeout: 10_000 },
-  );
+  //
+  // The fade's opacity runs on the document timeline (WAAPI), which only moves
+  // with rendered frames. On a loaded machine headless Chromium renders so few
+  // that a 0.28 s fade was seen still at its start after 10 s (the JS-driven
+  // `y` long done). So after a grace period the still running FINITE
+  // animations of these wrappers are finished; an element stuck at 0 without
+  // any animation (a real bug) still fails.
+  await page
+    .waitForFunction(fadedIn, false, { timeout: 2_000 })
+    .catch(() => page.waitForFunction(fadedIn, true, { timeout: 8_000 }));
+}
+
+/** Runs in the page: whether the page wrappers are opaque; `finishNow` fast-forwards their finite animations first. */
+function fadedIn(finishNow: boolean) {
+  const pending = [
+    ...document.querySelectorAll<HTMLElement>("main, main > *, main > * > *, main > * > * > *"),
+  ].filter((e) => e.style.opacity !== "" && getComputedStyle(e).opacity !== "1");
+  if (finishNow)
+    for (const e of pending)
+      for (const a of e.getAnimations())
+        if (Number.isFinite(a.effect?.getComputedTiming().endTime ?? Infinity)) a.finish();
+  return pending.length === 0;
 }
 
 /** A fresh load of a page, without waiting for its fade-in (see the news tests). */
