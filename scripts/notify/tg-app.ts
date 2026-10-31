@@ -51,16 +51,19 @@ import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, assetKey, digestAssets, type DigestAsset, type NewsEdition } from "../../src/lib/newsSchema";
 import { CHART_PREFIX, chartButtons, chartCaption, chartCard, chartMenuText, chartTargets, chartText, findTarget, type ChartTarget } from "./chart";
 import { chartSvg, svgToPng } from "./chartImage";
-import { loadContext, withGlideAlerts, type Context } from "./data";
+import { loadContext, withGlideAlerts, withTimeout, type Context } from "./data";
 import { loadState, updateState, type EventSlot, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import {
+  fetchSymbolQuote,
+  findSymbolQuote,
   intradaySwing,
   quotedToday,
   resolveYahooSymbol,
   type LiveQuote,
+  type SymbolQuote,
 } from "../../src/lib/prices";
 import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
 import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
@@ -102,7 +105,7 @@ import {
   weeklyText,
   yearlyText,
 } from "./reports";
-import { priceAlertCommand, priceAlertMessages } from "./priceAlerts";
+import { externalAlertPrices, externalQuery, priceAlertCommand, priceAlertMessages } from "./priceAlerts";
 import { goalMilestoneMessages, stalePriceMessage, wealthEvents } from "./watch";
 import { effectiveMonthKey } from "../../src/lib/goals";
 import {
@@ -184,6 +187,14 @@ export interface Deps {
   runJob?: (job: string) => Promise<"started" | "running">;
   /** The user's investment preferences (from the assistant) for the AI prompts; absent in tests. */
   profile?: () => string;
+  /**
+   * Quotes of securities outside the portfolio (price alerts): `find` a typed
+   * ticker or name, `quote` a stored symbol. Absent: only the portfolio's.
+   */
+  symbols?: {
+    find: (query: string) => Promise<SymbolQuote | null>;
+    quote: (symbol: string) => Promise<SymbolQuote | null>;
+  };
 }
 
 export function defaultDeps(): Deps {
@@ -205,6 +216,10 @@ export function defaultDeps(): Deps {
     load: () => loadContext(env, aiUsageFile),
     stateFile: resolve(NOTIFY_DIR, "state.json"),
     env,
+    symbols: {
+      find: (q) => withTimeout(findSymbolQuote(q), 15_000, null),
+      quote: (s) => withTimeout(fetchSymbolQuote(s), 15_000, null),
+    },
     bindRequest: (req) => {
       call.runId = req.id;
       call.deadline = req.type === "job" ? deadlineForJob(req.job, Date.now()) : undefined;
@@ -596,13 +611,24 @@ async function chartMessage(
 async function priceAlerts(args: string, deps: Deps): Promise<HubResponse> {
   const ctx = await contextFor(deps);
   if (typeof ctx === "string") return fail(ctx);
+  // Outside the portfolio: the new ticker and the set ones' prices from Yahoo
+  // (before the state lock, the lookups take a while).
+  const query = deps.symbols && externalQuery(ctx, args);
+  const external = query ? await deps.symbols!.find(query) : null;
+  await withAlertPrices(ctx, loadState(deps.stateFile), deps);
   let html = "";
   updateState(deps.stateFile, (cur) => {
-    const r = priceAlertCommand(ctx, args, cur.priceAlerts ?? []);
+    const r = priceAlertCommand(ctx, args, cur.priceAlerts ?? [], external);
     html = r.html;
     return { ...cur, priceAlerts: r.alerts };
   });
   return { v: 1, messages: [msg(html)] };
+}
+
+/** ctx.alertPrices: the live prices of the set alerts on securities outside the portfolio. */
+async function withAlertPrices(ctx: Context, st: State, deps: Deps) {
+  if (deps.symbols && st.priceAlerts?.some((a) => a.symbol))
+    ctx.alertPrices = await externalAlertPrices(st.priceAlerts, deps.symbols.quote);
 }
 
 // ---- the news digest ------------------------------------------------------
@@ -1085,6 +1111,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile);
   delete st.loadFailingSince;
   const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
+  await withAlertPrices(ctx, st, deps);
   const asked = st.why?.request?.at;
   const messages = tickMessages(ctx, st, deps.env);
   const kept = new Set((st.priceAlerts ?? []).map((a) => a.id));

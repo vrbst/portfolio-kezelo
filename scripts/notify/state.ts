@@ -84,6 +84,8 @@ export interface PriceAlert {
   label: string;
   currency: string;
   fx: boolean;
+  /** Yahoo symbol of a security the portfolio doesn't hold (key = `yahoo:<symbol>`). */
+  symbol?: string;
   op: "below" | "above";
   level: number;
   createdAt: string;

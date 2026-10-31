@@ -84,7 +84,7 @@
     },
     {
       "name": "riasztas",
-      "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett)"
+      "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett, /riasztas NVDA 150 alatt)"
     },
     {
       "name": "koltseg",

@@ -436,6 +436,33 @@ async function searchYahooSymbol(isin: string): Promise<string | null> {
   }
 }
 
+/** A quote of a Yahoo symbol the portfolio need not hold (price alerts). */
+export interface SymbolQuote {
+  symbol: string;
+  price: number;
+  currency?: string;
+  name?: string;
+}
+
+/** The live price of exactly this Yahoo symbol, or null. */
+export async function fetchSymbolQuote(symbol: string): Promise<SymbolQuote | null> {
+  const q = await fetchYahooQuote(symbol);
+  return q ? { symbol, price: q.price, currency: q.currency, name: q.name } : null;
+}
+
+/**
+ * A ticker as typed (NVDA, ASML.AS, BTC-USD), else Yahoo search's best
+ * security for it (a name or an ISIN), quoted; null if neither has a price.
+ */
+export async function findSymbolQuote(query: string): Promise<SymbolQuote | null> {
+  const q = query.trim().toUpperCase();
+  if (!q) return null;
+  const direct = /^[A-Z0-9^][A-Z0-9.^=-]*$/.test(q) ? await fetchSymbolQuote(q) : null;
+  if (direct) return direct;
+  const found = await searchYahooSymbol(query.trim());
+  return found ? fetchSymbolQuote(found) : null;
+}
+
 /** Other listings of an ISIN (Yahoo search), cached per session. */
 const altSymbolCache = new Map<string, string[]>();
 
