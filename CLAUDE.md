@@ -37,3 +37,17 @@
 ## Tesztadat
 - Csak a kitalált portfólió (`src/test/fixture.ts`) — valódi adatot (CSV,
   XLS, szinkron-mentés) soha ne tegyél a repóba.
+
+## Az asszisztens-nézet (HTML-popup az asszisztens hubjában)
+- A nézetet a `scripts/notify/assistantView.ts` állítja elő (`portfolioViewHtml(ctx, appUrl)`: ugyanaz a `Context`, mint a Telegram-riportoké),
+  a `tg-app.ts` `assistant_view` parancsa adja `{ view: { html, title } }` alakban. A leíró az `asszisztens.app.json` (`reads`, `view`, `actions`);
+  a parancs szándékosan nincs a `tg-hub.app.json`-ban, Telegramon nem érhető el.
+- **A szerződés** (mi engedélyezett, stílusváltozók, `data-act` / `data-open` / `data-refresh`): `..\asszisztens\docs\app-view.md`. Röviden: csak HTML +
+  CSS + inline SVG; nincs `<script>`, eseménykezelő, külső kép / betűtípus / URL, `<iframe>`, `<form>`. A védelmet az asszisztens CSP-je kényszeríti ki,
+  de a nézet maga is tartsa be (a teszt ellenőrzi). Grafikon = szerveroldalon rajzolt SVG.
+- Minden szöveg, ami adatból jön (papírnevek, célnevek, címek), `esc()`-en át kerül a HTML-be.
+- A gombok a leíró `actions` listájából valók: a `data-act` értéke egy létező művelet azonosítója (a külső hatásúhoz az asszisztens megerősítést kér).
+  Új művelethez előbb az `asszisztens.app.json`, aztán a parancs a kezelőben, és a teszt (`assistantView.test.ts`) összeveti a kettőt.
+- A nézet gyorsítótárazott (`freshFor`, `refreshOn: ["tick"]`): az első megnyitás egy teljes kontextus-betöltés (~4–5 mp).
+- Változtatás után: `npm run lint && npm test && npx tsc -b`; a nézetet az asszisztens popupjában (P) kell megnézni, a UI-szervert nem kell újraindítani
+  (a nézetet kérésenként kapja), csak ha a leíró (`asszisztens.app.json`) változott.
