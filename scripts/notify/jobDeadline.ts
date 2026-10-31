@@ -1,5 +1,5 @@
 // When may an AI call of a tg-hub job still START? The tg-hub kills a job at
-// its `timeout` (tg-hub.app.json); a call that begins too late would be cut
+// its `timeout` (schedule.app.json); a call that begins too late would be cut
 // off mid-run (the hub still runs it and burns quota, the answer is lost). So
 // every call gets a deadline: the job's start + its timeout − the longest a
 // call runs − a safety margin. The hub answers deadline_missed past it.
@@ -32,7 +32,7 @@ export const DEADLINE_JOBS = [
 ] as const;
 
 /** A job's `timeout` in the descriptor, ms. */
-export function jobTimeoutMs(job: string, descriptor = resolve(ROOT, "tg-hub.app.json")): number | undefined {
+export function jobTimeoutMs(job: string, descriptor = resolve(ROOT, "schedule.app.json")): number | undefined {
   try {
     const d = JSON.parse(readFileSync(descriptor, "utf8")) as { jobs?: { id?: string; timeout?: string }[] };
     return parseDuration(d.jobs?.find((j) => j.id === job)?.timeout);
@@ -41,7 +41,7 @@ export function jobTimeoutMs(job: string, descriptor = resolve(ROOT, "tg-hub.app
   }
 }
 
-/** The latest moment a call of the job may start so it still ends before the tg-hub stops the job. */
+/** The latest moment a call of the job may start so it still ends before the scheduler stops the job. */
 export function jobDeadline(startedAt: number, jobTimeout: number): Date {
   return new Date(startedAt + jobTimeout - ENGINE_TIMEOUT_MS - DEADLINE_MARGIN_MS);
 }

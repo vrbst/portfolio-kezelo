@@ -1119,9 +1119,9 @@ describe("outlook jobs", () => {
   });
 });
 
-describe("tg-hub.app.json: the outlook jobs", () => {
+describe("schedule.app.json: the outlook jobs", () => {
   it("the weekly AI run is on Saturday before 08:00, its retry after, and the retry may catch up on Sunday", () => {
-    const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {
+    const app = JSON.parse(readFileSync(resolve(ROOT, "schedule.app.json"), "utf8")) as {
       jobs: { id: string; at?: string; days?: string[]; catchUp?: string; catchUpWindow?: string }[];
     };
     const job = (id: string) => app.jobs.find((j) => j.id === id)!;
@@ -1151,9 +1151,9 @@ describe("the hub request binds the AI calls' run_id", () => {
   });
 });
 
-describe("tg-hub.app.json: the analysis job", () => {
+describe("schedule.app.json: the analysis job", () => {
   it("runs Tuesday to Saturday in the small hours (Monday's would be Sunday night's)", () => {
-    const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {
+    const app = JSON.parse(readFileSync(resolve(ROOT, "schedule.app.json"), "utf8")) as {
       jobs: { id: string; at?: string; days?: string[] }[];
     };
     const job = app.jobs.find((j) => j.id === "analysis")!;

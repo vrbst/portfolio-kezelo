@@ -311,18 +311,19 @@ const defaultRunJobIo: RunJobIo = {
 };
 
 /**
- * Starts a tg-hub job of this app. Two ways, per ..\CONVENTIONS.md ("Telegram és ütemezés"):
- *   • in a process the hub started: POST /v1/apps/{app}/jobs/{job}/run with the app's own key
- *     (TG_HUB_URL / TG_HUB_APP / TG_HUB_KEY, which the hub hands to its own runs);
- *   • in a manual run (the terminal, or the assistant's hub): the hub's CLI at TG_HUB_ROOT, which has
- *     its own access — this process never sees the hub's keys.
+ * Starts a job of this app in the scheduler (..\scheduler). Two ways, per ..\CONVENTIONS.md ("Telegram és ütemezés"):
+ *   • in a process the scheduler started (a job): POST /v1/apps/{app}/jobs/{job}/run with the app's own key
+ *     (SCHED_URL / SCHED_APP / SCHED_KEY, which the scheduler hands to its own runs);
+ *   • anywhere else (a Telegram command the tg-hub started, the terminal, the assistant's hub): the scheduler's CLI at
+ *     SCHEDULER_ROOT (default: the sibling ..\scheduler), which has its own access — this process never sees
+ *     the scheduler's keys.
  */
-export async function runHubJob(
+export async function runSchedulerJob(
   job: string,
   env: NodeJS.ProcessEnv = process.env,
   io: RunJobIo = defaultRunJobIo,
 ): Promise<"started" | "running"> {
-  const { TG_HUB_URL: url, TG_HUB_APP: app, TG_HUB_KEY: key, TG_HUB_ROOT: root } = env;
+  const { SCHED_URL: url, SCHED_APP: app, SCHED_KEY: key } = env;
   if (url && app && key) {
     const res = await io.fetch(`${url}/v1/apps/${app}/jobs/${job}/run`, {
       method: "POST",
@@ -330,23 +331,23 @@ export async function runHubJob(
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status === 409) return "running";
-    if (!res.ok) throw new Error(`A tg-hub nem indította el a keresést (HTTP ${res.status}).`);
+    if (!res.ok) throw new Error(`Az ütemező nem indította el a keresést (HTTP ${res.status}).`);
     return "started";
   }
-  if (!root) throw new Error("A hírkeresés csak a tg-hubon keresztül indítható.");
+  const root = env.SCHEDULER_ROOT || resolve(process.cwd(), "..", "scheduler");
   try {
     await io.execFile(process.execPath, [resolve(root, "src", "cli.ts"), "run-job", "--app", app || "portfolio", "--job", job]);
     return "started";
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
     const out = `${err.stderr ?? ""}${err.stdout ?? ""}`.trim();
-    if (/\(409\)/.test(out)) return "running"; // already running
-    throw new Error(`A tg-hub CLI nem indította el a keresést: ${out || err.message || String(e)}`, { cause: e });
+    if (/\b409\b/.test(out)) return "running"; // already running
+    throw new Error(`Az ütemező CLI nem indította el a keresést: ${out || err.message || String(e)}`, { cause: e });
   }
 }
 
-/** POST /v1/apps/{app}/jobs/{job}/run at the hub that started this process (or via the hub's CLI). */
-const hubRunJob = (job: string) => runHubJob(job);
+/** Starts the job in the scheduler (HTTP inside a scheduler run, else its CLI). */
+const hubRunJob = (job: string) => runSchedulerJob(job);
 
 const msg = (html: string, urgent = false): HubMessage => ({
   html,
