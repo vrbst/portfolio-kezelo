@@ -161,7 +161,9 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   befizetésektől függetlenül, az összes eredményből) és a visszatérés a
   csúcsra; a hónap 10-étől a Havi terv még hiányzó tételei; saját ár- és
   árfolyamriasztás (`/riasztas VWCE 100 alatt`, `/riasztas EUR 400 felett`,
-  `/riasztas torol 1`; teljesülés után törlődik); január 1-jén éves zárás;
+  `/riasztas torol 1`; teljesülés után törlődik; portfólión kívüli papírra
+  Yahoo-tickerrel is, pl. `/riasztas NVDA 150 alatt`, ennek árát a figyelés
+  minden futáskor a Yahoo-ról kéri le); január 1-jén éves zárás;
   május 20-ig szja-emlékeztető a TBSZ-en kívüli számlák előző évi
   jövedelméről; és ha egy tartott papírnak 7+ napja nincs új ára.
 - **AI-felhasználás a botban** – minden AI-futás (reggeli és esti hírek,

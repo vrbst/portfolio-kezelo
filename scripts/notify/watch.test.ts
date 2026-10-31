@@ -189,6 +189,51 @@ describe("/riasztas", () => {
     expect(html(await call(tickReq(), depsFor(at)))).toEqual([]);
   });
 
+  describe("a security outside the portfolio", () => {
+    const yahoo = (prices: Record<string, number>, asked: string[] = []): Deps["symbols"] => ({
+      find: async (q) => {
+        asked.push(q);
+        const symbol = q.toUpperCase();
+        return prices[symbol] ? { symbol, price: prices[symbol], currency: "USD", name: "NVIDIA Corporation" } : null;
+      },
+      quote: async (s) => (prices[s] ? { symbol: s, price: prices[s], currency: "USD" } : null),
+    });
+    const withYahoo = (prices: Record<string, number>, asked?: string[]): Deps => ({
+      ...depsFor(() => contextAt(WED)),
+      symbols: yahoo(prices, asked),
+    });
+
+    it("is set from Yahoo, listed with its live price, fires on the tick", async () => {
+      expect(html(await call(commandReq("riasztas", "nvda 150 alatt"), withYahoo({ NVDA: 180.5 })))[0]).toBe(
+        "🔔 Rendben: szólok, ha a(z) NVDA (NVIDIA Corporation) 150,00 USD alá megy (most 180,50 USD).",
+      );
+      expect(readState().priceAlerts).toEqual([
+        expect.objectContaining({ key: "yahoo:NVDA", symbol: "NVDA", label: "NVDA", currency: "USD", fx: false }),
+      ]);
+      expect(html(await call(commandReq("riasztas"), withYahoo({ NVDA: 170 })))[0]).toContain(
+        "1. NVDA 150,00 USD alá (most 170,00 USD)",
+      );
+      // No quote this time: kept, not fired.
+      expect(html(await call(tickReq(), withYahoo({}))).join("\n")).not.toContain("NVDA");
+      expect(readState().priceAlerts).toHaveLength(1);
+      const r = await call(tickReq(), withYahoo({ NVDA: 149 }));
+      expect(html(r)).toEqual([expect.stringContaining("🔔 <b>NVDA 150,00 USD alá ment</b>: most 149,00 USD")]);
+      expect(readState().priceAlerts).toEqual([]);
+    });
+
+    it("is refused when already true or unknown to Yahoo; the portfolio's papers are not looked up", async () => {
+      const asked: string[] = [];
+      expect(html(await call(commandReq("riasztas", "NVDA 200 alatt"), withYahoo({ NVDA: 180 }, asked)))[0]).toContain(
+        "már most is teljesül: NVDA most 180,00 USD",
+      );
+      expect(html(await call(commandReq("riasztas", "XYZ 5 alatt"), withYahoo({}, asked)))[0]).toContain("Nem ismerem");
+      await call(commandReq("riasztas", "VWCE 150 alatt"), withYahoo({}, asked));
+      await call(commandReq("riasztas", "EUR 400 felett"), withYahoo({}, asked));
+      expect(asked).toEqual(["NVDA", "XYZ"]);
+      expect(readState().priceAlerts!.map((a) => a.label)).toEqual(["VWCE", "EUR/HUF"]);
+    });
+  });
+
   it("an alert set while the tick was loading survives the tick", async () => {
     const deps: Deps = {
       ...depsFor(() => contextAt(WED)),
