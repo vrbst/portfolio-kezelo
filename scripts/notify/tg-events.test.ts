@@ -566,11 +566,12 @@ describe("/bejelentesek", () => {
   });
 });
 
-describe("tg-hub.app.json", () => {
-  const app = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as {
-    commands: { name: string }[];
+describe("tg-hub.app.json + schedule.app.json", () => {
+  const tg = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as { commands: { name: string }[] };
+  const sched = JSON.parse(readFileSync(resolve(ROOT, "schedule.app.json"), "utf8")) as {
     jobs: { id: string; every?: string; timeout?: string }[];
   };
+  const app = { commands: tg.commands, jobs: sched.jobs };
 
   it("has the news-event job (a retry and catch-up every 15 minutes) and the command", () => {
     expect(app.jobs.find((j) => j.id === "news-event")).toMatchObject({ every: "15m", timeout: "25m" });
