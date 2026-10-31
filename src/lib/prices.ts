@@ -107,6 +107,7 @@ export function saveSymbolOverride(isin: string, symbol: string) {
     /* ignore */
   }
   resolvedCache.delete(isin); // re-resolve with the new override next refresh
+  saveResolved(isin, null);
   touchPref("symbols");
 }
 
@@ -114,13 +115,56 @@ export function saveSymbolOverride(isin: string, symbol: string) {
 // search at most once per ISIN per session.
 const resolvedCache = new Map<string, string | null>();
 
+// The found symbols also survive in localStorage (device-local, not synced), so
+// a start does not wait for a Yahoo search round trip per held security.
+const RESOLVED_KEY = "portfolio.resolvedSymbols";
+const RESOLVED_TTL_MS = 30 * 24 * 3600 * 1000;
+
+function loadResolved(): Record<string, { symbol: string; at: number }> {
+  try {
+    const raw = localStorage.getItem(RESOLVED_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveResolved(isin: string, symbol: string | null) {
+  try {
+    const map = loadResolved();
+    if (symbol) map[isin] = { symbol, at: Date.now() };
+    else delete map[isin];
+    localStorage.setItem(RESOLVED_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+function storedResolved(isin: string): string | undefined {
+  const e = loadResolved()[isin];
+  return e && Date.now() - e.at < RESOLVED_TTL_MS ? e.symbol : undefined;
+}
+
 // Overrides pulled from another device must take effect on the next refresh.
 if (typeof window !== "undefined") {
   window.addEventListener(PREFS_EVENT, (e) => {
-    if ((e as CustomEvent<{ source?: string }>).detail?.source === "remote")
+    if ((e as CustomEvent<{ source?: string }>).detail?.source === "remote") {
       resolvedCache.clear();
+      try {
+        localStorage.removeItem(RESOLVED_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
   });
 }
+
+/** No hung proxy/Yahoo call may hold a whole refresh back. */
+const FETCH_TIMEOUT_MS = 15_000;
+const noStore = (): RequestInit => ({
+  cache: "no-store",
+  signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+});
 
 /**
  * Why the price is another listing's: `pre` — the primary has not opened yet
@@ -313,7 +357,7 @@ async function fetchYahooQuote(symbol: string): Promise<YahooQuote | null> {
           symbol,
         )}?range=2d&interval=5m`,
       ),
-      { cache: "no-store" },
+      noStore(),
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {
@@ -415,7 +459,7 @@ async function searchYahooSymbol(isin: string): Promise<string | null> {
           isin,
         )}&quotesCount=8&newsCount=0`,
       ),
-      { cache: "no-store" },
+      noStore(),
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {
@@ -450,7 +494,7 @@ async function searchAltSymbols(isin: string): Promise<string[]> {
           isin,
         )}&quotesCount=10&newsCount=0`,
       ),
-      { cache: "no-store" },
+      noStore(),
     );
     if (res.ok) {
       const data = (await res.json()) as {
@@ -722,11 +766,14 @@ async function resolveSymbol(
     CURATED_SYMBOLS[t.isin] ??
     CURATED_SYMBOLS[t.key];
   if (trusted) return { symbol: trusted, trusted: true };
-  let symbol = resolvedCache.get(t.isin);
+  let symbol = resolvedCache.has(t.isin)
+    ? resolvedCache.get(t.isin)
+    : storedResolved(t.isin);
   if (symbol === undefined) {
     symbol = await searchYahooSymbol(t.isin);
-    resolvedCache.set(t.isin, symbol);
+    if (symbol) saveResolved(t.isin, symbol);
   }
+  resolvedCache.set(t.isin, symbol);
   return symbol ? { symbol, trusted: false } : null;
 }
 
@@ -734,8 +781,14 @@ export async function resolveYahooSymbol(t: LivePriceTarget): Promise<string | n
   return (await resolveSymbol(t, loadSymbolOverrides()))?.symbol ?? null;
 }
 
+/**
+ * `onQuote` gets each quote as soon as its primary listing answered (a copy,
+ * before the off-hours cross-check), so callers can show prices without
+ * waiting for the slowest security.
+ */
 export async function fetchLivePrices(
   targets: LivePriceTarget[],
+  onQuote?: (key: string, quote: LiveQuote) => void,
 ): Promise<Record<string, LiveQuote>> {
   const overrides = loadSymbolOverrides();
   const results = await Promise.all(
@@ -759,7 +812,9 @@ export async function fetchLivePrices(
           live.intradayFrom = proxy;
         }
       }
+      onQuote?.(t.key, { ...live });
       await applyOffHours(t, r.symbol, live, new Date());
+      if (live.offHours) onQuote?.(t.key, { ...live });
       return [t.key, live] as const;
     }),
   );
@@ -780,7 +835,7 @@ async function fetchYahooHistory(
           symbol,
         )}?range=${range}&interval=1d`,
       ),
-      { cache: "no-store" },
+      noStore(),
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {

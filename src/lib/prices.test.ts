@@ -239,6 +239,79 @@ describe("off-hours stand-in listing", () => {
     expect(calls2.filter((c) => c.includes("AAA.MU") || c.includes("/search"))).toHaveLength(0);
   });
 
+  it("onQuote hands over the primary price before the off-hours cross-check", async () => {
+    const seen: { price: number; offHours: boolean }[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      const target = new URL(url).searchParams.get("url")!;
+      if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }] }) };
+      if (!target.includes("AAA.DE") && !target.includes("AAA.MU")) return { ok: false, json: async () => ({}) };
+      const json = target.includes("AAA.DE") ? chart(170.94, "XETRA", now.getTime() - 20 * 3_600_000) : chart(171.16, "Munich", today(8, 52), "EUR", undefined, 4);
+      return { ok: true, json: async () => json };
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    try {
+      const isin = "IE00ONQUOTE0";
+      const out = await fetchLivePrices([{ key: isin, isin, currency: "EUR" }], (_k, q) =>
+        seen.push({ price: q.price, offHours: !!q.offHours }),
+      );
+      expect(seen).toEqual([
+        { price: 170.94, offHours: false },
+        { price: 171.16, offHours: true },
+      ]);
+      expect(out[isin].price).toBe(171.16);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a symbol found once is not searched again after a restart", async () => {
+    const isin = "IE00PERSIST0";
+    const calls: string[] = [];
+    const store = new Map<string, string>();
+    // unstubAllGlobals (after each fetch stub) drops this too: re-apply it
+    const stubStorage = () =>
+      vi.stubGlobal("localStorage", {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      });
+    const run = async () => {
+      stubStorage();
+      vi.stubGlobal("fetch", async (url: string) => {
+        const target = new URL(url).searchParams.get("url")!;
+        calls.push(target);
+        if (target.includes("/search")) return { ok: true, json: async () => ({ quotes: [{ symbol: "AAA.DE", quoteType: "ETF" }] }) };
+        return { ok: true, json: async () => chart(170.94, "XETRA", now.getTime(), "EUR", [now.getTime() - 3_600_000, now.getTime() + 3_600_000]) };
+      });
+      try {
+        await fetchLivePrices([{ key: isin, isin, currency: "EUR" }]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    };
+    await run();
+    expect(calls.filter((c) => c.includes("quotesCount=8"))).toHaveLength(1);
+    // a new session: the in-memory cache is gone, only localStorage remains
+    vi.resetModules();
+    const fresh = await import("./prices");
+    calls.length = 0;
+    stubStorage();
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(new URL(url).searchParams.get("url")!);
+      return { ok: true, json: async () => chart(170.94, "XETRA", now.getTime(), "EUR", [now.getTime() - 3_600_000, now.getTime() + 3_600_000]) };
+    });
+    try {
+      await fresh.fetchLivePrices([{ key: isin, isin, currency: "EUR" }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls.filter((c) => c.includes("quotesCount=8"))).toHaveLength(0);
+    expect(calls.some((c) => c.includes("AAA.DE"))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
   it("on the weekend Friday evening's venue price stays, still Friday's move", async () => {
     const sat = new Date(2026, 9, 17, 9, 11);
     const q = await load(sat, "IE00PRE0000Y", undefined, new Date(2026, 9, 16, 20, 0).getTime());
