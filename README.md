@@ -199,7 +199,7 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   `MY_CLAUDE_HUB_KEY` (`npm run hub -- keygen portfolio` a hub mappájában).
   Közvetlen `claude -p` visszaesés nincs (2026-10-17-én kivezetve): ha a hub
   nem érhető el, a hívás hibával megáll, és a következő futás pótolja. Az időablakos jobok (`news-*`, `analysis`, `outlook-ai*`) hívásai
-  határidőt kapnak: a `tg-hub.app.json`-beli job-timeout mínusz 12 perc futás
+  határidőt kapnak: a `schedule.app.json`-beli job-timeout mínusz 12 perc futás
   mínusz 3 perc tartalék; ami már nem fér bele, kimarad, és a következő futás
   (vagy az `outlook-ai-retry`) pótolja. A kliens a hub hivatalos
   kliensének lefordított másolata (`vendor/hub-client/`, frissítés: `node

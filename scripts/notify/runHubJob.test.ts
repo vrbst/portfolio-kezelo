@@ -1,8 +1,9 @@
-// A hírkereső job indítása a tg-hubon át: a hub által indított folyamatban HTTP-n (TG_HUB_* környezet), kézi futásnál
-// (pl. az asszisztensből vagy a terminálból) a hub CLI-jén át (TG_HUB_ROOT), lásd ..\CONVENTIONS.md „Telegram és ütemezés".
+// A hírkereső job indítása az ütemezőn át: az ütemező által indított folyamatban HTTP-n (SCHED_* környezet), egyébként
+// (Telegram-parancs, asszisztens, terminál) az ütemező CLI-jén át (SCHEDULER_ROOT, alapból a testvér ..\scheduler),
+// lásd ..\CONVENTIONS.md „Telegram és ütemezés".
 import { describe, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
-import { runHubJob, type RunJobIo } from "./tg-app";
+import { runSchedulerJob, type RunJobIo } from "./tg-app";
 
 const res = (status: number) => ({ ok: status >= 200 && status < 300, status }) as Response;
 const cliError = (stderr: string, code = 1) => Object.assign(new Error("Command failed"), { code, stdout: "", stderr });
@@ -12,74 +13,73 @@ const io = (over: Partial<RunJobIo> = {}): RunJobIo => ({
   ...over,
 });
 
-const HUB_ENV = { TG_HUB_URL: "http://127.0.0.1:47800", TG_HUB_APP: "portfolio", TG_HUB_KEY: "titkos" };
-const ROOT = resolve("C:/work/tg-hub");
+const SCHED_ENV = { SCHED_URL: "http://127.0.0.1:47900", SCHED_APP: "portfolio", SCHED_KEY: "titkos" };
+const ROOT = resolve("C:/work/scheduler");
 
-describe("runHubJob: a hub által indított folyamatban (HTTP)", () => {
-  it("202 → started, a hub saját kulcsával", async () => {
+describe("runSchedulerJob: az ütemező által indított folyamatban (HTTP)", () => {
+  it("202 → started, az app saját kulcsával", async () => {
     const fetch = vi.fn().mockResolvedValue(res(202));
     const execFile = vi.fn();
-    await expect(runHubJob("news-morning", HUB_ENV, io({ fetch, execFile }))).resolves.toBe("started");
+    await expect(runSchedulerJob("news-morning", SCHED_ENV, io({ fetch, execFile }))).resolves.toBe("started");
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:47800/v1/apps/portfolio/jobs/news-morning/run",
+      "http://127.0.0.1:47900/v1/apps/portfolio/jobs/news-morning/run",
       expect.objectContaining({ method: "POST", headers: { Authorization: "Bearer titkos" } }),
     );
     expect(execFile).not.toHaveBeenCalled();
   });
 
   it("409 → running", async () => {
-    await expect(runHubJob("news-evening", HUB_ENV, io({ fetch: vi.fn().mockResolvedValue(res(409)) }))).resolves.toBe("running");
+    await expect(runSchedulerJob("news-evening", SCHED_ENV, io({ fetch: vi.fn().mockResolvedValue(res(409)) }))).resolves.toBe("running");
   });
 
-  it("más hiba → dob, a HTTP-állapottal; nem esik át a CLI-re (a kulcs megvolt, a hub válaszolt)", async () => {
+  it("más hiba → dob, a HTTP-állapottal; nem esik át a CLI-re (a kulcs megvolt, az ütemező válaszolt)", async () => {
     const execFile = vi.fn();
-    await expect(runHubJob("news-evening", { ...HUB_ENV, TG_HUB_ROOT: ROOT }, io({ fetch: vi.fn().mockResolvedValue(res(500)), execFile }))).rejects.toThrow(/HTTP 500/);
+    await expect(runSchedulerJob("news-evening", { ...SCHED_ENV, SCHEDULER_ROOT: ROOT }, io({ fetch: vi.fn().mockResolvedValue(res(500)), execFile }))).rejects.toThrow(/HTTP 500/);
     expect(execFile).not.toHaveBeenCalled();
   });
 });
 
-describe("runHubJob: kézi futásnál a hub CLI-jén át (TG_HUB_ROOT)", () => {
+describe("runSchedulerJob: máshol az ütemező CLI-jén át (SCHEDULER_ROOT)", () => {
   it("a CLI run-job parancsát hívja a portfolio app-azonosítójával; 0-s kilépés → started", async () => {
-    const execFile = vi.fn().mockResolvedValue({ stdout: "Elindítva: portfolio/news-evening — az eredményt a /status mutatja.\n", stderr: "" });
-    await expect(runHubJob("news-evening", { TG_HUB_ROOT: ROOT }, io({ execFile }))).resolves.toBe("started");
+    const execFile = vi.fn().mockResolvedValue({ stdout: "portfolio/news-evening elindítva.\n", stderr: "" });
+    await expect(runSchedulerJob("news-evening", { SCHEDULER_ROOT: ROOT }, io({ execFile }))).resolves.toBe("started");
     expect(execFile).toHaveBeenCalledTimes(1);
     const [file, args] = execFile.mock.calls[0];
     expect(file).toBe(process.execPath);
     expect(args).toEqual([resolve(ROOT, "src", "cli.ts"), "run-job", "--app", "portfolio", "--job", "news-evening"]);
   });
 
-  it("a TG_HUB_APP felülírja az app-azonosítót (ha a hub megadja)", async () => {
-    const execFile = vi.fn().mockResolvedValue({ stdout: "Elindítva", stderr: "" });
-    await runHubJob("news-morning", { TG_HUB_ROOT: ROOT, TG_HUB_APP: "masik" }, io({ execFile }));
+  it("alapból a testvér ..\\scheduler mappát használja", async () => {
+    const execFile = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+    await runSchedulerJob("news-evening", {}, io({ execFile }));
+    expect(execFile.mock.calls[0][1][0]).toBe(resolve(process.cwd(), "..", "scheduler", "src", "cli.ts"));
+  });
+
+  it("a SCHED_APP felülírja az app-azonosítót (ha az ütemező megadja)", async () => {
+    const execFile = vi.fn().mockResolvedValue({ stdout: "ok", stderr: "" });
+    await runSchedulerJob("news-morning", { SCHEDULER_ROOT: ROOT, SCHED_APP: "masik" }, io({ execFile }));
     expect(execFile.mock.calls[0][1]).toContain("masik");
   });
 
-  it("a CLI „Nem indult (409)” hibája → running (már fut a job)", async () => {
-    const execFile = vi.fn().mockRejectedValue(cliError("Nem indult (409): a job már fut"));
-    await expect(runHubJob("news-morning", { TG_HUB_ROOT: ROOT }, io({ execFile }))).resolves.toBe("running");
+  it("a CLI „409: a job épp fut” hibája → running", async () => {
+    const execFile = vi.fn().mockRejectedValue(cliError("409: a job épp fut"));
+    await expect(runSchedulerJob("news-morning", { SCHEDULER_ROOT: ROOT }, io({ execFile }))).resolves.toBe("running");
   });
 
-  it("a CLI más hibája → dob, a CLI üzenetével (pl. a hub nem fut)", async () => {
-    const execFile = vi.fn().mockRejectedValue(cliError("A hub nem fut."));
-    await expect(runHubJob("news-morning", { TG_HUB_ROOT: ROOT }, io({ execFile }))).rejects.toThrow(/A hub nem fut\./);
+  it("a CLI más hibája → dob, a CLI üzenetével (pl. az ütemező nem fut)", async () => {
+    const execFile = vi.fn().mockRejectedValue(cliError("Az ütemező nem fut (vagy más porton van)."));
+    await expect(runSchedulerJob("news-morning", { SCHEDULER_ROOT: ROOT }, io({ execFile }))).rejects.toThrow(/Az ütemező nem fut/);
   });
 
   it("ha a CLI nem indítható (nincs fájl, időtúllépés), a hiba érthető", async () => {
     const execFile = vi.fn().mockRejectedValue(Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
-    await expect(runHubJob("news-morning", { TG_HUB_ROOT: ROOT }, io({ execFile }))).rejects.toThrow(/tg-hub CLI|ENOENT/);
+    await expect(runSchedulerJob("news-morning", { SCHEDULER_ROOT: ROOT }, io({ execFile }))).rejects.toThrow(/ütemező CLI|ENOENT/);
   });
 
-  it("hiányos hub-környezetnél (pl. csak az URL) is a CLI-re esik vissza, nem dob kulcshiányt", async () => {
-    const execFile = vi.fn().mockResolvedValue({ stdout: "Elindítva", stderr: "" });
-    await expect(runHubJob("news-morning", { TG_HUB_URL: "http://x", TG_HUB_ROOT: ROOT }, io({ execFile }))).resolves.toBe("started");
-  });
-});
-
-describe("runHubJob: egyik út sem áll rendelkezésre", () => {
-  it("érthető hibát ad, és nem hív semmit", async () => {
-    const i = io();
-    await expect(runHubJob("news-morning", {}, i)).rejects.toThrow(/csak a tg-hubon keresztül indítható/);
+  it("hiányos környezetnél (pl. csak az URL) is a CLI-re esik vissza, nem dob kulcshiányt", async () => {
+    const execFile = vi.fn().mockResolvedValue({ stdout: "ok", stderr: "" });
+    const i = io({ execFile });
+    await expect(runSchedulerJob("news-morning", { SCHED_URL: "http://x", SCHEDULER_ROOT: ROOT }, i)).resolves.toBe("started");
     expect(i.fetch).not.toHaveBeenCalled();
-    expect(i.execFile).not.toHaveBeenCalled();
   });
 });
