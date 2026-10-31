@@ -67,6 +67,18 @@ describe("commands", () => {
     expect(r.messages![0].html).toContain("Ft");
   });
 
+  it("/esemenyek [napok] → the horizon follows the optional argument (default 30, bad values fall back)", async () => {
+    const days = async (args: string) => {
+      const r = await call(commandReq("esemenyek", args), depsFor(() => contextAt(WED)));
+      return /következő (\d+) nap/.exec(r.messages![0].html ?? "")?.[1] ?? "none";
+    };
+    expect(await days("")).toBe("30");
+    expect(await days("365")).toBe("365");
+    expect(await days("0")).toBe("30");
+    expect(await days("99999")).toBe("30");
+    expect(await days("abc")).toBe("30");
+  });
+
   it.each([
     ["terv", "Havi terv – 2026. október"],
     ["palya", "Célpálya – 2026. okt. 14."],
@@ -471,6 +483,7 @@ describe("/hirkereses", () => {
     now(2026, 10, 14, 9, 30);
     const r = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 9, 30]));
     expect(r.messages![0].html).toContain("Keresem a friss híreket (reggeli előzetes)");
+    expect(r.status).toBe("started"); // the assistant opens its "done" watch only for started / pending
     expect(s.started).toEqual(["news-morning"]);
     expect(s.engine.prompts).toHaveLength(0);
     now(2026, 10, 14, 12, 0);
@@ -504,11 +517,14 @@ describe("/hirkereses", () => {
     now(2026, 10, 14, 15, 0);
     await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 0]));
     now(2026, 10, 14, 15, 2);
-    expect((await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 2]))).messages![0].html).toContain("Már keresem");
+    const pending = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 2]));
+    expect(pending.messages![0].html).toContain("Már keresem");
+    expect(pending.status).toBe("pending");
     await call(jobReq("news-evening"), s.at([2026, 10, 14, 15, 3]));
     now(2026, 10, 14, 15, 10);
     const r = await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 10]));
     expect(r.messages![0].html).toContain("10 perce volt. Újat 20 perc múlva");
+    expect(r.status).toBe("refused"); // no watch: nothing started
     now(2026, 10, 14, 15, 30);
     await call(commandReq("hirkereses"), s.at([2026, 10, 14, 15, 30]));
     expect(s.started).toEqual(["news-evening", "news-evening"]);

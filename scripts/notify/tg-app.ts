@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
 import { deadlineForJob } from "./jobDeadline";
+import { portfolioViewHtml } from "./assistantView";
 import { loadProfile } from "./profile";
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
@@ -144,6 +145,13 @@ export interface HubResponse {
   keepFailing?: true;
   /** The app's quiet hours (null = none); the hub keeps the latest. */
   quietHours?: { from: string; to: string } | null;
+  /**
+   * What an assistant-started action did (asszisztens.app.json "actions"): the work started, it was already running, or it was
+   * refused (e.g. the cooldown). Ignored by the tg-hub; the assistant opens its "done" watch only for started / pending.
+   */
+  status?: "started" | "pending" | "refused";
+  /** The assistant's HTML view (asszisztens.app.json "view"): a fragment, wrapped and sandboxed by the assistant. */
+  view?: { html: string; title?: string };
 }
 
 export interface Deps {
@@ -412,10 +420,12 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       console.error(`/${req.command} ${req.args}`.trim());
       if (req.command === "hirek") return latestNews(req.args, deps, false);
       if (req.command === "hirkereses") return searchNews(deps);
+      if (req.command === "assistant_view") return assistantView(deps);
       if (req.command === "bejelentesek") return followUps(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
       if (req.command === "koltseg") return aiCost(deps);
       if (req.command === "chart") return chart(req.args, deps, false);
+      if (req.command === "esemenyek") return upcoming(req.args, deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -451,7 +461,6 @@ const COMMANDS: Record<string, (c: Context) => string> = {
   allas: statusText,
   arfolyam: quotesText,
   teendok: alertsText,
-  esemenyek: (c) => eventsText(c, 30),
   cel: goalsText,
   elorejelzes: forecastText,
   heti: weeklyText,
@@ -478,6 +487,25 @@ async function contextFor(deps: Deps): Promise<Context | string> {
 function aiCost(deps: Deps): HubResponse {
   const records = deps.aiUsageFile ? readAiUsage(deps.aiUsageFile) : [];
   return { v: 1, messages: [msg(aiCostText(records, new Date()))] };
+}
+
+/** /esemenyek [napok]: the upcoming events, 30 days by default; 1–400 days on request (the assistant asks for a year). */
+async function upcoming(args: string, deps: Deps): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const n = Number(args.trim());
+  const days = Number.isInteger(n) && n >= 1 && n <= 400 ? n : 30;
+  return { v: 1, messages: [msg(eventsText(ctx, days))] };
+}
+
+/**
+ * assistant_view: the portfolio as an HTML view for the assistant's popup. Not a Telegram command (it is not in tg-hub.app.json),
+ * so the tg-hub never routes to it; only the assistant asks for it, with its theme in args ("dark" | "light").
+ */
+async function assistantView(deps: Deps): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  return { v: 1, messages: [], view: { html: portfolioViewHtml(ctx, loadEnv().appUrl), title: "Portfólió" } };
 }
 
 async function command(name: string, deps: Deps): Promise<HubResponse> {
@@ -851,12 +879,13 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile).news ?? {};
   const since = (iso?: string) => (iso ? now.getTime() - Date.parse(iso) : Infinity);
   if (since(st.searchRequestedAt) < NEWS_SEARCH_PENDING_MS)
-    return { v: 1, messages: [msg("🔎 Már keresem a híreket, pár perc és jön.")] };
+    return { v: 1, status: "pending", messages: [msg("🔎 Már keresem a híreket, pár perc és jön.")] };
   const last = since(st.lastSearchAt);
   if (last < NEWS_SEARCH_COOLDOWN_MS) {
     const wait = Math.ceil((NEWS_SEARCH_COOLDOWN_MS - last) / 60_000);
     return {
       v: 1,
+      status: "refused",
       messages: [msg(`Az előző keresés ${Math.floor(last / 60_000)} perce volt. Újat ${wait} perc múlva kérhetsz; a legutóbbit a /hirek küldi el.`)],
     };
   }
@@ -881,10 +910,11 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
       ...cur,
       news: { ...cur.news, searchRequestedAt: undefined },
     }));
-    return { v: 1, messages: [msg(`🔎 Épp most készül a(z) ${NEWS_EDITION_LABEL[edition].toLowerCase()}, pár perc és jön.`)] };
+    return { v: 1, status: "pending", messages: [msg(`🔎 Épp most készül a(z) ${NEWS_EDITION_LABEL[edition].toLowerCase()}, pár perc és jön.`)] };
   }
   return {
     v: 1,
+    status: "started",
     messages: [msg(`🔎 Keresem a friss híreket (${NEWS_EDITION_LABEL[edition].toLowerCase()}), 2–4 perc és küldöm.`)],
   };
 }

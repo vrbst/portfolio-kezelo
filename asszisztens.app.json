@@ -1,0 +1,190 @@
+{
+  "schema": 1,
+  "id": "portfolio",
+  "title": "Portfólió",
+  "icon": "chart",
+  "key": "p",
+  "url": "https://vrbst.github.io/portfolio-kezelo/?skin=asszisztens",
+  "about": "A felhasználó portfólió-alkalmazása: befektetések, TBSZ, célok. Közelgő eseményeit (esemenyek) kérésre naptár-javaslatként felveheted: egy körben kérd a portfoliót és a list_events-et (duplikátum ellen), egész napos, rövid cím, összeg nélkül.",
+  "reads": [
+    {
+      "id": "allas",
+      "title": "Vagyon és napi változás",
+      "command": "allas",
+      "hero": true,
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "hozam",
+      "title": "Hozam",
+      "command": "hozam",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "cel",
+      "title": "Célok",
+      "command": "cel",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "teendok",
+      "title": "Teendők és figyelmeztetések",
+      "command": "teendok",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "esemenyek",
+      "title": "Következő 30 nap",
+      "command": "esemenyek",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "tbsz",
+      "title": "TBSZ",
+      "command": "tbsz",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "arfolyam",
+      "title": "EUR/HUF és a tartott papírok árfolyama",
+      "command": "arfolyam",
+      "card": false,
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "elorejelzes",
+      "title": "1–20 éves előrejelzés",
+      "command": "elorejelzes",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "terv",
+      "title": "E havi terv: mit vegyél, melyik számlán",
+      "command": "terv",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "palya",
+      "title": "Célpálya: súlyok, sávok, javasolt lépések",
+      "command": "palya",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "eladas",
+      "title": "Ha most eladnék mindent (díj, TBSZ-adó levonva)",
+      "command": "eladas",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "heti",
+      "title": "Heti összefoglaló",
+      "command": "heti",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "havi",
+      "title": "Előző havi zárás",
+      "command": "havi",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "bejelentesek",
+      "title": "Figyelt bejelentések (CPI, kamatdöntés…)",
+      "command": "bejelentesek",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "riasztas",
+      "title": "Árriasztások (csak a lista)",
+      "command": "riasztas",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "koltseg",
+      "title": "AI-futások költsége (7 és 30 nap)",
+      "command": "koltseg",
+      "card": false,
+      "freshFor": "30m",
+      "refreshOn": [
+        "tick"
+      ]
+    },
+    {
+      "id": "hirek",
+      "title": "Legutóbbi hírösszefoglaló",
+      "command": "hirek",
+      "card": false,
+      "tool": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "hirkereses",
+      "title": "Friss hírkeresés",
+      "description": "A portfolio saját AI-jobja (webkeresés) friss hírösszefoglalót készít: 2–4 perc, AI-kvótát fogyaszt, félóránként legfeljebb egyszer indítható. Az eredményt a portfolio Telegramon küldi.",
+      "command": "hirkereses",
+      "effect": "external",
+      "approval": "ask",
+      "watch": {
+        "read": "hirek",
+        "within": "12m"
+      }
+    }
+  ],
+  "view": {
+    "command": "assistant_view",
+    "freshFor": "5m",
+    "refreshOn": [
+      "tick"
+    ],
+    "open": [
+      "https://vrbst.github.io"
+    ]
+  }
+}
