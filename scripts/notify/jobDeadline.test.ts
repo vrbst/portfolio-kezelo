@@ -25,7 +25,7 @@ describe("jobDeadline", () => {
     expect(jobDeadline(start, 25 * 60_000).getTime() - start).toBe(10 * 60_000);
   });
 
-  it("every time-windowed job of the real tg-hub.app.json leaves room to queue", () => {
+  it("every time-windowed job of the real schedule.app.json leaves room to queue", () => {
     for (const job of DEADLINE_JOBS) {
       const t = jobTimeoutMs(job);
       expect(t, `${job} timeout`).toBeDefined();
@@ -41,7 +41,7 @@ describe("jobDeadline", () => {
   });
 
   it("every AI job in the descriptor has a deadline (none forgotten)", () => {
-    const d = JSON.parse(readFileSync(resolve(ROOT, "tg-hub.app.json"), "utf8")) as { jobs: { id: string }[] };
+    const d = JSON.parse(readFileSync(resolve(ROOT, "schedule.app.json"), "utf8")) as { jobs: { id: string }[] };
     const withoutAi = ["tick", "fundamentals", "outlook"];
     for (const j of d.jobs.filter((x) => !withoutAi.includes(x.id)))
       expect(DEADLINE_JOBS as readonly string[], j.id).toContain(j.id);

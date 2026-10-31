@@ -161,7 +161,9 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   befizetésektől függetlenül, az összes eredményből) és a visszatérés a
   csúcsra; a hónap 10-étől a Havi terv még hiányzó tételei; saját ár- és
   árfolyamriasztás (`/riasztas VWCE 100 alatt`, `/riasztas EUR 400 felett`,
-  `/riasztas torol 1`; teljesülés után törlődik); január 1-jén éves zárás;
+  `/riasztas torol 1`; teljesülés után törlődik; portfólión kívüli papírra
+  Yahoo-tickerrel is, pl. `/riasztas NVDA 150 alatt`, ennek árát a figyelés
+  minden futáskor a Yahoo-ról kéri le); január 1-jén éves zárás;
   május 20-ig szja-emlékeztető a TBSZ-en kívüli számlák előző évi
   jövedelméről; és ha egy tartott papírnak 7+ napja nincs új ára.
 - **AI-felhasználás a botban** – minden AI-futás (reggeli és esti hírek,
@@ -197,7 +199,7 @@ letisztult, modern felületen mutatja a teljes portfóliót: TBSZ-számlák (tö
   `MY_CLAUDE_HUB_KEY` (`npm run hub -- keygen portfolio` a hub mappájában).
   Közvetlen `claude -p` visszaesés nincs (2026-10-17-én kivezetve): ha a hub
   nem érhető el, a hívás hibával megáll, és a következő futás pótolja. Az időablakos jobok (`news-*`, `analysis`, `outlook-ai*`) hívásai
-  határidőt kapnak: a `tg-hub.app.json`-beli job-timeout mínusz 12 perc futás
+  határidőt kapnak: a `schedule.app.json`-beli job-timeout mínusz 12 perc futás
   mínusz 3 perc tartalék; ami már nem fér bele, kimarad, és a következő futás
   (vagy az `outlook-ai-retry`) pótolja. A kliens a hub hivatalos
   kliensének lefordított másolata (`vendor/hub-client/`, frissítés: `node

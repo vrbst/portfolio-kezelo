@@ -107,6 +107,8 @@ export interface Context {
   transactions: Transaction[];
   instMap: Map<string, Instrument>;
   prices: PriceMap;
+  /** Live prices of the price alerts on securities outside the portfolio, by alert key. */
+  alertPrices?: Map<string, number>;
   fx: Record<string, number>;
   priceFile: PriceFile | null;
   history: HistoryFile | null;

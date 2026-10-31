@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 import { NOTIFY_DIR, forHolding, loadEnv, newsGithubToken, type NotifyEnv } from "./env";
 import { claudeCodeEngine, type EngineRun, type NewsEngine } from "./news/engine";
 import { deadlineForJob } from "./jobDeadline";
+import { portfolioViewHtml } from "./assistantView";
 import { loadProfile } from "./profile";
 import { aiCostText, appendAiUsage, readAiUsage, type AiUsageRecord } from "./aiUsage";
 import { latestDigest, makeDigest, repoStore, type NewsDeps, type NewsStore } from "./news/job";
@@ -50,16 +51,19 @@ import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, assetKey, digestAssets, type DigestAsset, type NewsEdition } from "../../src/lib/newsSchema";
 import { CHART_PREFIX, chartButtons, chartCaption, chartCard, chartMenuText, chartTargets, chartText, findTarget, type ChartTarget } from "./chart";
 import { chartSvg, svgToPng } from "./chartImage";
-import { loadContext, withGlideAlerts, type Context } from "./data";
+import { loadContext, withGlideAlerts, withTimeout, type Context } from "./data";
 import { loadState, updateState, type EventSlot, type State } from "./state";
 import { isDeepGlideAlert, updateGlideSignals } from "../../src/lib/rebalance";
 import { bypassesQuietHours, type Alert } from "../../src/lib/alerts";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import {
+  fetchSymbolQuote,
+  findSymbolQuote,
   intradaySwing,
   quotedToday,
   resolveYahooSymbol,
   type LiveQuote,
+  type SymbolQuote,
 } from "../../src/lib/prices";
 import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
 import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
@@ -101,7 +105,7 @@ import {
   weeklyText,
   yearlyText,
 } from "./reports";
-import { priceAlertCommand, priceAlertMessages } from "./priceAlerts";
+import { externalAlertPrices, externalQuery, priceAlertCommand, priceAlertMessages } from "./priceAlerts";
 import { goalMilestoneMessages, stalePriceMessage, wealthEvents } from "./watch";
 import { effectiveMonthKey } from "../../src/lib/goals";
 import {
@@ -144,6 +148,13 @@ export interface HubResponse {
   keepFailing?: true;
   /** The app's quiet hours (null = none); the hub keeps the latest. */
   quietHours?: { from: string; to: string } | null;
+  /**
+   * What an assistant-started action did (asszisztens.app.json "actions"): the work started, it was already running, or it was
+   * refused (e.g. the cooldown). Ignored by the tg-hub; the assistant opens its "done" watch only for started / pending.
+   */
+  status?: "started" | "pending" | "refused";
+  /** The assistant's HTML view (asszisztens.app.json "view"): a fragment, wrapped and sandboxed by the assistant. */
+  view?: { html: string; title?: string };
 }
 
 export interface Deps {
@@ -176,6 +187,14 @@ export interface Deps {
   runJob?: (job: string) => Promise<"started" | "running">;
   /** The user's investment preferences (from the assistant) for the AI prompts; absent in tests. */
   profile?: () => string;
+  /**
+   * Quotes of securities outside the portfolio (price alerts): `find` a typed
+   * ticker or name, `quote` a stored symbol. Absent: only the portfolio's.
+   */
+  symbols?: {
+    find: (query: string) => Promise<SymbolQuote | null>;
+    quote: (symbol: string) => Promise<SymbolQuote | null>;
+  };
 }
 
 export function defaultDeps(): Deps {
@@ -197,6 +216,10 @@ export function defaultDeps(): Deps {
     load: () => loadContext(env, aiUsageFile),
     stateFile: resolve(NOTIFY_DIR, "state.json"),
     env,
+    symbols: {
+      find: (q) => withTimeout(findSymbolQuote(q), 15_000, null),
+      quote: (s) => withTimeout(fetchSymbolQuote(s), 15_000, null),
+    },
     bindRequest: (req) => {
       call.runId = req.id;
       call.deadline = req.type === "job" ? deadlineForJob(req.job, Date.now()) : undefined;
@@ -311,18 +334,19 @@ const defaultRunJobIo: RunJobIo = {
 };
 
 /**
- * Starts a tg-hub job of this app. Two ways, per ..\CONVENTIONS.md ("Telegram és ütemezés"):
- *   • in a process the hub started: POST /v1/apps/{app}/jobs/{job}/run with the app's own key
- *     (TG_HUB_URL / TG_HUB_APP / TG_HUB_KEY, which the hub hands to its own runs);
- *   • in a manual run (the terminal, or the assistant's hub): the hub's CLI at TG_HUB_ROOT, which has
- *     its own access — this process never sees the hub's keys.
+ * Starts a job of this app in the scheduler (..\scheduler). Two ways, per ..\CONVENTIONS.md ("Telegram és ütemezés"):
+ *   • in a process the scheduler started (a job): POST /v1/apps/{app}/jobs/{job}/run with the app's own key
+ *     (SCHED_URL / SCHED_APP / SCHED_KEY, which the scheduler hands to its own runs);
+ *   • anywhere else (a Telegram command the tg-hub started, the terminal, the assistant's hub): the scheduler's CLI at
+ *     SCHEDULER_ROOT (default: the sibling ..\scheduler), which has its own access — this process never sees
+ *     the scheduler's keys.
  */
-export async function runHubJob(
+export async function runSchedulerJob(
   job: string,
   env: NodeJS.ProcessEnv = process.env,
   io: RunJobIo = defaultRunJobIo,
 ): Promise<"started" | "running"> {
-  const { TG_HUB_URL: url, TG_HUB_APP: app, TG_HUB_KEY: key, TG_HUB_ROOT: root } = env;
+  const { SCHED_URL: url, SCHED_APP: app, SCHED_KEY: key } = env;
   if (url && app && key) {
     const res = await io.fetch(`${url}/v1/apps/${app}/jobs/${job}/run`, {
       method: "POST",
@@ -330,23 +354,23 @@ export async function runHubJob(
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status === 409) return "running";
-    if (!res.ok) throw new Error(`A tg-hub nem indította el a keresést (HTTP ${res.status}).`);
+    if (!res.ok) throw new Error(`Az ütemező nem indította el a keresést (HTTP ${res.status}).`);
     return "started";
   }
-  if (!root) throw new Error("A hírkeresés csak a tg-hubon keresztül indítható.");
+  const root = env.SCHEDULER_ROOT || resolve(process.cwd(), "..", "scheduler");
   try {
     await io.execFile(process.execPath, [resolve(root, "src", "cli.ts"), "run-job", "--app", app || "portfolio", "--job", job]);
     return "started";
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
     const out = `${err.stderr ?? ""}${err.stdout ?? ""}`.trim();
-    if (/\(409\)/.test(out)) return "running"; // already running
-    throw new Error(`A tg-hub CLI nem indította el a keresést: ${out || err.message || String(e)}`, { cause: e });
+    if (/\b409\b/.test(out)) return "running"; // already running
+    throw new Error(`Az ütemező CLI nem indította el a keresést: ${out || err.message || String(e)}`, { cause: e });
   }
 }
 
-/** POST /v1/apps/{app}/jobs/{job}/run at the hub that started this process (or via the hub's CLI). */
-const hubRunJob = (job: string) => runHubJob(job);
+/** Starts the job in the scheduler (HTTP inside a scheduler run, else its CLI). */
+const hubRunJob = (job: string) => runSchedulerJob(job);
 
 const msg = (html: string, urgent = false): HubMessage => ({
   html,
@@ -411,10 +435,12 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       console.error(`/${req.command} ${req.args}`.trim());
       if (req.command === "hirek") return latestNews(req.args, deps, false);
       if (req.command === "hirkereses") return searchNews(deps);
+      if (req.command === "assistant_view") return assistantView(deps);
       if (req.command === "bejelentesek") return followUps(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
       if (req.command === "koltseg") return aiCost(deps);
       if (req.command === "chart") return chart(req.args, deps, false);
+      if (req.command === "esemenyek") return upcoming(req.args, deps);
       return req.command === "maradek"
         ? leftover(req.args, deps)
         : command(req.command, deps);
@@ -450,7 +476,6 @@ const COMMANDS: Record<string, (c: Context) => string> = {
   allas: statusText,
   arfolyam: quotesText,
   teendok: alertsText,
-  esemenyek: (c) => eventsText(c, 30),
   cel: goalsText,
   elorejelzes: forecastText,
   heti: weeklyText,
@@ -477,6 +502,25 @@ async function contextFor(deps: Deps): Promise<Context | string> {
 function aiCost(deps: Deps): HubResponse {
   const records = deps.aiUsageFile ? readAiUsage(deps.aiUsageFile) : [];
   return { v: 1, messages: [msg(aiCostText(records, new Date()))] };
+}
+
+/** /esemenyek [napok]: the upcoming events, 30 days by default; 1–400 days on request (the assistant asks for a year). */
+async function upcoming(args: string, deps: Deps): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  const n = Number(args.trim());
+  const days = Number.isInteger(n) && n >= 1 && n <= 400 ? n : 30;
+  return { v: 1, messages: [msg(eventsText(ctx, days))] };
+}
+
+/**
+ * assistant_view: the portfolio as an HTML view for the assistant's popup. Not a Telegram command (it is not in tg-hub.app.json),
+ * so the tg-hub never routes to it; only the assistant asks for it, with its theme in args ("dark" | "light").
+ */
+async function assistantView(deps: Deps): Promise<HubResponse> {
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") return fail(ctx);
+  return { v: 1, messages: [], view: { html: portfolioViewHtml(ctx, loadEnv().appUrl), title: "Portfólió" } };
 }
 
 async function command(name: string, deps: Deps): Promise<HubResponse> {
@@ -567,13 +611,24 @@ async function chartMessage(
 async function priceAlerts(args: string, deps: Deps): Promise<HubResponse> {
   const ctx = await contextFor(deps);
   if (typeof ctx === "string") return fail(ctx);
+  // Outside the portfolio: the new ticker and the set ones' prices from Yahoo
+  // (before the state lock, the lookups take a while).
+  const query = deps.symbols && externalQuery(ctx, args);
+  const external = query ? await deps.symbols!.find(query) : null;
+  await withAlertPrices(ctx, loadState(deps.stateFile), deps);
   let html = "";
   updateState(deps.stateFile, (cur) => {
-    const r = priceAlertCommand(ctx, args, cur.priceAlerts ?? []);
+    const r = priceAlertCommand(ctx, args, cur.priceAlerts ?? [], external);
     html = r.html;
     return { ...cur, priceAlerts: r.alerts };
   });
   return { v: 1, messages: [msg(html)] };
+}
+
+/** ctx.alertPrices: the live prices of the set alerts on securities outside the portfolio. */
+async function withAlertPrices(ctx: Context, st: State, deps: Deps) {
+  if (deps.symbols && st.priceAlerts?.some((a) => a.symbol))
+    ctx.alertPrices = await externalAlertPrices(st.priceAlerts, deps.symbols.quote);
 }
 
 // ---- the news digest ------------------------------------------------------
@@ -850,12 +905,13 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile).news ?? {};
   const since = (iso?: string) => (iso ? now.getTime() - Date.parse(iso) : Infinity);
   if (since(st.searchRequestedAt) < NEWS_SEARCH_PENDING_MS)
-    return { v: 1, messages: [msg("🔎 Már keresem a híreket, pár perc és jön.")] };
+    return { v: 1, status: "pending", messages: [msg("🔎 Már keresem a híreket, pár perc és jön.")] };
   const last = since(st.lastSearchAt);
   if (last < NEWS_SEARCH_COOLDOWN_MS) {
     const wait = Math.ceil((NEWS_SEARCH_COOLDOWN_MS - last) / 60_000);
     return {
       v: 1,
+      status: "refused",
       messages: [msg(`Az előző keresés ${Math.floor(last / 60_000)} perce volt. Újat ${wait} perc múlva kérhetsz; a legutóbbit a /hirek küldi el.`)],
     };
   }
@@ -880,10 +936,11 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
       ...cur,
       news: { ...cur.news, searchRequestedAt: undefined },
     }));
-    return { v: 1, messages: [msg(`🔎 Épp most készül a(z) ${NEWS_EDITION_LABEL[edition].toLowerCase()}, pár perc és jön.`)] };
+    return { v: 1, status: "pending", messages: [msg(`🔎 Épp most készül a(z) ${NEWS_EDITION_LABEL[edition].toLowerCase()}, pár perc és jön.`)] };
   }
   return {
     v: 1,
+    status: "started",
     messages: [msg(`🔎 Keresem a friss híreket (${NEWS_EDITION_LABEL[edition].toLowerCase()}), 2–4 perc és küldöm.`)],
   };
 }
@@ -1054,6 +1111,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
   const st = loadState(deps.stateFile);
   delete st.loadFailingSince;
   const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
+  await withAlertPrices(ctx, st, deps);
   const asked = st.why?.request?.at;
   const messages = tickMessages(ctx, st, deps.env);
   const kept = new Set((st.priceAlerts ?? []).map((a) => a.id));

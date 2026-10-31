@@ -2,122 +2,97 @@
   "schema": 1,
   "title": "Portfolio Tracker",
   "handler": {
-    "command": ["node", "node_modules/tsx/dist/cli.mjs", "scripts/notify/tg-handler.ts"],
+    "command": [
+      "node",
+      "node_modules/tsx/dist/cli.mjs",
+      "scripts/notify/tg-handler.ts"
+    ],
     "timeout": "60s"
   },
   "commands": [
-    { "name": "allas", "description": "Aktuális vagyon, napi változás" },
-    { "name": "arfolyam", "description": "EUR/HUF és a tartott papírok árfolyama" },
-    { "name": "chart", "description": "Árfolyam-grafikon (tegnap + ma) a tartott papírokról, gombokkal" },
-    { "name": "teendok", "description": "Aktív figyelmeztetések" },
-    { "name": "esemenyek", "description": "Következő 30 nap eseményei" },
-    { "name": "cel", "description": "Célok állása" },
-    { "name": "elorejelzes", "description": "1–20 éves előrejelzés" },
-    { "name": "heti", "description": "Heti összefoglaló most" },
-    { "name": "havi", "description": "Előző havi zárás most" },
-    { "name": "terv", "description": "E havi terv: mit vegyél, melyik számlán" },
-    { "name": "palya", "description": "Célpálya: súlyok, sávok, javasolt lépések" },
-    { "name": "hozam", "description": "XIRR, TWR, időszakos és számlánkénti eredmény" },
-    { "name": "tbsz", "description": "TBSZ-szakaszok, határidők, adó most és később" },
-    { "name": "eladas", "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)" },
-    { "name": "maradek", "description": "Hónap végi maradék elosztása (pl. /maradek 50000)" },
-    { "name": "hirek", "description": "Legutóbbi piaci hírösszefoglaló" },
-    { "name": "hirkereses", "description": "Friss hírkeresés most (2–4 perc, félóránként egyszer)" },
-    { "name": "bejelentesek", "description": "Figyelt bejelentések (CPI, kamatdöntés…): állapot, tanult késés" },
-    { "name": "riasztas", "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett)" },
-    { "name": "koltseg", "description": "AI-futások token- és $-felhasználása (7 és 30 nap)" }
-  ],
-  "quietHours": { "from": "22:00", "to": "08:00" },
-  "jobs": [
     {
-      "id": "tick",
-      "description": "Riasztások, nagy mozgások, célok, csúcs és visszaesés, árriasztások, elavult adat, heti/havi/éves jelentés, havi terv, hónap végi maradék",
-      "every": "5m",
-      "timeout": "3m",
-      "expectSuccessWithin": "6h"
+      "name": "allas",
+      "description": "Aktuális vagyon, napi változás"
     },
     {
-      "id": "news-morning",
-      "description": "Reggeli piaci előzetes (AI, a Xetra nyitása előtt)",
-      "at": "07:45",
-      "days": ["mon", "tue", "wed", "thu", "fri"],
-      "catchUp": "run",
-      "catchUpWindow": "3h",
-      "timeout": "25m",
-      "expectSuccessWithin": "4d"
+      "name": "arfolyam",
+      "description": "EUR/HUF és a tartott papírok árfolyama"
     },
     {
-      "id": "news-evening",
-      "description": "Piaci napzárta (AI, a Xetra zárása után)",
-      "at": "18:15",
-      "days": ["mon", "tue", "wed", "thu", "fri"],
-      "catchUp": "run",
-      "catchUpWindow": "4h",
-      "timeout": "25m",
-      "expectSuccessWithin": "4d"
+      "name": "chart",
+      "description": "Árfolyam-grafikon (tegnap + ma) a tartott papírokról, gombokkal"
     },
     {
-      "id": "analysis",
-      "description": "Éjszakai AI-elemzés (Claude Code, előfizetésből): a szinkron-repóba kerül, az appban látszik, a Telegramra a „mi változott” megy; kedd–szombat hajnalban",
-      "at": "03:30",
-      "days": ["tue", "wed", "thu", "fri", "sat"],
-      "catchUp": "run",
-      "catchUpWindow": "12h",
-      "timeout": "30m",
-      "expectSuccessWithin": "4d"
+      "name": "teendok",
+      "description": "Aktív figyelmeztetések"
     },
     {
-      "id": "fundamentals",
-      "description": "Papír-adatok (P/E, szektorok, top tételek) a tartott papírokra a Yahoo-ról; 3 nap folyamatos hiba után szól",
-      "at": "06:40",
-      "catchUp": "run",
-      "catchUpWindow": "12h",
-      "timeout": "5m",
-      "expectSuccessWithin": "4d"
+      "name": "esemenyek",
+      "description": "Következő 30 nap eseményei"
     },
     {
-      "id": "outlook",
-      "description": "Árfolyam-kilátások AI nélkül: elemzői célár (Yahoo) és a BTC-opciókból számolt sáv (Deribit) a tartott papírokra; 3 nap folyamatos hiba után szól",
-      "at": "06:50",
-      "catchUp": "run",
-      "catchUpWindow": "12h",
-      "timeout": "5m",
-      "expectSuccessWithin": "4d"
+      "name": "cel",
+      "description": "Célok állása"
     },
     {
-      "id": "outlook-ai",
-      "description": "Heti kilátás-gyűjtés (Claude Code, előfizetésből): besorolás és névvel jelölt banki előrejelzések forrással; szombat hajnalban, 8 előtt, mert 8-kor nullázódik a keret",
-      "at": "04:30",
-      "days": ["sat"],
-      "catchUp": "run",
-      "catchUpWindow": "3h",
-      "timeout": "35m",
-      "expectSuccessWithin": "8d"
+      "name": "elorejelzes",
+      "description": "1–20 éves előrejelzés"
     },
     {
-      "id": "outlook-ai-retry",
-      "description": "A heti kilátás-gyűjtés újrapróbája 8 után (ha 4:30-kor elfogyott a keret vagy nem sikerült); ha a hét már kész, nem csinál semmit; kikapcsolt gépnél vasárnap pótol",
-      "at": "08:15",
-      "days": ["sat"],
-      "catchUp": "run",
-      "catchUpWindow": "36h",
-      "timeout": "35m",
-      "expectSuccessWithin": "8d"
+      "name": "heti",
+      "description": "Heti összefoglaló most"
     },
     {
-      "id": "news-event",
-      "description": "Bejelentés-utókövetés (AI): az eredmény, a várakozás, a piaci reakció és a kilátások, amint a hírekben megjelent (a tick indítja; ez csak pótlás és újrapróba)",
-      "every": "15m",
-      "timeout": "25m",
-      "expectSuccessWithin": "1d"
+      "name": "havi",
+      "description": "Előző havi zárás most"
     },
     {
-      "id": "news-why",
-      "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
-      "every": "30m",
-      "timeout": "25m",
-      "expectSuccessWithin": "1d"
+      "name": "terv",
+      "description": "E havi terv: mit vegyél, melyik számlán"
+    },
+    {
+      "name": "palya",
+      "description": "Célpálya: súlyok, sávok, javasolt lépések"
+    },
+    {
+      "name": "hozam",
+      "description": "XIRR, TWR, időszakos és számlánkénti eredmény"
+    },
+    {
+      "name": "tbsz",
+      "description": "TBSZ-szakaszok, határidők, adó most és később"
+    },
+    {
+      "name": "eladas",
+      "description": "Ha most eladnék mindent (díj, TBSZ-adó levonva)"
+    },
+    {
+      "name": "maradek",
+      "description": "Hónap végi maradék elosztása (pl. /maradek 50000)"
+    },
+    {
+      "name": "hirek",
+      "description": "Legutóbbi piaci hírösszefoglaló"
+    },
+    {
+      "name": "hirkereses",
+      "description": "Friss hírkeresés most (2–4 perc, félóránként egyszer)"
+    },
+    {
+      "name": "bejelentesek",
+      "description": "Figyelt bejelentések (CPI, kamatdöntés…): állapot, tanult késés"
+    },
+    {
+      "name": "riasztas",
+      "description": "Árriasztások (pl. /riasztas VWCE 100 alatt, /riasztas EUR 400 felett, /riasztas NVDA 150 alatt)"
+    },
+    {
+      "name": "koltseg",
+      "description": "AI-futások token- és $-felhasználása (7 és 30 nap)"
     }
   ],
-  "health": { "repeatEvery": "6h" }
+  "quietHours": {
+    "from": "22:00",
+    "to": "08:00"
+  }
 }
