@@ -12,6 +12,7 @@ import {
   loadForecastSnapshots,
   mergeForecastSnapshots,
   monthsUntil,
+  outOfBand,
   probAtLeast,
   projectForecast,
   projectMonteCarlo,
@@ -487,6 +488,27 @@ describe("snapshots, milestones, helpers", () => {
     expect(usableForecastSnapshots([tomb, snap("2026-10", "b")]).map((s) => s.month)).toEqual(["2026-10"]);
   });
 
+  it("out of band: a 0.1% miss just past a one-month-wide band is not flagged, a real miss is", () => {
+    // The October snapshot expected 70.27 M (band 70.13–70.29 M); now 70.35 M.
+    expect(outOfBand(70_348_974, { pess: 70_132_428, real: 70_265_266, opt: 70_291_155 })).toBe(false);
+    expect(outOfBand(66_000_000, { pess: 70_132_428, real: 70_265_266, opt: 70_291_155 })).toBe(true);
+    expect(outOfBand(72_000_000, { pess: 70_132_428, real: 70_265_266, opt: 70_291_155 })).toBe(true);
+    // Inside a wide band nothing is flagged, however far from the middle.
+    expect(outOfBand(80, { pess: 50, real: 100, opt: 150 })).toBe(false);
+  });
+
+  it("drop: deleting the OLDEST snapshot keeps its tombstone, so a sync does not bring it back", () => {
+    const bad = { ...snap("2026-09", "2026-09-25T08:00:00.000Z"), startValueHuf: 70, points: [["2026-10", 1, 2, 3]] } as ForecastSnapshot;
+    const later = [snap("2026-10", "2026-10-01T06:00:00.000Z"), snap("2026-11", "2026-11-01T20:00:00.000Z")];
+    localStorage.setItem("pf-forecast-snapshots", JSON.stringify([bad, ...later]));
+    expect(dropForecastSnapshot("2026-09")).toBe(true);
+    const mine = loadForecastSnapshots();
+    // The remote copy still holds the bad one.
+    const synced = mergeForecastSnapshots(mine, [bad, ...later]);
+    expect(usableForecastSnapshots(synced).map((s) => s.month)).toEqual(["2026-10", "2026-11"]);
+    expect(synced.some((s) => s.month === "2026-09" && s.dropped)).toBe(true);
+  });
+
   it("drop: the running month can be recorded again, and the new one survives the merge with the old copy", () => {
     const r = run(portfolio(1_000_000), { months: 30 });
     expect(recordForecastSnapshot(r, READY, NOW)).toBe(true);
@@ -508,9 +530,14 @@ describe("snapshots, milestones, helpers", () => {
     const inside = { ...snap(month(10), "z"), dropped: true as const };
     const m = mergeForecastSnapshots([...live, ...tombs], []);
     expect(usableForecastSnapshots(m)).toHaveLength(36);
-    // Tombstones older than the oldest kept snapshot are not carried along.
-    expect(m.filter((s) => s.dropped)).toEqual([]);
+    // Nothing was cut, so the tombstones stay (another device may hold those months).
+    expect(m.filter((s) => s.dropped)).toHaveLength(4);
     expect(usableForecastSnapshots(mergeForecastSnapshots(live, [inside]))).toHaveLength(35);
+    // Once the cap cuts older snapshots, the tombstones older than the kept ones go too.
+    const more = Array.from({ length: 4 }, (_, i) => snap(month(i + 40), "c"));
+    const cut = mergeForecastSnapshots([...live, ...more, ...tombs], []);
+    expect(usableForecastSnapshots(cut)).toHaveLength(36);
+    expect(cut.filter((s) => s.dropped)).toEqual([]);
   });
 
   it("milestones at whole years within the horizon", () => {

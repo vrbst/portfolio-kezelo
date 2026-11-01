@@ -35,6 +35,7 @@ import {
   dropForecastSnapshot,
   snapshotReady,
   usableForecastSnapshots,
+  outOfBand,
   firstReach,
   probAtLeast,
   requiredMonthlySaving,
@@ -1706,9 +1707,7 @@ export default function Forecast() {
                 <tbody className="tabular-nums">
                   {comparisons.map((c) => {
                     const diff = summary.totalValueHuf - c.real;
-                    const inBand =
-                      summary.totalValueHuf >= c.pess &&
-                      summary.totalValueHuf <= c.opt;
+                    const inBand = !outOfBand(summary.totalValueHuf, c);
                     return (
                       <tr
                         key={c.month}
