@@ -13,6 +13,7 @@ import {
   forecastMilestones,
   loadForecastSettings,
   loadForecastSnapshots,
+  usableForecastSnapshots,
   monthlyBudgetHuf,
   obligationSteps,
   projectForecast,
@@ -837,7 +838,7 @@ export function monthlyText(ctx: Context): string {
 
   // Forecast vs. reality: what earlier snapshots expected for this month.
   const curKey = localDay(ctx.at).slice(0, 7);
-  const cmp = loadForecastSnapshots()
+  const cmp = usableForecastSnapshots(loadForecastSnapshots())
     .filter((s) => s.month < curKey)
     .map((s) => ({ s, p: s.points.find((x) => x[0] === curKey) }))
     .filter((x) => x.p)

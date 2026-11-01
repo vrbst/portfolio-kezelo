@@ -6,6 +6,7 @@ import {
   backtest,
   deflateResult,
   detectRecurringSavings,
+  dropForecastSnapshot,
   firstReach,
   forecastMilestones,
   loadForecastSnapshots,
@@ -17,6 +18,8 @@ import {
   recordForecastSnapshot,
   requiredMonthlySaving,
   SCENARIOS,
+  snapshotReady,
+  usableForecastSnapshots,
   type ForecastAssumptions,
   type ForecastResult,
   type ForecastSnapshot,
@@ -431,12 +434,83 @@ describe("snapshots, milestones, helpers", () => {
 
   it("record: once a month, the next 24 months", () => {
     const r = run(portfolio(1_000_000), { months: 30 });
-    expect(recordForecastSnapshot(r, NOW)).toBe(true);
-    expect(recordForecastSnapshot(r, NOW)).toBe(false);
+    expect(recordForecastSnapshot(r, { summary: portfolio(1_000_000), pricesSettled: true }, NOW)).toBe(true);
+    expect(recordForecastSnapshot(r, { summary: portfolio(1_000_000), pricesSettled: true }, NOW)).toBe(false);
     const [s] = loadForecastSnapshots();
     expect(s.month).toBe("2026-10");
     expect(s.points).toHaveLength(24);
     expect(s.points[0][0]).toBe("2026-11");
+  });
+
+  // A snapshot taken before the prices arrived valued the securities at cost:
+  // the whole saved path started millions too low.
+  const withEtf = (currentPrice: number | undefined): PortfolioSummary =>
+    ({
+      totalValueHuf: 1_000_000,
+      accounts: [
+        {
+          holdings: [
+            { quantity: 10, currentPrice, marketValueHuf: 600_000, instrument: { key: "ETF", type: "etf" } },
+            { quantity: 400_000, marketValueHuf: 400_000, instrument: { key: "BOND", type: "tbill" } },
+          ],
+        },
+      ],
+    }) as unknown as PortfolioSummary;
+
+  it("ready: not while a held security has no price yet, unless the price round has finished", () => {
+    expect(snapshotReady(withEtf(undefined), false)).toBe(false);
+    expect(snapshotReady(withEtf(60_000), false)).toBe(true);
+    // A security with no quote at all must not block the month forever.
+    expect(snapshotReady(withEtf(undefined), true)).toBe(true);
+    // Bonds are valued from their terms, never from a quote.
+    expect(snapshotReady(portfolio(0, [{ key: "B", face: 1, value: 1 }]), false)).toBe(true);
+  });
+
+  const READY = { summary: portfolio(1_000_000), pricesSettled: true };
+
+  it("record: not before the securities are priced — the page cannot bypass it", () => {
+    const r = run(portfolio(1_000_000), { months: 30 });
+    expect(recordForecastSnapshot(r, { summary: withEtf(undefined), pricesSettled: false }, NOW)).toBe(false);
+    expect(loadForecastSnapshots()).toEqual([]);
+    expect(recordForecastSnapshot(r, { summary: withEtf(60_000), pricesSettled: false }, NOW)).toBe(true);
+  });
+
+  it("drop: a deleted snapshot stays deleted through a sync merge, in either order", () => {
+    const bad = { ...snap("2026-09", "2026-09-25T08:00:00.000Z"), startValueHuf: 70, points: [["2026-10", 1, 2, 3]] } as ForecastSnapshot;
+    localStorage.setItem("pf-forecast-snapshots", JSON.stringify([bad]));
+    expect(dropForecastSnapshot("2026-09")).toBe(true);
+    expect(dropForecastSnapshot("2026-09")).toBe(false);
+    const [tomb] = loadForecastSnapshots();
+    expect(tomb).toMatchObject({ month: "2026-09", dropped: true, points: [] });
+    expect(mergeForecastSnapshots([bad], [tomb])).toEqual([tomb]);
+    expect(mergeForecastSnapshots([tomb], [bad])).toEqual([tomb]);
+    expect(usableForecastSnapshots([tomb, snap("2026-10", "b")]).map((s) => s.month)).toEqual(["2026-10"]);
+  });
+
+  it("drop: the running month can be recorded again, and the new one survives the merge with the old copy", () => {
+    const r = run(portfolio(1_000_000), { months: 30 });
+    expect(recordForecastSnapshot(r, READY, NOW)).toBe(true);
+    const [old] = loadForecastSnapshots();
+    expect(dropForecastSnapshot("2026-10")).toBe(true);
+    const later = new Date(NOW.getTime() + 60_000);
+    expect(recordForecastSnapshot(r, READY, later)).toBe(true);
+    const mine = loadForecastSnapshots();
+    expect(usableForecastSnapshots(mine).map((s) => s.createdAt)).toEqual([later.toISOString()]);
+    // Another device still has the old one: it stays deleted, the new one stays.
+    expect(usableForecastSnapshots(mergeForecastSnapshots([old], mine))).toEqual(usableForecastSnapshots(mine));
+    expect(usableForecastSnapshots(mergeForecastSnapshots(mine, [old]))).toEqual(usableForecastSnapshots(mine));
+  });
+
+  it("cap: deleted months do not use up the 36 kept snapshots", () => {
+    const month = (i: number) => `20${30 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+    const live = Array.from({ length: 36 }, (_, i) => snap(month(i + 4), "c"));
+    const tombs = [0, 1, 2, 3].map((i) => ({ ...snap(month(i), "z"), dropped: true as const }));
+    const inside = { ...snap(month(10), "z"), dropped: true as const };
+    const m = mergeForecastSnapshots([...live, ...tombs], []);
+    expect(usableForecastSnapshots(m)).toHaveLength(36);
+    // Tombstones older than the oldest kept snapshot are not carried along.
+    expect(m.filter((s) => s.dropped)).toEqual([]);
+    expect(usableForecastSnapshots(mergeForecastSnapshots(live, [inside]))).toHaveLength(35);
   });
 
   it("milestones at whole years within the horizon", () => {

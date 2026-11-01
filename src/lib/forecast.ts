@@ -1134,6 +1134,38 @@ export interface ForecastSnapshot {
   startValueHuf: number;
   /** [YYYY-MM, pess, real, opt] for the following months, nominal HUF. */
   points: [string, number, number, number][];
+  /**
+   * Deleted by the user (a bad snapshot). Kept as a tombstone, with the
+   * `createdAt` of the snapshot it deletes, so the union merge of another
+   * device does not bring that snapshot back. A snapshot taken after it (the
+   * running month recorded again) beats it.
+   */
+  dropped?: true;
+}
+
+/** What `recordForecastSnapshot` checks before saving (see `snapshotReady`). */
+export interface SnapshotGate {
+  summary: PortfolioSummary;
+  pricesSettled: boolean;
+}
+
+/** The snapshots to show and compare: without the deleted ones. */
+export const usableForecastSnapshots = (list: ForecastSnapshot[]): ForecastSnapshot[] =>
+  list.filter((s) => !s.dropped);
+
+/**
+ * Whether this month's snapshot may be taken now. A security without a price
+ * yet is valued at cost, which would start the whole saved path too low; so
+ * wait for the prices — but only until the first price round has finished
+ * (`pricesSettled`), so a security with no quote at all cannot block it.
+ */
+export function snapshotReady(summary: PortfolioSummary, pricesSettled: boolean): boolean {
+  if (pricesSettled) return true;
+  return !summary.accounts.some((a) =>
+    a.holdings.some(
+      (h) => h.quantity > 0 && h.currentPrice == null && !(h.instrument && BOND_TYPES.has(h.instrument.type)),
+    ),
+  );
 }
 
 export function loadForecastSnapshots(): ForecastSnapshot[] {
@@ -1146,33 +1178,56 @@ export function loadForecastSnapshots(): ForecastSnapshot[] {
   }
 }
 
-/** Union by month (the earlier snapshot of a month wins), ascending, capped. */
+/**
+ * Union by month, ascending. Per month: a deletion removes every snapshot
+ * taken up to the one it deleted; of the rest the earlier one wins; the
+ * (latest) tombstone is kept beside it. Order-independent, so every device ends
+ * up with the same list. The cap counts real snapshots only; tombstones older
+ * than the oldest kept one go too.
+ */
 export function mergeForecastSnapshots(
   a: ForecastSnapshot[] | null | undefined,
   b: ForecastSnapshot[] | null | undefined,
 ): ForecastSnapshot[] {
-  const byMonth = new Map<string, ForecastSnapshot>();
+  const tombs = new Map<string, ForecastSnapshot>();
+  const all: ForecastSnapshot[] = [];
   for (const s of [...(a ?? []), ...(b ?? [])]) {
     if (!s || typeof s.month !== "string") continue;
-    const cur = byMonth.get(s.month);
-    if (!cur || s.createdAt < cur.createdAt) byMonth.set(s.month, s);
+    all.push(s);
+    const t = tombs.get(s.month);
+    if (s.dropped && (!t || s.createdAt > t.createdAt)) tombs.set(s.month, s);
   }
-  return [...byMonth.values()]
-    .sort((x, y) => x.month.localeCompare(y.month))
-    .slice(-SNAP_KEEP);
+  const live = new Map<string, ForecastSnapshot>();
+  for (const s of all) {
+    if (s.dropped) continue;
+    const t = tombs.get(s.month);
+    if (t && s.createdAt <= t.createdAt) continue;
+    const cur = live.get(s.month);
+    if (!cur || s.createdAt < cur.createdAt) live.set(s.month, s);
+  }
+  const kept = [...live.values()].sort((x, y) => x.month.localeCompare(y.month)).slice(-SNAP_KEEP);
+  const from = kept[0]?.month ?? "";
+  // A tombstone stays beside a newer snapshot of its month: another device may
+  // still hold the deleted one.
+  const keptTombs = [...tombs.values()].filter((t) => t.month >= from);
+  return [...kept, ...keptTombs].sort((x, y) => x.month.localeCompare(y.month));
 }
 
 /**
  * Store this month's snapshot from a NOMINAL deterministic result, unless one
- * already exists for the month. Returns true when a snapshot was added.
+ * already exists for the month or the portfolio is not fully valued yet
+ * (`gate`, see `snapshotReady`). A deleted one of the month does not block a
+ * new one. Returns true when a snapshot was added.
  */
 export function recordForecastSnapshot(
   nominal: ForecastResult,
+  gate: SnapshotGate,
   now: Date = new Date(),
 ): boolean {
+  if (!snapshotReady(gate.summary, gate.pricesSettled)) return false;
   const month = monthKey(now.getTime());
   const existing = loadForecastSnapshots();
-  if (existing.some((s) => s.month === month)) return false;
+  if (existing.some((s) => s.month === month && !s.dropped)) return false;
   const snap: ForecastSnapshot = {
     month,
     createdAt: now.toISOString(),
@@ -1191,6 +1246,24 @@ export function recordForecastSnapshot(
       SNAP_KEY,
       JSON.stringify(mergeForecastSnapshots(existing, [snap])),
     );
+    touchPref("forecastSnapshots");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete a month's snapshot (keeps only a tombstone, see `dropped`). False
+ * when there was nothing to delete or the change could not be saved.
+ */
+export function dropForecastSnapshot(month: string): boolean {
+  const existing = loadForecastSnapshots();
+  const cur = existing.find((s) => s.month === month && !s.dropped);
+  if (!cur) return false;
+  const tomb: ForecastSnapshot = { month, createdAt: cur.createdAt, startValueHuf: 0, points: [], dropped: true };
+  try {
+    localStorage.setItem(SNAP_KEY, JSON.stringify(mergeForecastSnapshots(existing, [tomb])));
     touchPref("forecastSnapshots");
     return true;
   } catch {
