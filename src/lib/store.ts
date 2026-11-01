@@ -102,6 +102,8 @@ interface PortfolioState {
   /** ISO timestamp shown in the UI. */
   priceUpdatedAt?: string;
   pricesLoading: boolean;
+  /** True once a price round (file, FX, every security) has finished this session. */
+  pricesSettled: boolean;
 
   /** Alert history (seen / dismissed), synced. Keyed by stable alert id. */
   alertState: AlertState;
@@ -489,6 +491,7 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
   manualPrices: {},
   priceUpdatedAt: undefined,
   pricesLoading: false,
+  pricesSettled: false,
   alertState: {},
   alertConfig: loadAlertConfig(),
   goals: [],
@@ -752,122 +755,132 @@ export const usePortfolio = create<PortfolioState>((set, get) => ({
 
   refreshPrices: async () => {
     set({ pricesLoading: true });
-    // Price every held ETF / stock / fund. Symbols are resolved from the ISIN
-    // (manual override > curated > Yahoo search), so a newly bought ETF gets a
-    // live price automatically — no per-instrument wiring needed.
-    const tickerTypes = new Set(["etf", "stock", "fund"]);
-    const targets = get()
-      .instruments.filter((i) => tickerTypes.has(i.type))
-      .map((i) => ({
-        key: i.key,
-        isin: i.isin ?? i.key,
-        currency: i.currency,
-      }));
-    // History is owned by refreshHistory (runs once on startup), so the 5-minute
-    // price poll never clobbers the live-fetched chart series.
-    const priceOf = (q: Record<string, LiveQuote>) =>
-      Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.price]));
-    // Folds quotes into the store. Called as each source answers (snapshot
-    // file, FX, every security) so the cards fill in piece by piece instead of
-    // waiting for the slowest call; `done` marks the round's last write.
-    const apply = (
-      file: PriceFile | null,
-      fxQuotes: Record<string, LiveQuote>,
-      priceQuotes: Record<string, LiveQuote>,
-      done = false,
-    ) => {
-      const liveFx = priceOf(fxQuotes);
-      const livePrices = priceOf(priceQuotes);
-      set((s) => {
-        const priceFile = file ?? s.priceFile;
-        // Keep the last good live quote for any symbol that failed this round.
-        const live = { ...s.livePrices, ...livePrices };
-        // A fresh live quote retires the manual override for that instrument —
-        // the manual price is a stopgap, not a permanent opinion.
-        let manual = s.manualPrices;
-        const dropped = Object.keys(livePrices).filter((k) => k in manual);
-        if (dropped.length > 0) {
-          manual = { ...manual };
-          for (const k of dropped) delete manual[k];
-          void setMeta("manualPriceOverrides", manual);
-        }
-        const prices = buildPriceMap(priceFile, live, manual);
-        // Live FX wins. Until the first live success the committed prices.json
-        // beats the saved/derived rates; afterwards the session's live rates are
-        // fresher than the (hours-old) file, so a failed round must not let the
-        // file roll them back.
-        if (Object.keys(liveFx).length > 0) liveFxThisSession = true;
-        const fileFx = priceFile?.fx ?? {};
-        const fx = liveFxThisSession
-          ? { ...fileFx, ...s.fx, ...liveFx }
-          : { ...s.fx, ...fileFx, ...liveFx };
-        void setMeta("fx", fx);
-        const gotLive = Object.keys(livePrices).length > 0;
-        return {
-          priceFile,
-          livePrices: live,
-          // FX quotes keyed by currency ("EUR"), security quotes by instrument key.
-          liveQuotes: { ...s.liveQuotes, ...fxQuotes, ...priceQuotes },
-          manualPrices: manual,
-          prices,
-          fx,
-          // Live quote → "now"; otherwise fall back to the snapshot's timestamp.
-          priceUpdatedAt: gotLive
-            ? new Date().toISOString()
-            : done
-              ? (priceFile?.updatedAt ?? s.priceUpdatedAt)
-              : (s.priceUpdatedAt ?? priceFile?.updatedAt),
-          pricesLoading: done ? false : s.pricesLoading,
-        };
-      });
-    };
-
-    // Securities answer one by one: batch the bursts into one write per tick
-    // (each write recomputes the whole portfolio).
-    let pending: Record<string, LiveQuote> = {};
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    const flush = () => {
-      flushTimer = null;
-      const quotes = pending;
-      pending = {};
-      if (Object.keys(quotes).length > 0) apply(null, {}, quotes);
-    };
-
-    const filePromise = loadPriceFile().then((file) => {
-      if (file) apply(file, {}, {});
-      return file;
-    });
-    const fxPromise = fetchLiveFx(
-      fxCurrencies(get().instruments, get().transactions),
-    ).then((fxQuotes) => {
-      if (Object.keys(fxQuotes).length > 0) apply(null, fxQuotes, {});
-      return fxQuotes;
-    });
-    const [file, fxQuotes, priceQuotes] = await Promise.all([
-      filePromise,
-      fxPromise,
-      fetchLivePrices(targets, (key, quote) => {
-        pending[key] = quote;
-        flushTimer ??= setTimeout(flush, 100);
-      }),
-    ]);
-    if (flushTimer) clearTimeout(flushTimer);
-    pending = {};
-    const retyped = get()
-      .instruments.map((i) => {
-        const type = refinedInstrumentType(i, priceQuotes[i.key]);
-        return type ? { ...i, type } : undefined;
-      })
-      .filter((i): i is Instrument => !!i);
-    if (retyped.length > 0) {
-      const byKey = new Map(retyped.map((i) => [i.key, i]));
-      await db.instruments.bulkPut(retyped);
-      set((s) => ({ instruments: s.instruments.map((i) => byKey.get(i.key) ?? i) }));
-      scheduleAutoSync(set, get);
+    try {
+      await priceRound();
+    } finally {
+      // A failed round still ends the round: what is in is the best there is,
+      // so the forecast snapshot (snapshotReady) must not wait for it forever.
+      set({ pricesLoading: false, pricesSettled: true });
     }
-    // Final write: the complete quotes (with the off-hours cross-check) and the
-    // end of the round, whatever the partial writes already showed.
-    apply(file, fxQuotes, priceQuotes, true);
+    async function priceRound() {
+      // Price every held ETF / stock / fund. Symbols are resolved from the ISIN
+      // (manual override > curated > Yahoo search), so a newly bought ETF gets a
+      // live price automatically — no per-instrument wiring needed.
+      const tickerTypes = new Set(["etf", "stock", "fund"]);
+      const targets = get()
+        .instruments.filter((i) => tickerTypes.has(i.type))
+        .map((i) => ({
+          key: i.key,
+          isin: i.isin ?? i.key,
+          currency: i.currency,
+        }));
+      // History is owned by refreshHistory (runs once on startup), so the 5-minute
+      // price poll never clobbers the live-fetched chart series.
+      const priceOf = (q: Record<string, LiveQuote>) =>
+        Object.fromEntries(Object.entries(q).map(([k, v]) => [k, v.price]));
+      // Folds quotes into the store. Called as each source answers (snapshot
+      // file, FX, every security) so the cards fill in piece by piece instead of
+      // waiting for the slowest call; `done` marks the round's last write.
+      const apply = (
+        file: PriceFile | null,
+        fxQuotes: Record<string, LiveQuote>,
+        priceQuotes: Record<string, LiveQuote>,
+        done = false,
+      ) => {
+        const liveFx = priceOf(fxQuotes);
+        const livePrices = priceOf(priceQuotes);
+        set((s) => {
+          const priceFile = file ?? s.priceFile;
+          // Keep the last good live quote for any symbol that failed this round.
+          const live = { ...s.livePrices, ...livePrices };
+          // A fresh live quote retires the manual override for that instrument —
+          // the manual price is a stopgap, not a permanent opinion.
+          let manual = s.manualPrices;
+          const dropped = Object.keys(livePrices).filter((k) => k in manual);
+          if (dropped.length > 0) {
+            manual = { ...manual };
+            for (const k of dropped) delete manual[k];
+            void setMeta("manualPriceOverrides", manual);
+          }
+          const prices = buildPriceMap(priceFile, live, manual);
+          // Live FX wins. Until the first live success the committed prices.json
+          // beats the saved/derived rates; afterwards the session's live rates are
+          // fresher than the (hours-old) file, so a failed round must not let the
+          // file roll them back.
+          if (Object.keys(liveFx).length > 0) liveFxThisSession = true;
+          const fileFx = priceFile?.fx ?? {};
+          const fx = liveFxThisSession
+            ? { ...fileFx, ...s.fx, ...liveFx }
+            : { ...s.fx, ...fileFx, ...liveFx };
+          void setMeta("fx", fx);
+          const gotLive = Object.keys(livePrices).length > 0;
+          return {
+            priceFile,
+            livePrices: live,
+            // FX quotes keyed by currency ("EUR"), security quotes by instrument key.
+            liveQuotes: { ...s.liveQuotes, ...fxQuotes, ...priceQuotes },
+            manualPrices: manual,
+            prices,
+            fx,
+            // Live quote → "now"; otherwise fall back to the snapshot's timestamp.
+            priceUpdatedAt: gotLive
+              ? new Date().toISOString()
+              : done
+                ? (priceFile?.updatedAt ?? s.priceUpdatedAt)
+                : (s.priceUpdatedAt ?? priceFile?.updatedAt),
+            pricesLoading: done ? false : s.pricesLoading,
+            pricesSettled: done || s.pricesSettled,
+          };
+        });
+      };
+
+      // Securities answer one by one: batch the bursts into one write per tick
+      // (each write recomputes the whole portfolio).
+      let pending: Record<string, LiveQuote> = {};
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const flush = () => {
+        flushTimer = null;
+        const quotes = pending;
+        pending = {};
+        if (Object.keys(quotes).length > 0) apply(null, {}, quotes);
+      };
+
+      const filePromise = loadPriceFile().then((file) => {
+        if (file) apply(file, {}, {});
+        return file;
+      });
+      const fxPromise = fetchLiveFx(
+        fxCurrencies(get().instruments, get().transactions),
+      ).then((fxQuotes) => {
+        if (Object.keys(fxQuotes).length > 0) apply(null, fxQuotes, {});
+        return fxQuotes;
+      });
+      const [file, fxQuotes, priceQuotes] = await Promise.all([
+        filePromise,
+        fxPromise,
+        fetchLivePrices(targets, (key, quote) => {
+          pending[key] = quote;
+          flushTimer ??= setTimeout(flush, 100);
+        }),
+      ]);
+      if (flushTimer) clearTimeout(flushTimer);
+      pending = {};
+      const retyped = get()
+        .instruments.map((i) => {
+          const type = refinedInstrumentType(i, priceQuotes[i.key]);
+          return type ? { ...i, type } : undefined;
+        })
+        .filter((i): i is Instrument => !!i);
+      if (retyped.length > 0) {
+        const byKey = new Map(retyped.map((i) => [i.key, i]));
+        await db.instruments.bulkPut(retyped);
+        set((s) => ({ instruments: s.instruments.map((i) => byKey.get(i.key) ?? i) }));
+        scheduleAutoSync(set, get);
+      }
+      // Final write: the complete quotes (with the off-hours cross-check) and the
+      // end of the round, whatever the partial writes already showed.
+      apply(file, fxQuotes, priceQuotes, true);
+    }
   },
 
   refreshHistory: async () => {

@@ -25,7 +25,6 @@ import {
   accountReturn,
   isEmptyAccount,
   buildValueSeries,
-  type ValuePoint,
   type AccountSummary,
 } from "../lib/portfolio";
 import { upcomingEvents, type EventKind } from "../lib/events";
@@ -203,20 +202,6 @@ export default function Dashboard() {
   );
   const rangedProfitBase = profitBase(rangedSeries, range);
 
-  // Chart scrubbing: while hovering the value chart the hero card shows that
-  // day's value and the market move since the range start (flows netted out).
-  const [scrub, setScrub] = useState<ValuePoint | null>(null);
-  const scrubDelta = useMemo(() => {
-    const base = rangedSeries[0];
-    if (!scrub || !base) return null;
-    const flows = scrub.invested - base.invested;
-    const abs = scrub.value - base.value - flows;
-    // Relative to the capital at stake (start value + money added since) — the
-    // start value alone can be near zero on "Max" and inflate the percentage.
-    const stake = base.value + Math.max(0, flows);
-    return { abs, pct: stake > 0 ? abs / stake : undefined };
-  }, [scrub, rangedSeries]);
-
   const [allocMode, setAllocMode] = useState<DetailMode>("class");
   const fundamentals = useFundamentalsFile();
   const sectors = useMemo(
@@ -334,20 +319,13 @@ export default function Dashboard() {
   const heroCard = (
     <StatCard
       variant={isMobile ? "bare" : undefined}
-      label={
-        scrub ? `Érték · ${formatDate(scrub.date)}` : "Teljes érték"
-      }
-      numericValue={scrub ? scrub.value : summary.totalValueHuf}
-      format={(n) => formatMoney(n, scrub ? chartCurrency : "HUF")}
+      label="Teljes érték"
+      numericValue={summary.totalValueHuf}
+      format={(n) => formatMoney(n, "HUF")}
       sub={
         <>
-          {scrub && chartCurrency === "EUR"
-            ? undefined
-            : eurEquivalent(
-                scrub ? scrub.value : summary.totalValueHuf,
-                eurHuf,
-              )}
-          {!scrub && dayChange?.eurPct != null && (
+          {eurEquivalent(summary.totalValueHuf, eurHuf)}
+          {dayChange?.eurPct != null && (
             <span
               className={`ml-1.5 ${
                 dayChange.eurPct >= 0
@@ -361,15 +339,14 @@ export default function Dashboard() {
           )}
         </>
       }
-      delta={scrub ? scrubDelta?.abs : dayChange?.abs}
-      deltaPct={scrub ? scrubDelta?.pct : dayChange?.pct}
-      deltaNote={scrub ? "az időszak elejétől" : dayChange?.note}
+      delta={dayChange?.abs}
+      deltaPct={dayChange?.pct}
+      deltaNote={dayChange?.note}
       deltaDetail={
-        !scrub && dayChange?.breakdown?.length ? (
+        dayChange?.breakdown?.length ? (
           <DayChangeBreakdown change={dayChange} />
         ) : undefined
       }
-      scrubbing={scrub != null}
       icon={<Wallet className="h-5 w-5" />}
       index={0}
       hero
@@ -508,7 +485,6 @@ export default function Dashboard() {
           data={rangedSeries}
           mode={chartMode}
           profitBase={rangedProfitBase}
-          onScrub={setScrub}
           currency={chartCurrency}
         />
       </Card>

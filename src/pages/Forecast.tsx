@@ -32,6 +32,9 @@ import {
   saveForecastSettings,
   loadForecastSnapshots,
   recordForecastSnapshot,
+  dropForecastSnapshot,
+  snapshotReady,
+  usableForecastSnapshots,
   firstReach,
   probAtLeast,
   requiredMonthlySaving,
@@ -67,7 +70,7 @@ import {
   Badge,
   AmountInput,
 } from "../components/ui";
-import { formatMoney } from "../lib/format";
+import { formatDate, formatMoney } from "../lib/format";
 import { txDay } from "../lib/day";
 
 const huf = (n: number) => Math.round(n).toLocaleString("hu-HU");
@@ -201,6 +204,7 @@ export default function Forecast() {
   const transactions = usePortfolio((s) => s.transactions);
   const fx = usePortfolio((s) => s.fx);
   const privacy = usePortfolio((s) => s.privacy);
+  const pricesSettled = usePortfolio((s) => s.pricesSettled);
 
   const [settings, setSettings] =
     useState<ForecastSettings>(loadForecastSettings);
@@ -507,19 +511,63 @@ export default function Forecast() {
     // use (still loading, or the file could not be read): the month's snapshot
     // would be stored with the manual returns and never replaced.
     if (!hasData || returnStatus === "loading" || returnStatus === "missing") return;
+    // Securities still at cost (no price yet) would start the path too low;
+    // recordForecastSnapshot checks it, this only skips the projection.
+    if (!snapshotReady(summary, pricesSettled)) return;
     const month = currentMonthKey();
-    if (loadForecastSnapshots().some((s) => s.month === month)) return;
+    if (snapshots.some((s) => s.month === month && !s.dropped)) return;
     const nominalDet = projectForecast(
       summary,
       { ...assumptions, months: Math.max(24, assumptions.months) },
       allExpenses,
     );
     // The pref event it fires reloads `snapshots` via the listener above.
-    recordForecastSnapshot(nominalDet);
-  }, [hasData, returnStatus, summary, assumptions, allExpenses]);
+    recordForecastSnapshot(nominalDet, { summary, pricesSettled });
+    // `snapshots` too: deleting this month's snapshot records a new one.
+  }, [hasData, returnStatus, pricesSettled, summary, assumptions, allExpenses, snapshots]);
+  // The month whose delete is being confirmed, and a delete that failed.
+  const [confirmDrop, setConfirmDrop] = useState<string | null>(null);
+  const [dropFailed, setDropFailed] = useState(false);
+  const currentSnapshot = useMemo(
+    () => usableForecastSnapshots(snapshots).find((s) => s.month === currentMonthKey()),
+    [snapshots],
+  );
+  const onDrop = (month: string) => {
+    setDropFailed(!dropForecastSnapshot(month));
+    setConfirmDrop(null);
+  };
+  const dropControl = (month: string, label: string) =>
+    confirmDrop === month ? (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs">
+        <button
+          type="button"
+          className="rounded px-1.5 py-0.5 text-[var(--color-negative)] hover:bg-[var(--color-negative)]/10"
+          onClick={() => onDrop(month)}
+        >
+          Törlés
+        </button>
+        <button
+          type="button"
+          className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:text-[var(--color-text)]"
+          onClick={() => setConfirmDrop(null)}
+        >
+          Mégse
+        </button>
+      </span>
+    ) : (
+      <button
+        type="button"
+        title="Hibás mentés törlése"
+        aria-label={label}
+        className="rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-negative)]"
+        onClick={() => setConfirmDrop(month)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    );
   const comparisons = useMemo(() => {
     const curKey = currentMonthKey();
-    return snapshots
+    return usableForecastSnapshots(snapshots)
       .filter((s) => s.month < curKey)
       .map((s) => {
         const p = s.points.find((x) => x[0] === curKey);
@@ -543,7 +591,7 @@ export default function Forecast() {
       settings.realMode
         ? Math.pow(1 + settings.inflationPct, (startTs - ts) / YEAR_MS)
         : 1;
-    return snapshots
+    return usableForecastSnapshots(snapshots)
       .filter((s) => s.month < curKey)
       .slice(-6)
       .map((s) => {
@@ -1652,6 +1700,7 @@ export default function Forecast() {
                     </th>
                     <th className="py-2 pr-3 text-right font-medium">Sáv</th>
                     <th className="py-2 text-right font-medium">Eltérés</th>
+                    <th className="w-8 py-2" aria-label="Törlés" />
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
@@ -1698,6 +1747,9 @@ export default function Forecast() {
                             </span>
                           )}
                         </td>
+                        <td className="py-2 pl-2 text-right">
+                          {dropControl(c.month, `A(z) ${formatMonthLabel(c.month)} mentés törlése`)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1705,6 +1757,18 @@ export default function Forecast() {
               </table>
             </div>
           </>
+        )}
+        {currentSnapshot && (
+          <p className="mt-3 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--color-muted)]">
+            E havi mentés: {formatDate(currentSnapshot.createdAt)}, kiinduló érték{" "}
+            <span className="amt">{privacy ? "•••" : `${huf(currentSnapshot.startValueHuf)} Ft`}</span>
+            {dropControl(currentSnapshot.month, "Az e havi mentés törlése és újrakészítése")}
+          </p>
+        )}
+        {dropFailed && (
+          <p className="mt-2 text-xs text-[var(--color-negative)]" role="alert">
+            A mentést nem sikerült törölni (a böngésző tárhelye nem írható).
+          </p>
         )}
       </Card>
 

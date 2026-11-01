@@ -338,18 +338,15 @@ export function Card({
  * Odometer-style number: every digit is a 0–9 column that slides to its value,
  * so a changing amount visibly "rolls" digit by digit. Non-digits (spaces,
  * currency, sign) stay static. Digits are keyed from the right so they keep
- * their identity when the length changes. `instant` (or reduced motion) skips
- * the slide.
+ * their identity when the length changes. Reduced motion skips the slide.
  */
 export function RollingNumber({
   value,
   format,
-  instant = false,
   gradient = false,
 }: {
   value: number;
   format: (n: number) => string;
-  instant?: boolean;
   /**
    * Brand-gradient text. background-clip:text on the root can't reach the
    * transformed digit columns, so every glyph carries the gradient itself,
@@ -377,10 +374,9 @@ export function RollingNumber({
       el.style.setProperty("--gx", `${el.offsetLeft}px`);
   }, [gradient, text]);
   const glyph = gradient ? "rolling-gradient" : "";
-  const slide =
-    reduce || instant
-      ? "none"
-      : "transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)";
+  const slide = reduce
+    ? "none"
+    : "transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)";
   return (
     <span ref={rootRef} className="relative inline-flex" aria-label={text}>
       {chars.map((ch, i) => {
@@ -551,7 +547,6 @@ export function StatCard({
   hero = false,
   aurora = false,
   flashOnChange = false,
-  scrubbing = false,
   sparkline,
   sparkStroke = "var(--color-brand)",
   variant = "card",
@@ -579,11 +574,6 @@ export function StatCard({
   aurora?: boolean;
   /** Briefly glows the number green/red when numericValue changes. */
   flashOnChange?: boolean;
-  /**
-   * The value is being scrubbed from a chart: follow it instantly (no count-up,
-   * no flash). On release it glides back to the live value.
-   */
-  scrubbing?: boolean;
   /** Tiny trend line drawn at the bottom of the card. */
   sparkline?: number[];
   sparkStroke?: string;
@@ -597,9 +587,6 @@ export function StatCard({
   const [flash, setFlash] = useState<null | "up" | "down">(null);
   const prevNum = useRef(numericValue);
   useEffect(() => {
-    // Scrubbed values are not price moves: leave prevNum at the live value so
-    // the release (back to it) doesn't flash either.
-    if (scrubbing) return;
     if (!flashOnChange || reduce || numericValue == null) {
       prevNum.current = numericValue;
       return;
@@ -611,7 +598,7 @@ export function StatCard({
       return () => clearTimeout(t);
     }
     prevNum.current = numericValue;
-  }, [numericValue, flashOnChange, reduce, scrubbing]);
+  }, [numericValue, flashOnChange, reduce]);
 
   const numberCls = bare
     ? "font-display mt-1 text-4xl font-bold tracking-tight"
@@ -626,7 +613,6 @@ export function StatCard({
       <RollingNumber
         value={numericValue}
         format={format}
-        instant={scrubbing}
         gradient={hero || bare}
       />
     ) : (
@@ -664,9 +650,9 @@ export function StatCard({
           }`}
         />
       )}
-      {/* Label and delta rows stay single-line: a longer text (e.g. the date
-          while scrubbing the value chart) truncates instead of wrapping, so
-          the card — and the whole column beside it — never changes height. */}
+      {/* Label and delta rows stay single-line: a longer text truncates
+          instead of wrapping, so the card — and the whole column beside it —
+          never changes height. */}
       <div className="relative flex items-center justify-between gap-2">
         <span
           className={`min-w-0 truncate text-[var(--color-muted)] ${compact ? "text-xs" : "text-sm"}`}
