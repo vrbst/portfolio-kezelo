@@ -1149,6 +1149,19 @@ export interface SnapshotGate {
   pricesSettled: boolean;
 }
 
+/** A miss smaller than this share of the expected value is never "out of band". */
+const BAND_TOLERANCE = 0.01;
+
+/**
+ * Whether the actual value missed a saved forecast's band. The band only
+ * spreads the return scenarios, so a month or two ahead it is a fraction of a
+ * percent wide: a miss is flagged only past the band AND by at least 1%.
+ */
+export function outOfBand(actual: number, p: { pess: number; real: number; opt: number }): boolean {
+  if (actual >= p.pess && actual <= p.opt) return false;
+  return Math.abs(actual - p.real) >= BAND_TOLERANCE * Math.abs(p.real);
+}
+
 /** The snapshots to show and compare: without the deleted ones. */
 export const usableForecastSnapshots = (list: ForecastSnapshot[]): ForecastSnapshot[] =>
   list.filter((s) => !s.dropped);
@@ -1205,10 +1218,12 @@ export function mergeForecastSnapshots(
     const cur = live.get(s.month);
     if (!cur || s.createdAt < cur.createdAt) live.set(s.month, s);
   }
-  const kept = [...live.values()].sort((x, y) => x.month.localeCompare(y.month)).slice(-SNAP_KEEP);
-  const from = kept[0]?.month ?? "";
-  // A tombstone stays beside a newer snapshot of its month: another device may
-  // still hold the deleted one.
+  const sorted = [...live.values()].sort((x, y) => x.month.localeCompare(y.month));
+  const kept = sorted.slice(-SNAP_KEEP);
+  // Tombstones go only where the cap cut the snapshots too (every device cuts
+  // the same ones). Otherwise each stays — also beside a newer snapshot of its
+  // month — since another device may still hold the deleted one.
+  const from = sorted.length > SNAP_KEEP ? kept[0].month : "";
   const keptTombs = [...tombs.values()].filter((t) => t.month >= from);
   return [...kept, ...keptTombs].sort((x, y) => x.month.localeCompare(y.month));
 }

@@ -14,6 +14,7 @@ import {
   loadForecastSettings,
   loadForecastSnapshots,
   usableForecastSnapshots,
+  outOfBand,
   monthlyBudgetHuf,
   obligationSteps,
   projectForecast,
@@ -847,10 +848,9 @@ export function monthlyText(ctx: Context): string {
     lines.push("", "<b>Előrejelzés vs. valóság</b>");
     for (const { s, p } of cmp) {
       const diff = ctx.summary.totalValueHuf - p![2];
-      const inBand =
-        ctx.summary.totalValueHuf >= p![1] && ctx.summary.totalValueHuf <= p![3];
+      const off = outOfBand(ctx.summary.totalValueHuf, { pess: p![1], real: p![2], opt: p![3] });
       lines.push(
-        `• ${monthLabel(s.month)}-i várakozás: ${ft(p![2])} → eltérés ${sft(diff)}${inBand ? "" : " (sávon kívül)"}`,
+        `• ${monthLabel(s.month)}-i várakozás: ${ft(p![2])} → eltérés ${sft(diff)}${off ? " (sávon kívül)" : ""}`,
       );
     }
   }
