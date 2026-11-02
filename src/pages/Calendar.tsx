@@ -22,6 +22,7 @@ import {
   usePortfolioSummary,
   useSavingsGoals,
   useValuedInstruments,
+  usePlannedSales,
 } from "../lib/store";
 import {
   buildFxHistory,
@@ -114,6 +115,7 @@ export default function Calendar() {
   const privacy = usePortfolio((s) => s.privacy);
   const dcaGoals = usePortfolio((s) => s.goals);
   const summary = usePortfolioSummary();
+  const sales = usePlannedSales();
   const savingsGoals = useSavingsGoals();
   const plannedExpenses = usePlannedExpenses();
 
@@ -152,8 +154,9 @@ export default function Calendar() {
   };
 
   const cashflows = useMemo(
-    () => futureBondCashflows(summary, today, transactions),
-    [summary, today, transactions],
+    () => futureBondCashflows(summary, today, transactions, sales),
+    // A refill goal's planned sale shrinks the later coupons.
+    [summary, today, transactions, sales],
   );
 
   // Build a per-day item map across past transactions, future cash-flows,

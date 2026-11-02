@@ -90,10 +90,10 @@ function LineRow({
               </button>
             </span>
           )}
-          <Badge tone={n.ahead ? "positive" : n.kind === "savings" ? "warning" : "neutral"}>
-            {n.ahead ? "Előrehozás" : n.kind === "savings" ? "Határidős cél" : "DCA"}
+          <Badge tone={n.ahead ? "positive" : n.kind === "savings" ? "warning" : n.kind === "refill" ? "brand" : "neutral"}>
+            {n.ahead ? "Előrehozás" : n.kind === "savings" ? "Határidős cél" : n.kind === "refill" ? "Visszapótlás" : "DCA"}
           </Badge>
-          <span className={`truncate font-medium ${n.kind === "savings" ? "priv" : ""}`}>{n.name}</span>
+          <span className={`truncate font-medium ${n.kind === "savings" || n.kind === "refill" ? "priv" : ""}`}>{n.name}</span>
         </span>
         <span className="tabular-nums">
           {done ? (
@@ -114,9 +114,11 @@ function LineRow({
           <span>
             {n.holdCash
               ? "Tartsd készpénzben a céldátumig"
-              : line.trade
-                ? `${n.target} vétel`
-                : `${n.target}`}
+              : line.viaGlide
+                ? `${n.target} — a vételek lent, a célpálya sorában`
+                : line.trade
+                  ? `${n.target} vétel`
+                  : `${n.target}`}
             {line.venue && line.venue.source !== "none" && (
               <>
                 {" → "}

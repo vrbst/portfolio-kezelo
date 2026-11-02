@@ -55,6 +55,8 @@ import {
   computeRefillProgress,
   loadRefills,
   refillAlerts,
+  plannedSales,
+  type PlannedSale,
   type RefillGoal,
   type RefillProgress,
 } from "./refill";
@@ -374,6 +376,17 @@ const cachedRefillProgress = sharedMemo(
     });
   },
 );
+
+/**
+ * The refill withdrawals not in the ledger yet, as planned sales: pass them to
+ * the coupon schedule (futureBondCashflows, computeSavingsProgress) so a memo
+ * recomputes when a refill changes.
+ */
+export function usePlannedSales(): PlannedSale[] {
+  const refills = useRefills();
+  const transactions = usePortfolio((s) => s.transactions);
+  return useMemo(() => plannedSales(refills, transactions), [refills, transactions]);
+}
 
 /** Each open refill goal's progress and this month's part. */
 export function useRefillProgress(): RefillProgress[] {

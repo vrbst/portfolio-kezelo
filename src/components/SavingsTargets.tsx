@@ -1,7 +1,7 @@
 import InfoTip from "./InfoTip";
 import { useEffect, useMemo, useState } from "react";
 import { Target, Plus } from "lucide-react";
-import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
+import { usePortfolio, usePortfolioSummary, usePlannedSales, useValuedInstruments } from "../lib/store";
 import { consolidatedHoldings } from "../lib/portfolio";
 import {
   computeSavingsProgress,
@@ -35,6 +35,8 @@ export default function SavingsTargets() {
   const instruments = useValuedInstruments();
   const prices = usePortfolio((s) => s.prices);
   const fx = usePortfolio((s) => s.fx);
+  // A refill goal's planned sale shrinks the coupons the goals count on.
+  const sales = usePlannedSales();
 
   const [goals, setGoals] = useState<SavingsGoal[]>(loadSavingsGoals);
 
@@ -66,17 +68,19 @@ export default function SavingsTargets() {
       map,
       prices,
       fx,
+      undefined,
+      sales,
     );
-  }, [open, accounts, transactions, instruments, prices, fx]);
+  }, [open, accounts, transactions, instruments, prices, fx, sales]);
   // This month's remaining quota per goal — the Havi terv's own figure.
   const planHuf = useMemo(() => {
     const map = new Map(instruments.map((i) => [i.key, i]));
     return new Map(
-      savingsMonthStates(open, accounts, transactions, map, prices, fx).map(
+      savingsMonthStates(open, accounts, transactions, map, prices, fx, undefined, sales).map(
         (s) => [s.goalId, s.planHuf],
       ),
     );
-  }, [open, accounts, transactions, instruments, prices, fx]);
+  }, [open, accounts, transactions, instruments, prices, fx, sales]);
 
   // Buys that may have been paid from a goal's set-aside cash.
   const conflicts = useMemo(
@@ -101,8 +105,8 @@ export default function SavingsTargets() {
     instruments.find((i) => i.key === key)?.name ??
     key;
   const coupons = useMemo(
-    () => futureCouponOptions(summary, transactions),
-    [summary, transactions],
+    () => futureCouponOptions(summary, transactions, undefined, sales),
+    [summary, transactions, sales],
   );
 
   // Which dialog is open: the editor (a goal id, or "new") or a schedule.
