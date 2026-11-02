@@ -160,6 +160,11 @@ function LineRow({
           {line.upcoming.from}-tól: {line.upcoming.label}
         </div>
       )}
+      {n.openEnded && n.needHuf - line.allocatedHuf >= 1 && (
+        <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+          A többi a következő hónapokban: <Amt>{formatMoney(n.needHuf - line.allocatedHuf)}</Amt>
+        </div>
+      )}
       {line.shortHuf >= 1 &&
         (leftover ? (
           <div className="mt-0.5 text-xs text-[var(--color-muted)]">

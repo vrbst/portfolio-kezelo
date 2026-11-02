@@ -9,6 +9,7 @@ import { consolidatedHoldings } from "../../src/lib/portfolio";
 import type { ValuePoint } from "../../src/lib/series";
 import type { Context } from "./data";
 import { dayLabel, esc, ft, mft, pct, sft, shortName } from "./reports";
+import { refillMonthHuf } from "../../src/lib/refill";
 
 /** The action id in asszisztens.app.json (the button below asks for it). */
 export const NEWS_ACTION = "hirkereses";
@@ -119,6 +120,12 @@ export function portfolioViewHtml(ctx: Context, appUrl: string): string {
         `<li><div class="pv-row"><strong>${esc(p.goal.name)}</strong><span class="muted">${esc(ft(p.targetHuf))} · ${esc(dayLabel(p.goal.targetDate))}</span></div>` +
         `<div class="pv-bar${p.reached ? " done" : ""}"><span style="width:${Math.min(100, Math.round(p.progressPct * 100))}%"></span></div>` +
         `<small>most ${Math.round(p.progressPct * 100)}%, a határidőre várhatóan ${Math.round(p.projectedPct * 100)}%</small></li>`,
+    ),
+    ...ctx.refills.map(
+      (p) =>
+        `<li><div class="pv-row"><strong>${esc(p.goal.name)}</strong><span class="muted">visszapótlás · kivét ${esc(dayLabel(p.withdrawnDay))}</span></div>` +
+        `<div class="pv-bar${p.status === "done" ? " done" : ""}"><span style="width:${Math.min(100, Math.round(p.ratio * 100))}%"></span></div>` +
+        `<small>${esc(ft(p.refilledHuf))} / ${esc(ft(p.amountHuf))}${p.status === "planned" ? " · tervezett" : p.status === "done" ? "" : ` · e hónapban ${esc(ft(refillMonthHuf(p, ctx.budgetHuf)))}`}</small></li>`,
     ),
     ...ctx.goalProgress.map(
       (g) =>

@@ -269,6 +269,15 @@ export function computeRefillProgress(a: RefillInput): RefillProgress[] {
 }
 
 /**
+ * What goes back this month, for display: the month's part — for "as soon as
+ * possible" (which asks for the whole remainder) at most the monthly budget.
+ */
+export function refillMonthHuf(p: RefillProgress, budgetHuf: number): number {
+  if (p.goal.pace.kind !== "asap") return p.needHuf;
+  return Math.max(0, Math.min(p.needHuf, budgetHuf));
+}
+
+/**
  * Months still needed at `monthlyHuf` (the monthly budget for "asap") —
  * undefined when nothing goes in a month. 0 = done.
  */
@@ -478,7 +487,7 @@ export function refillAlerts(progress: RefillProgress[], budgetHuf: number, now:
         id: `refill:${id}:${effectiveMonthKey(now)}`,
         severity: "medium",
         title: `Visszapótlás – ${p.goal.name}`,
-        detail: `Még ${formatMoney(p.remainingHuf)} van hátra (${formatMoney(p.refilledHuf)} / ${formatMoney(p.amountHuf)}); e hónapban ${formatMoney(p.needHuf)} → ${p.targetLabel}${fin ? `, várhatóan ${fin}-ig kész` : ""}.`,
+        detail: `Még ${formatMoney(p.remainingHuf)} van hátra (${formatMoney(p.refilledHuf)} / ${formatMoney(p.amountHuf)}); e hónapban ${formatMoney(refillMonthHuf(p, budgetHuf))} → ${p.targetLabel}${fin ? `, várhatóan ${fin}-ig kész` : ""}.`,
         to: "/goals",
         actionLabel: "Célok",
       });

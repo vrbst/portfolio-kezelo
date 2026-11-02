@@ -39,6 +39,7 @@ export interface AnalysisDeps {
 export function analysisContext(ctx: Context): string {
   return buildFullAiContext({
     summary: ctx.summary,
+    dcaGoals: ctx.snapshot.goals ?? [],
     accounts: ctx.summary.accounts.map((a) => a.account),
     transactions: ctx.transactions,
     instruments: ctx.instruments,
