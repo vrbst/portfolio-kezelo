@@ -146,10 +146,12 @@ export function detectRecurringSavings(
   const oneOffs = done.filter((m) => isOneOff(m.huf));
 
   // The window: the last N completed months, but only AFTER the funding phase
-  // — the last one-off month — whose leftover smaller deposits would otherwise
-  // read as habit; and never before the first deposit month (a new user isn't
-  // diluted with empty months).
-  const lastOneOff = oneOffs.at(-1)?.month;
+  // — the last one-off DEPOSIT month — whose leftover smaller deposits would
+  // otherwise read as habit; and never before the first deposit month (a new
+  // user isn't diluted with empty months). A one-off withdrawal (money taken
+  // out for a purchase) is no funding phase: it is left out, but the months
+  // before it still count.
+  const lastOneOff = oneOffs.filter((m) => m.huf > 0).at(-1)?.month;
   const firstKey = done[0]?.month;
   const cur = effectiveMonth(now);
   const startOfMonth = new Date(cur.year, cur.month0, 1).getTime();
