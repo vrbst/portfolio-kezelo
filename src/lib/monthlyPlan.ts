@@ -138,7 +138,7 @@ export function planNeeds(
   return [...dated, ...recurring];
 }
 
-/** The refill goals' claims: the withdrawn money first, instead of the usual split. */
+/** The refill goals' claims: the withdrawn money back, instead of the usual split. */
 export function refillNeeds(progress: RefillProgress[], instruments: Map<string, Instrument>): PlanNeed[] {
   return progress
     .filter((p) => p.status === "refilling" || p.status === "awaiting")
@@ -163,7 +163,7 @@ export function refillNeeds(progress: RefillProgress[], instruments: Map<string,
 export function computePlanNeeds(a: {
   savingsGoals: SavingsGoal[];
   dcaGoals: Goal[];
-  /** Refill goals (Visszapótlás) — first unless the order says otherwise. */
+  /** Refill goals (Visszapótlás) — after the dated goals unless the order says otherwise. */
   refills?: RefillGoal[];
   /** The glide path in force: where a refill along it may buy. */
   glide?: GlideConfig;
@@ -209,8 +209,9 @@ export function computePlanNeeds(a: {
 
 /**
  * `needs` in the user's order; items it doesn't list keep their default place
- * after — except a refill, which goes first until it is placed (it replaces
- * the usual split).
+ * after — except a refill not placed yet: it goes right after the dated goals
+ * (they have a deadline) and before everything else (it replaces the usual
+ * split: DCA, glide path).
  */
 export function orderNeeds(needs: PlanNeed[], order: string[]): PlanNeed[] {
   const rank = new Map(order.map((k, i) => [k, i]));
@@ -218,11 +219,9 @@ export function orderNeeds(needs: PlanNeed[], order: string[]): PlanNeed[] {
     .filter((n) => rank.has(n.key))
     .sort((a, b) => rank.get(a.key)! - rank.get(b.key)!);
   const unlisted = needs.filter((n) => !rank.has(n.key));
-  return [
-    ...unlisted.filter((n) => n.kind === "refill"),
-    ...listed,
-    ...unlisted.filter((n) => n.kind !== "refill"),
-  ];
+  const rest = [...listed, ...unlisted.filter((n) => n.kind !== "refill")];
+  const at = rest.map((n) => n.kind).lastIndexOf("savings") + 1;
+  return [...rest.slice(0, at), ...unlisted.filter((n) => n.kind === "refill"), ...rest.slice(at)];
 }
 
 /** Move `key` one step up (-1) or down (+1) in the plan order; returns the new order. */

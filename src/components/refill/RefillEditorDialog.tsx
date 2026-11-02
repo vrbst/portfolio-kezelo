@@ -282,9 +282,9 @@ export default function RefillEditorDialog({
               <label className="flex items-center gap-2">
                 <input type="radio" checked={pace === "asap"} onChange={() => setPace("asap")} /> Minél hamarabb
                 <InfoTip>
-                  A szokásos elosztás helyett: a havi terv első tétele a teljes hátralévő összeggel, és a hónap végi
-                  maradékot is elsőként kapja. A többi cél addig hiányosan maradhat (a sorrend a Havi tervben
-                  átállítható).
+                  A szokásos elosztás helyett: a havi tervben a határidős célok után jön, a teljes hátralévő
+                  összeggel, és a hónap végi maradékot is előbb kapja, mint a DCA és a célpálya. Azok addig
+                  hiányosan maradhatnak (a sorrend a Havi tervben átállítható).
                 </InfoTip>
               </label>
               <label className="flex flex-wrap items-center gap-2">
