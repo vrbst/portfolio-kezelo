@@ -40,6 +40,14 @@ body,
   height: 100%;
 }
 
+/* The classic look is dark: tell the browser, so the native parts of the
+ * form controls (a <select>'s dropdown list, the date picker, scrollbars) are
+ * drawn dark too — a light list would show the inherited light text on a
+ * light background. The light skins set their own `color-scheme: light`. */
+html {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);

@@ -959,6 +959,9 @@ test.describe("refill (Visszapótlás)", () => {
     const errors = await openSeeded(page);
     await show(page, "/goals");
     const dialog = await addRefill(page);
+    // The classic skin is dark: native dropdown lists must be drawn dark too
+    // (light ones showed the light text on a light background).
+    expect(await dialog.getByLabel("Miből?").evaluate((el) => getComputedStyle(el).colorScheme)).toBe("dark");
     // The preview works out the face for the day (face + accrued − 1% cost).
     await expect(dialog.getByText("Eladandó névérték:")).toBeVisible();
     await expect(dialog.getByText(/Elmaradó kamat/)).toBeVisible();
