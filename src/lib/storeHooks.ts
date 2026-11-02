@@ -51,6 +51,14 @@ import {
 } from "./goals";
 import { monthlyBudgetHuf } from "./forecast";
 import {
+  activeRefills,
+  computeRefillProgress,
+  loadRefills,
+  refillAlerts,
+  type RefillGoal,
+  type RefillProgress,
+} from "./refill";
+import {
   budgetBreakdown,
   couponClaimingGoals,
   dcaMonthlyHuf,
@@ -278,6 +286,8 @@ const cachedAlerts = sharedMemo(
     cashflowMonths: CashflowMonth[],
     cashflow: CashflowSettings,
     emergency: Map<string, number>,
+    refills: RefillProgress[],
+    budgetHuf: number,
   ) => [
     ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved, emergency),
     ...missingVenueAlerts(
@@ -303,6 +313,7 @@ const cachedAlerts = sharedMemo(
       reserveConflicts(savingsGoals, transactions, new Map(instruments.map((i) => [i.key, i])), fx),
     ),
     ...(cashflow.remind ? cashflowImportAlerts(cashflowMonths, day) : []),
+    ...refillAlerts(refills, budgetHuf),
   ],
 );
 
@@ -319,6 +330,64 @@ export function useAllSavingsGoals(): SavingsGoal[] {
     return () => window.removeEventListener(PREFS_EVENT, on);
   }, []);
   return goals;
+}
+
+/** Refill goals (Visszapótlás) — a synced pref, reactive like the savings goals. */
+export function useAllRefills(): RefillGoal[] {
+  const [goals, setGoals] = useState<RefillGoal[]>(loadRefills);
+  useEffect(() => {
+    const on = () => setGoals(loadRefills());
+    window.addEventListener(PREFS_EVENT, on);
+    return () => window.removeEventListener(PREFS_EVENT, on);
+  }, []);
+  return goals;
+}
+
+/** The refill goals still open. */
+export function useRefills(): RefillGoal[] {
+  const all = useAllRefills();
+  return useMemo(() => activeRefills(all), [all]);
+}
+
+const cachedRefillProgress = sharedMemo(
+  (
+    goals: RefillGoal[],
+    transactions: Transaction[],
+    instruments: Instrument[],
+    fx: Record<string, number>,
+    glide: GlideConfig | undefined,
+    dcaGoals: Goal[],
+    savingsGoals: SavingsGoal[],
+    accounts: Account[],
+    day: string,
+  ) => {
+    void day;
+    return computeRefillProgress({
+      goals,
+      transactions,
+      instruments: new Map(instruments.map((i) => [i.key, i])),
+      fx,
+      glide,
+      dcaGoals,
+      savingsGoals,
+      accounts,
+    });
+  },
+);
+
+/** Each open refill goal's progress and this month's part. */
+export function useRefillProgress(): RefillProgress[] {
+  return cachedRefillProgress(
+    useRefills(),
+    usePortfolio((s) => s.transactions),
+    useValuedInstruments(),
+    usePortfolio((s) => s.fx),
+    latestConfig(useGlideVersions()),
+    usePortfolio((s) => s.goals),
+    useSavingsGoals(),
+    usePortfolio((s) => s.accounts),
+    useToday(),
+  );
 }
 
 /** The goals still open — closed ones take no part in alerts or plans. */
@@ -393,6 +462,11 @@ export function useActiveAlerts(): Alert[] {
     () => emergencyReserve(summary, cashflowMonths, cashflowSettings, reserved).byAccount,
     [summary, cashflowMonths, cashflowSettings, reserved],
   );
+  const refills = useRefillProgress();
+  // Planned sales change the goals' coupons: recompute when the refills do.
+  const refillGoals = useRefills();
+  const budgetHuf = useMemo(() => monthlyBudgetHuf(transactions, fx), [transactions, fx]);
+  const savingsForAlerts = useMemo(() => [...savingsGoals], [savingsGoals, refillGoals]); // eslint-disable-line react-hooks/exhaustive-deps
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -400,7 +474,7 @@ export function useActiveAlerts(): Alert[] {
     transactions,
     goalProgress,
     reminders,
-    savingsGoals,
+    savingsForAlerts,
     accounts,
     instruments,
     prices,
@@ -416,6 +490,8 @@ export function useActiveAlerts(): Alert[] {
     cashflowMonths,
     cashflowSettings,
     emergency,
+    refills,
+    budgetHuf,
   );
 }
 
@@ -914,6 +990,8 @@ const cachedPlanNeeds = sharedMemo(
   (
     savingsGoals: SavingsGoal[],
     dcaGoals: Goal[],
+    refills: RefillGoal[],
+    glide: GlideConfig | undefined,
     accounts: Account[],
     transactions: Transaction[],
     instruments: Instrument[],
@@ -926,6 +1004,8 @@ const cachedPlanNeeds = sharedMemo(
     return computePlanNeeds({
       savingsGoals,
       dcaGoals,
+      refills,
+      glide,
       accounts,
       transactions,
       instruments,
@@ -941,6 +1021,8 @@ export function usePlanNeeds(): PlanNeed[] {
   return cachedPlanNeeds(
     useSavingsGoals(),
     usePortfolio((s) => s.goals),
+    useRefills(),
+    latestConfig(useGlideVersions()),
     usePortfolio((s) => s.accounts),
     usePortfolio((s) => s.transactions),
     useValuedInstruments(),
@@ -1024,6 +1106,8 @@ const cachedLeftoverNeeds = sharedMemo(
   (
     savingsGoals: SavingsGoal[],
     dcaGoals: Goal[],
+    refills: RefillGoal[],
+    glide: GlideConfig | undefined,
     accounts: Account[],
     transactions: Transaction[],
     instruments: Instrument[],
@@ -1038,6 +1122,8 @@ const cachedLeftoverNeeds = sharedMemo(
     return leftoverNeeds({
       savingsGoals,
       dcaGoals,
+      refills,
+      glide,
       accounts,
       transactions,
       instruments,
@@ -1082,6 +1168,8 @@ export function useLeftoverPlan(amountHuf: number): {
   const leftover = cachedLeftoverNeeds(
     useSavingsGoals(),
     usePortfolio((s) => s.goals),
+    useRefills(),
+    latestConfig(useGlideVersions()),
     usePortfolio((s) => s.accounts),
     usePortfolio((s) => s.transactions),
     useValuedInstruments(),

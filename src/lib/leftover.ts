@@ -16,6 +16,8 @@ import type { Account, Instrument, Transaction } from "./model";
 import type { Reminder } from "./alerts";
 import type { PriceMap } from "./portfolio";
 import type { Goal } from "./goals";
+import type { RefillGoal } from "./refillStore";
+import type { GlideConfig } from "./glidePath";
 import { lastWorkingDayOfMonth, monthLabel } from "./goals";
 import {
   computeSavingsProgress,
@@ -133,6 +135,9 @@ function lessRecorded(n: PlanNeed, reminders: Reminder[], label: string): PlanNe
 export interface LeftoverNeedsInput {
   savingsGoals: SavingsGoal[];
   dcaGoals: Goal[];
+  /** Refill goals: an "asap" one takes the leftover first (its whole remainder). */
+  refills?: RefillGoal[];
+  glide?: GlideConfig;
   accounts: Account[];
   transactions: Transaction[];
   instruments: Instrument[];
