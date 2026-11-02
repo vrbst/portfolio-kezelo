@@ -110,6 +110,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // The app is one bundle (~2.1 MB): it must be precached for offline
+        // use, and workbox's 2 MiB default would leave it out (a build error).
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: "index.html",
         // App data (prices/history) is refreshed by a cron — prefer network,
         // fall back to the last cached copy when offline.

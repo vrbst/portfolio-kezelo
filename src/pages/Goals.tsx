@@ -2,6 +2,7 @@ import { PageHeader } from "../components/ui";
 import GlidePathSettings from "../components/GlidePathSettings";
 import RebalancePanel from "../components/RebalancePanel";
 import SavingsTargets from "../components/SavingsTargets";
+import RefillTargets from "../components/RefillTargets";
 import GoalsSettings from "../components/GoalsSettings";
 import MonthlyBudgetBar from "../components/MonthlyBudgetBar";
 
@@ -22,7 +23,7 @@ export default function Goals() {
     <div>
       <PageHeader
         title="Célok"
-        info="Célpálya, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
+        info="Célpálya, visszapótlás, középtávú célok és rendszeres (DCA) megtakarítási célok egy helyen."
       />
       <MonthlyBudgetBar />
       <div className="mb-4 space-y-4">
@@ -30,6 +31,7 @@ export default function Goals() {
         <RebalancePanel />
       </div>
       <div className="space-y-4">
+        <RefillTargets />
         <GoalsSettings />
         <SavingsTargets />
       </div>

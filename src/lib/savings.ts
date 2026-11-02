@@ -408,6 +408,8 @@ export function savingsMonthStates(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): SavingsMonthlyStatus[] {
   const eff = effectiveMonth(now);
   const monthLabel = effectiveMonthLabel(now);
@@ -420,6 +422,7 @@ export function savingsMonthStates(
       prices,
       fx,
       now,
+      sales,
     ).map((p) => [p.goal.id, p]),
   );
   // This month's bond coupons, split among the goals that claim them.
@@ -1270,9 +1273,10 @@ export function futureCouponOptions(
   summary: PortfolioSummary,
   txs: Transaction[],
   now: Date = new Date(),
+  sales?: PlannedSale[],
 ): CouponOption[] {
   const byId = new Map<string, CouponOption>();
-  for (const c of futureBondCashflows(summary, now, txs)) {
+  for (const c of futureBondCashflows(summary, now, txs, sales)) {
     if (c.kind !== "coupon" || !c.instrumentKey) continue;
     const id = couponId(c.instrumentKey, c.date);
     const o = byId.get(id);
