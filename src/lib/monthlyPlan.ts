@@ -82,6 +82,11 @@ export interface PlanNeed {
   holdReason?: string;
   /** A refill along the glide path: its money joins the glide path's buys (not capped by its monthly amount). */
   viaGlide?: boolean;
+  /**
+   * Asks for everything still owed (a refill "as soon as possible"): what
+   * this month can't give is the later months' job, never a shortfall.
+   */
+  openEnded?: boolean;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
@@ -147,6 +152,7 @@ export function refillNeeds(progress: RefillProgress[], instruments: Map<string,
       target: p.buyKey ? (instruments.get(p.buyKey)?.name ?? p.buyKey) : p.targetLabel,
       holdCash: false,
       viaGlide: p.viaGlide,
+      openEnded: p.goal.pace.kind === "asap",
     }));
 }
 
@@ -417,7 +423,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
       left -= give;
       refillGlide += give;
       if (give >= 1) refillGlideNames.push(need.name);
-      lines.push({ need, allocatedHuf: give, shortHuf: Math.max(0, need.needHuf - give), viaGlide: true });
+      lines.push({ need, allocatedHuf: give, shortHuf: need.openEnded ? 0 : Math.max(0, need.needHuf - give), viaGlide: true });
       continue;
     }
     const key = need.holdCash ? undefined : need.instrumentKey;
@@ -444,7 +450,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     lines.push({
       need,
       allocatedHuf: give,
-      shortHuf: Math.max(0, need.needHuf - give),
+      shortHuf: need.openEnded ? 0 : Math.max(0, need.needHuf - give),
       venue,
       upcoming,
       ...(trade ? { trade } : {}),

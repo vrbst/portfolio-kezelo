@@ -5,6 +5,7 @@ import { Badge, Card } from "./ui";
 import { useAllRefills, useMonthlyBudget, useRefillProgress, useValuedInstruments } from "../lib/store";
 import {
   refillFinishLabel,
+  refillMonthHuf,
   saveRefills,
   type RefillGoal,
   type RefillProgress,
@@ -229,7 +230,7 @@ function RefillCard({
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
         <Num label="Visszakerült" value={formatMoney(p.refilledHuf)} sub={`${Math.round(p.ratio * 100)}%`} />
         <Num label="Hátra" value={formatMoney(p.remainingHuf)} />
-        <Num label="E hónapban" value={formatMoney(p.needHuf)} />
+        <Num label="E hónapban" value={formatMoney(refillMonthHuf(p, budgetHuf))} />
       </div>
 
       <div className="mt-2 text-xs text-[var(--color-muted)]">

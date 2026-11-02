@@ -65,7 +65,7 @@ import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
 import type { NightlyAnalysis } from "../../src/lib/aiAnalysis";
 import { weeklyAiLine } from "./aiUsage";
-import { loadActiveRefills } from "../../src/lib/refill";
+import { loadActiveRefills, refillFinishLabel, refillMonthHuf, type RefillProgress } from "../../src/lib/refill";
 
 // ---- formatting -----------------------------------------------------------
 
@@ -355,7 +355,40 @@ export function goalsText(ctx: Context): string {
       );
     }
   }
+  if (ctx.refills.length) {
+    if (lines.length) lines.push("");
+    lines.push("↩️ <b>Visszapótlás</b>");
+    for (const p of ctx.refills) lines.push(...refillLines(ctx, p));
+  }
   return lines.length ? lines.join("\n") : "Még nincs beállított cél.";
+}
+
+const REFILL_STATUS: Record<RefillProgress["status"], string> = {
+  planned: "🗓",
+  awaiting: "⚠️",
+  refilling: "⏳",
+  done: "✅",
+};
+
+/** A refill goal: the withdrawal, how much is back, this month's part and the end. */
+export function refillLines(ctx: Context, p: RefillProgress): string[] {
+  const w = p.goal.withdrawal;
+  const face = w.faceHuf != null ? ` (névérték ${ft(w.faceHuf)})` : "";
+  const fin = refillFinishLabel(p, ctx.budgetHuf, ctx.at);
+  const until = fin ? `, várhatóan ${esc(fin)}-ig` : "";
+  const out = [
+    `${REFILL_STATUS[p.status]} <b>${esc(p.goal.name)}</b> – kivét ${dayLabel(p.withdrawnDay)}, ${esc(p.sourceLabel)}: ${ft(w.amountHuf)}${face}`,
+  ];
+  if (p.status === "planned")
+    out.push(`   a kivét napjától a havi terv először ezt pótolja vissza → ${esc(p.targetLabel)}${until}`);
+  else if (p.status === "done") out.push(`   visszakerült ${ft(p.refilledHuf)} — lezárható`);
+  else {
+    out.push(
+      `   visszakerült ${ft(p.refilledHuf)} / ${ft(p.amountHuf)}, hátra ${ft(p.remainingHuf)}; e hónapban ${ft(refillMonthHuf(p, ctx.budgetHuf))} → ${esc(p.targetLabel)}${until}`,
+    );
+    if (p.status === "awaiting") out.push("   ⚠️ az eladás még nincs importálva");
+  }
+  return out;
 }
 
 /** Same projection the Forecast page runs (settings + goals as expenses). */
@@ -682,7 +715,9 @@ function monthlyPlanLines(ctx: Context): string[] {
 export function planReminderText(ctx: Context): string | null {
   const open = monthlyPlanOf(ctx).lines.filter((l) => l.need.needHuf >= 1);
   if (!open.length) return null;
-  const total = open.reduce((s, l) => s + l.need.needHuf, 0);
+  // An "as soon as possible" refill asks for its whole remainder: only this
+  // month's share of it is missing now.
+  const total = open.reduce((s, l) => s + (l.need.openEnded ? l.allocatedHuf : l.need.needHuf), 0);
   return [
     `⏰ <b>Havi terv – ${esc(effectiveMonthLabel(ctx.at))}: még ${ft(total)} hiányzik</b>`,
     ...open.map((l) => `→ ${esc(planLineText(l))}`),

@@ -156,6 +156,7 @@ export default function AiPanel() {
     () =>
       buildFullAiContext({
         summary,
+        dcaGoals: goals.map((g) => g.goal),
         accounts,
         transactions,
         instruments,

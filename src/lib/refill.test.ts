@@ -336,6 +336,10 @@ describe("monthly plan – the refill first, instead of the usual split", () => 
     });
     expect(plan.lines[0].viaGlide).toBe(true);
     expect(plan.lines[0].allocatedHuf).toBe(200_000);
+    // "As soon as possible" asks for the whole remainder: what doesn't fit this
+    // month is the later months' job, not a shortfall.
+    expect(plan.lines[0].shortHuf).toBe(0);
+    expect(plan.shortHuf).toBe(40_000);
     // The DCA is left short this month — on purpose.
     expect(plan.lines[1].shortHuf).toBe(40_000);
     // The whole refill money is routed by the glide path, past its 10 000 Ft cap.
