@@ -5,6 +5,7 @@ import { computePortfolio } from "./portfolio";
 import { computeSavingsProgress, type SavingsGoal } from "./savings";
 import {
   computeRefillProgress,
+  matchWithdrawals,
   plannedSales,
   refillExpenses,
   refillFinishLabel,
@@ -12,7 +13,7 @@ import {
   withBondFigures,
   type RefillGoal,
 } from "./refill";
-import { buildMonthlyPlan, computePlanNeeds, orderNeeds, type PlanNeed } from "./monthlyPlan";
+import { buildMonthlyPlan, computePlanNeeds, orderNeeds, planLineText, type PlanNeed } from "./monthlyPlan";
 import { projectForecast, type ForecastAssumptions } from "./forecast";
 import { allocationState, type Position } from "./rebalance";
 import type { GlideConfig } from "./glidePath";
@@ -397,5 +398,60 @@ describe("forecast – a planned bond sale shrinks the bond leg, not the liquid 
     expect(sold.points[0].real).toBeCloseTo(base.points[0].real, 0);
     // An imported sale is in the ledger: no planned expense.
     expect(refillExpenses([GOAL], SOLD, instruments)).toEqual([]);
+  });
+});
+
+describe("review fixes", () => {
+  const prog = (txs: Transaction[], day: string, goal: RefillGoal, glide: GlideConfig | undefined = GLIDE) =>
+    computeRefillProgress({ goals: [goal], transactions: txs, instruments, fx: {}, glide, now: at(day) })[0];
+
+  it("finish month: a month whose part is already paid does not count again", () => {
+    const g: RefillGoal = { ...GOAL, withdrawal: { ...GOAL.withdrawal, amountHuf: 300_000 }, pace: { kind: "monthly", huf: 100_000 } };
+    const txs = [...SOLD, buy("m1", "2026-12-18", "etf", 100_000)];
+    const p = prog(txs, "2026-12-20", g);
+    expect(p.needHuf).toBe(0);
+    // 100 000 in January, 100 000 in February.
+    expect(refillFinishLabel(p, 0, at("2026-12-20"))).toBe("2027. február");
+  });
+
+  it("finish month: a planned 'months' refill ends in the withdrawal month + months − 1", () => {
+    const g: RefillGoal = { ...GOAL, withdrawal: { ...GOAL.withdrawal, day: "2026-12-10" }, pace: { kind: "months", months: 6 } };
+    const p = prog(BASE, "2026-11-02", g);
+    expect(p.status).toBe("planned");
+    expect(refillFinishLabel(p, 0, at("2026-11-02"))).toBe("2027. május");
+  });
+
+  it("a sale goes to the goal whose day it is closest to; a much smaller sale is not the withdrawal", () => {
+    const a: RefillGoal = { ...GOAL, id: "a", withdrawal: { ...GOAL.withdrawal, day: "2026-11-01" } };
+    const b: RefillGoal = { ...GOAL, id: "b", withdrawal: { ...GOAL.withdrawal, day: "2027-03-01" } };
+    const lateSale = tx({ id: "s-b", date: "2027-03-01", type: "sell", instrumentKey: FIX.key, quantity: 2_000_000, grossAmount: 1_990_000, netAmount: 1_990_000 });
+    const m = matchWithdrawals([a, b], [...BASE, lateSale]);
+    expect(m.get("b")?.id).toBe("s-b");
+    expect(m.has("a")).toBe(false);
+    const small = tx({ id: "s-x", date: "2026-11-01", type: "sell", instrumentKey: FIX.key, quantity: 100_000, grossAmount: 99_000, netAmount: 99_000 });
+    expect(matchWithdrawals([a], [...BASE, small]).has("a")).toBe(false);
+  });
+
+  it("no glide path and no instrument: the refill takes no money and says where to set it", () => {
+    const needs = computePlanNeeds({
+      savingsGoals: [],
+      dcaGoals: [{ id: "d", instrumentKey: "dca", amountHuf: 40_000, periodMonths: 1, createdAt: "2026-01-01" }],
+      refills: [GOAL],
+      glide: undefined,
+      accounts: [MAK, LY],
+      transactions: SOLD,
+      instruments: [FIX, ETF, DCA_ETF],
+      prices,
+      fx: {},
+      order: [],
+      now: at("2026-12-20"),
+    });
+    const plan = buildMonthlyPlan({ amountHuf: 100_000, needs, glide: undefined, state: null, budgetHuf: 100_000, positions: [], instruments });
+    const refillLine = plan.lines.find((l) => l.need.kind === "refill")!;
+    expect(refillLine.allocatedHuf).toBe(0);
+    expect(refillLine.shortHuf).toBe(0);
+    expect(planLineText(refillLine)).toMatch(/nincs hova/);
+    // The money moves on to the DCA goal.
+    expect(plan.lines.find((l) => l.need.kind === "dca")!.allocatedHuf).toBe(40_000);
   });
 });

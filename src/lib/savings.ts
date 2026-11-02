@@ -528,6 +528,8 @@ export function savingsMonthlyStatus(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): SavingsMonthlyStatus[] {
   const on = new Set(
     goals
@@ -542,6 +544,7 @@ export function savingsMonthlyStatus(
     prices,
     fx,
     now,
+    sales,
   ).filter((s) => on.has(s.goalId));
 }
 
@@ -601,6 +604,8 @@ export function savingsGoalAlerts(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): Alert[] {
   const eff = effectiveMonth(now);
   const curKey = `${eff.year}-${eff.month0}`;
@@ -612,6 +617,7 @@ export function savingsGoalAlerts(
     prices,
     fx,
     now,
+    sales,
   )
     .filter((s) => !s.done)
     .map((s) => {

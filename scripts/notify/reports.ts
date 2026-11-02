@@ -18,6 +18,7 @@ import {
   monthlyBudgetHuf,
   obligationSteps,
   projectForecast,
+  storedRefillExpenses,
   type PlannedExpense,
 } from "../../src/lib/forecast";
 import { effectiveForecastSettings, estimateFromSettings } from "../../src/lib/outlookReturns";
@@ -421,7 +422,8 @@ export function forecastFor(ctx: Context) {
       withdrawal: settings.withdrawal,
       withdrawalIndex: settings.inflationPct,
     },
-    [...settings.expenses, ...goalExpenses],
+    // The refill withdrawals still ahead, like the Forecast page.
+    [...settings.expenses, ...goalExpenses, ...storedRefillExpenses(ctx.summary, ctx.transactions)],
     ctx.at,
   );
   return { settings, monthly, result, estimate };

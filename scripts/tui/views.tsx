@@ -7,6 +7,7 @@ import { dayLabel, ft, mft, pct, sft } from "../notify/reports";
 import { HIDDEN, MASK, name } from "./text";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { sparkline } from "./spark";
+import { refillMonthHuf } from "../../src/lib/refill";
 
 
 const makeMoney = (hide: boolean) => (n: number, f: (n: number) => string = ft) =>
@@ -208,7 +209,7 @@ export function Goals({ ctx, hide }: { ctx: Context; hide: boolean }) {
                 {"   "}
                 <Text color={p.status === "done" ? "green" : "cyan"}>{bar(p.ratio)}</Text>{" "}
                 {money(p.refilledHuf)} / {money(p.amountHuf)}
-                {p.status === "refilling" || p.status === "awaiting" ? <>, e hónapban {money(p.needHuf)}</> : null}
+                {p.status === "refilling" || p.status === "awaiting" ? <>, e hónapban {money(refillMonthHuf(p, ctx.budgetHuf))}</> : null}
               </Text>
             </Box>
           ))}

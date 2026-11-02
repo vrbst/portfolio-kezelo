@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contextAt } from "./testContext";
-import { goalsText, planText } from "./reports";
+import { forecastFor, goalsText, planText } from "./reports";
 import { portfolioViewHtml } from "./assistantView";
 import { buildFullAiContext } from "../../src/lib/aiContext";
 import { FIX } from "../../src/test/fixture";
@@ -57,6 +57,19 @@ describe("refill goal in the bot", () => {
     const dated = ctx.savings.map((s) => plan.indexOf(s.goal.name)).filter((i) => i >= 0);
     expect(dated.length).toBeGreaterThan(0);
     for (const i of dated) expect(i).toBeLessThan(first);
+  });
+
+  it("the bot's forecast takes the planned withdrawal, like the Forecast page", () => {
+    const base = forecastFor(contextAt([2026, 10, 14, 10])).result;
+    vi.useRealTimers();
+    const ahead = { ...GOAL, withdrawal: { ...GOAL.withdrawal, day: "2026-12-10" } };
+    const withIt = forecastFor(
+      contextAt([2026, 10, 14, 10], (s) => {
+        s.prefs = { ...s.prefs, refill: { updatedAt: "2026-10-01T08:00:00.000Z", value: [ahead] } };
+      }),
+    ).result;
+    expect(withIt.events.some((e) => e.label === "Kivét: Teszt-kivét")).toBe(true);
+    expect(withIt.couponHuf).toBeLessThan(base.couponHuf);
   });
 
   it("the assistant view and the AI context mention it (escaped, no script)", () => {

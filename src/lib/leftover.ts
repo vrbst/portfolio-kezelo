@@ -222,7 +222,14 @@ export function leftoverNeeds(a: LeftoverNeedsInput): LeftoverNeeds {
       });
     }
   }
-  return { month, closing, needs };
+  // A refill goes after the dated parts — the pulled-forward ones included.
+  const dated = needs.filter((n) => n.kind !== "refill");
+  const at = dated.map((n) => n.kind).lastIndexOf("savings") + 1;
+  return {
+    month,
+    closing,
+    needs: [...dated.slice(0, at), ...needs.filter((n) => n.kind === "refill"), ...dated.slice(at)],
+  };
 }
 
 /** The leftover plan: the Havi terv's split, the glide path taking all the rest. */

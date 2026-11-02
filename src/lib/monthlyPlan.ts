@@ -266,6 +266,8 @@ export interface PlanLine {
   upcoming?: { from: string; label: string };
   /** A refill whose money goes with the glide path's buys (see MonthlyPlan.glidePlan). */
   viaGlide?: boolean;
+  /** A refill with nowhere to buy (no glide path, no instrument chosen). */
+  noTarget?: boolean;
 }
 
 /**
@@ -417,6 +419,12 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
   const refillGlideNames: string[] = [];
   const glideOn = isActive(glide) && !!state;
   for (const need of input.needs) {
+    // A refill with no instrument and no glide path to route it: nothing to
+    // buy — it takes no money (the rest of the plan gets it) and says so.
+    if (need.kind === "refill" && !need.instrumentKey && !(need.viaGlide && glideOn)) {
+      lines.push({ need, allocatedHuf: 0, shortHuf: 0, noTarget: true });
+      continue;
+    }
     if (need.viaGlide && glideOn) {
       const give = Math.min(left, Math.max(0, need.needHuf));
       left -= give;
@@ -571,6 +579,8 @@ export function planLineText(l: PlanLine): string {
   if (n.needHuf < 1) return `${n.name}: e havi rész teljesítve ✓`;
   if (l.blocked && l.venue)
     return `${n.name}: nem vehető — ${blockedText(l.venue)}; állíts be új vételi számlát${short}${upcomingText(l)}`;
+  if (l.noTarget)
+    return `${n.name}: nincs hova visszapótolni — állíts be célpályát, vagy válassz papírt a visszapótláshoz`;
   if (l.allocatedHuf < 1) return `${n.name}: nem jut rá pénz${short}`;
   if (l.viaGlide)
     return `${n.name}: visszapótlás ${formatMoney(l.allocatedHuf)} a célpálya szerint (a vételek a Célpálya sorban)${short}`;

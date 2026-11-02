@@ -22,11 +22,16 @@ const STATUS: Record<RefillStatus, { tone: "neutral" | "brand" | "positive" | "w
   done: { tone: "positive", text: "Visszapótolva" },
 };
 
-function paceText(g: RefillGoal): string {
+function PaceText({ g }: { g: RefillGoal }) {
   const p = g.pace;
-  if (p.kind === "months") return `${p.months} hónap alatt`;
-  if (p.kind === "monthly") return `havi ${formatMoney(p.huf)}`;
-  return "minél hamarabb";
+  if (p.kind === "months") return <>{p.months} hónap alatt</>;
+  if (p.kind === "monthly")
+    return (
+      <>
+        havi <span className="amt">{formatMoney(p.huf)}</span>
+      </>
+    );
+  return <>minél hamarabb</>;
 }
 
 /**
@@ -234,7 +239,7 @@ function RefillCard({
       </div>
 
       <div className="mt-2 text-xs text-[var(--color-muted)]">
-        → {targetName} · {paceText(g)}
+        → {targetName} · <PaceText g={g} />
         {p.status !== "done" && finish && ` · várhatóan ${finish}-ig kész`}
         {g.includeCost && " · a költséggel együtt"}
       </div>

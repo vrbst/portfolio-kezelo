@@ -103,37 +103,42 @@ export function loadActiveRefills(): RefillGoal[] {
   return activeRefills(loadRefills());
 }
 
+/** A sale smaller than this share of the planned units is not the withdrawal (a routine trade). */
+export const REFILL_MATCH_MIN_SHARE = 0.5;
+
+const dayMs = (d: string) => Date.parse(`${d.slice(0, 10)}T12:00:00`);
+
 /**
- * The imported sale that carried out the withdrawal: the first sell of the
- * source holding from {@link REFILL_MATCH_DAYS} days before the set day on.
- * Each sale belongs to one goal at most (the earliest-dated goal first).
- * Cash withdrawals are not matched (the set day decides).
+ * The imported sale that carried out the withdrawal: a sell of the source
+ * holding from {@link REFILL_MATCH_DAYS} days before the set day on, of at
+ * least half the planned units. Each sale goes to the open goal whose set day
+ * it is closest to, so a later goal's sale is not taken by an earlier goal
+ * still waiting for its import. Cash withdrawals are not matched (the set day
+ * decides).
  */
 export function matchWithdrawals(
   goals: RefillGoal[],
   transactions: Transaction[],
 ): Map<string, Transaction> {
   const out = new Map<string, Transaction>();
-  const used = new Set<string>();
   const sells = transactions
     .filter((t) => t.type === "sell" && !t.internal && t.instrumentKey)
     .sort((a, b) => txDay(a.date).localeCompare(txDay(b.date)));
-  const ordered = [...goals].sort((a, b) => a.withdrawal.day.localeCompare(b.withdrawal.day));
-  for (const g of ordered) {
-    const src = g.withdrawal.source;
-    if (src.kind !== "holding") continue;
-    const from = addDaysIso(g.withdrawal.day.slice(0, 10), -REFILL_MATCH_DAYS);
-    const t = sells.find(
-      (s) =>
-        !used.has(s.id) &&
-        s.instrumentKey === src.instrumentKey &&
-        (!src.accountId || s.accountId === src.accountId) &&
-        txDay(s.date) >= from,
-    );
-    if (t) {
-      used.add(t.id);
-      out.set(g.id, t);
+  const open = goals.filter((g) => g.withdrawal.source.kind === "holding");
+  for (const s of sells) {
+    const day = txDay(s.date);
+    let best: RefillGoal | undefined;
+    for (const g of open) {
+      const src = g.withdrawal.source;
+      if (src.kind !== "holding" || out.has(g.id)) continue;
+      if (src.instrumentKey !== s.instrumentKey || (src.accountId && s.accountId !== src.accountId)) continue;
+      if (day < addDaysIso(g.withdrawal.day.slice(0, 10), -REFILL_MATCH_DAYS)) continue;
+      const planned = g.withdrawal.faceHuf ?? g.withdrawal.amountHuf;
+      if (s.quantity != null && planned > 0 && Math.abs(s.quantity) < planned * REFILL_MATCH_MIN_SHARE) continue;
+      const gap = (x: RefillGoal) => Math.abs(dayMs(x.withdrawal.day) - dayMs(day));
+      if (!best || gap(g) < gap(best)) best = g;
     }
+    if (best) out.set(best.id, s);
   }
   return out;
 }
@@ -172,9 +177,27 @@ export function plannedSales(
   return out;
 }
 
-/** The planned sales from the stored goals (none outside a browser / bot run). */
+let cache: { raw: string | null; txs: Transaction[]; sales: PlannedSale[] } | undefined;
+
+/**
+ * The planned sales from the stored goals (none outside a browser / bot run):
+ * the default of the coupon schedule for callers that don't pass their own.
+ * Callers that memoize should pass the sales explicitly (usePlannedSales), so
+ * a refill change is a real input of their memo. Cached on the stored value
+ * and the ledger, so a loop of calls reads and matches only once.
+ */
 export function storedPlannedSales(transactions: Transaction[]): PlannedSale[] {
-  return plannedSales(loadRefills(), transactions);
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(REFILL_KEY);
+  } catch {
+    return [];
+  }
+  if (!raw) return [];
+  if (cache && cache.raw === raw && cache.txs === transactions) return cache.sales;
+  const sales = plannedSales(loadRefills(), transactions);
+  cache = { raw, txs: transactions, sales };
+  return sales;
 }
 
 /**

@@ -234,6 +234,8 @@ export function computeRefillProgress(a: RefillInput): RefillProgress[] {
 
     let needHuf = 0;
     let monthsLeft: number | undefined;
+    // Planned: the whole spread is still ahead, from the withdrawal month.
+    if (!started && g.pace.kind === "months") monthsLeft = Math.max(1, Math.round(g.pace.months));
     if (started && !done) {
       const pace = g.pace;
       if (pace.kind === "months") {
@@ -302,8 +304,12 @@ export function refillFinishLabel(p: RefillProgress, budgetHuf: number, now: Dat
   const n = refillMonthsToGo(p, budgetHuf);
   if (n == null) return undefined;
   const start = p.status === "planned" ? effectiveMonth(new Date(`${p.withdrawnDay}T12:00:00`)) : effectiveMonth(now);
-  // This month still counts as one when its part is still owed.
-  const m = start.year * 12 + start.month0 + Math.max(0, n - 1);
+  // This month counts as one only while its part is still owed: once paid,
+  // the remaining months start next month.
+  const paid =
+    p.status !== "planned" &&
+    (p.goal.pace.kind === "asap" ? budgetHuf > 0 && p.thisMonthHuf >= budgetHuf : p.needHuf < 1);
+  const m = start.year * 12 + start.month0 + (paid ? 1 : 0) + Math.max(0, n - 1);
   return monthLabel(Math.floor(m / 12), m % 12);
 }
 

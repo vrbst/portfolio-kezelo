@@ -15,6 +15,7 @@ import {
   type LeftoverNeeds,
 } from "./leftover";
 import { DEFAULT_LEFTOVER, type LeftoverSettings } from "./planPrefs";
+import type { RefillGoal } from "./refillStore";
 import { defaultGlobals, type Bucket, type GlideConfig } from "./glidePath";
 import { allocationState, type Position } from "./rebalance";
 import {
@@ -66,11 +67,13 @@ const needsAt = (
     dca?: Goal[];
     settings?: Partial<LeftoverSettings>;
     reminders?: Reminder[];
+    refills?: RefillGoal[];
   } = {},
 ): LeftoverNeeds =>
   leftoverNeeds({
     savingsGoals: o.goals ?? [BABA],
     dcaGoals: o.dca ?? [],
+    refills: o.refills,
     accounts: [ACC, LY],
     transactions: o.txs ?? TXS,
     instruments: [DKJ, WBIT],
@@ -179,6 +182,19 @@ describe("leftover – pulling next month's part forward", () => {
     const far = { ...BABA, targetDate: "2027-06-30" };
     expect(needsAt(LAST_WD, { goals: [far] }).needs.some((n) => n.ahead)).toBe(false);
     expect(needsAt(LAST_WD, { goals: [far], settings: { pullForwardMonths: 12 } }).needs.some((n) => n.ahead)).toBe(true);
+  });
+
+  it("an asap refill comes after the pulled-forward dated parts too (they have a deadline)", () => {
+    const refill: RefillGoal = {
+      id: "r",
+      name: "Kivét",
+      createdAt: "2026-08-01",
+      withdrawal: { day: "2026-08-15", source: { kind: "cash", accountId: LY.id }, amountHuf: 2_000_000 },
+      target: { kind: "instrument", instrumentKey: WBIT.key },
+      pace: { kind: "asap" },
+    };
+    const keys = needsAt(LAST_WD, { refills: [refill], settings: { pullForwardMonths: 2 } }).needs.map((n) => n.key);
+    expect(keys).toEqual(["savings:b", "ahead:savings:b", "refill:r"]);
   });
 
   it("a goal ending this month has no next part", () => {

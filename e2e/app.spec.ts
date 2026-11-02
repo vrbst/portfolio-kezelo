@@ -985,6 +985,9 @@ test.describe("refill (Visszapótlás)", () => {
     await show(page, "/goals");
     const dialog = await addRefill(page);
     await expect(dialog.getByText("Eladandó névérték:")).toBeVisible();
+    // A fixed monthly pace: its amount is personal too.
+    await dialog.getByText("Havi fix összeggel").click();
+    await dialog.locator("input.amt").last().fill("80000");
     const inDialog = await readableSecrets(page, [NAME, ...savingsGoals().map((g) => g.name)], '[role="dialog"]');
     expect(inDialog, "readable amounts / names in the dialog").toEqual([]);
     await dialog.getByRole("button", { name: "Mentés" }).click();

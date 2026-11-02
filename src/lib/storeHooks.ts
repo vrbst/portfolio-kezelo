@@ -290,6 +290,7 @@ const cachedAlerts = sharedMemo(
     emergency: Map<string, number>,
     refills: RefillProgress[],
     budgetHuf: number,
+    sales: PlannedSale[],
   ) => [
     ...computeAlerts(summary, config, undefined, transactions, reservedSoon, reserved, emergency),
     ...missingVenueAlerts(
@@ -308,6 +309,8 @@ const cachedAlerts = sharedMemo(
       new Map(instruments.map((i) => [i.key, i])),
       prices,
       fx,
+      undefined,
+      sales,
     ),
     ...bondImportAlerts(bondImportReminders(summary, transactions)),
     // A buy that may have been paid from a goal's set-aside cash.
@@ -457,7 +460,7 @@ export function useActiveAlerts(): Alert[] {
   const purchase = usePurchaseAccounts();
   const day = useToday();
   const accountCtx = useAccountContext();
-  const { savings } = useMonthlyBudget();
+  const { savings, breakdown } = useMonthlyBudget();
   const reserved = useReservedCash();
   // Only goals due within the grace days keep their set-aside cash from
   // counting as idle.
@@ -476,10 +479,8 @@ export function useActiveAlerts(): Alert[] {
     [summary, cashflowMonths, cashflowSettings, reserved],
   );
   const refills = useRefillProgress();
-  // Planned sales change the goals' coupons: recompute when the refills do.
-  const refillGoals = useRefills();
-  const budgetHuf = useMemo(() => monthlyBudgetHuf(transactions, fx), [transactions, fx]);
-  const savingsForAlerts = useMemo(() => [...savingsGoals], [savingsGoals, refillGoals]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Planned sales change the goals' coupons: an input of the memo below.
+  const sales = usePlannedSales();
   if (readiness === "syncing") return NO_ALERTS;
   return cachedAlerts(
     summary,
@@ -487,7 +488,7 @@ export function useActiveAlerts(): Alert[] {
     transactions,
     goalProgress,
     reminders,
-    savingsForAlerts,
+    savingsGoals,
     accounts,
     instruments,
     prices,
@@ -504,7 +505,9 @@ export function useActiveAlerts(): Alert[] {
     cashflowSettings,
     emergency,
     refills,
-    budgetHuf,
+    // The budget the Célok page shows (keyed on the prefs: the override too).
+    breakdown.budgetHuf,
+    sales,
   );
 }
 
