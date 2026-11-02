@@ -7,6 +7,7 @@
 import type { BondTerms, Instrument, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
 import { localDayMs, toLocalDay, txDay } from "./day";
+import { quantityAfterSales, storedPlannedSales, type PlannedSale } from "./refillStore";
 
 export const BOND_TYPES = new Set(["gov_bond", "tbill"]);
 
@@ -378,6 +379,12 @@ export function futureBondCashflows(
   summary: PortfolioSummary,
   now: Date = new Date(),
   transactions: Transaction[] = [],
+  /**
+   * Sales not in the ledger yet (a refill goal's withdrawal, see
+   * refillStore): coupons and the redemption after the sale day are paid on
+   * the smaller face. Default: the stored refill goals'.
+   */
+  sales: PlannedSale[] = storedPlannedSales(transactions),
 ): Cashflow[] {
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
@@ -415,7 +422,11 @@ export function futureBondCashflows(
               (ms) => Math.abs(ms - cur) <= COUPON_CREDITED_DAYS * 86_400_000,
             );
             const iso = toLocalDay(cur);
-            const amt = couponAmountHuf(bond, face, iso);
+            const amt = couponAmountHuf(
+              bond,
+              quantityAfterSales(inst.key, accountId, face, iso, sales),
+              iso,
+            );
             if (
               !alreadyPaid &&
               !presumed.has(`${inst.key}|${iso}`) &&
@@ -435,12 +446,15 @@ export function futureBondCashflows(
       }
 
       // Redemption at maturity (face value back).
-      if (Number.isFinite(matMs) && matMs > nowMs && face > 0) {
+      const matFace = Number.isFinite(matMs)
+        ? quantityAfterSales(inst.key, accountId, face, toLocalDay(matMs), sales)
+        : face;
+      if (Number.isFinite(matMs) && matMs > nowMs && matFace > 0) {
         out.push({
           date: toLocalDay(matMs),
           kind: "maturity",
           title: `${inst.name} — lejárat`,
-          amountHuf: redemptionHuf(bond, face),
+          amountHuf: redemptionHuf(bond, matFace),
           accountId,
           instrumentKey: inst.key,
         });
@@ -701,5 +715,57 @@ export function bondMarketValue(
     value,
     redeemableValue: value - faceQty * saleCost,
     needsData: false,
+  };
+}
+
+/** Selling enough of a fixed-rate bond on a day to get a set amount of cash. */
+export interface BondSaleForCash {
+  /** Face to sell (HUF, whole units, rounded up). */
+  faceHuf: number;
+  /** Accrued interest paid on top of the price (part of the proceeds). */
+  accruedHuf: number;
+  /** Early-redemption cost (FixMÁP: 1% of the face). */
+  saleCostHuf: number;
+  /** What lands on the cash account: face + accrued − cost (≥ the cash asked for). */
+  proceedsHuf: number;
+  /** How much the portfolio's value drops: face + accrued (the cost included). */
+  valueDropHuf: number;
+  /** Accrued interest as a fraction of the face on the settlement day. */
+  accruedPct: number;
+  /** The settlement day (YYYY-MM-DD) the figures are for. */
+  settlementDay: string;
+}
+
+/**
+ * The face of `inst` to sell on `day` (YYYY-MM-DD; settled on that working day,
+ * a weekend rolls to Monday) for `cashHuf` in hand: the Kincstár pays the face
+ * plus the accrued interest, less the early-redemption cost — so right after a
+ * coupon more face is needed than right before the next one. Undefined for a
+ * bond without coupon terms (or not a bond).
+ */
+export function bondSaleForCash(
+  inst: Instrument | undefined,
+  cashHuf: number,
+  day: string,
+): BondSaleForCash | undefined {
+  if (!inst || !BOND_TYPES.has(inst.type) || !(cashHuf > 0)) return undefined;
+  const settle = bondValuationMs(Date.parse(`${day.slice(0, 10)}T12:00:00`));
+  if (!Number.isFinite(settle)) return undefined;
+  const per = bondMarketValue(inst, 1, 1, settle, settle);
+  if (per.needsData) return undefined;
+  const perFace = per.redeemableValue;
+  if (!(perFace > 0)) return undefined;
+  const faceHuf = Math.ceil(cashHuf / perFace - 1e-9);
+  const accruedPct = per.value - 1;
+  const saleCostHuf = faceHuf * (per.value - per.redeemableValue);
+  const accruedHuf = faceHuf * accruedPct;
+  return {
+    faceHuf,
+    accruedHuf,
+    saleCostHuf,
+    proceedsHuf: faceHuf + accruedHuf - saleCostHuf,
+    valueDropHuf: faceHuf + accruedHuf,
+    accruedPct,
+    settlementDay: toLocalDay(settle),
   };
 }

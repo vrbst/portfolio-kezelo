@@ -42,7 +42,7 @@ describe("goal milestones", () => {
     const st = fresh();
     const ctx = contextAt(WED);
     expect(goalMilestoneMessages(ctx, st)).toEqual([]);
-    expect(st.goalLevels).toEqual({ "g-babavaro": 3, "g-auto": 0, "g-nyaralas": 2 });
+    expect(st.goalLevels).toEqual({ "g-babakocsi": 3, "g-auto": 0, "g-nyaralas": 2 });
 
     const goal = (id: string) => ctx.savings.find((p) => p.goal.id === id)!;
     goal("g-auto").progressPct = 0.3;
@@ -54,7 +54,7 @@ describe("goal milestones", () => {
     goal("g-auto").progressPct = 0.3;
     expect(goalMilestoneMessages(ctx, st)).toEqual([]);
 
-    goal("g-babavaro").progressPct = 1;
+    goal("g-babakocsi").progressPct = 1;
     expect(goalMilestoneMessages(ctx, st)).toEqual([expect.stringContaining("🏁 <b>Babakocsi: összegyűlt a teljes összeg</b>")]);
   });
 

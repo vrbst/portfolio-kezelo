@@ -395,6 +395,15 @@ describe("detectRecurringSavings – the monthly budget", () => {
     expect(r.monthlyHuf).toBe(150_000);
   });
 
+  it("a big one-off WITHDRAWAL is left out but doesn't end the window (it is no funding phase)", () => {
+    const txs = [...monthly(10, 21, 150_000), dep(2026, 8, 20, 3_000_000, "withdrawal")];
+    const r = detectRecurringSavings(txs, {}, NOW);
+    expect(r.oneOffs.map((o) => o.month)).toEqual(["2026-08"]);
+    // The months before it still count: 11 steady months, August left out.
+    expect(r.monthsUsed).toBe(11);
+    expect(r.monthlyHuf).toBe(150_000);
+  });
+
   it("paying every other month reads as half", () => {
     const txs = Array.from({ length: 6 }, (_, i) => dep(2025 + Math.floor((9 + 2 * i) / 12), ((9 + 2 * i) % 12) + 1, 10, 200_000));
     expect(detectRecurringSavings(txs, {}, NOW).monthlyHuf).toBe(100_000);

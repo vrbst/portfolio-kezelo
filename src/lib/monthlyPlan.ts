@@ -20,6 +20,7 @@ import {
   type SavingsMonthlyStatus,
 } from "./savings";
 import { computeGoalProgress, type Goal, type GoalProgress } from "./goals";
+import { computeRefillProgress, type RefillGoal, type RefillProgress } from "./refill";
 import type { PriceMap } from "./portfolio";
 import { instrumentTypeLabel } from "./labels";
 import { formatMoney } from "./format";
@@ -52,14 +53,14 @@ import {
   type Venue,
 } from "./accountRules";
 
-export type PlanItemKind = "savings" | "dca";
+export type PlanItemKind = "savings" | "dca" | "refill";
 
 /** One goal's claim on this month's saving. */
 export interface PlanNeed {
-  /** `savings:<id>` / `dca:<id>` — what the user's order refers to. */
+  /** `savings:<id>` / `dca:<id>` / `refill:<id>` — what the user's order refers to. */
   key: string;
   kind: PlanItemKind;
-  /** Goal name ("Babaváró", "WBIT (havi DCA)"). */
+  /** Goal name ("Autó", "WBIT (havi DCA)"). */
   name: string;
   /** Still owed this month (HUF). */
   needHuf: number;
@@ -79,6 +80,13 @@ export interface PlanNeed {
   assignedKeys?: string[];
   /** Why the assigned instruments can't take the buy (hold cash). */
   holdReason?: string;
+  /** A refill along the glide path: its money joins the glide path's buys (not capped by its monthly amount). */
+  viaGlide?: boolean;
+  /**
+   * Asks for everything still owed (a refill "as soon as possible"): what
+   * this month can't give is the later months' job, never a shortfall.
+   */
+  openEnded?: boolean;
 }
 
 /** The claims of every goal, in the default order: dated goals by date, then DCA. */
@@ -130,6 +138,24 @@ export function planNeeds(
   return [...dated, ...recurring];
 }
 
+/** The refill goals' claims: the withdrawn money back, instead of the usual split. */
+export function refillNeeds(progress: RefillProgress[], instruments: Map<string, Instrument>): PlanNeed[] {
+  return progress
+    .filter((p) => p.status === "refilling" || p.status === "awaiting")
+    .map((p): PlanNeed => ({
+      key: `refill:${p.goal.id}`,
+      kind: "refill",
+      name: p.goal.name,
+      needHuf: p.needHuf,
+      doneHuf: p.thisMonthHuf,
+      instrumentKey: p.buyKey,
+      target: p.buyKey ? (instruments.get(p.buyKey)?.name ?? p.buyKey) : p.targetLabel,
+      holdCash: false,
+      viaGlide: p.viaGlide,
+      openEnded: p.goal.pace.kind === "asap",
+    }));
+}
+
 /**
  * Every goal's claim this month, in the user's order — the one entry point the
  * app and the Telegram bot share, so both plan the same amounts.
@@ -137,6 +163,10 @@ export function planNeeds(
 export function computePlanNeeds(a: {
   savingsGoals: SavingsGoal[];
   dcaGoals: Goal[];
+  /** Refill goals (Visszapótlás) — after the dated goals unless the order says otherwise. */
+  refills?: RefillGoal[];
+  /** The glide path in force: where a refill along it may buy. */
+  glide?: GlideConfig;
   accounts: Account[];
   transactions: Transaction[];
   instruments: Instrument[];
@@ -147,24 +177,51 @@ export function computePlanNeeds(a: {
 }): PlanNeed[] {
   const map = new Map(a.instruments.map((i) => [i.key, i]));
   const now = a.now ?? new Date();
+  const refill = a.refills?.length
+    ? refillNeeds(
+        computeRefillProgress({
+          goals: a.refills,
+          transactions: a.transactions,
+          instruments: map,
+          fx: a.fx,
+          glide: a.glide,
+          dcaGoals: a.dcaGoals,
+          savingsGoals: a.savingsGoals,
+          accounts: a.accounts,
+          now,
+        }),
+        map,
+      )
+    : [];
   return orderNeeds(
-    planNeeds(
-      savingsMonthStates(a.savingsGoals, a.accounts, a.transactions, map, a.prices, a.fx, now),
-      new Map(a.savingsGoals.map((g) => [g.id, g.targetDate])),
-      computeGoalProgress(a.dcaGoals, a.transactions, a.instruments, a.fx, now),
-      map,
-    ),
+    [
+      ...refill,
+      ...planNeeds(
+        savingsMonthStates(a.savingsGoals, a.accounts, a.transactions, map, a.prices, a.fx, now),
+        new Map(a.savingsGoals.map((g) => [g.id, g.targetDate])),
+        computeGoalProgress(a.dcaGoals, a.transactions, a.instruments, a.fx, now),
+        map,
+      ),
+    ],
     a.order,
   );
 }
 
-/** `needs` in the user's order; items it doesn't list keep their default place after. */
+/**
+ * `needs` in the user's order; items it doesn't list keep their default place
+ * after — except a refill not placed yet: it goes right after the dated goals
+ * (they have a deadline) and before everything else (it replaces the usual
+ * split: DCA, glide path).
+ */
 export function orderNeeds(needs: PlanNeed[], order: string[]): PlanNeed[] {
   const rank = new Map(order.map((k, i) => [k, i]));
   const listed = needs
     .filter((n) => rank.has(n.key))
     .sort((a, b) => rank.get(a.key)! - rank.get(b.key)!);
-  return [...listed, ...needs.filter((n) => !rank.has(n.key))];
+  const unlisted = needs.filter((n) => !rank.has(n.key));
+  const rest = [...listed, ...unlisted.filter((n) => n.kind !== "refill")];
+  const at = rest.map((n) => n.kind).lastIndexOf("savings") + 1;
+  return [...rest.slice(0, at), ...unlisted.filter((n) => n.kind === "refill"), ...rest.slice(at)];
 }
 
 /** Move `key` one step up (-1) or down (+1) in the plan order; returns the new order. */
@@ -207,6 +264,10 @@ export interface PlanLine {
   blocked?: boolean;
   /** A scheduled change of the account within ~2 months. */
   upcoming?: { from: string; label: string };
+  /** A refill whose money goes with the glide path's buys (see MonthlyPlan.glidePlan). */
+  viaGlide?: boolean;
+  /** A refill with nowhere to buy (no glide path, no instrument chosen). */
+  noTarget?: boolean;
 }
 
 /**
@@ -215,7 +276,7 @@ export interface PlanLine {
  */
 export interface PlanDeposit {
   label: string;
-  /** The plan items it covers ("Babaváró", "Célpálya"), in plan order. */
+  /** The plan items it covers ("Autó", "Célpálya"), in plan order. */
   items: string[];
   accountId?: string;
   /** The account isn't in the ledger yet — open it first. */
@@ -353,7 +414,25 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
   /** Money too small to pay a buy's fixed fee: unplanned, and not for the later items either. */
   let crumbs = 0;
   const lines: PlanLine[] = [];
+  /** Refill money that goes along the glide path (on top of its monthly amount). */
+  let refillGlide = 0;
+  const refillGlideNames: string[] = [];
+  const glideOn = isActive(glide) && !!state;
   for (const need of input.needs) {
+    // A refill with no instrument and no glide path to route it: nothing to
+    // buy — it takes no money (the rest of the plan gets it) and says so.
+    if (need.kind === "refill" && !need.instrumentKey && !(need.viaGlide && glideOn)) {
+      lines.push({ need, allocatedHuf: 0, shortHuf: 0, noTarget: true });
+      continue;
+    }
+    if (need.viaGlide && glideOn) {
+      const give = Math.min(left, Math.max(0, need.needHuf));
+      left -= give;
+      refillGlide += give;
+      if (give >= 1) refillGlideNames.push(need.name);
+      lines.push({ need, allocatedHuf: give, shortHuf: need.openEnded ? 0 : Math.max(0, need.needHuf - give), viaGlide: true });
+      continue;
+    }
     const key = need.holdCash ? undefined : need.instrumentKey;
     const venue = key ? venueOf(key) : holdVenue(need);
     const upcoming = ctx && key ? upcomingVenueChange(ctx, key) : undefined;
@@ -378,7 +457,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     lines.push({
       need,
       allocatedHuf: give,
-      shortHuf: Math.max(0, need.needHuf - give),
+      shortHuf: need.openEnded ? 0 : Math.max(0, need.needHuf - give),
       venue,
       upcoming,
       ...(trade ? { trade } : {}),
@@ -386,8 +465,12 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
   }
   let glideHuf = 0;
   let glidePlan: MonthlyPlan["glidePlan"] = null;
-  if (isActive(glide) && state && left >= 1) {
-    glideHuf = glideShare(glide, left, input.budgetHuf);
+  if (isActive(glide) && state && (left >= 1 || refillGlide >= 1)) {
+    const share = left >= 1 ? glideShare(glide, left, input.budgetHuf) : 0;
+    glideHuf = refillGlide + share;
+    // The refill's money left `left` in the loop; freeHuf (left + crumbs −
+    // glideHuf) must see it as part of the glide path's money, not missing.
+    left += refillGlide;
     if (glideHuf >= 1) {
       glidePlan = planCashflow(
         glide,
@@ -418,7 +501,7 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
     freeHuf: left + crumbs - glideHuf,
     shortHuf: lines.reduce((s, l) => s + l.shortHuf, 0),
     deposits: ctx
-      ? planDeposits(lines, glidePlan, (k) => venueOf(k), (id) => {
+      ? planDeposits(lines, glidePlan, refillGlideNames, (k) => venueOf(k), (id) => {
           const a = accountById(ctx, id);
           return a ? accountLabel(a) : "bankszámla / máshol";
         })
@@ -430,6 +513,8 @@ export function buildMonthlyPlan(input: PlanInput): MonthlyPlan {
 function planDeposits(
   lines: PlanLine[],
   glidePlan: MonthlyPlan["glidePlan"],
+  /** Refills whose money is in the glide path's buys. */
+  glideItems: string[],
   venueOf: (key: string) => Venue | undefined,
   accountLabelOf: (id: string | undefined) => string,
 ): PlanDeposit[] {
@@ -477,21 +562,28 @@ function planDeposits(
     });
   }
   for (const s of glidePlan?.suggestions ?? [])
-    if (s.status === "ok" && s.side === "buy" && s.instrumentKey)
-      add("Célpálya", venueOf(s.instrumentKey), s.amountHuf, s.costHuf, s.fxCostHuf ?? 0);
+    if (s.status === "ok" && s.side === "buy" && s.instrumentKey) {
+      const v = venueOf(s.instrumentKey);
+      for (const name of glideItems) add(name, v, 0, 0, 0);
+      add("Célpálya", v, s.amountHuf, s.costHuf, s.fxCostHuf ?? 0);
+    }
   return [...by.values()].sort((a, b) => b.totalHuf - a.totalHuf);
 }
 
 // ---- Text (reminder detail, Telegram) --------------------------------------
 
-/** "Babaváró: DKJ D261028 206 667 Ft (210 db, díj 0 Ft)" / "… tartsd készpénzben". */
+/** "Autó: DKJ D270512 206 667 Ft (210 db, díj 0 Ft)" / "… tartsd készpénzben". */
 export function planLineText(l: PlanLine): string {
   const n = l.need;
   const short = l.shortHuf >= 1 ? ` — alul maradt: −${formatMoney(l.shortHuf)}` : "";
   if (n.needHuf < 1) return `${n.name}: e havi rész teljesítve ✓`;
   if (l.blocked && l.venue)
     return `${n.name}: nem vehető — ${blockedText(l.venue)}; állíts be új vételi számlát${short}${upcomingText(l)}`;
+  if (l.noTarget)
+    return `${n.name}: nincs hova visszapótolni — állíts be célpályát, vagy válassz papírt a visszapótláshoz`;
   if (l.allocatedHuf < 1) return `${n.name}: nem jut rá pénz${short}`;
+  if (l.viaGlide)
+    return `${n.name}: visszapótlás ${formatMoney(l.allocatedHuf)} a célpálya szerint (a vételek a Célpálya sorban)${short}`;
   if (n.holdCash)
     return `${n.name}: tartsd készpénzben a céldátumig ${formatMoney(l.allocatedHuf)}${venueText(l)}${n.holdReason ? ` (${n.holdReason})` : ""}${short}`;
   if (!l.trade) return `${n.name}: ${n.target} vétel ${formatMoney(l.allocatedHuf)}${short}`;
@@ -530,7 +622,7 @@ export function planTextLines(p: MonthlyPlan): string[] {
   return out;
 }
 
-/** "Lightyear TBSZ 2026: 150 000 Ft = Babaváró + Célpálya (ebből váltás 525 Ft)". */
+/** "Lightyear TBSZ 2026: 150 000 Ft = Autó + Célpálya (ebből váltás 525 Ft)". */
 export function depositText(d: PlanDeposit): string {
   const fx = d.fxCostHuf >= 1 ? ` (ebből váltás ${formatMoney(d.fxCostHuf)})` : "";
   const items = d.items.length ? ` = ${d.items.join(" + ")}` : "";

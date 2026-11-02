@@ -44,6 +44,7 @@ import {
   type CashflowSettings,
   type CashflowSkip,
 } from "./cashflow";
+import { loadRefills, type RefillGoal } from "./refillStore";
 
 export interface StampedPref<T> {
   /** ISO timestamp of the last local edit — newer wins in a sync merge. */
@@ -82,6 +83,8 @@ export interface SyncedPrefs {
   /** Monthly income / spending sums from 1Money exports — merged per month. */
   cashflow?: StampedPref<CashflowMonth[]>;
   cashflowSettings?: StampedPref<CashflowSettings>;
+  /** Refill goals (Visszapótlás): withdrawals to put back. */
+  refill?: StampedPref<RefillGoal[]>;
   /** Single 1Money items the user took out of the figures (no notes). */
   cashflowSkips?: StampedPref<CashflowSkip[]>;
 }
@@ -104,7 +107,8 @@ export type PrefKind =
   | "notify"
   | "cashflow"
   | "cashflowSettings"
-  | "cashflowSkips";
+  | "cashflowSkips"
+  | "refill";
 
 const KINDS: PrefKind[] = [
   "allocation",
@@ -125,6 +129,7 @@ const KINDS: PrefKind[] = [
   "cashflow",
   "cashflowSettings",
   "cashflowSkips",
+  "refill",
 ];
 
 const VALUE_KEY: Record<PrefKind, string> = {
@@ -146,6 +151,7 @@ const VALUE_KEY: Record<PrefKind, string> = {
   cashflow: "pf-cashflow",
   cashflowSettings: "pf-cashflow-settings",
   cashflowSkips: "pf-cashflow-skips",
+  refill: "pf-refill",
 };
 const STAMP_KEY: Record<PrefKind, string> = {
   allocation: "pf-allocation-updated",
@@ -166,6 +172,7 @@ const STAMP_KEY: Record<PrefKind, string> = {
   cashflow: "pf-cashflow-updated",
   cashflowSettings: "pf-cashflow-settings-updated",
   cashflowSkips: "pf-cashflow-skips-updated",
+  refill: "pf-refill-updated",
 };
 
 // Loaders read the current local value for the snapshot (no cross-module cycle
@@ -188,6 +195,7 @@ const LOADERS: Record<PrefKind, () => unknown> = {
   cashflow: loadCashflow,
   cashflowSettings: loadCashflowSettings,
   cashflowSkips: loadCashflowSkips,
+  refill: loadRefills,
   // Read directly (not via prices.ts): prices.ts imports this module at load.
   symbols: () => {
     try {

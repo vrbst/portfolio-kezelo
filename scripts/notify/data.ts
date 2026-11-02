@@ -5,7 +5,7 @@
 import type { Instrument, Transaction } from "../../src/lib/model";
 import { getRepoFile, type PortfolioSnapshot } from "../../src/lib/sync";
 import { OUTLOOK_PATH, validateOutlookFile, type OutlookFile } from "../../src/lib/outlook";
-import { loadForecastSettings } from "../../src/lib/forecast";
+import { loadForecastSettings, monthlyBudgetHuf } from "../../src/lib/forecast";
 import {
   computePortfolio,
   bondImportReminders,
@@ -99,6 +99,7 @@ import {
   type BondRatesFile,
 } from "../../src/lib/bondRates";
 import { readAiUsage, type AiUsageRecord } from "./aiUsage";
+import { computeRefillProgress, loadActiveRefills, refillAlerts, type RefillProgress } from "../../src/lib/refill";
 
 export interface Context {
   at: Date;
@@ -122,6 +123,10 @@ export interface Context {
   events: UpcomingEvent[];
   goalProgress: GoalProgress[];
   savings: SavingsProgress[];
+  /** Refill goals (Visszapótlás): progress and this month's part. */
+  refills: RefillProgress[];
+  /** The monthly budget (monthlyBudgetHuf) — the refill's pace at "asap". */
+  budgetHuf: number;
   /** Glide path today (null = not set up), from the synced prefs. */
   glide: AllocationState | null;
   /** The glide path's newest version (its re-alert settings). */
@@ -397,6 +402,18 @@ export function buildContext(input: ContextInput): Context {
     fees: loadBrokerFees(),
     reserved,
   });
+  const budgetHuf = monthlyBudgetHuf(transactions, fx, at);
+  const refills = computeRefillProgress({
+    goals: loadActiveRefills(),
+    transactions,
+    instruments: instMap,
+    fx,
+    glide: latestConfig(glideVersions),
+    dcaGoals: snapshot.goals ?? [],
+    savingsGoals,
+    accounts,
+    now: at,
+  });
   const incomeState = loadIncomeState();
   const income = allocateIncome(
     pendingIncome(
@@ -441,6 +458,7 @@ export function buildContext(input: ContextInput): Context {
     ...(loadCashflowSettings().remind ? cashflowImportAlerts(loadCashflow(), day) : []),
     ...incomeAlerts(income),
     ...reserveConflictAlerts(reserveConflicts(savingsGoals, transactions, instMap, fx)),
+    ...refillAlerts(refills, budgetHuf, at),
   ].filter((a) => alertState[a.id]?.status !== "dismissed");
 
   return {
@@ -467,6 +485,8 @@ export function buildContext(input: ContextInput): Context {
     baseAlerts,
     alertState,
     savings,
+    refills,
+    budgetHuf,
   };
 }
 

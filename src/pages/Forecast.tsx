@@ -20,10 +20,12 @@ import {
   useMonthlyBudget,
   usePortfolio,
   usePortfolioSummary,
+  useRefills,
   useValueSeries,
 } from "../lib/store";
 import {
   detectRecurringSavings,
+  storedRefillExpenses,
   projectForecast,
   projectMonteCarlo,
   deflateResult,
@@ -270,12 +272,19 @@ export default function Forecast() {
     () => savingsGoalExpenses(savingsGoals, savingsProgress),
     [savingsGoals, savingsProgress],
   );
+  // A refill goal's withdrawal still ahead: the money leaves on its day (a
+  // bond sale shrinks the bond leg, see refillExpensesWith).
+  const refills = useRefills();
+  const refillExpenses = useMemo(
+    () => (refills.length ? storedRefillExpenses(summary, transactions) : []),
+    [refills, summary, transactions],
+  );
   const allExpenses = useMemo(
     () =>
-      [...settings.expenses, ...goalExpenses].sort((a, b) =>
+      [...settings.expenses, ...goalExpenses, ...refillExpenses].sort((a, b) =>
         a.date.localeCompare(b.date),
       ),
-    [settings.expenses, goalExpenses],
+    [settings.expenses, goalExpenses, refillExpenses],
   );
 
   const assumptions = useMemo<ForecastAssumptions>(

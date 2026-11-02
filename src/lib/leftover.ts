@@ -16,6 +16,8 @@ import type { Account, Instrument, Transaction } from "./model";
 import type { Reminder } from "./alerts";
 import type { PriceMap } from "./portfolio";
 import type { Goal } from "./goals";
+import type { RefillGoal } from "./refillStore";
+import type { GlideConfig } from "./glidePath";
 import { lastWorkingDayOfMonth, monthLabel } from "./goals";
 import {
   computeSavingsProgress,
@@ -133,6 +135,9 @@ function lessRecorded(n: PlanNeed, reminders: Reminder[], label: string): PlanNe
 export interface LeftoverNeedsInput {
   savingsGoals: SavingsGoal[];
   dcaGoals: Goal[];
+  /** Refill goals: an "asap" one takes the leftover after the dated goals (its whole remainder). */
+  refills?: RefillGoal[];
+  glide?: GlideConfig;
   accounts: Account[];
   transactions: Transaction[];
   instruments: Instrument[];
@@ -217,7 +222,14 @@ export function leftoverNeeds(a: LeftoverNeedsInput): LeftoverNeeds {
       });
     }
   }
-  return { month, closing, needs };
+  // A refill goes after the dated parts — the pulled-forward ones included.
+  const dated = needs.filter((n) => n.kind !== "refill");
+  const at = dated.map((n) => n.kind).lastIndexOf("savings") + 1;
+  return {
+    month,
+    closing,
+    needs: [...dated.slice(0, at), ...needs.filter((n) => n.kind === "refill"), ...dated.slice(at)],
+  };
 }
 
 /** The leftover plan: the Havi terv's split, the glide path taking all the rest. */

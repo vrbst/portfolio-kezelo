@@ -7,6 +7,7 @@ import { dayLabel, ft, mft, pct, sft } from "../notify/reports";
 import { HIDDEN, MASK, name } from "./text";
 import { consolidatedHoldings } from "../../src/lib/portfolio";
 import { sparkline } from "./spark";
+import { refillMonthHuf } from "../../src/lib/refill";
 
 
 const makeMoney = (hide: boolean) => (n: number, f: (n: number) => string = ft) =>
@@ -155,7 +156,7 @@ const bar = (ratio: number, width = 20) => {
 export function Goals({ ctx, hide }: { ctx: Context; hide: boolean }) {
   const money = makeMoney(hide);
   const priv = makePriv(hide);
-  const none = ctx.goalProgress.length === 0 && ctx.savings.length === 0;
+  const none = ctx.goalProgress.length === 0 && ctx.savings.length === 0 && ctx.refills.length === 0;
   return (
     <Box flexDirection="column">
       {none && <Text dimColor>Még nincs beállított cél.</Text>}
@@ -190,6 +191,25 @@ export function Goals({ ctx, hide }: { ctx: Context; hide: boolean }) {
                 <Text color={p.reached ? "green" : "cyan"}>{bar(p.progressPct)}</Text>{" "}
                 most {Math.round(p.progressPct * 100)}%, határidőre várhatóan{" "}
                 {Math.round(p.projectedPct * 100)}%
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+      {ctx.refills.length > 0 && (
+        <Box flexDirection="column" marginTop={ctx.goalProgress.length || ctx.savings.length ? 1 : 0}>
+          <Text bold>Visszapótlás</Text>
+          {ctx.refills.map((p) => (
+            <Box key={p.goal.id} flexDirection="column">
+              <Text>
+                {p.status === "done" ? "✅" : p.status === "planned" ? "🗓" : p.status === "awaiting" ? "⚠️" : "⏳"}{" "}
+                {priv(p.goal.name)} – kivét {dayLabel(p.withdrawnDay)}, {name(p.sourceLabel)}: {money(p.goal.withdrawal.amountHuf)}
+              </Text>
+              <Text>
+                {"   "}
+                <Text color={p.status === "done" ? "green" : "cyan"}>{bar(p.ratio)}</Text>{" "}
+                {money(p.refilledHuf)} / {money(p.amountHuf)}
+                {p.status === "refilling" || p.status === "awaiting" ? <>, e hónapban {money(refillMonthHuf(p, ctx.budgetHuf))}</> : null}
               </Text>
             </Box>
           ))}

@@ -13,6 +13,7 @@ import {
   useToday,
   useBrokerFees,
   useReservedCash,
+  usePlannedSales,
 } from "../lib/store";
 import { glideAmountSource } from "../lib/budget";
 import {
@@ -259,20 +260,22 @@ export default function GlidePathSettings() {
   // "reális" return.
   const transactions = usePortfolio((s) => s.transactions);
   const dcaGoals = usePortfolio((s) => s.goals);
+  // A refill goal's planned sale shrinks the later coupons.
+  const sales = usePlannedSales();
   // The Forecast page's "reális" return as it runs: typed in, or from the Kilátások.
   const expectedReal = useEffectiveForecast().effective.annualReturn.real;
   // Everything the projection needs besides the config and its state.
   const projInputs = useMemo(
     () => ({
       instruments: new Map(instruments.map((i) => [i.key, i])),
-      cashflows: futureBondCashflows(summary, new Date(), transactions),
+      cashflows: futureBondCashflows(summary, new Date(), transactions, sales),
       savings,
       dcaGoals,
       budgetHuf: breakdown.budgetHuf,
       today,
       until: `${+today.slice(0, 4) + PROJECTION_YEARS}${today.slice(4)}`,
     }),
-    [instruments, summary, transactions, savings, dcaGoals, breakdown.budgetHuf, today],
+    [instruments, summary, transactions, savings, dcaGoals, breakdown.budgetHuf, today, sales],
   );
   const projection = useMemo(() => {
     if (!state || !cfg || !isActive(cfg)) return undefined;

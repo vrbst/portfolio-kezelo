@@ -939,6 +939,64 @@ test.describe("medium-term goals (Középtávú célok)", () => {
   });
 });
 
+test.describe("refill (Visszapótlás)", () => {
+  const NAME = "E2E kivét";
+  async function addRefill(page: Page) {
+    await page.getByRole("button", { name: "Új kivét" }).click();
+    const dialog = page.getByRole("dialog", { name: "Új visszapótlás" });
+    await expect(dialog).toBeVisible();
+    // Nothing is saved without a name: the reason is shown in the dialog.
+    await dialog.getByRole("button", { name: "Mentés" }).click();
+    await expect(dialog.getByText("Adj nevet a kivétnek (mire veszed ki?).")).toBeVisible();
+    await dialog.getByPlaceholder("pl. Felújítás").fill(NAME);
+    await dialog.getByLabel("Miből?").selectOption("h|mak|HU0000TESZT1");
+    await dialog.getByLabel("Kézhez kapott összeg (Ft)").fill("500000");
+    await dialog.getByLabel("A kivét napja").fill("2026-12-15");
+    return dialog;
+  }
+
+  test("a planned bond withdrawal: the face to sell is shown, the card appears, it can be removed", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await show(page, "/goals");
+    const dialog = await addRefill(page);
+    // The preview works out the face for the day (face + accrued − 1% cost).
+    await expect(dialog.getByText("Eladandó névérték:")).toBeVisible();
+    await expect(dialog.getByText(/Elmaradó kamat/)).toBeVisible();
+    await dialog.getByRole("button", { name: "Mentés" }).click();
+    await expect(dialog).toBeHidden();
+    const card = page.getByTestId("refill-card");
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText(NAME);
+    await expect(card).toContainText("Tervezett kivét");
+    await expect(card).toContainText("névérték");
+    await expect(card).toContainText("a célpálya szerint");
+    // It survives a reload (a synced pref).
+    await show(page, "/goals");
+    await expect(page.getByTestId("refill-card")).toContainText(NAME);
+    await page.getByRole("button", { name: "Visszapótlás törlése" }).click();
+    await page.getByRole("button", { name: "Törlés", exact: true }).click();
+    await expect(page.getByTestId("refill-card")).toHaveCount(0);
+    expect(errors, "console / page errors").toEqual([]);
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+  });
+
+  test("privacy mode: nothing personal is readable in the dialog or on the card", async ({ page }) => {
+    await openSeeded(page, { privacy: true });
+    await show(page, "/goals");
+    const dialog = await addRefill(page);
+    await expect(dialog.getByText("Eladandó névérték:")).toBeVisible();
+    // A fixed monthly pace: its amount is personal too.
+    await dialog.getByText("Havi fix összeggel").click();
+    await dialog.locator("input.amt").last().fill("80000");
+    const inDialog = await readableSecrets(page, [NAME, ...savingsGoals().map((g) => g.name)], '[role="dialog"]');
+    expect(inDialog, "readable amounts / names in the dialog").toEqual([]);
+    await dialog.getByRole("button", { name: "Mentés" }).click();
+    await expect(page.getByTestId("refill-card")).toHaveCount(1);
+    const onPage = await readableSecrets(page, [NAME, ...savingsGoals().map((g) => g.name)]);
+    expect(onPage, "readable amounts / names on the page").toEqual([]);
+  });
+});
+
 test.describe("market news (Hírek)", () => {
   /**
    * The sync repo with an invented digest; the snapshot file is not there.

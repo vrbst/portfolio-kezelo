@@ -55,6 +55,7 @@ import {
   splitAmongGoals,
 } from "./incomeClaims";
 import { txDay } from "./day";
+import type { PlannedSale } from "./refillStore";
 
 export interface SavingsGoal {
   id: string;
@@ -407,6 +408,8 @@ export function savingsMonthStates(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): SavingsMonthlyStatus[] {
   const eff = effectiveMonth(now);
   const monthLabel = effectiveMonthLabel(now);
@@ -419,6 +422,7 @@ export function savingsMonthStates(
       prices,
       fx,
       now,
+      sales,
     ).map((p) => [p.goal.id, p]),
   );
   // This month's bond coupons, split among the goals that claim them.
@@ -524,6 +528,8 @@ export function savingsMonthlyStatus(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): SavingsMonthlyStatus[] {
   const on = new Set(
     goals
@@ -538,6 +544,7 @@ export function savingsMonthlyStatus(
     prices,
     fx,
     now,
+    sales,
   ).filter((s) => on.has(s.goalId));
 }
 
@@ -597,6 +604,8 @@ export function savingsGoalAlerts(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (see computeSavingsProgress). */
+  sales?: PlannedSale[],
 ): Alert[] {
   const eff = effectiveMonth(now);
   const curKey = `${eff.year}-${eff.month0}`;
@@ -608,6 +617,7 @@ export function savingsGoalAlerts(
     prices,
     fx,
     now,
+    sales,
   )
     .filter((s) => !s.done)
     .map((s) => {
@@ -1020,6 +1030,8 @@ export function computeSavingsProgress(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (refill withdrawals); default: the stored ones. */
+  sales?: PlannedSale[],
 ): SavingsProgress[] {
   const nowMs = now.getTime();
   const summaryNow = computePortfolio(
@@ -1033,7 +1045,7 @@ export function computeSavingsProgress(
   // Already-credited coupons are excluded: that money is now cash (or already
   // reinvested into an assigned instrument), so counting it as a future inflow
   // too would inflate the projection right before every coupon date.
-  const coupons = futureBondCashflows(summaryNow, now, txs).filter(
+  const coupons = futureBondCashflows(summaryNow, now, txs, sales).filter(
     (c) => c.kind === "coupon",
   );
   const cashByGoal = goalCash(goals, txs, instruments, fx);
@@ -1267,9 +1279,10 @@ export function futureCouponOptions(
   summary: PortfolioSummary,
   txs: Transaction[],
   now: Date = new Date(),
+  sales?: PlannedSale[],
 ): CouponOption[] {
   const byId = new Map<string, CouponOption>();
-  for (const c of futureBondCashflows(summary, now, txs)) {
+  for (const c of futureBondCashflows(summary, now, txs, sales)) {
     if (c.kind !== "coupon" || !c.instrumentKey) continue;
     const id = couponId(c.instrumentKey, c.date);
     const o = byId.get(id);

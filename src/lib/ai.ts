@@ -15,6 +15,7 @@ import { bandBaseNote, type AllocationState } from "./rebalance";
 import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
 import type { BondAdvice, BondMarket } from "./bondSwitch";
+import type { RefillProgress } from "./refill";
 // The SDK is loaded on first use (dynamic import → its own chunk), so it
 // doesn't weigh on the app's startup; only the types are static.
 type AnthropicSdk = typeof import("@anthropic-ai/sdk").default;
@@ -297,6 +298,8 @@ export interface AiContextExtras {
   events?: UpcomingEvent[];
   /** Medium-term savings goals (target, deadline, expected fill). */
   savings?: SavingsProgress[];
+  /** Refill goals (Visszapótlás): withdrawals the monthly saving puts back right after the dated goals. */
+  refills?: RefillProgress[];
   /** The Forecast page's projection (milestones + shortfall). */
   forecast?: {
     monthlySavingHuf: number;
@@ -537,6 +540,30 @@ export function buildAiPortfolioContext(
         .join(", ");
       lines.push(
         `- ${s.goal.name}: cél ${huf(s.targetHuf)} Ft ${s.goal.targetDate}-ig, most ${pct(s.progressPct)}, a határidőre várhatóan ${pct(s.projectedPct)}${s.reached ? " (teljesül)" : `, havi szükséges ${huf(s.monthlyNeededHuf)} Ft, ebben a hónapban befizetve ${huf(s.thisMonthNetHuf)} Ft`}${assigned ? `; hozzárendelt eszköz: ${assigned}` : ""}${s.goal.includeCoupons ? `; a portfólió ÖSSZES (más célhoz nem rendelt) kötvénykupona, amely a határidőig beérkezik, ennek a célnak a része (várhatóan ${huf(s.couponsHuf)} Ft, már benne van a várható teljesülésben)` : s.pickedCouponsHuf > 0 ? `; a célhoz rendelt konkrét kuponok (még ${huf(s.pickedCouponsHuf)} Ft, már benne van a várható teljesülésben)` : ""}${s.savingStartsOn ? `; a havi félretétel csak ${s.savingStartsOn}-tól indul (akkortól havi ${huf(s.plannedMonthlyHuf)} Ft)` : ""}`,
+      );
+    }
+  }
+
+  // --- Refill goals ---
+  if (extras?.refills?.length) {
+    lines.push(
+      "",
+      "Visszapótlás (a portfólióból kivett / kiveendő pénz, amit a havi megtakarítás a határidős célok után, a szokásos elosztás (DCA, célpálya) HELYETT pótol vissza):",
+    );
+    for (const p of extras.refills) {
+      const w = p.goal.withdrawal;
+      const state =
+        p.status === "planned"
+          ? "tervezett kivét (a dátum utáni kuponok már a kisebb névértékkel számolnak)"
+          : p.status === "done"
+            ? "visszapótolva"
+            : `visszakerült ${huf(p.refilledHuf)} / ${huf(p.amountHuf)} Ft, hátra ${huf(p.remainingHuf)} Ft, ${
+                p.goal.pace.kind === "asap"
+                  ? "a havi megtakarítás a határidős célok után ide megy, amíg vissza nem kerül"
+                  : `e hónapban ${huf(p.needHuf)} Ft`
+              }${p.status === "awaiting" ? ", az eladás még nincs importálva" : ""}`;
+      lines.push(
+        `- ${p.goal.name}: kivét ${p.withdrawnDay}, forrás: ${p.sourceLabel}, ${huf(w.amountHuf)} Ft kézhez${w.faceHuf != null ? ` (eladott névérték ${huf(w.faceHuf)} Ft)` : ""}; vissza: ${p.targetLabel}; ${state}`,
       );
     }
   }

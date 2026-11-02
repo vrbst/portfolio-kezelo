@@ -34,6 +34,7 @@ import {
   useGlideVersions,
   useGlideState,
   useValuedInstruments,
+  usePlannedSales,
 } from "../lib/store";
 import {
   futureBondCashflows,
@@ -125,6 +126,7 @@ export default function AiPanel() {
   const goals = useGoalProgress();
   const alerts = useActiveAlerts();
   const savingsGoals = useSavingsGoals();
+  const sales = usePlannedSales();
   const glide = useGlideState(useGlideVersions());
 
   const apiKey = loadAiKey();
@@ -132,8 +134,8 @@ export default function AiPanel() {
   const limits = loadAiLimits();
 
   const cashflows = useMemo(
-    () => futureBondCashflows(summary, new Date(), transactions),
-    [summary, transactions],
+    () => futureBondCashflows(summary, new Date(), transactions, sales),
+    [summary, transactions, sales],
   );
   const { savings: savingsProgress } = useMonthlyBudget();
   const goalExpenses = useMemo(
@@ -154,6 +156,7 @@ export default function AiPanel() {
     () =>
       buildFullAiContext({
         summary,
+        dcaGoals: goals.map((g) => g.goal),
         accounts,
         transactions,
         instruments,

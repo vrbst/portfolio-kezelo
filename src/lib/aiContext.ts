@@ -34,6 +34,9 @@ import type { OutlookReturnEstimate } from "./outlookReturns";
 import type { Alert } from "./alerts";
 import type { AllocationState } from "./rebalance";
 import { txDay } from "./day";
+import { computeRefillProgress, loadActiveRefills } from "./refill";
+import { latestConfig, loadGlideVersions } from "./glidePath";
+import type { Goal } from "./goals";
 
 export interface AiContextInput {
   summary: PortfolioSummary;
@@ -49,6 +52,8 @@ export interface AiContextInput {
   goals: GoalProgress[];
   alerts: Alert[];
   savingsGoals: SavingsGoal[];
+  /** DCA goals (their monthly share of a buy is not a refill). */
+  dcaGoals?: Goal[];
   glide: AllocationState | null;
   /** The Kilátások, for a forecast set to "Kilátások alapján". */
   outlook?: OutlookFile | null;
@@ -144,6 +149,17 @@ export function buildFullAiContext(i: AiContextInput): string {
         gainHuf: a.totalValueHuf - a.capitalBasisHuf,
       })),
     savings: savingsProgress,
+    refills: computeRefillProgress({
+      goals: loadActiveRefills(),
+      transactions,
+      instruments: instMap,
+      fx,
+      glide: latestConfig(loadGlideVersions()),
+      dcaGoals: i.dcaGoals ?? [],
+      savingsGoals: i.savingsGoals,
+      accounts: i.accounts,
+      now,
+    }),
     forecast: {
       monthlySavingHuf: assumptions.monthlySavingHuf,
       milestones: forecastMilestones(result)
