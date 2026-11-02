@@ -55,6 +55,7 @@ import {
   splitAmongGoals,
 } from "./incomeClaims";
 import { txDay } from "./day";
+import type { PlannedSale } from "./refillStore";
 
 export interface SavingsGoal {
   id: string;
@@ -1020,6 +1021,8 @@ export function computeSavingsProgress(
   prices: PriceMap,
   fx: Record<string, number>,
   now: Date = new Date(),
+  /** Sales not in the ledger yet (refill withdrawals); default: the stored ones. */
+  sales?: PlannedSale[],
 ): SavingsProgress[] {
   const nowMs = now.getTime();
   const summaryNow = computePortfolio(
@@ -1033,7 +1036,7 @@ export function computeSavingsProgress(
   // Already-credited coupons are excluded: that money is now cash (or already
   // reinvested into an assigned instrument), so counting it as a future inflow
   // too would inflate the projection right before every coupon date.
-  const coupons = futureBondCashflows(summaryNow, now, txs).filter(
+  const coupons = futureBondCashflows(summaryNow, now, txs, sales).filter(
     (c) => c.kind === "coupon",
   );
   const cashByGoal = goalCash(goals, txs, instruments, fx);

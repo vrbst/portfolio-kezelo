@@ -5,6 +5,7 @@ import { touchPref } from "./prefs";
 import { effectiveMonth, effectiveMonthKey } from "./goals";
 import { couponId, splitAmongGoals } from "./incomeClaims";
 import { localDayMs } from "./day";
+import { loadRefills, quantityAfterSales, refillExpensesWith, type PlannedSale } from "./refillStore";
 import type { OutlookFile } from "./outlook";
 import {
   effectiveForecastSettings,
@@ -205,6 +206,12 @@ export interface PlannedExpense {
    * with the other such goals in proportion to their room.
    */
   includeCoupons?: boolean;
+  /**
+   * The money comes from selling (part of) a bond on the date (a refill goal's
+   * withdrawal): the bond leg shrinks from then on — its later coupons and
+   * redemption are on the smaller face — instead of the liquid part paying.
+   */
+  bondSale?: PlannedSale;
 }
 
 /**
@@ -359,10 +366,12 @@ interface BondLeg {
   maturityMs: number;
   face: number;
   coupons: { ms: number; huf: number; id: string }[];
+  /** The part sold on maturityMs for a withdrawal: its value leaves, nothing is paid in. */
+  leaves?: boolean;
 }
 
 /** Current bond holdings as carry + future coupon/maturity schedule. */
-function bondLegs(summary: PortfolioSummary, nowMs: number): BondLeg[] {
+function bondLegs(summary: PortfolioSummary, nowMs: number, sales: PlannedSale[] = []): BondLeg[] {
   const legs: BondLeg[] = [];
   for (const acc of summary.accounts) {
     for (const h of acc.holdings) {
@@ -385,16 +394,42 @@ function bondLegs(summary: PortfolioSummary, nowMs: number): BondLeg[] {
           if (Number.isFinite(matMs) && cur > matMs) break;
           if (cur > nowMs) {
             const day = toLocalDay(cur);
-            const huf = couponAmountHuf(bond, face, day);
+            const huf = couponAmountHuf(
+              bond,
+              quantityAfterSales(inst.key, acc.account?.id ?? "", face, day, sales),
+              day,
+            );
             if (huf && huf > 0) coupons.push({ ms: cur, huf, id: couponId(inst.key, day) });
           }
         }
       }
 
+      // Planned sales of this holding: each sold part is a leg of its own that
+      // keeps its value until the sale day and then leaves the portfolio.
+      const carry = h.marketValueHuf ?? 0;
+      let soldShare = 0;
+      for (const s of sales) {
+        if (s.instrumentKey !== inst.key || (s.accountId && s.accountId !== acc.account?.id)) continue;
+        if (!(face > 0)) continue;
+        const share = Math.min(1 - soldShare, s.quantity / face);
+        if (!(share > 0)) continue;
+        soldShare += share;
+        const saleMs = Math.max(parseDayMs(s.day), nowMs + 1);
+        legs.push({
+          carry0: carry * share,
+          maturityMs: saleMs,
+          face: carry * share,
+          coupons: [],
+          leaves: true,
+        });
+      }
+      const keptFace = Number.isFinite(matMs)
+        ? quantityAfterSales(inst.key, acc.account?.id ?? "", face, toLocalDay(matMs), sales)
+        : face;
       legs.push({
-        carry0: h.marketValueHuf ?? 0,
+        carry0: carry * (1 - soldShare),
         maturityMs: matMs,
-        face: redemptionHuf(bond, face),
+        face: redemptionHuf(bond, keptFace),
         coupons,
       });
     }
@@ -458,7 +493,11 @@ function prepareProjection(
   }
   const zeros = () => new Array<number>(months + 1).fill(0);
 
-  const legs = bondLegs(summary, nowDayMs);
+  const legs = bondLegs(
+    summary,
+    nowDayMs,
+    expenses.flatMap((e) => (e.bondSale ? [e.bondSale] : [])),
+  );
   const bondValue0 = legs.reduce((s, l) => s + l.carry0, 0);
   const startValue = summary.totalValueHuf;
   const growth0 = startValue - bondValue0; // everything that compounds at r
@@ -516,7 +555,7 @@ function prepareProjection(
     const matures =
       Number.isFinite(leg.maturityMs) && leg.maturityMs > nowDayMs;
     const matIdx = matures ? index.get(monthKey(leg.maturityMs)) : undefined;
-    if (matIdx != null) {
+    if (matIdx != null && !leg.leaves) {
       bondIncome[matIdx] += leg.face;
       maturityHuf += leg.face;
       maturityByMonth.set(
@@ -549,8 +588,9 @@ function prepareProjection(
     if (!Number.isFinite(ms) || ms < nowDayMs) continue;
     const i = index.get(monthKey(ms));
     if (i == null) continue;
-    // The coupons already spent on the goal cover that much of it.
-    const due = Math.max(0, e.amountHuf - (claimed.get(e.id) ?? 0));
+    // The coupons already spent on the goal cover that much of it. A bond sale
+    // is paid by the bond leg itself (see bondLegs), not the liquid part.
+    const due = e.bondSale ? 0 : Math.max(0, e.amountHuf - (claimed.get(e.id) ?? 0));
     expense[i] += due;
     expenseHuf += e.amountHuf;
     const goal = e.id.startsWith("goal:");
@@ -558,7 +598,7 @@ function prepareProjection(
       month: keys[i],
       kind: goal ? "goal" : "expense",
       label: e.note || (goal ? "Cél" : "Kiadás"),
-      huf: due,
+      huf: e.bondSale ? e.amountHuf : due,
     });
   }
 
@@ -1300,6 +1340,19 @@ export function dropForecastSnapshot(month: string): boolean {
  * growth return comes from the outlook (the returned `settings` are then the
  * effective ones, `estimate` says where they come from).
  */
+/** The stored refill goals' withdrawals still ahead (see refillExpensesWith). */
+export function storedRefillExpenses(
+  summary: PortfolioSummary,
+  transactions: Transaction[],
+): PlannedExpense[] {
+  const bonds = new Set(
+    summary.accounts.flatMap((a) =>
+      a.holdings.filter((h) => h.instrument && BOND_TYPES.has(h.instrument.type)).map((h) => h.instrumentKey),
+    ),
+  );
+  return refillExpensesWith(loadRefills(), transactions, (k) => bonds.has(k));
+}
+
 export function projectFromSettings(
   summary: PortfolioSummary,
   transactions: Transaction[],
@@ -1340,7 +1393,7 @@ export function projectFromSettings(
     result: projectForecast(
       summary,
       assumptions,
-      [...settings.expenses, ...extraExpenses],
+      [...settings.expenses, ...extraExpenses, ...storedRefillExpenses(summary, transactions)],
       now,
     ),
   };

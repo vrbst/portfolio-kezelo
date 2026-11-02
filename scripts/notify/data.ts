@@ -5,7 +5,7 @@
 import type { Instrument, Transaction } from "../../src/lib/model";
 import { getRepoFile, type PortfolioSnapshot } from "../../src/lib/sync";
 import { OUTLOOK_PATH, validateOutlookFile, type OutlookFile } from "../../src/lib/outlook";
-import { loadForecastSettings } from "../../src/lib/forecast";
+import { loadForecastSettings, monthlyBudgetHuf } from "../../src/lib/forecast";
 import {
   computePortfolio,
   bondImportReminders,
@@ -99,6 +99,7 @@ import {
   type BondRatesFile,
 } from "../../src/lib/bondRates";
 import { readAiUsage, type AiUsageRecord } from "./aiUsage";
+import { computeRefillProgress, loadActiveRefills, refillAlerts } from "../../src/lib/refill";
 
 export interface Context {
   at: Date;
@@ -441,6 +442,21 @@ export function buildContext(input: ContextInput): Context {
     ...(loadCashflowSettings().remind ? cashflowImportAlerts(loadCashflow(), day) : []),
     ...incomeAlerts(income),
     ...reserveConflictAlerts(reserveConflicts(savingsGoals, transactions, instMap, fx)),
+    ...refillAlerts(
+      computeRefillProgress({
+        goals: loadActiveRefills(),
+        transactions,
+        instruments: instMap,
+        fx,
+        glide: latestConfig(glideVersions),
+        dcaGoals: snapshot.goals ?? [],
+        savingsGoals,
+        accounts,
+        now: at,
+      }),
+      monthlyBudgetHuf(transactions, fx, at),
+      at,
+    ),
   ].filter((a) => alertState[a.id]?.status !== "dismissed");
 
   return {

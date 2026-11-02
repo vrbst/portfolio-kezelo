@@ -65,6 +65,7 @@ import { portfolioLiquidation } from "../../src/lib/liquidation";
 import type { Context } from "./data";
 import type { NightlyAnalysis } from "../../src/lib/aiAnalysis";
 import { weeklyAiLine } from "./aiUsage";
+import { loadActiveRefills } from "../../src/lib/refill";
 
 // ---- formatting -----------------------------------------------------------
 
@@ -694,6 +695,8 @@ function monthlyPlanOf(ctx: Context): MonthlyPlan {
   const needs = computePlanNeeds({
     savingsGoals: loadActiveSavingsGoals(),
     dcaGoals: ctx.snapshot.goals ?? [],
+    refills: loadActiveRefills(),
+    glide: ctx.glideConfig,
     accounts: ctx.snapshot.accounts,
     transactions: ctx.transactions,
     instruments: ctx.instruments,
@@ -732,6 +735,8 @@ function leftoverOf(ctx: Context): { ln: LeftoverNeeds; budgetHuf: number } {
   const ln = leftoverNeeds({
     savingsGoals: loadActiveSavingsGoals(),
     dcaGoals: ctx.snapshot.goals ?? [],
+    refills: loadActiveRefills(),
+    glide: ctx.glideConfig,
     accounts: ctx.snapshot.accounts,
     transactions: ctx.transactions,
     instruments: ctx.instruments,
