@@ -52,7 +52,7 @@ export default function RefillTargets() {
         <h2 className="text-lg font-semibold">Visszapótlás</h2>
         <InfoTip>
           Ha pénzt veszel ki a portfólióból (most vagy egy későbbi napon), itt beállíthatod, hogy a havi
-          megtakarítás a szokásos elosztás helyett először ezt pótolja vissza — alapból a célpálya szerint.
+          megtakarítás a határidős célok után, a szokásos elosztás helyett ezt pótolja vissza — alapból a célpálya szerint.
           Állampapírnál az app a kivét napjára kiszámolja az eladandó névértéket, és a célokhoz rendelt
           kuponokat már előre a kisebb összeggel számolja.
         </InfoTip>
@@ -245,7 +245,7 @@ function RefillCard({
       )}
       {p.status === "planned" && (
         <div className="mt-1 text-xs text-[var(--color-muted)]">
-          A kivét napjától a havi terv először ezt pótolja vissza. A dátum utáni kuponok már most a kisebb
+          A kivét napjától a havi terv a határidős célok után ezt pótolja vissza. A dátum utáni kuponok már most a kisebb
           névértékkel számolnak.
         </div>
       )}

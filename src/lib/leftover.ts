@@ -135,7 +135,7 @@ function lessRecorded(n: PlanNeed, reminders: Reminder[], label: string): PlanNe
 export interface LeftoverNeedsInput {
   savingsGoals: SavingsGoal[];
   dcaGoals: Goal[];
-  /** Refill goals: an "asap" one takes the leftover first (its whole remainder). */
+  /** Refill goals: an "asap" one takes the leftover after the dated goals (its whole remainder). */
   refills?: RefillGoal[];
   glide?: GlideConfig;
   accounts: Account[];

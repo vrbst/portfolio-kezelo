@@ -1,6 +1,6 @@
 // Refill goals ("Visszapótlás"): money taken out of the portfolio — on a set
 // day, from a set holding or account — that the monthly saving then puts back
-// first. This module is the dependency-light part: the data model, loading,
+// (after the dated goals). This module is the dependency-light part: the data model, loading,
 // matching the withdrawal to the imported sale, and the PLANNED sales that the
 // coupon schedule (bonds.ts) and the forecast take into account before the
 // sale shows up in the ledger. It must not import the portfolio maths (bonds.ts

@@ -380,7 +380,7 @@ export function refillLines(ctx: Context, p: RefillProgress): string[] {
     `${REFILL_STATUS[p.status]} <b>${esc(p.goal.name)}</b> – kivét ${dayLabel(p.withdrawnDay)}, ${esc(p.sourceLabel)}: ${ft(w.amountHuf)}${face}`,
   ];
   if (p.status === "planned")
-    out.push(`   a kivét napjától a havi terv először ezt pótolja vissza → ${esc(p.targetLabel)}${until}`);
+    out.push(`   a kivét napjától a havi terv a határidős célok után ezt pótolja vissza → ${esc(p.targetLabel)}${until}`);
   else if (p.status === "done") out.push(`   visszakerült ${ft(p.refilledHuf)} — lezárható`);
   else {
     out.push(

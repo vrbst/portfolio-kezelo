@@ -1,7 +1,8 @@
 // Refill goals ("Visszapótlás"): money taken out of the portfolio — on a set
 // day, from a set holding or account — that the monthly saving puts back
-// first, instead of the usual split (see refillStore.ts for the data model and
-// the planned sales the coupon schedule uses).
+// right after the dated goals, instead of the usual split (DCA, glide path);
+// see refillStore.ts for the data model and the planned sales the coupon
+// schedule uses.
 //
 // Progress: the buys from the withdrawal on, at what they cost (the gross
 // amount at the trade-day rate, like the DCA goals), into what the goal

@@ -293,15 +293,35 @@ describe("computeRefillProgress", () => {
   });
 });
 
-describe("monthly plan – the refill first, instead of the usual split", () => {
+describe("monthly plan – the refill after the dated goals, instead of the usual split", () => {
   const needOf = (key: string, kind: PlanNeed["kind"], huf: number): PlanNeed => ({
     key, kind, name: key, needHuf: huf, doneHuf: 0, target: key, holdCash: false, instrumentKey: kind === "dca" ? "dca" : undefined,
   });
 
-  it("an unplaced refill goes before the user's order; a placed one keeps its place", () => {
+  it("an unplaced refill goes after the dated goals, before the rest; a placed one keeps its place", () => {
     const needs = [needOf("dca:d", "dca", 40_000), needOf("refill:r", "refill", 1)];
     expect(orderNeeds(needs, ["dca:d"]).map((n) => n.key)).toEqual(["refill:r", "dca:d"]);
     expect(orderNeeds(needs, ["dca:d", "refill:r"]).map((n) => n.key)).toEqual(["dca:d", "refill:r"]);
+    // Dated goals (a deadline) keep their money first — wherever the user put them.
+    // The default order computePlanNeeds builds: refills, dated goals, DCA.
+    const withDated = [
+      needOf("refill:r", "refill", 1),
+      needOf("savings:a", "savings", 1),
+      needOf("savings:b", "savings", 1),
+      needOf("dca:d", "dca", 40_000),
+    ];
+    expect(orderNeeds(withDated, ["savings:a", "dca:d", "savings:b"]).map((n) => n.key)).toEqual([
+      "savings:a",
+      "dca:d",
+      "savings:b",
+      "refill:r",
+    ]);
+    expect(orderNeeds(withDated, ["savings:a"]).map((n) => n.key)).toEqual([
+      "savings:a",
+      "savings:b",
+      "refill:r",
+      "dca:d",
+    ]);
   });
 
   it("computePlanNeeds: the refill takes the budget; its money joins the glide path's buys", () => {

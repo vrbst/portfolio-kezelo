@@ -9,7 +9,8 @@ import type { PortfolioSnapshot } from "../../src/lib/sync";
 
 // The bot side of a refill goal (Visszapótlás), on the invented portfolio: a
 // planned FixMÁP withdrawal shows in /celok and the assistant view; once the
-// day has passed it leads the /terv plan, its money going along the glide path.
+// day has passed it comes right after the dated goals in /terv, its money
+// going along the glide path.
 
 const GOAL: RefillGoal = {
   id: "rf",
@@ -40,10 +41,10 @@ describe("refill goal in the bot", () => {
     expect(text).toContain("Visszapótlás");
     expect(text).toContain("Teszt-kivét");
     expect(text).toContain("névérték");
-    expect(text).toContain("a havi terv először ezt pótolja vissza");
+    expect(text).toContain("a határidős célok után ezt pótolja vissza");
   });
 
-  it("after the day without the import: an alert, and /terv puts it first along the glide path", () => {
+  it("after the day without the import: an alert, and /terv puts it after the dated goals, along the glide path", () => {
     const ctx = contextAt([2026, 10, 22, 10], withRefill);
     expect(ctx.refills[0].status).toBe("awaiting");
     expect(ctx.alerts.some((a) => a.id === "refill-import:rf")).toBe(true);
@@ -51,8 +52,11 @@ describe("refill goal in the bot", () => {
     const first = plan.indexOf("Teszt-kivét");
     expect(first).toBeGreaterThan(-1);
     expect(plan).toContain("a célpálya szerint");
-    // The DCA goal comes after it.
+    // The DCA goal comes after it, the dated goals with a part this month before it.
     expect(plan.indexOf("VWCE")).toBeGreaterThan(first);
+    const dated = ctx.savings.map((s) => plan.indexOf(s.goal.name)).filter((i) => i >= 0);
+    expect(dated.length).toBeGreaterThan(0);
+    for (const i of dated) expect(i).toBeLessThan(first);
   });
 
   it("the assistant view and the AI context mention it (escaped, no script)", () => {

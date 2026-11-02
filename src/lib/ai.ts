@@ -298,7 +298,7 @@ export interface AiContextExtras {
   events?: UpcomingEvent[];
   /** Medium-term savings goals (target, deadline, expected fill). */
   savings?: SavingsProgress[];
-  /** Refill goals (Visszapótlás): withdrawals the monthly saving puts back first. */
+  /** Refill goals (Visszapótlás): withdrawals the monthly saving puts back right after the dated goals. */
   refills?: RefillProgress[];
   /** The Forecast page's projection (milestones + shortfall). */
   forecast?: {
@@ -548,7 +548,7 @@ export function buildAiPortfolioContext(
   if (extras?.refills?.length) {
     lines.push(
       "",
-      "Visszapótlás (a portfólióból kivett / kiveendő pénz, amit a havi megtakarítás a szokásos elosztás HELYETT először pótol vissza):",
+      "Visszapótlás (a portfólióból kivett / kiveendő pénz, amit a havi megtakarítás a határidős célok után, a szokásos elosztás (DCA, célpálya) HELYETT pótol vissza):",
     );
     for (const p of extras.refills) {
       const w = p.goal.withdrawal;
@@ -559,7 +559,7 @@ export function buildAiPortfolioContext(
             ? "visszapótolva"
             : `visszakerült ${huf(p.refilledHuf)} / ${huf(p.amountHuf)} Ft, hátra ${huf(p.remainingHuf)} Ft, ${
                 p.goal.pace.kind === "asap"
-                  ? "a havi megtakarítás elsőként ide megy, amíg vissza nem kerül"
+                  ? "a havi megtakarítás a határidős célok után ide megy, amíg vissza nem kerül"
                   : `e hónapban ${huf(p.needHuf)} Ft`
               }${p.status === "awaiting" ? ", az eladás még nincs importálva" : ""}`;
       lines.push(
