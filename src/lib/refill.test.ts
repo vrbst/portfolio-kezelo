@@ -128,7 +128,7 @@ describe("planned sale – coupons after the withdrawal day are on the smaller f
   it("a coupon a dated goal picked shrinks with it — the goal's gap grows", () => {
     const goal: SavingsGoal = {
       id: "g",
-      name: "Babaváró kamat",
+      name: "Nyaralás",
       targetHuf: 400_000,
       targetDate: "2027-04-01",
       instrumentKeys: [],
@@ -146,7 +146,7 @@ describe("planned sale – coupons after the withdrawal day are on the smaller f
   it("refillImpact lists the goal, the cost and the lost coupons", () => {
     const goal: SavingsGoal = {
       id: "g",
-      name: "Babaváró kamat",
+      name: "Nyaralás",
       targetHuf: 400_000,
       targetDate: "2027-04-01",
       instrumentKeys: [],

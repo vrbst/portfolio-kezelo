@@ -187,7 +187,7 @@ const stamped = <T>(value: T): StampedPref<T> => ({ updatedAt: STAMP, value });
 
 export const savingsGoals = (): SavingsGoal[] => [
   {
-    id: "g-babavaro",
+    id: "g-babakocsi",
     name: "Babakocsi",
     targetHuf: 1_300_000,
     targetDate: "2026-12-20",

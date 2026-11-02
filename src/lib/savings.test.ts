@@ -272,7 +272,7 @@ describe("savings goal – maturity stored as an ISO timestamp", () => {
 });
 
 describe("savings goal – money already the goal's but not in a security (hold-cash window)", () => {
-  // The Babaváró shape: the goal's DKJ matures 1 Dec, 14 days before the
+  // The typical shape: the goal's DKJ matures 1 Dec, 14 days before the
   // target date, so from 1 Nov (30 days before maturity) nothing is buyable
   // any more — the advice is to hold cash. A bond pays a 300 000 coupon on
   // 10 Nov, inside that window, and the DKJ pays out its face on 1 Dec.
@@ -404,7 +404,7 @@ describe("savings goal – picked coupons (couponIds)", () => {
   const PICKED: SavingsGoal = {
     ...GOAL,
     id: "p",
-    name: "Nózi",
+    name: "Nyaralás",
     includeCoupons: false,
     couponIds: [`${BOND.key}@2026-10-10`],
   };

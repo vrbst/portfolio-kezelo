@@ -18,7 +18,7 @@ const TYPE_MAP: Record<string, TxType> = {
   fee: "fee",
 };
 
-/** Pull the account ref out of the file name (LY-8WRK5A8). */
+/** Pull the account ref out of the file name (LY-TESZT26). */
 function refFromName(fileName: string): string | undefined {
   const m = fileName.match(/LY-([A-Z0-9]+)/i);
   return m ? `LY-${m[1].toUpperCase()}` : undefined;

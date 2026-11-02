@@ -187,7 +187,7 @@ describe("maturing bond of a savings goal", () => {
     createdAt: "2026-01-01",
     ...over,
   });
-  const dkjInst = bond("Diszkont Kincstárjegy D261028", { key: "dkj", type: "tbill", maturity: "2026-10-28" });
+  const dkjInst = bond("Diszkont Kincstárjegy D261118", { key: "dkj", type: "tbill", maturity: "2026-10-28" });
   const dkjFile = file({
     dkj: [
       { auctionDate: "2026-10-06", series: "D270120", isin: null, maturity: "2027-01-20", avgYield: 5.17 },

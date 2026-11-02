@@ -79,7 +79,7 @@ export function tbszLimitSuggestion(account: Account): AccountLimit | null {
 
 // ---- Labels -----------------------------------------------------------------
 
-/** "Lightyear TBSZ 2026 (LY-8WRK5A8)", "Államkincstár (60179832)". */
+/** "Lightyear TBSZ 2026 (LY-TESZT26)", "Államkincstár (12345678)". */
 export function accountLabel(a: Account): string {
   return `${kindWithProvider(a.provider, a)}${a.externalRef ? ` (${a.externalRef})` : ""}`;
 }

@@ -233,11 +233,11 @@ describe("monthly plan with accounts", () => {
   });
 
   it("hold-cash money is listed apart in the deposits, with where it is kept", () => {
-    const hold: PlanNeed = { ...need("savings:b", "ETF", 30_000), kind: "savings", name: "Babaváró", instrumentKey: undefined, holdCash: true, reserveAccountId: "TR" };
+    const hold: PlanNeed = { ...need("savings:b", "ETF", 30_000), kind: "savings", name: "Felújítás", instrumentKey: undefined, holdCash: true, reserveAccountId: "TR" };
     const p = run(ctx(), 100_000, [hold, need("dca:e", "ETF", 50_000)]);
     const row = p.deposits.find((d) => d.reserve)!;
-    expect(row).toMatchObject({ label: "Államkincstár (félretétel)", items: ["Babaváró"], totalHuf: 30_000 });
-    expect(planTextLines(p).at(-1)).toMatch(/Államkincstár \(félretétel\): 30\s000\sFt = Babaváró/);
+    expect(row).toMatchObject({ label: "Államkincstár (félretétel)", items: ["Felújítás"], totalHuf: 30_000 });
+    expect(planTextLines(p).at(-1)).toMatch(/Államkincstár \(félretétel\): 30\s000\sFt = Felújítás/);
     const noAcc = run(ctx(), 100_000, [{ ...hold, reserveAccountId: undefined }]);
     expect(noAcc.deposits.find((d) => d.reserve)!.label).toBe("bankszámla / máshol (félretétel)");
   });

@@ -177,10 +177,10 @@ describe("goal commitments", () => {
   it("flags goals still ahead that earmark the coupons", () => {
     expect(
       couponClaimingGoals([
-        progress({ name: "Babaváró", includeCoupons: true }),
+        progress({ name: "Felújítás", includeCoupons: true }),
         progress({ name: "Kész", includeCoupons: true, reached: true }),
-        progress({ name: "Nózi" }),
+        progress({ name: "Nyaralás" }),
       ]),
-    ).toEqual(["Babaváró"]);
+    ).toEqual(["Felújítás"]);
   });
 });

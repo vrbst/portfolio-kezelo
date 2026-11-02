@@ -46,7 +46,7 @@ const TXS: Transaction[] = [
 // 600 000 Ft missing on 1 September, three pay days (Sep, Oct, Nov) → 200 000 a month.
 const BABA: SavingsGoal = {
   id: "b",
-  name: "Babaváró",
+  name: "Felújítás",
   targetHuf: 1_000_000,
   targetDate: "2026-11-20",
   instrumentKeys: [DKJ.key],
@@ -155,7 +155,7 @@ describe("leftover – pulling next month's part forward", () => {
       // the whole gap (600 000) less step 1's 200 000
       ["ahead:savings:b", 400_000],
     ]);
-    expect(ln.needs[1].name).toBe("Babaváró (a céldátumig hátralévő rész)");
+    expect(ln.needs[1].name).toBe("Felújítás (a céldátumig hátralévő rész)");
     expect(ln.needs[1].ahead).toBe("2026. október");
     const p = plan(500_000, ln);
     expect(p.lines.map((l) => l.allocatedHuf)).toEqual([200_000, 300_000]);
@@ -209,7 +209,7 @@ describe("leftover – no double split with the Havi terv and the incoming money
     createdAt: "2026-09-02T10:00:00Z",
     severity: "info",
     title: "Havi terv – 2026. szeptember (300 000 Ft)",
-    plan: [{ side: "buy", bucketName: "Babaváró", instrumentKey: DKJ.key, amountHuf: amount, costHuf: 0 }],
+    plan: [{ side: "buy", bucketName: "Felújítás", instrumentKey: DKJ.key, amountHuf: amount, costHuf: 0 }],
   });
 
   it("a recorded, not yet executed Havi terv covers its goal part", () => {
@@ -296,7 +296,7 @@ describe("/maradek", () => {
     const r = leftoverReply("50 000", ln, (huf) => plan(huf, ln));
     expect(r.ok).toBe(true);
     expect(r.lines[0].replace(/\s/g, " ")).toBe("Hónap végi maradék – 2026. szeptember: 50 000 Ft");
-    expect(r.lines.join("\n")).toMatch(/Babaváró: DKJ 261102 vétel/);
+    expect(r.lines.join("\n")).toMatch(/Felújítás: DKJ 261102 vétel/);
     expect(leftoverReply("50e", ln, (huf) => plan(huf, ln)).lines[0].replace(/\s/g, " ")).toMatch(/50 000 Ft$/);
   });
 
@@ -349,7 +349,7 @@ describe("leftover – only what gets money, any goal", () => {
     const ln = needsAt(LAST_WD);
     const lines = leftoverTextLines(plan(100_000, ln));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^Babaváró: /);
+    expect(lines[0]).toMatch(/^Felújítás: /);
     expect(lines.join(" ")).not.toMatch(/alul maradt|nem jut rá|nem marad rá/);
   });
 

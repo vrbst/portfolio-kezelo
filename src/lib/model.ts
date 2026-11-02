@@ -24,7 +24,7 @@ export interface Account {
   currency: Currency;
   /** TBSZ vintage year (the "gyűjtőév"), e.g. 2024. Only for kind === 'tbsz'. */
   tbszYear?: number;
-  /** External account reference from the statement (e.g. LY-8WRK5A8, 60179832). */
+  /** External account reference from the statement (e.g. LY-TESZT26, 12345678). */
   externalRef?: string;
   openedAt?: string;
   /** id of the linked cash account, if any. */

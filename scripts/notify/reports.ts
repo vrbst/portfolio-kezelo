@@ -97,7 +97,7 @@ const NAME_SHORT: [RegExp, string][] = [
 export function shortName(name: string): string {
   let s = name;
   for (const [re, short] of NAME_SHORT) s = s.replace(re, short);
-  // Trailing "(LY-8WRK5A8)"-style account refs add nothing on a phone.
+  // Trailing "(LY-TESZT26)"-style account refs add nothing on a phone.
   return esc(s.replace(/\s*\([^)]*\)\s*$/, "").trim());
 }
 

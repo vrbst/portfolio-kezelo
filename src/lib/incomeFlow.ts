@@ -289,7 +289,7 @@ export function incomeEventTitle(e: IncomeEvent): string {
   return `${what[0].toUpperCase()}${what.slice(1)}${e.instrumentName ? ` – ${e.instrumentName}` : ""} · ${e.day} · ${amount} (${providerLabel(e.provider)}, ${e.currency})`;
 }
 
-/** "Babaváró: 550 000 Ft → célpálya: 150 000 Ft → Vétel: VWCE … (≈ 63 369 Ft)". */
+/** "Autó: 550 000 Ft → célpálya: 150 000 Ft → Vétel: VWCE … (≈ 63 369 Ft)". */
 export function incomeSplitText(a: IncomeAllocation): string {
   if (a.payoutOf?.length)
     return `${a.payoutOf.join(", ")} kifizetése — a cél saját eszköze járt le, nem kell elosztani.`;

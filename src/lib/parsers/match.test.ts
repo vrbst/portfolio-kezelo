@@ -66,13 +66,13 @@ describe("matchExisting: a maturity once booked as interest", () => {
   const matured = (id: string, type: Transaction["type"]): Transaction => ({
     id,
     accountId: "mak-test",
-    date: "2026-10-27T23:00:00.000Z",
+    date: "2026-11-17T23:00:00.000Z",
     type,
-    instrumentKey: "diszkont-kincstarjegy-d261028",
-    quantity: 3_050_000,
+    instrumentKey: "diszkont-kincstarjegy-d261118",
+    quantity: 1_000_000,
     currency: "HUF",
-    grossAmount: 3_050_000,
-    netAmount: 3_050_000,
+    grossAmount: 1_000_000,
+    netAmount: 1_000_000,
     reference: "ESD1",
   });
 

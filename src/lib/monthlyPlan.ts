@@ -60,7 +60,7 @@ export interface PlanNeed {
   /** `savings:<id>` / `dca:<id>` / `refill:<id>` — what the user's order refers to. */
   key: string;
   kind: PlanItemKind;
-  /** Goal name ("Babaváró", "WBIT (havi DCA)"). */
+  /** Goal name ("Autó", "WBIT (havi DCA)"). */
   name: string;
   /** Still owed this month (HUF). */
   needHuf: number;
@@ -274,7 +274,7 @@ export interface PlanLine {
  */
 export interface PlanDeposit {
   label: string;
-  /** The plan items it covers ("Babaváró", "Célpálya"), in plan order. */
+  /** The plan items it covers ("Autó", "Célpálya"), in plan order. */
   items: string[];
   accountId?: string;
   /** The account isn't in the ledger yet — open it first. */
@@ -564,7 +564,7 @@ function planDeposits(
 
 // ---- Text (reminder detail, Telegram) --------------------------------------
 
-/** "Babaváró: DKJ D261028 206 667 Ft (210 db, díj 0 Ft)" / "… tartsd készpénzben". */
+/** "Autó: DKJ D270512 206 667 Ft (210 db, díj 0 Ft)" / "… tartsd készpénzben". */
 export function planLineText(l: PlanLine): string {
   const n = l.need;
   const short = l.shortHuf >= 1 ? ` — alul maradt: −${formatMoney(l.shortHuf)}` : "";
@@ -612,7 +612,7 @@ export function planTextLines(p: MonthlyPlan): string[] {
   return out;
 }
 
-/** "Lightyear TBSZ 2026: 150 000 Ft = Babaváró + Célpálya (ebből váltás 525 Ft)". */
+/** "Lightyear TBSZ 2026: 150 000 Ft = Autó + Célpálya (ebből váltás 525 Ft)". */
 export function depositText(d: PlanDeposit): string {
   const fx = d.fxCostHuf >= 1 ? ` (ebből váltás ${formatMoney(d.fxCostHuf)})` : "";
   const items = d.items.length ? ` = ${d.items.join(" + ")}` : "";
