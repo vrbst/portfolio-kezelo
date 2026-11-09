@@ -466,10 +466,18 @@ export function buildAiPortfolioContext(
   if (extras?.glide?.buckets.length) {
     const status = { within: "sávon belül", below: "SÁV ALATT", above: "SÁV FÖLÖTT", empty: "nincs adat" };
     lines.push("", "Célpálya (eszközcsoportok; tény / mai pályacél, sáv, végső cél):");
-    for (const b of extras.glide.buckets)
+    for (const b of extras.glide.buckets) {
+      if (b.check) {
+        // "target" mode: no path — the check whether the final weight is still reached.
+        lines.push(
+          `- ${b.bucket.name}: tény ${pct(b.weight)}, a határidős célhoz szükséges mai arány ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig; várható akkor ${pct(b.check.projected)} a tervezési hozammal, ${pct(b.check.projectedZero)} hozam nélkül${b.check.requiredReturn != null ? `; a célhoz évi ${pct(b.check.requiredReturn)} részvényhozam kell` : ""}`,
+        );
+        continue;
+      }
       lines.push(
         `- ${b.bucket.name}: tény ${pct(b.weight)}, pályacél ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}${bandBaseNote(b) ? `, ${bandBaseNote(b)}` : ""}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig (${signedHuf(b.valueHuf - b.target * extras.glide.totalHuf)} Ft a pályához képest)`,
       );
+    }
   }
 
   // --- Monthly saving budget ---

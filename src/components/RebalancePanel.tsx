@@ -13,7 +13,7 @@ import {
 } from "../lib/store";
 import IncomeQueue, { CouponWarning } from "./IncomeQueue";
 import MonthlyPlanPanel from "./MonthlyPlanPanel";
-import { isInflowMode, latestConfig, type GlideConfig } from "../lib/glidePath";
+import { isInflowMode, isTargetMode, latestConfig, type GlideConfig } from "../lib/glidePath";
 import type { AccountContext } from "../lib/accountRules";
 import {
   allocationState,
@@ -293,9 +293,10 @@ export default function RebalancePanel() {
     const today = todayTarget.get(s.bucketId);
     if (today == null) return null;
     const ahead = flow.weights.get(s.bucketId);
+    const label = isTargetMode(cfg) ? "szükséges ma" : "pályacél";
     return flow.ahead && ahead != null
-      ? `mai pályacél ${pct(today)}, célpont ${pct(ahead)}`
-      : `pályacél ${pct(today)}`;
+      ? `${isTargetMode(cfg) ? label : `mai ${label}`} ${pct(today)}, célpont ${pct(ahead)}`
+      : `${label} ${pct(today)}`;
   };
   const outOfBand = state.buckets.filter((b) => b.status === "below" || b.status === "above");
 
@@ -351,9 +352,11 @@ export default function RebalancePanel() {
           )}
           <p className="mb-2 flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
             Célpont: {flow.label}
-            {(isInflowMode(cfg) || flow.ahead) && (
+            {(isInflowMode(cfg) || isTargetMode(cfg) || flow.ahead) && (
               <InfoTip>
-                {isInflowMode(cfg)
+                {isTargetMode(cfg)
+                  ? "Célelérés: a pénz a végső arány felé megy; a sáv azt méri, hogy a határidőre a tervezési hozammal elérhető-e a cél."
+                  : isInflowMode(cfg)
                   ? "A pálya a befizetésekből számolt: minden pénz a végső arány felé megy; a sáv a pályához mér."
                   : "Előretekintés: a sáv és az állapot továbbra is a mai pályacélhoz mér."}
               </InfoTip>

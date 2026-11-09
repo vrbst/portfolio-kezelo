@@ -867,6 +867,29 @@ test.describe("glide-path editor", () => {
     const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name));
     expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
   });
+
+  test("target mode: its settings, the deadline and today's check; no path dates", async ({ page }) => {
+    const errors = await openEditor(page);
+    const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
+    await mode.selectOption("target");
+    await expect(page.getByText("Tervezési hozam").first()).toBeVisible();
+    await expect(page.getByText("Tűrés ±").first()).toBeVisible();
+    await expect(page.getByText(/Határidő \(eddigre/).first()).toBeVisible();
+    await expect(page.getByText("Pálya (kezdő → záró dátum)").first()).toBeHidden();
+    await expect(page.getByText(/szükséges ma/).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Lejáratkor" })).toBeVisible();
+    expect(errors, "console / page errors").toEqual([]);
+    expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
+  });
+
+  test("target mode, privacy mode: nothing personal is readable", async ({ page }) => {
+    await openEditor(page, true);
+    const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
+    await mode.selectOption("target");
+    await expect(page.getByText(/szükséges ma/).first()).toBeVisible();
+    const leaks = await readableSecrets(page, savingsGoals().map((g) => g.name));
+    expect(leaks, "readable amounts / goal names in privacy mode").toEqual([]);
+  });
 });
 
 test.describe("medium-term goals (Középtávú célok)", () => {

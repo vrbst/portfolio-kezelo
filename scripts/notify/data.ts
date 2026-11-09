@@ -85,11 +85,14 @@ import {
 import {
   glideAlerts,
   glideStateFrom,
+  positionsFromSummary,
   type AllocationState,
   type GlideSignals,
 } from "../../src/lib/rebalance";
 import { toLocalDay } from "../../src/lib/portfolio";
 import { liveGlideVersions } from "../../src/lib/flowPath";
+import { liveTargetVersions } from "../../src/lib/targetCheck";
+import { futureBondCashflows } from "../../src/lib/bonds";
 import { NOTIFY_DIR, githubToken, installLocalStorage, type NotifyEnv } from "./env";
 import { resolve as resolvePath } from "node:path";
 import { cachedText } from "./outlook/cachedText";
@@ -369,18 +372,33 @@ export function buildContext(input: ContextInput): Context {
     undefined,
     savings,
   );
-  // Measured against the path the money that actually came in moved (flowPath).
+  // Measured against the path the money that actually came in moved
+  // (flowPath), or — "target" mode — the day's projection check (targetCheck).
+  const today = toLocalDay(at.getTime());
+  const budgetHuf = monthlyBudgetHuf(transactions, fx, at);
+  const flowed = liveGlideVersions(glideVersions, {
+    accounts,
+    transactions,
+    instruments: instMap,
+    fx,
+    history,
+    summary,
+    today,
+    reserved,
+  });
   const glide = glideStateFrom(
-    liveGlideVersions(glideVersions, {
-      accounts,
-      transactions,
-      instruments: instMap,
-      fx,
-      history,
-      summary,
-      today: toLocalDay(at.getTime()),
-      reserved,
-    }),
+    liveTargetVersions(
+      flowed,
+      (cfg) => positionsFromSummary(summary, fx, cfg.bondsAtFace, today, loadBrokerFees(), reserved),
+      today,
+      {
+        instruments: instMap,
+        cashflows: futureBondCashflows(summary, at, transactions),
+        savings,
+        dcaGoals: snapshot.goals ?? [],
+        budgetHuf,
+      },
+    ),
     summary,
     fx,
     toLocalDay(at.getTime()),
@@ -402,7 +420,6 @@ export function buildContext(input: ContextInput): Context {
     fees: loadBrokerFees(),
     reserved,
   });
-  const budgetHuf = monthlyBudgetHuf(transactions, fx, at);
   const refills = computeRefillProgress({
     goals: loadActiveRefills(),
     transactions,

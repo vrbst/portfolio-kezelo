@@ -21,7 +21,10 @@ import {
   DEFAULT_QTY_DECIMALS,
   isCashKey,
   isInflowMode,
+  isTargetMode,
+  targetTolOf,
   type Bucket,
+  type TargetBucketLive,
   type CheckFrequency,
   type Cost,
   type CostRule,
@@ -128,7 +131,14 @@ export function pathTarget(b: Bucket, day: string): number {
 export function pathTargets(cfg: GlideConfig, day: string): Map<string, number> {
   const raw = cfg.buckets.map(
     (b) =>
-      [b.id, isInflowMode(cfg) ? inflowTarget(cfg, b, day) : pathTarget(b, day)] as const,
+      [
+        b.id,
+        isTargetMode(cfg)
+          ? targetCheckOf(cfg, b, day)?.target ?? b.finalWeight
+          : isInflowMode(cfg)
+            ? inflowTarget(cfg, b, day)
+            : pathTarget(b, day),
+      ] as const,
   );
   const sum = raw.reduce((s, [, t]) => s + t, 0);
   return new Map(raw.map(([id, t]) => [id, sum > 0 ? t / sum : 0]));
@@ -152,6 +162,28 @@ export function inflowTarget(cfg: GlideConfig, b: Bucket, day: string): number {
   const s = dayMs(pts[i].day);
   const e = dayMs(pts[i + 1].day);
   return w(i) + (w(i + 1) - w(i)) * ((dayMs(day) - s) / (e - s));
+}
+
+/**
+ * "target" mode: the bucket's daily check (computed for `day`, see
+ * targetCheck.ts) — undefined on any other day (history, a draft).
+ */
+export function targetCheckOf(cfg: GlideConfig, b: Bucket, day: string): TargetBucketLive | undefined {
+  const live = cfg.targetLive;
+  return live && live.day === day ? live.buckets[b.id] : undefined;
+}
+
+/**
+ * "target" mode limits: the daily check's, or — without one (a past day, a
+ * draft) — simply final ± tolerance, what the check becomes on the end date.
+ */
+function targetLimits(cfg: GlideConfig, b: Bucket, day: string): BandLimits {
+  const c = targetCheckOf(cfg, b, day);
+  if (c) return { target: c.target, low: c.low, high: c.high };
+  const sum = cfg.buckets.reduce((s, x) => s + x.finalWeight, 0);
+  const f = sum > 0 ? b.finalWeight / sum : 0;
+  const tol = targetTolOf(cfg);
+  return { target: f, low: Math.max(0, f - tol), high: Math.min(1, f + tol) };
 }
 
 /** The weight the inflow path starts from (the actual weight on the save day). */
@@ -207,10 +239,18 @@ export interface FlowTargets {
 
 /** The cash-flow routing's targets on `day` under the configured FlowTarget. */
 export function flowTargets(cfg: GlideConfig, day: string): FlowTargets {
-  // "inflows" mode: money goes towards the final weights — exactly what the
-  // frozen path assumed. Aiming at the path would split it pro rata while on
-  // the path, and the allocation would only turn at the path's own pace.
-  if (isInflowMode(cfg)) {
+  // "target" mode, aheadMode "projected": the money aims at today's required
+  // weights, so a bucket the projection already carries past its final
+  // weight gets no more.
+  // Not "ahead": the routing then takes each bucket's target from the state,
+  // which carries the day's check even when `cfg` is the stored version.
+  if (isTargetMode(cfg) && cfg.aheadMode === "projected")
+    return { day, ahead: false, label: "a szükséges arány", weights: pathTargets(cfg, day) };
+  // "inflows" mode (and "target" by default): money goes towards the final
+  // weights — exactly what the projection assumes. Aiming at the path would
+  // split it pro rata while on the path, and the allocation would only turn
+  // at the path's own pace.
+  if (isInflowMode(cfg) || isTargetMode(cfg)) {
     const sum = cfg.buckets.reduce((s, b) => s + b.finalWeight, 0);
     return {
       day,
@@ -446,6 +486,8 @@ export interface BucketState extends BandLimits {
   /** Share of the managed total, 0..1. */
   weight: number;
   status: BandStatus;
+  /** "target" mode: the day's check behind target / low / high (targetCheck.ts). */
+  check?: TargetBucketLive;
 }
 
 export interface ManagedPosition extends Position {
@@ -503,13 +545,18 @@ export function allocationState(
   const buckets = cfg.buckets.map((bucket) => {
     const valueHuf = valueOf.get(bucket.id) ?? 0;
     const weight = totalHuf > 0 ? valueHuf / totalHuf : 0;
-    const limits = bandLimits(bandBucket(cfg, bucket), day, targets.get(bucket.id) ?? 0);
+    const target = isTargetMode(cfg);
+    const limits = target
+      ? targetLimits(cfg, bucket, day)
+      : bandLimits(bandBucket(cfg, bucket), day, targets.get(bucket.id) ?? 0);
+    const check = target ? targetCheckOf(cfg, bucket, day) : undefined;
     return {
       bucket,
       valueHuf,
       weight,
       ...limits,
       status: statusOf(weight, limits, totalHuf),
+      ...(check && { check }),
     };
   });
   return { day, totalHuf, buckets, positions: managed, unassigned };
@@ -853,7 +900,7 @@ export function routeCashflow(
   // Why a bucket gets money. Measured against the total WITH the new money:
   // a bucket exactly on its path is still short of target × new total.
   const onPath = eligible.every((b) => Math.abs(b.weight - targetOf(b)) < 0.001);
-  const to = ahead ? `${ahead.label}hoz` : "a pályához";
+  const to = ahead ? `${ahead.label}hoz` : isTargetMode(cfg) ? "a szükséges arányhoz" : "a pályához";
   const reason = (b: BucketState) =>
     onPath
       ? ahead
@@ -898,6 +945,33 @@ export function planCashflow(
 ): RebalancePlan & { flow: FlowTargets } {
   const flow = flowTargets(cfg, state.day);
   return { ...routeCashflow(cfg, state, amountHuf, "cashflow", flow, opts), flow };
+}
+
+/**
+ * A redemption marked "reinvest" (InstrumentRule.onMaturity): the whole
+ * amount goes back into the bond's own bucket — a new bond, not the final
+ * weights.
+ */
+export function planReinvest(
+  cfg: GlideConfig,
+  state: AllocationState,
+  amountHuf: number,
+  bucketId: string,
+  opts: BuyOptions = {},
+): RebalancePlan & { flow: FlowTargets } {
+  const name = cfg.buckets.find((b) => b.id === bucketId)?.name ?? "";
+  const flow: FlowTargets = {
+    day: state.day,
+    ahead: true,
+    label: `a(z) ${name} csoport`,
+    weights: new Map(cfg.buckets.map((b) => [b.id, b.id === bucketId ? 1 : 0])),
+  };
+  // Only that bucket may receive it — never the other buckets as a fallback.
+  const inBucket: BuyOptions = {
+    ...opts,
+    canBuy: (key) => cfg.instruments[key]?.bucketId === bucketId && (opts.canBuy?.(key) ?? true),
+  };
+  return { ...routeCashflow(cfg, state, amountHuf, "cashflow", flow, inBucket), flow };
 }
 
 /** Where new money may go (account-aware callers; omitted = anywhere). */
@@ -1172,6 +1246,18 @@ export function bandRule(
  * (look-ahead, see flowTargets) clamped into today's band.
  */
 export function bandAims(cfg: GlideConfig, state: AllocationState): FlowTargets {
+  // "target" mode: back to the weight with which the projection lands on the
+  // final weight (not just to the band edge — the next small dip would trip
+  // it again).
+  if (isTargetMode(cfg))
+    return {
+      day: state.day,
+      ahead: false,
+      label: "a szükséges arány",
+      weights: new Map(
+        state.buckets.map((b) => [b.bucket.id, Math.min(b.high, Math.max(b.low, b.target))]),
+      ),
+    };
   // "inflows" mode: nothing between today's path and the final weight is ever
   // traded — the aim is the current weight pulled onto that stretch. A fall
   // behind the path is restored to the path (the rest of the turn is left to
@@ -2103,16 +2189,29 @@ function bandAlerts(
     }
     return steps;
   };
+  const target = isTargetMode(cfg);
   return out.map((b) => {
-    const side = b.status === "below" ? "sáv alatt" : "sáv fölött";
+    const side = target
+      ? b.status === "below"
+        ? "a cél így nem érhető el"
+        : "a cél fölé fut"
+      : b.status === "below"
+        ? "sáv alatt"
+        : "sáv fölött";
     const base = `glide:${b.bucket.id}:${b.status}:${period}`;
     const sig = signals[b.bucket.id];
-    const now = `Tény ${p(b.weight)} · pályacél ${p(b.target)} (sáv ${p(b.low)}–${p(b.high)})`;
+    const now = target
+      ? `Tény ${p(b.weight)} · szükséges ma ${p(b.target)} (sáv ${p(b.low)}–${p(b.high)})${
+          b.check
+            ? ` · várható ${b.bucket.endDate}-re: ${p(b.check.projected)} (cél ${p(b.bucket.finalWeight)})`
+            : ""
+        }`
+      : `Tény ${p(b.weight)} · pályacél ${p(b.target)} (sáv ${p(b.low)}–${p(b.high)})`;
     if (sig && sig.status === b.status && sig.period === period && sig.count > 1)
       return {
         id: `${base}:n${sig.count}`,
         severity: "medium" as const,
-        title: `Célpálya – ${b.bucket.name}: tovább mélyült (${side})`,
+        title: `${target ? "Célelérés" : "Célpálya"} – ${b.bucket.name}: tovább mélyült (${side})`,
         detail: `Eltérés a sávhatártól: ${pp(sig.prevDeviation ?? 0)} → ${pp(sig.deviation)}. ${now}.${planText()}`,
         to: "/goals",
         actionLabel: "Teendők",
@@ -2121,7 +2220,7 @@ function bandAlerts(
     return {
       id: base,
       severity: "medium" as const,
-      title: `Célpálya – ${b.bucket.name}: ${side}`,
+      title: `${target ? "Célelérés" : "Célpálya"} – ${b.bucket.name}: ${side}`,
       detail: `${now}, eltérés a sávhatártól ${pp(bandDeviation(b))}. A Teendők panel javasolja a lépéseket.`,
       to: "/goals",
       actionLabel: "Teendők",

@@ -87,6 +87,8 @@ import {
 } from "./rebalance";
 import { summariesOnDays, summaryOnDay, toLocalDay } from "./portfolio";
 import { liveGlideVersions } from "./flowPath";
+import { liveTargetVersions } from "./targetCheck";
+import { futureBondCashflows } from "./bonds";
 import type { Position, PositionsAt } from "./rebalance";
 import { usePortfolio } from "./store";
 import {
@@ -582,24 +584,42 @@ const cachedLiveVersions = sharedMemo(
     today: string,
     brokerFees: BrokerFees,
     reserved: Map<string, number>,
-  ) =>
-    liveGlideVersions(versions, {
+    savings: SavingsProgress[],
+    dcaGoals: Goal[],
+    budgetHuf: number,
+    sales: PlannedSale[],
+  ) => {
+    const instMap = new Map(instruments.map((i) => [i.key, i]));
+    const flowed = liveGlideVersions(versions, {
       accounts,
       transactions,
-      instruments: new Map(instruments.map((i) => [i.key, i])),
+      instruments: instMap,
       fx,
       history,
       summary,
       today,
       brokerFees,
       reserved,
-    }),
+    });
+    return liveTargetVersions(
+      flowed,
+      (cfg) => positionsFromSummary(summary, fx, cfg.bondsAtFace, today, brokerFees, reserved),
+      today,
+      {
+        instruments: instMap,
+        cashflows: futureBondCashflows(summary, new Date(), transactions, sales),
+        savings,
+        dcaGoals,
+        budgetHuf,
+      },
+    );
+  },
 );
 
 /**
- * The versions with the newest one's inflow path moved by the money that
- * actually came in (see flowPath.ts) — measure against these, edit the
- * stored ones.
+ * The versions as measured today — the newest one's inflow path moved by the
+ * money that actually came in (see flowPath.ts), or its "target" mode check
+ * (see targetCheck.ts). Measure against these, edit the stored ones.
  */
 export function useLiveGlideVersions(versions: GlideConfig[]): GlideConfig[] {
   const accounts = usePortfolio((s) => s.accounts);
@@ -611,6 +631,9 @@ export function useLiveGlideVersions(versions: GlideConfig[]): GlideConfig[] {
   const today = useToday();
   const fees = useBrokerFees();
   const reserved = useReservedCash();
+  const { breakdown, savings } = useMonthlyBudget();
+  const dcaGoals = usePortfolio((s) => s.goals);
+  const sales = usePlannedSales();
   return cachedLiveVersions(
     versions,
     accounts,
@@ -622,6 +645,10 @@ export function useLiveGlideVersions(versions: GlideConfig[]): GlideConfig[] {
     today,
     fees,
     reserved,
+    savings,
+    dcaGoals,
+    breakdown.budgetHuf,
+    sales,
   );
 }
 
