@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:update": "vitest run -u",
     "test:e2e": "npm run build && playwright test",
+    "ai-bridge": "tsx --tsconfig tsconfig.notify.json scripts/notify/analysis/bridgeMain.ts",
     "tui": "tsx --tsconfig tsconfig.tui.json scripts/tui/main.tsx"
   },
   "dependencies": {

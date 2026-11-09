@@ -59,18 +59,15 @@ import {
 } from "../lib/ai";
 import { CLIENT_TOOLS, runTool, toolLabel, type ToolEnv } from "../lib/aiTools";
 import {
-  ANALYSIS_SCHEMA,
-  STRUCTURED_ANALYSIS_PROMPT,
   loadAnalyses,
   loadLegacyAnalysis,
   newestAnalysis,
-  parseAnalysis,
-  previousForPrompt,
-  saveAnalysis,
+  type NightlyAnalysis,
   type Status,
   type StoredAnalysis,
   type Topic,
 } from "../lib/aiAnalysis";
+import { bridgeAvailable, runBridgeAnalysis } from "../lib/aiBridge";
 import {
   loadConversation,
   newConversation,
@@ -217,58 +214,50 @@ export default function AiPanel() {
     });
 
   // ---- analysis -------------------------------------------------------------
-  const [analyses, setAnalyses] = useState<StoredAnalysis[]>(loadAnalyses);
+  const [analyses] = useState<StoredAnalysis[]>(loadAnalyses);
   const [legacy] = useState(loadLegacyAnalysis);
   const [aRunning, setARunning] = useState(false);
-  const [aThinking, setAThinking] = useState("");
   const [aError, setAError] = useState<string | null>(null);
   const aAbort = useRef<AbortController | null>(null);
-  // The nightly one (made on the owner's machine, synced) or this device's own
-  // — whichever is newer; it is also what a new analysis compares to.
+  // The nightly one (made on the owner's machine, synced), one just made through the local
+  // bridge, or this device's own older one — whichever is newest.
   const nightly = useNightlyAnalysis();
-  const latest: StoredAnalysis | undefined = newestAnalysis(analyses.at(-1), nightly ?? undefined);
+  const [bridged, setBridged] = useState<NightlyAnalysis | null>(null);
+  const latest: StoredAnalysis | undefined = newestAnalysis(
+    newestAnalysis(analyses.at(-1), nightly ?? undefined),
+    bridged ?? undefined,
+  );
   const latestIsNightly = !!nightly && latest === nightly;
+  const latestIsBridged = !!bridged && latest === bridged;
+
+  // "Új elemzés" runs on the my-claude-hub (the subscription) through a bridge that listens on
+  // this machine only: the button exists only where the bridge answers.
+  const [bridgeUp, setBridgeUp] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const probe = () => void bridgeAvailable().then((ok) => live && setBridgeUp(ok));
+    probe();
+    window.addEventListener("focus", probe);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", probe);
+    };
+  }, []);
 
   async function runAnalysis() {
     setARunning(true);
     setAError(null);
-    setAThinking("");
     const ctl = new AbortController();
     aAbort.current = ctl;
     try {
-      const prev = previousForPrompt(latest);
-      const r = await runClaude({
-        key: apiKey,
-        model,
-        context,
-        messages: [
-          {
-            role: "user",
-            content: prev
-              ? `${STRUCTURED_ANALYSIS_PROMPT}\n\n${prev}`
-              : STRUCTURED_ANALYSIS_PROMPT,
-          },
-        ],
-        format: ANALYSIS_SCHEMA,
-        signal: ctl.signal,
-        onThinking: (d) => setAThinking((t) => (t + d).slice(-600)),
-      });
-      const data = parseAnalysis(r.text);
-      if (!data) throw new Error("Nem sikerült értelmezni a választ. Próbáld újra.");
-      setAnalyses(
-        saveAnalysis({
-          at: new Date().toISOString(),
-          model,
-          costUsd: r.costUsd,
-          data,
-        }),
-      );
+      const r = await runBridgeAnalysis(ctl.signal);
+      setBridged(r.analysis);
+      if (r.uploadError) setAError(`Az elemzés kész, de nem került fel a szinkron-repóba: ${r.uploadError}`);
     } catch (e) {
       setAError((e as Error).message);
     } finally {
       setARunning(false);
       aAbort.current = null;
-      setSpend(loadSpend());
     }
   }
 
@@ -394,7 +383,7 @@ export default function AiPanel() {
     return s.slice(0, 5);
   }, [savingsGoals, cashflows, bonds, toggles.tools, toggles.web]);
 
-  if (!apiKey && !latest)
+  if (!apiKey && !latest && !bridgeUp)
     return (
       <Card className="p-6">
         <p className="text-sm text-[var(--color-muted)]">
@@ -465,7 +454,11 @@ export default function AiPanel() {
             {latest && !aRunning && (
               <p className="mt-0.5 text-xs text-[var(--color-muted)]">
                 {formatWhen(latest.at)} · {modelLabel(latest.model)}
-                {latestIsNightly ? " · éjszakai, az előfizetésből" : ` · ${usd(latest.costUsd)}`}
+                {latestIsNightly
+                  ? " · éjszakai, az előfizetésből"
+                  : latestIsBridged
+                    ? " · az előfizetésből"
+                    : ` · ${usd(latest.costUsd)}`}
               </p>
             )}
           </div>
@@ -474,7 +467,7 @@ export default function AiPanel() {
               <Square className="h-4 w-4" />
               Leállítás
             </button>
-          ) : apiKey ? (
+          ) : bridgeUp ? (
             <button className="btn-primary" onClick={runAnalysis}>
               <Sparkles className="h-4 w-4" />
               {latest || legacy ? "Új elemzés" : "Elemzés indítása"}
@@ -482,7 +475,9 @@ export default function AiPanel() {
           ) : null}
         </div>
 
-        {aRunning && <ThinkingBox text={aThinking} label="Elemzés készül…" />}
+        {aRunning && (
+          <ThinkingBox text="" label="Elemzés készül a hubon (az előfizetésből, pár perc)…" />
+        )}
         {aError && (
           <p className="mt-3 text-sm text-[var(--color-negative)]">{aError}</p>
         )}
