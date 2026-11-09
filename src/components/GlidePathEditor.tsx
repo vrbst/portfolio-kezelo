@@ -5,6 +5,11 @@ import {
   validateConfig,
   countCustomSettings,
   isInflowMode,
+  isTargetMode,
+  planReturnOf,
+  targetTolOf,
+  DEFAULT_PLAN_RETURN,
+  DEFAULT_TARGET_TOL,
   isCashKey,
   cashCurrency,
   DEFAULT_QTY_DECIMALS,
@@ -17,6 +22,7 @@ import {
   type InstrumentRule,
   type MonthlyAmount,
   type OutOfBandMode,
+  type TargetLive,
 } from "../lib/glidePath";
 import { glideMonthlyHuf } from "../lib/budget";
 import { useMonthlyBudget } from "../lib/store";
@@ -40,6 +46,86 @@ import { BUCKET_COLORS, previewRows } from "./glideChartData";
 const INPUT =
   "max-w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-sm tabular-nums disabled:opacity-40";
 const LABEL = "text-xs text-[var(--color-muted)]";
+
+const pct1 = (v: number) => `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
+
+/**
+ * "target" mode settings — the plan return, the tolerance, a bucket running
+ * ahead — and today's check of the draft, so the effect of each number shows
+ * while it is typed.
+ */
+function TargetFields({
+  draft,
+  setDraft,
+  live,
+}: {
+  draft: GlideConfig;
+  setDraft: (f: (d: GlideConfig) => GlideConfig) => void;
+  live: TargetLive | undefined;
+}) {
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <label className="flex items-center gap-1.5">
+          <span className={LABEL} title="A részvényrész (ETF, részvény) feltételezett éves hozama forintban. Óvatosabb érték előbb és kisebb riasztást ad.">
+            Tervezési hozam
+          </span>
+          <PctInput
+            value={draft.planReturn}
+            placeholder={String(DEFAULT_PLAN_RETURN * 100)}
+            className="w-16"
+            onChange={(planReturn) => setDraft((d) => ({ ...d, planReturn }))}
+          />
+          <span className={LABEL}>%/év</span>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className={LABEL} title="Ennyivel maradhat el (vagy futhat túl) a várható arány a végső céltól, mielőtt riaszt.">
+            Tűrés ±
+          </span>
+          <PctInput
+            value={draft.targetTolPp}
+            placeholder={String(DEFAULT_TARGET_TOL * 100)}
+            className="w-16"
+            onChange={(targetTolPp) => setDraft((d) => ({ ...d, targetTolPp }))}
+          />
+          <span className={LABEL}>%pont</span>
+        </label>
+        <label className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className={LABEL}>Ha egy csoport előrébb jár</span>
+          <select
+            className={`${INPUT} min-w-0`}
+            value={draft.aheadMode ?? "actual"}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, aheadMode: e.target.value === "projected" ? "projected" : "actual" }))
+            }
+          >
+            <option value="actual">a pénz a tényleges célig oda megy</option>
+            <option value="projected">a vetítés szerint előbb máshová</option>
+          </select>
+        </label>
+      </div>
+      {live && (
+        <ul className="space-y-0.5 text-xs text-[var(--color-muted)]">
+          {draft.buckets.map((b) => {
+            const c = live.buckets[b.id];
+            if (!c) return null;
+            return (
+              <li key={b.id}>
+                <span className="font-medium text-[var(--color-text)]">{b.name || "(névtelen)"}</span>:
+                {" "}szükséges ma {pct1(c.target)} (sáv {pct1(c.low)}–{pct1(c.high)}) · várható{" "}
+                {b.endDate}-re {pct1(c.projected)} ({pct1(planReturnOf(draft))}/év) vagy{" "}
+                {pct1(c.projectedZero)} (hozam nélkül)
+                {c.requiredReturn != null && ` · a célhoz évi ${pct1(c.requiredReturn)} kell`}
+                {c.alarmShock != null && c.alarmShock > 0 && ` · riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél`}
+              </li>
+            );
+          })}
+          <li>Tűrés a határidőn: ±{pct1(targetTolOf(draft))}.</li>
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /**
  * A percentage field over a FRACTION value (0.05 ↔ "5"). Keeps the typed text
@@ -238,6 +324,7 @@ export default function GlidePathEditor({
   positionsAt,
   today,
   freeze,
+  checkDraft,
   outOfBandNow = [],
   onSave,
   onCancel,
@@ -253,6 +340,8 @@ export default function GlidePathEditor({
   today: string;
   /** "inflows" mode: the path the draft's expected inflows draw from today. */
   freeze?: (cfg: GlideConfig) => Pick<GlideConfig, "inflowPath" | "inflowReached">;
+  /** "target" mode: today's check of the draft (see targetCheck.ts). */
+  checkDraft?: (cfg: GlideConfig) => TargetLive | undefined;
   /** Names of the buckets out of their band right now (saved version). */
   outOfBandNow?: string[];
   onSave: (cfg: GlideConfig) => void;
@@ -261,7 +350,9 @@ export default function GlidePathEditor({
   const [draft, setDraft] = useState<GlideConfig>(initial);
   const [openCost, setOpenCost] = useState<Record<string, boolean>>({});
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const inflows = isInflowMode(draft);
+  const target = isTargetMode(draft);
+  // Both take the path from the money: no start weights, no start dates.
+  const inflows = isInflowMode(draft) || target;
   const customCount = useMemo(() => countCustomSettings(draft, today), [draft, today]);
   const [previewId, setPreviewId] = useState<string | undefined>(
     initial.buckets[0]?.id,
@@ -345,7 +436,8 @@ export default function GlidePathEditor({
   const inflowEnd = previewCfg.inflowPath?.[previewCfg.inflowPath.length - 1]?.day;
   const preview = useMemo(() => {
     const b = previewCfg.buckets.find((x) => x.id === previewId);
-    if (!b) return null;
+    // "target" mode has no path to preview — the check above shows today.
+    if (!b || isTargetMode(previewCfg)) return null;
     let from: string;
     let to: string;
     if (isInflowMode(previewCfg)) {
@@ -384,6 +476,12 @@ export default function GlidePathEditor({
     return out;
   }, [preview]);
 
+  // "target" mode: today's check of the draft, recomputed as it is edited.
+  const live = useMemo(
+    () => (target && checkDraft && validateConfig(draft).errors.length === 0 ? checkDraft(draft) : undefined),
+    [target, checkDraft, draft],
+  );
+
   // Validate the resolved copy, so snapshot starts are known.
   const check = useMemo(
     () => validateConfig(previewCfg, heldKeys),
@@ -402,11 +500,25 @@ export default function GlidePathEditor({
           <select
             className={INPUT}
             value={draft.pathMode ?? "calendar"}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, pathMode: e.target.value === "inflows" ? "inflows" : "calendar" }))
-            }
+            onChange={(e) => {
+              const v = e.target.value;
+              setDraft((d) => {
+                const pathMode = v === "target" ? "target" : v === "inflows" ? "inflows" : "calendar";
+                if (pathMode !== "target" || d.pathMode === "target") return { ...d, pathMode };
+                // Switching to "target": a bond is rolled over by default (its
+                // redemption is not counted towards the other buckets).
+                const instruments = Object.fromEntries(
+                  Object.entries(d.instruments).map(([k, r]) => [
+                    k,
+                    bondKeys.has(k) && r.onMaturity == null ? { ...r, onMaturity: "reinvest" as const } : r,
+                  ]),
+                );
+                return { ...d, pathMode, instruments };
+              });
+            }}
           >
-            <option value="inflows">A befizetésekből számolva (javasolt)</option>
+            <option value="target">Célelérés: a határidőre elérem-e (javasolt)</option>
+            <option value="inflows">A befizetésekből számolva</option>
             <option value="calendar">Naptár szerint (kézi kezdő és záró dátum)</option>
           </select>
           <button
@@ -417,12 +529,15 @@ export default function GlidePathEditor({
             Haladó beállítások{customCount > 0 && ` (${customCount} egyedi)`}
           </button>
           <InfoTip label="A pálya módja">
-            {inflows
+            {target
+              ? "Nincs rajzolt pálya. Az app minden nap kiszámolja, hova jutsz a határidőre a mai állásból: a havi összeg és a szabad kuponok a végső arány felé mennek, a részvényrész a tervezési hozammal nő, a „lejáratkor újra kötvénybe” papír lejárata a saját csoportjában marad. Riasztás akkor jön, ha a várható arány a tűrésnél jobban elmarad a céltól (és a tényleges arány is); ilyenkor a javaslat annyit cserél, hogy a vetítés újra a célra érjen. Az eredmény csak a mai állástól függ, a mentés napjától nem."
+              : inflows
               ? "A pálya a mai arányból indul, és úgy halad, ahogy a várható befizetések, kuponok és lejáratok (hozam nélkül) a végső arány felé viszik; a bejövő pénz mind a végső arány felé megy. Riasztás csak akkor jön, ha egy csoport a pálya mögé esik a sávnál jobban (pl. árfolyamesés), vagy túlfut a végső célon a sávnál jobban."
               : "A pálya a csoportonként megadott kezdő súlytól a végső célig halad a megadott dátumok között; a sáv ehhez a naptári pályához mér."}
           </InfoTip>
         </div>
-        {inflows && inflowEnd && (
+        {target && <TargetFields draft={draft} setDraft={setDraft} live={live} />}
+        {!target && inflows && inflowEnd && (
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             {previewCfg.inflowReached
               ? `A végső arány várhatóan ${inflowEnd.slice(0, 7)}-ra áll be.`
@@ -433,7 +548,7 @@ export default function GlidePathEditor({
           value={draft.monthlyAmount}
           onChange={(monthlyAmount) => setDraft((d) => ({ ...d, monthlyAmount }))}
         />
-        {inflows && outOfBandNow.length > 0 && (
+        {!target && inflows && outOfBandNow.length > 0 && (
           <p className="mt-1 text-xs text-[var(--color-warning)]">
             Most sávon kívül: {outOfBandNow.join(", ")}. A mentés a mai arányból számolja
             újra a pályát, így ez az eltérés eltűnik — ha rebalanszolni akarsz, előbb
@@ -480,6 +595,17 @@ export default function GlidePathEditor({
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {target && (
+                    <label className="space-y-1">
+                      <div className={LABEL}>Határidő (eddigre kell elérni a végső célt)</div>
+                      <input
+                        type="date"
+                        className={INPUT}
+                        value={b.endDate}
+                        onChange={(e) => setBucket(b.id, { endDate: e.target.value })}
+                      />
+                    </label>
+                  )}
                   {!inflows && (<>
                   <label className="space-y-1">
                     <div className={LABEL}>Kezdő súly</div>
@@ -568,6 +694,7 @@ export default function GlidePathEditor({
                   </label>
                   )}
 
+                  {!target && (
                   <label className="space-y-1">
                     <div
                       className={LABEL}
@@ -639,6 +766,7 @@ export default function GlidePathEditor({
                     </div>
                     )}
                   </label>
+                  )}
 
                   {showAdvanced && (<>
                   <label className="space-y-1">
@@ -756,6 +884,7 @@ export default function GlidePathEditor({
                 <th className="py-1 pr-2 font-medium">Csoport</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Eladható újrasúlyozáshoz">Eladható</th>
                 <th className="py-1 pr-2 text-center font-medium" title="Fogad befizetést (kupon, osztalék, megtakarítás)">Befizetés</th>
+                <th className="py-1 pr-2 font-medium" title="Mi legyen a kötvény lejáratakor: újra kötvénybe (a vetítés a csoportban tartja), vagy új pénzként a végső arány felé">Lejáratkor</th>
                 {showAdvanced && <th className="py-1 pr-2 font-medium" title="A bróker tört darabot is kezel: a javaslat nem kerekít egészre, csak a megadott tizedesjegyig (lefelé)">Tört darab</th>}
                 {showAdvanced && <th className="py-1 font-medium">Költség</th>}
               </tr>
@@ -810,6 +939,23 @@ export default function GlidePathEditor({
                           rule && setRule(r.key, { ...rule, acceptsContributions: e.target.checked })
                         }
                       />
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      {rule && bondKeys.has(r.key) && (
+                        <select
+                          className={INPUT}
+                          value={rule.onMaturity ?? "route"}
+                          onChange={(e) =>
+                            setRule(r.key, {
+                              ...rule,
+                              onMaturity: e.target.value === "reinvest" ? "reinvest" : "route",
+                            })
+                          }
+                        >
+                          <option value="reinvest">újra kötvénybe</option>
+                          <option value="route">a cél felé</option>
+                        </select>
+                      )}
                     </td>
                     {showAdvanced && (<>
                     <td className="py-1.5 pr-2">

@@ -297,6 +297,7 @@ export default function GlidePathChart({
   goal,
   mirror,
   name,
+  targetMode,
 }: {
   history: WeightPoint[];
   bucketId: string;
@@ -316,6 +317,11 @@ export default function GlidePathChart({
   mirror?: { name: string; color: string };
   /** The bucket's name, for the legend when mirrored. */
   name?: string;
+  /**
+   * "target" mode: the band is today's only (no drawn path), and the line
+   * with the plan return is what the alert measures against.
+   */
+  targetMode?: { planReturn: number };
 }) {
   const [all, setAll] = useState(false);
   const rows = useMemo(
@@ -384,10 +390,10 @@ export default function GlidePathChart({
           </span>
         )}
         {goal != null && <LegendItem color={CHART.highlight} label="végső cél" />}
-        <LegendItem color={CHART.text} dash="5 4" label="pálya (ehhez mér a riasztás)" />
+        {!targetMode && <LegendItem color={CHART.text} dash="5 4" label="pálya (ehhez mér a riasztás)" />}
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-4 rounded-sm" style={{ background: color, opacity: 0.25 }} />
-          sáv
+          {targetMode ? "mai sáv (szükséges arány ± tűrés)" : "sáv"}
         </span>
         {markers.map((m) => (
           <span key={m.kind} className="flex items-center gap-1.5">
@@ -410,7 +416,16 @@ export default function GlidePathChart({
           <LegendItem color={color} dash="1 3" label="várható, csak befizetésből" />
         )}
         {ahead.some((r) => r.projReal != null) && (
-          <LegendItem color={color} dash="1 3" opacity={0.55} label="várható, hozammal (tájékoztató)" />
+          <LegendItem
+            color={color}
+            dash="1 3"
+            opacity={0.55}
+            label={
+              targetMode
+                ? `várható, évi ${(targetMode.planReturn * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}% hozammal (ehhez mér a riasztás)`
+                : "várható, hozammal (tájékoztató)"
+            }
+          />
         )}
         {(cut || all) && (
           <button

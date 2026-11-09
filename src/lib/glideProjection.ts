@@ -76,6 +76,8 @@ export interface ProjectedInflow {
   goals?: { name: string; huf: number }[];
   /** Monthly: what the other goals (DCA, medium-term) take from the budget. */
   otherHuf?: number;
+  /** Maturity: rolled into a new bond in the same bucket (InstrumentRule.onMaturity). */
+  reinvested?: true;
 }
 
 /** Monthly saving the medium-term goals still take on `day` (a month start). */
@@ -172,6 +174,12 @@ export function projectGlide(input: ProjectionInput): GlideProjection {
   const matured = new Set<string>();
   const handle = (c: Cashflow) => {
     const key = c.instrumentKey;
+    if (c.kind === "maturity" && key && cfg.instruments[key]?.onMaturity === "reinvest") {
+      // Rolled into a new bond in the same bucket: the face value stays put,
+      // nothing is routed (later coupons of the new bond are unknown).
+      inflows.push({ day: c.date, kind: "maturity", amountHuf: 0, instrumentKey: key, totalHuf: c.amountHuf, reinvested: true });
+      return;
+    }
     if (c.kind === "maturity") {
       // The bond leaves its bucket (once, even when held on several accounts).
       const pos = key ? posValue.get(key) : undefined;

@@ -125,7 +125,16 @@ export interface InstrumentRule {
   fractional?: boolean;
   /** Decimals of a fractional quantity (0–8). Default 4. */
   qtyDecimals?: number;
+  /**
+   * What a bond's redemption does: "reinvest" — the money goes back into the
+   * bond's own bucket (a new bond), so the projection keeps it there and the
+   * incoming-money split buys that bucket; "route" (missing) — it is new
+   * money, routed towards the final weights like a coupon.
+   */
+  onMaturity?: MaturityMode;
 }
+
+export type MaturityMode = "route" | "reinvest";
 
 /** Default decimals of a fractional quantity. */
 export const DEFAULT_QTY_DECIMALS = 4;
@@ -230,6 +239,31 @@ export interface GlideConfig {
   /** The inflow path arrives at the final weights within its horizon. */
   inflowReached?: boolean;
   /**
+   * "target" mode: the yearly return assumed for the growing part (ETFs,
+   * stocks) when checking whether the final weights are reached by each
+   * bucket's end date (0.05 = 5%). Missing = DEFAULT_PLAN_RETURN.
+   */
+  planReturn?: number;
+  /**
+   * "target" mode: how far the projected weight on the end date may fall
+   * short of (or run past) the final weight before the band trips (fraction:
+   * 0.02 = 2 pp). Missing = DEFAULT_TARGET_TOL.
+   */
+  targetTolPp?: number;
+  /**
+   * "target" mode, a bucket running ahead: "actual" (missing) — it is only
+   * over its band once its ACTUAL weight is past final + tolerance too (new
+   * money keeps going to the final weights until then); "projected" — as
+   * soon as the projection runs past it (new money then aims at today's
+   * required weights).
+   */
+  aheadMode?: AheadMode;
+  /**
+   * "target" mode, computed at runtime for one day (see targetCheck.ts) and
+   * never saved: today's required weight, band and projection per bucket.
+   */
+  targetLive?: TargetLive;
+  /**
    * Created automatically from the old target allocation (migrateIfNeeded),
    * not saved by the user. Dropped as soon as a user-saved version exists —
    * see dropSeeded.
@@ -237,7 +271,54 @@ export interface GlideConfig {
   seeded?: true;
 }
 
-export type PathMode = "calendar" | "inflows";
+export type PathMode = "calendar" | "inflows" | "target";
+
+export type AheadMode = "actual" | "projected";
+
+/** Default yearly return of the growing part in "target" mode. */
+export const DEFAULT_PLAN_RETURN = 0.05;
+/** Default tolerance on the end date in "target" mode (2 pp). */
+export const DEFAULT_TARGET_TOL = 0.02;
+
+/** One bucket of the "target" mode's daily check (see targetCheck.ts). */
+export interface TargetBucketLive {
+  /** Today's weight with which the projection lands exactly on the final weight. */
+  target: number;
+  /** Below this the bucket is "below" (projection short by more than the tolerance). */
+  low: number;
+  /** Above this the bucket is "above". */
+  high: number;
+  /** Projected weight on the bucket's end date at the plan return. */
+  projected: number;
+  /** The same at 0% return (the inflows alone). */
+  projectedZero: number;
+  /** Yearly return of the growing part that lands exactly on the final weight (null: none in range). */
+  requiredReturn: number | null;
+  /**
+   * Fall of the bucket's securities (fraction, e.g. 0.14) that would put it
+   * below its band today; null when no fall would (or it has no securities).
+   */
+  alarmShock: number | null;
+}
+
+export interface TargetLive {
+  /** The day it was computed for (YYYY-MM-DD). */
+  day: string;
+  buckets: Record<string, TargetBucketLive>;
+}
+
+/** The final weights checked by projection to the end dates. */
+export function isTargetMode(cfg: GlideConfig): boolean {
+  return cfg.pathMode === "target";
+}
+
+export function planReturnOf(cfg: GlideConfig): number {
+  return cfg.planReturn ?? DEFAULT_PLAN_RETURN;
+}
+
+export function targetTolOf(cfg: GlideConfig): number {
+  return cfg.targetTolPp ?? DEFAULT_TARGET_TOL;
+}
 
 export interface InflowPoint {
   /** YYYY-MM-DD. */
@@ -353,7 +434,9 @@ function compareVersions(x: GlideConfig, y: GlideConfig): number {
 /** Append a new version (the caller validates first). */
 export function saveGlideVersion(version: GlideConfig) {
   try {
-    const merged = mergeGlideVersions(loadGlideVersions(), [version]);
+    // The daily check is runtime state, never part of a saved version.
+    const { targetLive: _live, ...stored } = version;
+    const merged = mergeGlideVersions(loadGlideVersions(), [stored]);
     localStorage.setItem(STORE_KEY, JSON.stringify(merged));
     touchPref("glidePath");
   } catch {
@@ -435,7 +518,9 @@ export function validateConfig(
   if (cfg.buckets.length === 0) return { errors, warnings };
 
   const pct = (n: number) => `${(n * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
-  const inflows = isInflowMode(cfg);
+  const target = isTargetMode(cfg);
+  // Both derive the path from the money (no start weights or start dates).
+  const inflows = isInflowMode(cfg) || target;
 
   const finalSum = cfg.buckets.reduce((s, b) => s + b.finalWeight, 0);
   if (Math.abs(finalSum - 1) > WEIGHT_SUM_TOLERANCE)
@@ -494,6 +579,8 @@ export function validateConfig(
       else if (b.startDate >= b.endDate)
         errors.push({ ...at, message: `${label}: a záró dátum a kezdő után legyen.` });
     }
+    if (target && !DAY_RE.test(b.endDate))
+      errors.push({ ...at, message: `${label}: add meg, mikorra kell elérni a végső célt.` });
 
     if (b.band.kind === "abs" && !(b.band.pp > 0 && b.band.pp < 1))
       errors.push({ ...at, message: `${label}: a sáv mérete 0 és 100 százalékpont közé essen.` });
@@ -599,11 +686,26 @@ export function validateConfig(
   if (!DAY_RE.test(cfg.validFrom))
     errors.push({ message: "Add meg, mikortól érvényes a beállítás." });
 
+  if (target) {
+    const r = cfg.planReturn;
+    if (r != null && !(Number.isFinite(r) && r > -0.5 && r < 0.5))
+      errors.push({ message: "A tervezési hozam −50% és +50% között legyen." });
+    const tol = cfg.targetTolPp;
+    if (tol != null && !(Number.isFinite(tol) && tol >= 0 && tol < 0.2))
+      errors.push({ message: "A tűrés 0 és 20 százalékpont között legyen." });
+    if (cfg.aheadMode != null && cfg.aheadMode !== "actual" && cfg.aheadMode !== "projected")
+      errors.push({ message: "Ismeretlen beállítás az előrébb járó csoportra." });
+  }
+  for (const [key, rule] of Object.entries(cfg.instruments))
+    if (rule.onMaturity != null && rule.onMaturity !== "route" && rule.onMaturity !== "reinvest")
+      errors.push({ instrumentKey: key, message: `Ismeretlen lejárati beállítás (${key}).` });
+
   if (inflows) {
     if (!Object.values(cfg.instruments).some((r) => r.acceptsContributions))
       errors.push({
-        message:
-          "A befizetésekből számolt pályához legalább egy instrumentumnak fogadnia kell befizetést.",
+        message: target
+          ? "A célelérési próbához legalább egy instrumentumnak fogadnia kell befizetést."
+          : "A befizetésekből számolt pályához legalább egy instrumentumnak fogadnia kell befizetést.",
       });
     // Only known once the path has been frozen (on save).
     if (cfg.inflowPath?.length && cfg.inflowReached === false)
@@ -806,7 +908,7 @@ export function migrateIfNeeded(
  */
 export function countCustomSettings(cfg: GlideConfig, today: string): number {
   const d = defaultGlobals();
-  const calendar = !isInflowMode(cfg);
+  const calendar = !isInflowMode(cfg) && !isTargetMode(cfg);
   let n = 0;
   const count = (x: boolean) => {
     if (x) n++;

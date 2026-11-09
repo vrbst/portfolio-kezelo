@@ -29,6 +29,7 @@ import {
   positionsFromSummary,
   suggestionText,
 } from "../../src/lib/rebalance";
+import { isTargetMode, planReturnOf } from "../../src/lib/glidePath";
 import { benchmarkIndex, BENCHMARK, computeReturns, monthlyPerformance } from "../../src/lib/returns";
 import { computeIncomeByYear } from "../../src/lib/income";
 import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
@@ -484,6 +485,45 @@ function glideBucketLines(ctx: Context): string[] {
   );
 }
 
+/** "42,3%" — one decimal, where the target mode tells apart 58 and 60. */
+const p1 = (v: number) => `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
+
+/**
+ * "target" mode lines: today's weight against the weight the end-date check
+ * needs, then each bucket's projection, the return it needs and the fall that
+ * would trip the band.
+ */
+export function targetCheckLines(ctx: Context): string[] {
+  const g = ctx.glide!;
+  const cfg = ctx.glideConfig!;
+  const icon = { within: "✅", below: "⬇️", above: "⬆️", empty: "▫️" };
+  const lines = [
+    "<b>Tény / szükséges ma (sáv; eltérés)</b>",
+    ...g.buckets.map(
+      (b) =>
+        `${icon[b.status]} ${esc(b.bucket.name)}: ${p1(b.weight)} / ${p1(b.target)} (${p1(b.low)}–${p1(b.high)}; ${sft(b.valueHuf - b.target * g.totalHuf)})`,
+    ),
+    "",
+    `<b>Várható a határidőre</b> (${p1(planReturnOf(cfg))}/év hozammal · csak befizetésből)`,
+  ];
+  for (const b of g.buckets) {
+    const c = b.check;
+    const goal = `cél ${p1(b.bucket.finalWeight)}, ${dayLabel(b.bucket.endDate)}`;
+    if (!c) {
+      lines.push(`• ${esc(b.bucket.name)}: ${goal}`);
+      continue;
+    }
+    const extra = [
+      c.requiredReturn != null ? `a célhoz évi ${p1(c.requiredReturn)} hozam kell` : "",
+      c.alarmShock != null && c.alarmShock > 0 ? `riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél` : "",
+    ].filter(Boolean);
+    lines.push(
+      `• ${esc(b.bucket.name)}: ${p1(c.projected)} · ${p1(c.projectedZero)} (${goal})${extra.length ? ` – ${extra.join(", ")}` : ""}`,
+    );
+  }
+  return lines;
+}
+
 /**
  * /palya: the glide path today — bucket weights vs. path and band, each
  * bucket's final weight, and the band rule's steps for a bucket out of band
@@ -495,26 +535,39 @@ export function glideText(ctx: Context): string {
   if (!g?.buckets.length || !cfg) return "🧭 Még nincs beállított célpálya.";
   const p = (v: number) => `${Math.round(v * 100)}%`;
   const free = freeCashHuf(g);
+  const target = isTargetMode(cfg);
   const lines = [
-    `🧭 <b>Célpálya – ${dayLabel(g.day)}</b>`,
+    target ? `🎯 <b>Célelérés – ${dayLabel(g.day)}</b>` : `🧭 <b>Célpálya – ${dayLabel(g.day)}</b>`,
     `Kezelt érték: ${ft(g.totalHuf)}${free >= 1 ? ` · szabad készpénz: ${ft(free)}` : ""}`,
     "",
-    "<b>Tény / pálya (sáv; eltérés a pályától)</b>",
-    ...glideBucketLines(ctx),
-    "",
-    "<b>Végcél</b>",
-    ...g.buckets.map(
-      (b) => `• ${esc(b.bucket.name)}: ${p(b.bucket.finalWeight)} (${dayLabel(b.bucket.endDate)})`,
-    ),
+    ...(target
+      ? targetCheckLines(ctx)
+      : [
+          "<b>Tény / pálya (sáv; eltérés a pályától)</b>",
+          ...glideBucketLines(ctx),
+          "",
+          "<b>Végcél</b>",
+          ...g.buckets.map(
+            (b) => `• ${esc(b.bucket.name)}: ${p(b.bucket.finalWeight)} (${dayLabel(b.bucket.endDate)})`,
+          ),
+        ]),
     "",
   ];
   if (!g.buckets.some((b) => b.status === "below" || b.status === "above")) {
-    lines.push("✅ Minden csoport a sávon belül – nincs teendő, az új pénz a havi terv szerint megy.");
+    lines.push(
+      target
+        ? "✅ A cél a határidőre elérhető – nincs teendő, az új pénz a havi terv szerint megy."
+        : "✅ Minden csoport a sávon belül – nincs teendő, az új pénz a havi terv szerint megy.",
+    );
     return lines.join("\n");
   }
   const plan = bandRule(cfg, g, free, ctx.accountCtx);
   const ok = plan.suggestions.filter((s) => s.status === "ok");
-  lines.push("⚠️ <b>Sávon kívül – javasolt lépések</b>");
+  lines.push(
+    target
+      ? "⚠️ <b>A befizetés és a hozam már nem elég – javasolt lépések</b>"
+      : "⚠️ <b>Sávon kívül – javasolt lépések</b>",
+  );
   if (ok.length) lines.push(...ok.map((s) => `→ ${esc(suggestionText(s))}`));
   else lines.push("Nincs most megtehető lépés (minimum alatti vagy túl drága kötések).");
   lines.push(...plan.notes.map((n) => `<i>${esc(n)}</i>`));
@@ -876,7 +929,13 @@ export function monthlyText(ctx: Context): string {
   }
 
   if (ctx.glide?.buckets.length)
-    lines.push("", "<b>Célpálya (tény / pálya, sáv)</b>", ...glideBucketLines(ctx));
+    lines.push(
+      "",
+      ctx.glideConfig && isTargetMode(ctx.glideConfig)
+        ? "<b>Célelérés (tény / szükséges ma, sáv)</b>"
+        : "<b>Célpálya (tény / pálya, sáv)</b>",
+      ...glideBucketLines(ctx),
+    );
   lines.push(...monthlyPlanLines(ctx));
 
   // Forecast vs. reality: what earlier snapshots expected for this month.

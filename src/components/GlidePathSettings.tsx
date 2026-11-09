@@ -19,6 +19,8 @@ import { glideAmountSource } from "../lib/budget";
 import {
   assignByAssetClass,
   isInflowMode,
+  isTargetMode,
+  planReturnOf,
   newConfigGlobals,
   isActive,
   latestConfig,
@@ -50,6 +52,7 @@ import {
   type ProjectedInflow,
   type ProjectionInput,
 } from "../lib/glideProjection";
+import { computeTargetLive } from "../lib/targetCheck";
 import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
 import { BUCKET_COLORS, previewRows, type Row } from "./glideChartData";
@@ -130,6 +133,8 @@ function InflowSummary({
     .filter((x, i, all) => i === 0 || Math.abs(x.amountHuf - all[i - 1].amountHuf) >= 1)
     .slice(0, 4);
   const maturities = inflows.filter((x) => x.kind === "maturity" && (!until || x.day <= until));
+  const routedMat = maturities.filter((x) => !x.reinvested);
+  const kept = maturities.filter((x) => x.reinvested);
   const nameOf = (key?: string) => names.get(key ?? "") ?? key ?? "";
   return (
     <div className="mt-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted)]">
@@ -195,16 +200,28 @@ function InflowSummary({
             </table>
           )}
         </li>
-        {maturities.length > 0 && (
+        {routedMat.length > 0 && (
           <li>
             Lejárat:{" "}
-            {maturities.map((x, i) => (
+            {routedMat.map((x, i) => (
               <span key={`${x.day}-${x.instrumentKey}`}>
                 {i > 0 && ", "}
                 {nameOf(x.instrumentKey)} ({x.day}, <Amt>{formatMoney(x.amountHuf)}</Amt>)
               </span>
             ))}{" "}
             — ez is a célpálya felé megy.
+          </li>
+        )}
+        {kept.length > 0 && (
+          <li>
+            Lejárat:{" "}
+            {kept.map((x, i) => (
+              <span key={`${x.day}-${x.instrumentKey}`}>
+                {i > 0 && ", "}
+                {nameOf(x.instrumentKey)} ({x.day}, <Amt>{formatMoney(x.totalHuf ?? 0)}</Amt>)
+              </span>
+            ))}{" "}
+            — újra kötvénybe megy, a többi csoportba nem számít bele.
           </li>
         )}
       </ul>
@@ -280,7 +297,8 @@ export default function GlidePathSettings() {
   const projection = useMemo(() => {
     if (!state || !cfg || !isActive(cfg)) return undefined;
     const base: Omit<ProjectionInput, "annualReturn"> = { ...projInputs, cfg, state };
-    const real = expectedReal;
+    // "target" mode: the plan return the check itself uses.
+    const real = isTargetMode(cfg) ? planReturnOf(cfg) : expectedReal;
     return {
       zero: projectGlide({ ...base, annualReturn: 0 }),
       real: projectGlide({ ...base, annualReturn: real }),
@@ -298,6 +316,18 @@ export default function GlidePathSettings() {
       if (!st || st.totalHuf <= 0) return { inflowPath: undefined, inflowReached: undefined };
       return freezeInflowPath({ ...projInputs, cfg: draft, state: st });
     },
+    [summary, fx, today, fees, reserved, projInputs],
+  );
+
+  // "target" mode: today's check of a draft, for the editor.
+  const checkDraft = useCallback(
+    (draft: GlideConfig) =>
+      computeTargetLive(
+        draft,
+        positionsFromSummary(summary, fx, draft.bondsAtFace, today, fees, reserved),
+        today,
+        projInputs,
+      ),
     [summary, fx, today, fees, reserved, projInputs],
   );
 
@@ -367,9 +397,12 @@ export default function GlidePathSettings() {
   // until the inflows-only projection arrives, when that is later.
   const bucket = cfg?.buckets.find((b) => b.id === selected);
   const inflows = !!cfg && isInflowMode(cfg);
+  const target = !!cfg && isTargetMode(cfg);
   const pathEnd = !cfg
     ? today
-    : inflows
+    : target
+      ? cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today)
+      : inflows
       ? (cfg.inflowPath?.[cfg.inflowPath.length - 1]?.day ?? today)
       : cfg.buckets.reduce((m, b) => (b.endDate > m ? b.endDate : m), today);
   // The inflow path's arrival month (frozen on save), for the status lines.
@@ -380,7 +413,16 @@ export default function GlidePathSettings() {
   const zeroAt = projAt(projection?.zero);
   const realAt = projAt(projection?.real);
   const future: Row[] =
-    liveCfg && bucket
+    target && bucket
+      ? checkDays("monthly", today, chartEnd)
+          .filter((d) => d > today)
+          .map((day) => ({
+            ts: Date.parse(`${day}T00:00:00Z`),
+            day,
+            projZero: zeroAt.get(day)?.[bucket.id],
+            projReal: realAt.get(day)?.[bucket.id],
+          }))
+      : liveCfg && bucket
       ? previewRows(checkDays("monthly", today, chartEnd), (day) =>
           bandLimits(bandBucket(liveCfg, bucket), day, pathTargets(liveCfg, day).get(bucket.id) ?? 0),
         ).map((r) => ({
@@ -428,6 +470,7 @@ export default function GlidePathSettings() {
           positionsAt={positionsAt}
           today={today}
           freeze={freeze}
+          checkDraft={checkDraft}
           outOfBandNow={(state?.buckets ?? [])
             .filter((b) => b.status === "below" || b.status === "above")
             .map((b) => b.bucket.name)}
@@ -460,8 +503,8 @@ export default function GlidePathSettings() {
                   <span className="tabular-nums text-[var(--color-muted)]">
                     {pct(b.weight)}{" "}
                     <span className="text-xs">
-                      / pálya {pct(b.target)} ({pct(b.low)}–{pct(b.high)}
-                      {bandBaseNote(b) && `; ${bandBaseNote(b)}`})
+                      {target ? "/ szükséges ma" : "/ pálya"} {pct(b.target)} ({pct(b.low)}–{pct(b.high)}
+                      {!target && bandBaseNote(b) && `; ${bandBaseNote(b)}`})
                     </span>
                   </span>
                 </div>
@@ -471,6 +514,16 @@ export default function GlidePathSettings() {
                   {inflows
                     ? `(befizetésekből: ${inflowEnd ? monthOf(inflowEnd) : `${PROJECTION_YEARS} éven belül nem`})`
                     : `(${b.bucket.endDate})`}
+                  {target && b.check && (
+                    <>
+                      {" "}· várható {pct(b.check.projected)} (évi {pct(planReturnOf(cfg!))} hozammal),{" "}
+                      {pct(b.check.projectedZero)} hozam nélkül
+                      {b.check.requiredReturn != null && ` · a célhoz évi ${pct(b.check.requiredReturn)} kell`}
+                      {b.check.alarmShock != null &&
+                        b.check.alarmShock > 0 &&
+                        ` · riasztás kb. ${Math.round(b.check.alarmShock * 100)}%-os esésnél`}
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -552,7 +605,8 @@ export default function GlidePathSettings() {
                 bucketId={selected}
                 color={colorOf(selected)}
                 future={future}
-                pathFrom={inflows ? cfg.inflowPath?.[0]?.day : undefined}
+                pathFrom={target ? today : inflows ? cfg.inflowPath?.[0]?.day : undefined}
+                targetMode={target ? { planReturn: planReturnOf(cfg) } : undefined}
                 goalDay={inflows ? inflowEnd : bucket?.endDate}
                 goal={bucket ? bucket.finalWeight / (cfg.buckets.reduce((s, b) => s + b.finalWeight, 0) || 1) : undefined}
                 mirror={pair ? { name: pair[1].name, color: colorOf(pair[1].id) } : undefined}
@@ -565,9 +619,11 @@ export default function GlidePathSettings() {
                     Pontozott vonalak: élénk = csak befizetés, halvány = hozammal.
                     A végső célsúlyok elérése ±{(REACH_TOLERANCE * 100).toLocaleString("hu-HU")}{" "}
                     százalékpontos pontossággal.{" "}
-                    {inflows
-                      ? "A pálya a mentéskor számolt, csak befizetésből vonal; a sáv ehhez mér, frissíteni új mentéssel lehet. "
-                      : ""}
+                    {target
+                      ? "Célelérés: a halvány vonal a tervezési hozammal számolt vetítés, a riasztás ehhez mér; a sáv a mai napra szól. "
+                      : inflows
+                        ? "A pálya a mentéskor számolt, csak befizetésből vonal; a sáv ehhez mér, frissíteni új mentéssel lehet. "
+                        : ""}
                     Számol a szabad kuponokkal és lejáratokkal, a célpálya havi
                     összegével (a célok lejártával újraszámolva) és a csoportba
                     tartozó DCA vételekkel; a célhoz rendelt kupon és lejárat

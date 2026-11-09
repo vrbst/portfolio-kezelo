@@ -22,6 +22,7 @@ import {
   incomingBuyOptions,
   placeIncoming,
   planCashflow,
+  planReinvest,
   suggestionText,
   type AllocationState,
   type FlowTargets,
@@ -181,12 +182,16 @@ export function allocateIncome(
     const glideHuf = Math.max(0, event.amountHuf - goals.reduce((s, g) => s + g.huf, 0));
     let plan: IncomeAllocation["plan"] = null;
     if (glideHuf > 0 && isActive(glide) && cur) {
-      plan = planCashflow(
-        glide,
-        cur,
-        glideHuf,
-        accounts ? incomingBuyOptions(accounts, event.accountId, event.currency) : {},
-      );
+      const opts = accounts ? incomingBuyOptions(accounts, event.accountId, event.currency) : {};
+      const rule = event.instrumentKey ? glide.instruments[event.instrumentKey] : undefined;
+      plan =
+        event.kind === "redemption" && rule?.onMaturity === "reinvest"
+          ? // Rolled into a new bond of the same bucket — never the redeemed one.
+            planReinvest(glide, cur, glideHuf, rule.bucketId, {
+              ...opts,
+              canBuy: (k) => k !== event.instrumentKey && (opts.canBuy?.(k) ?? true),
+            })
+          : planCashflow(glide, cur, glideHuf, opts);
       if (accounts) plan = { ...placeIncoming(plan, accounts, event.accountId), flow: plan.flow };
       cur = applyTrades(cur, plan.suggestions);
     }

@@ -6,7 +6,7 @@
 import type { Context } from "../notify/data";
 import { forecastFor, ft, mft, pct, px, sft } from "../notify/reports";
 import { addDaysIso, toLocalDay, todayLocal, txDay } from "../../src/lib/day";
-import { latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
+import { isTargetMode, latestConfig, loadGlideVersions } from "../../src/lib/glidePath";
 import { liveGlideVersions } from "../../src/lib/flowPath";
 import { checkDays, positionsFromSummary, weightHistory } from "../../src/lib/rebalance";
 import { reservedCashByAccount, loadActiveSavingsGoals } from "../../src/lib/savings";
@@ -501,8 +501,10 @@ function glideChart(ctx: Context, o: ChartOptions): ChartData {
     xFirst: history[0].day,
     xLast: latest.day,
     summary: buckets.map((b) => {
-      const w = latest.buckets[b.id];
-      return `${name(b.name)}: ${share(w.weight)} · cél ${share(w.target)} (sáv ${share(w.low)} – ${share(w.high)}) · ${statusText[w.status]}`;
+      // Today from the shared state (it carries the "target" mode's check).
+      const w = ctx.glide?.buckets.find((x) => x.bucket.id === b.id) ?? latest.buckets[b.id];
+      const label = isTargetMode(cfg) ? "szükséges" : "cél";
+      return `${name(b.name)}: ${share(w.weight)} · ${label} ${share(w.target)} (sáv ${share(w.low)} – ${share(w.high)}) · ${statusText[w.status]}`;
     }),
   };
 }
