@@ -59,5 +59,7 @@
 - „Csak ezen a gépen”: a gomb csak akkor látszik, ha az app eléri a hidat (`src/lib/aiBridge.ts`, `/health` próba). Más eszközről a híd nem érhető el.
 - Védelem: `Host` és `Origin` ellenőrzés (az app címe `APP_URL`-ből + a vite 5173/4173 portjai), a `POST` egyedi fejlécet kér (mindig preflight),
   egyszerre egy elemzés (409 `busy`).
+- Automatikus indítás: `npm run ai-bridge:install` (Windows ütemezett feladat `portfolio-ai-bridge`, bejelentkezéskor indul, hiba után újraindul, napló: `logs/ai-bridge.log`;
+  `-- -Status` / `-- -Remove`). A végleges mappából telepítsd, ne worktree-ből. Ez folyamatos szerver, nem job, ezért nem a schedulerben van.
 - A chat és az árfolyam-kilátás továbbra is a saját API-kulccsal megy (böngészős kivétel, lásd a közös CONVENTIONS).
 - Chrome a nyilvános oldalról (GitHub Pages) a loopbackre először engedélyt kérhet („helyi hálózat elérése”): egyszer engedélyezni kell.
