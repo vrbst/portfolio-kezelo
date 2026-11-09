@@ -45,7 +45,7 @@ import {
 } from "./news/events";
 import { probeCoverage, type Coverage } from "./news/rss";
 import { portfolioExposure } from "./news/prompt";
-import { makeAnalysis, type AnalysisDeps } from "./analysis/job";
+import { makeAnalysis, type AnalysisDeps, type AnalysisRun } from "./analysis/job";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
 import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, assetKey, digestAssets, type DigestAsset, type NewsEdition } from "../../src/lib/newsSchema";
@@ -170,7 +170,7 @@ export interface Deps {
   /** Whether the news already cover an announcement (default: Google News RSS); a test seam. */
   probe?: typeof probeCoverage;
   /** The nightly AI analysis's AI and storage (built only when needed). */
-  analysis?: () => AnalysisDeps;
+  analysis?: (o?: { priority?: "interactive" | "normal" | "background" }) => AnalysisDeps;
   fundamentals?: () => FundamentalsDeps;
   /** The daily, AI-free outlook sources (Yahoo targets, Deribit bands). */
   outlook?: () => OutlookDeps;
@@ -231,13 +231,13 @@ export function defaultDeps(): Deps {
       appUrl: env.appUrl,
       profile: () => loadProfile(),
     }),
-    analysis: () => ({
+    analysis: (o) => ({
       // No tools: it reasons over the snapshot alone, nothing to look up.
       engine: engine({
         model: env.analysisModel,
         schema: ANALYSIS_SCHEMA,
         tools: "",
-        priority: "background",
+        priority: o?.priority ?? "background",
         onRun: logRun(ANALYSIS_JOB, env.analysisModel),
       }),
       store: repoStore(env.syncRepo, newsGithubToken),
@@ -1055,6 +1055,18 @@ async function analysisJob(deps: Deps, manual: boolean): Promise<HubResponse> {
     v: 1,
     messages: [msg(analysisText(run.analysis, loadEnv().appUrl, run.uploadError))],
   };
+}
+
+/**
+ * A new analysis right now, for the local bridge (the app's "Új elemzés" button): a fresh AI run on
+ * the hub (interactive priority, somebody is waiting), uploaded like the nightly one. No Telegram
+ * message and no change to the nightly run's "done today" state.
+ */
+export async function analysisNow(deps: Deps): Promise<AnalysisRun> {
+  if (!deps.analysis) throw new Error("Az AI-elemzés nincs beállítva.");
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") throw new Error(ctx);
+  return makeAnalysis(ctx, deps.analysis({ priority: "interactive" }), { reuseLocal: false });
 }
 
 // ---- the 5-minute tick ----------------------------------------------------

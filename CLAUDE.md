@@ -51,3 +51,15 @@
 - A nézet gyorsítótárazott (`freshFor`, `refreshOn: ["tick"]`): az első megnyitás egy teljes kontextus-betöltés (~4–5 mp).
 - Változtatás után: `npm run lint && npm test && npx tsc -b`; a nézetet az asszisztens popupjában (P) kell megnézni, a UI-szervert nem kell újraindítani
   (a nézetet kérésenként kapja), csak ha a leíró (`asszisztens.app.json`) változott.
+
+## Az AI-oldal „Új elemzés” gombja (helyi híd)
+- A gomb nem az Anthropic API-t hívja, hanem az előfizetést, a my-claude-hubon át. A hub a böngészős `Origin`-t elutasítja (403), ezért közvetítő kell:
+  `npm run ai-bridge` (`scripts/notify/analysis/bridge.ts`) egy **csak `127.0.0.1:47811`-en** hallgató szerver, ami az éjszakai elemzés jobját
+  (`analysisNow` a `tg-app.ts`-ben, `interactive` prioritással) futtatja, és az eredményt a szinkron-repóba is feltölti. Telegram-üzenet nincs.
+- „Csak ezen a gépen”: a gomb csak akkor látszik, ha az app eléri a hidat (`src/lib/aiBridge.ts`, `/health` próba). Más eszközről a híd nem érhető el.
+- Védelem: `Host` és `Origin` ellenőrzés (az app címe `APP_URL`-ből + a vite 5173/4173 portjai), a `POST` egyedi fejlécet kér (mindig preflight),
+  egyszerre egy elemzés (409 `busy`).
+- Automatikus indítás: `npm run ai-bridge:install` (Windows ütemezett feladat `portfolio-ai-bridge`, bejelentkezéskor indul, hiba után újraindul, napló: `logs/ai-bridge.log`;
+  `-- -Status` / `-- -Remove`). A végleges mappából telepítsd, ne worktree-ből. Ez folyamatos szerver, nem job, ezért nem a schedulerben van.
+- A chat és az árfolyam-kilátás továbbra is a saját API-kulccsal megy (böngészős kivétel, lásd a közös CONVENTIONS).
+- Chrome a nyilvános oldalról (GitHub Pages) a loopbackre először engedélyt kérhet („helyi hálózat elérése”): egyszer engedélyezni kell.
