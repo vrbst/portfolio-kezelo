@@ -22,7 +22,7 @@ import {
   isCashKey,
   isInflowMode,
   isTargetMode,
-  targetTolOf,
+  targetBandOf,
   type Bucket,
   type TargetBucketLive,
   type CheckFrequency,
@@ -175,15 +175,15 @@ export function targetCheckOf(cfg: GlideConfig, b: Bucket, day: string): TargetB
 
 /**
  * "target" mode limits: the daily check's, or — without one (a past day, a
- * draft) — simply final ± tolerance, what the check becomes on the end date.
+ * draft) — simply final ± band, what the check becomes on the end date.
  */
 function targetLimits(cfg: GlideConfig, b: Bucket, day: string): BandLimits {
   const c = targetCheckOf(cfg, b, day);
   if (c) return { target: c.target, low: c.low, high: c.high };
   const sum = cfg.buckets.reduce((s, x) => s + x.finalWeight, 0);
   const f = sum > 0 ? b.finalWeight / sum : 0;
-  const tol = targetTolOf(cfg);
-  return { target: f, low: Math.max(0, f - tol), high: Math.min(1, f + tol) };
+  const band = targetBandOf(cfg);
+  return { target: f, low: Math.max(0, f - band), high: Math.min(1, f + band) };
 }
 
 /** The weight the inflow path starts from (the actual weight on the save day). */
@@ -239,15 +239,9 @@ export interface FlowTargets {
 
 /** The cash-flow routing's targets on `day` under the configured FlowTarget. */
 export function flowTargets(cfg: GlideConfig, day: string): FlowTargets {
-  // "target" mode, aheadMode "projected": the money aims at today's required
-  // weights, so a bucket the projection already carries past its final
-  // weight gets no more.
-  // Not "ahead": the routing then takes each bucket's target from the state,
-  // which carries the day's check even when `cfg` is the stored version.
-  if (isTargetMode(cfg) && cfg.aheadMode === "projected")
-    return { day, ahead: false, label: "a szükséges arány", weights: pathTargets(cfg, day) };
-  // "inflows" mode (and "target" by default): money goes towards the final
-  // weights — exactly what the projection assumes. Aiming at the path would
+  // "inflows" and "target" mode: money goes towards the final weights —
+  // exactly what the projection assumes (in "target" mode the required
+  // weight of tomorrow is today's projected one only with this routing). Aiming at the path would
   // split it pro rata while on the path, and the allocation would only turn
   // at the path's own pace.
   if (isInflowMode(cfg) || isTargetMode(cfg)) {
@@ -2193,8 +2187,8 @@ function bandAlerts(
   return out.map((b) => {
     const side = target
       ? b.status === "below"
-        ? "a cél így nem érhető el"
-        : "a cél fölé fut"
+        ? "a szükséges arány alá esett, rebalansz"
+        : "a szükséges arány fölé futott, rebalansz"
       : b.status === "below"
         ? "sáv alatt"
         : "sáv fölött";

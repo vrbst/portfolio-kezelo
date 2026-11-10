@@ -245,19 +245,11 @@ export interface GlideConfig {
    */
   planReturn?: number;
   /**
-   * "target" mode: how far the projected weight on the end date may fall
-   * short of (or run past) the final weight before the band trips (fraction:
-   * 0.02 = 2 pp). Missing = DEFAULT_TARGET_TOL.
+   * "target" mode: the band's half-width around today's required weight
+   * (fraction: 0.05 = ±5 pp) — the rebalancing band of a fixed allocation,
+   * around a target that moves. Missing = DEFAULT_TARGET_BAND.
    */
-  targetTolPp?: number;
-  /**
-   * "target" mode, a bucket running ahead: "actual" (missing) — it is only
-   * over its band once its ACTUAL weight is past final + tolerance too (new
-   * money keeps going to the final weights until then); "projected" — as
-   * soon as the projection runs past it (new money then aims at today's
-   * required weights).
-   */
-  aheadMode?: AheadMode;
+  targetBandPp?: number;
   /**
    * "target" mode, computed at runtime for one day (see targetCheck.ts) and
    * never saved: today's required weight, band and projection per bucket.
@@ -273,20 +265,18 @@ export interface GlideConfig {
 
 export type PathMode = "calendar" | "inflows" | "target";
 
-export type AheadMode = "actual" | "projected";
-
 /** Default yearly return of the growing part in "target" mode. */
 export const DEFAULT_PLAN_RETURN = 0.05;
-/** Default tolerance on the end date in "target" mode (2 pp). */
-export const DEFAULT_TARGET_TOL = 0.02;
+/** Default band around the required weight in "target" mode (±5 pp). */
+export const DEFAULT_TARGET_BAND = 0.05;
 
 /** One bucket of the "target" mode's daily check (see targetCheck.ts). */
 export interface TargetBucketLive {
   /** Today's weight with which the projection lands exactly on the final weight. */
   target: number;
-  /** Below this the bucket is "below" (projection short by more than the tolerance). */
+  /** target − band: below it the bucket is "below" (rebalance: buy it). */
   low: number;
-  /** Above this the bucket is "above". */
+  /** target + band: above it the bucket is "above" (rebalance: sell it). */
   high: number;
   /** Projected weight on the bucket's end date at the plan return. */
   projected: number;
@@ -299,13 +289,14 @@ export interface TargetBucketLive {
    * below its band today; null when no fall would (or it has no securities).
    */
   alarmShock: number | null;
+  /** Rise of the bucket's securities that would put it above its band today. */
+  alarmRise: number | null;
   /**
-   * The band ahead, monthly until the bucket's end date: the projection (at
-   * the plan return) from today's low / high weight — staying inside it, the
-   * deadline is still met within the tolerance. Starts at low / high and
-   * ends at final ∓ tolerance.
+   * The required weight ahead, monthly until the bucket's end date: the
+   * projection (at the plan return) from today's required weight — the
+   * moving target the band follows (± band), arriving at the final weight.
    */
-  corridor?: { day: string; low: number; high: number }[];
+  corridor?: { day: string; target: number; low: number; high: number }[];
 }
 
 export interface TargetLive {
@@ -327,12 +318,22 @@ export function requiredReturnText(r: number, pct: (x: number) => string): strin
   return r >= 0 ? `a célhoz évi ${pct(r)} hozam kell` : `a cél évi ${pct(-r)}-os csökkenéssel is teljesül`;
 }
 
+/** "riasztás kb. 10%-os esésnél / 25%-os emelkedésnél" (empty: neither). */
+export function alarmText(c: Pick<TargetBucketLive, "alarmShock" | "alarmRise">): string {
+  const pc = (x: number) => `${Math.round(x * 100)}%-os`;
+  const parts = [
+    c.alarmShock != null && c.alarmShock > 0 ? `${pc(c.alarmShock)} esésnél` : "",
+    c.alarmRise != null && c.alarmRise > 0 ? `${pc(c.alarmRise)} emelkedésnél` : "",
+  ].filter(Boolean);
+  return parts.length ? `riasztás kb. ${parts.join(" vagy ")}` : "";
+}
+
 export function planReturnOf(cfg: GlideConfig): number {
   return cfg.planReturn ?? DEFAULT_PLAN_RETURN;
 }
 
-export function targetTolOf(cfg: GlideConfig): number {
-  return cfg.targetTolPp ?? DEFAULT_TARGET_TOL;
+export function targetBandOf(cfg: GlideConfig): number {
+  return cfg.targetBandPp ?? DEFAULT_TARGET_BAND;
 }
 
 export interface InflowPoint {
@@ -705,11 +706,9 @@ export function validateConfig(
     const r = cfg.planReturn;
     if (r != null && !(Number.isFinite(r) && r > -0.5 && r < 0.5))
       errors.push({ message: "A tervezési hozam −50% és +50% között legyen." });
-    const tol = cfg.targetTolPp;
-    if (tol != null && !(Number.isFinite(tol) && tol >= 0 && tol < 0.2))
-      errors.push({ message: "A tűrés 0 és 20 százalékpont között legyen." });
-    if (cfg.aheadMode != null && cfg.aheadMode !== "actual" && cfg.aheadMode !== "projected")
-      errors.push({ message: "Ismeretlen beállítás az előrébb járó csoportra." });
+    const band = cfg.targetBandPp;
+    if (band != null && !(Number.isFinite(band) && band > 0 && band < 0.3))
+      errors.push({ message: "A sáv 0 és 30 százalékpont között legyen." });
   }
   for (const [key, rule] of Object.entries(cfg.instruments))
     if (rule.onMaturity != null && rule.onMaturity !== "route" && rule.onMaturity !== "reinvest")

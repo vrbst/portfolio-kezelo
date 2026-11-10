@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
+  alarmText,
   defaultGlobals,
   requiredReturnText,
   validateConfig,
@@ -62,7 +63,7 @@ function config(patch: Partial<GlideConfig> = {}): GlideConfig {
     monthlyAmount: { kind: "remainder" },
     pathMode: "target",
     planReturn: 0.05,
-    targetTolPp: 0.02,
+    targetBandPp: 0.05,
     ...patch,
   };
 }
@@ -184,21 +185,37 @@ describe("computeTargetLive", () => {
     expect(a.buckets.R.projectedZero).toBeLessThan(b.buckets.R.projectedZero - 0.005);
   });
 
-  it("alarmShock: a fall just past it trips the band, just short of it does not", () => {
-    const cfg = config();
-    const s = computeTargetLive(cfg, ps, TODAY, inputs)!.buckets.R.alarmShock!;
-    expect(s).toBeGreaterThan(0.02);
-    expect(s).toBeLessThan(0.6);
-    const shocked = (x: number) => applyShock(cfg, ps, { R: -x });
-    expect(R(liveState(cfg, shocked(s + 0.01))).status).toBe("below");
-    expect(R(liveState(cfg, shocked(Math.max(0, s - 0.01)))).status).toBe("within");
+  it("the band is the required weight ± targetBandPp, both ways", () => {
+    const c = computeTargetLive(config(), ps, TODAY, inputs)!.buckets.R;
+    expect(c.low).toBeCloseTo(c.target - 0.05, 9);
+    expect(c.high).toBeCloseTo(c.target + 0.05, 9);
+    const wide = computeTargetLive(config({ targetBandPp: 0.08 }), ps, TODAY, inputs)!.buckets.R;
+    expect(wide.target).toBeCloseTo(c.target, 9);
+    expect(wide.high - wide.low).toBeCloseTo(0.16, 9);
   });
 
-  it("near the end date the band is simply final ± tolerance", () => {
+  it("alarmShock / alarmRise: just past them trips the band, just short of them does not", () => {
+    const cfg = config();
+    const c = computeTargetLive(cfg, ps, TODAY, inputs)!.buckets.R;
+    const fall = c.alarmShock!;
+    const rise = c.alarmRise!;
+    expect(fall).toBeGreaterThan(0.02);
+    expect(fall).toBeLessThan(0.6);
+    expect(rise).toBeGreaterThan(0.02);
+    expect(rise).toBeLessThan(1);
+    const moved = (x: number) => applyShock(cfg, ps, { R: x });
+    expect(R(liveState(cfg, moved(-(fall + 0.01)))).status).toBe("below");
+    expect(R(liveState(cfg, moved(-Math.max(0, fall - 0.01)))).status).toBe("within");
+    expect(R(liveState(cfg, moved(rise + 0.01))).status).toBe("above");
+    expect(R(liveState(cfg, moved(Math.max(0, rise - 0.01)))).status).toBe("within");
+    expect(alarmText(c)).toMatch(/^riasztás kb\. \d+%-os esésnél vagy \d+%-os emelkedésnél$/);
+  });
+
+  it("near the end date the band is simply final ± band", () => {
     const live = computeTargetLive(config(), ps, "2030-06-27", inputs)!;
     expect(live.buckets.R.target).toBeCloseTo(0.6, 3);
-    expect(live.buckets.R.low).toBeCloseTo(0.58, 3);
-    expect(live.buckets.R.high).toBeCloseTo(0.62, 3);
+    expect(live.buckets.R.low).toBeCloseTo(0.55, 3);
+    expect(live.buckets.R.high).toBeCloseTo(0.65, 3);
   });
 
   describe("requiredReturn at the plateau (three buckets, the routing holds them at their final weights)", () => {
@@ -214,6 +231,25 @@ describe("computeTargetLive", () => {
     ];
     const run = (ps: Position[]) =>
       computeTargetLive(three, ps, TODAY, { ...inputs, instruments: withCry, cashflows: [] })!.buckets;
+
+    it("equity past its final weight: never a 'buy more' — the required weight is the least that arrives", () => {
+      // 62% equity against 55% final, big inflows ahead: many of today's
+      // weights land on 55%. The reference must not be the largest of them
+      // (a band around ~70% would call 62% "below" and buy equity).
+      const ps = ps3(18_600_000, 1_400_000, 10_000_000);
+      const live = run(ps);
+      expect(live.E.target).toBeLessThanOrEqual(0.55 + 1e-6);
+      expect(live.C.target).toBeLessThanOrEqual(0.05 + 1e-6);
+      // The bonds hold the rest.
+      expect(live.E.target + live.C.target + live.B.target).toBeCloseTo(1, 9);
+      const st = allocationState(
+        { ...three, targetLive: { day: TODAY, buckets: live } },
+        ps,
+        TODAY,
+      );
+      expect(st.buckets.find((b) => b.bucket.id === "E")!.status).toBe("above");
+      expect(st.buckets.find((b) => b.bucket.id === "B")!.status).toBe("below");
+    });
 
     it("arriving at the plan return never asks for more than it", () => {
       const live = run(ps3(12_000_000, 1_000_000, 17_000_000));
@@ -233,27 +269,31 @@ describe("computeTargetLive", () => {
     });
   });
 
-  it("corridor: the band ahead runs from today's limits to final ± tolerance by the end date", () => {
+  it("corridor: the required weight ahead, ± band, arriving at the final weight", () => {
     const live = computeTargetLive(config(), ps, TODAY, inputs)!.buckets.R;
     const c = live.corridor!;
     expect(c.length).toBeGreaterThan(30);
     expect(c[0].day > TODAY).toBe(true);
     expect(c[c.length - 1].day <= END).toBe(true);
-    for (const p of c) expect(p.low).toBeLessThan(p.high);
-    // Next month close to today's limits, the last month at the deadline's band.
-    expect(c[0].low).toBeCloseTo(live.low, 1);
-    expect(c[c.length - 1].low).toBeCloseTo(0.58, 3);
-    expect(c[c.length - 1].high).toBeCloseTo(0.62, 2);
+    for (const p of c) {
+      expect(p.low).toBeCloseTo(Math.max(0, p.target - 0.05), 9);
+      expect(p.high).toBeCloseTo(Math.min(1, p.target + 0.05), 9);
+    }
+    // Starts near today's required weight, rises, arrives at 60%.
+    expect(c[0].target).toBeCloseTo(live.target, 1);
+    expect(c[c.length - 1].target).toBeGreaterThan(c[0].target);
+    expect(c[c.length - 1].target).toBeCloseTo(0.6, 2);
   });
 
-  it("ahead (actual mode): not over the band while the actual weight is under final + tolerance", () => {
-    // Far ahead: the projection runs well past 62%, the actual weight is 59%.
-    // (A high plan return: the growth outruns the money routed to the bonds.)
-    const ahead = positions(17_700_000, 12_300_000);
-    const fast = { planReturn: 0.25 };
-    expect(R(liveState(config(fast), ahead)).check!.projected).toBeGreaterThan(0.62);
-    expect(R(liveState(config(fast), ahead)).status).toBe("within");
-    expect(R(liveState(config({ ...fast, aheadMode: "projected" }), ahead)).status).toBe("above");
+  it("holding exactly the required weight, the check gives that same weight back", () => {
+    // Moving today to the required weight leaves it the required weight (no
+    // drift from the move itself): the band rule's restore is stable.
+    const cfg = config();
+    const T = 30_000_000;
+    const c = computeTargetLive(cfg, ps, TODAY, inputs)!.buckets.R;
+    const at = (x: number) => positions(x * T, (1 - x) * T);
+    const start = computeTargetLive(cfg, at(c.target), TODAY, inputs)!.buckets.R;
+    expect(start.target).toBeCloseTo(c.target, 3);
   });
 
   it("liveTargetVersions attaches the check to the newest version only", () => {
@@ -268,10 +308,11 @@ describe("computeTargetLive", () => {
 describe("target mode in the band machinery", () => {
   const ps = positions(12_000_000, 18_000_000);
 
-  it("without a check for the day (history, a draft) the limits are final ± tolerance", () => {
+  it("without a check for the day (history, a draft) the limits are final ± band", () => {
     const s = allocationState(config(), ps, TODAY);
-    expect(R(s)).toMatchObject({ target: 0.6, low: 0.58 });
-    expect(R(s).high).toBeCloseTo(0.62, 9);
+    expect(R(s)).toMatchObject({ target: 0.6 });
+    expect(R(s).low).toBeCloseTo(0.55, 9);
+    expect(R(s).high).toBeCloseTo(0.65, 9);
   });
 
   it("new money goes towards the final weights by default", () => {
@@ -281,7 +322,7 @@ describe("target mode in the band machinery", () => {
 
   it("a deep fall: the band rule sells bonds and buys back to the required weight", () => {
     const cfg = config();
-    const crashed = applyShock(cfg, ps, { R: -0.35 });
+    const crashed = applyShock(cfg, ps, { R: -0.5 });
     const state = liveState(cfg, crashed);
     expect(R(state).status).toBe("below");
     const plan = bandRule(cfg, state);
@@ -295,16 +336,28 @@ describe("target mode in the band machinery", () => {
     expect(after / state.totalHuf).toBeCloseTo(R(state).target, 2);
   });
 
-  it("rule: below ⇔ both the projection and the actual weight short of final − tolerance", () => {
+  it("a big rally: the band rule sells the equity and buys bonds back to the required weight", () => {
+    const cfg = config({ instruments: { ...config().instruments, ETF: rule("R") } });
+    const rallied = applyShock(cfg, ps, { R: 0.6 });
+    const state = liveState(cfg, rallied);
+    expect(R(state).status).toBe("above");
+    const plan = bandRule(cfg, state);
+    const sell = plan.suggestions.find((s) => s.side === "sell" && s.status === "ok");
+    expect(sell?.instrumentKey).toBe("ETF");
+    const after = R(state).valueHuf - sell!.amountHuf;
+    expect(after / state.totalHuf).toBeCloseTo(R(state).target, 2);
+  });
+
+  it("rule: below ⇔ the actual weight under required − band, above ⇔ over required + band", () => {
     const cfg = config();
     fc.assert(
-      fc.property(fc.double({ min: 0, max: 0.8, noNaN: true }), (fall) => {
-        const shocked = applyShock(cfg, ps, { R: -fall });
-        const b = R(liveState(cfg, shocked));
-        const short = b.check!.projected < 0.58 - 1e-4 && b.weight < 0.58 - 1e-4;
-        const clear = b.check!.projected > 0.58 + 1e-4 || b.weight > 0.58 + 1e-4;
-        if (short) expect(b.status).toBe("below");
-        if (clear) expect(b.status).not.toBe("below");
+      fc.property(fc.double({ min: -0.8, max: 1.5, noNaN: true }), (move) => {
+        const b = R(liveState(cfg, applyShock(cfg, ps, { R: move })));
+        const eps = 1e-6;
+        if (b.weight < b.check!.target - 0.05 - eps) expect(b.status).toBe("below");
+        else if (b.weight > b.check!.target + 0.05 + eps) expect(b.status).toBe("above");
+        else if (b.weight > b.check!.target - 0.05 + eps && b.weight < b.check!.target + 0.05 - eps)
+          expect(b.status).toBe("within");
       }),
       { numRuns: 25 },
     );
@@ -344,9 +397,10 @@ describe("validateConfig – target mode", () => {
     expect(errorsOf({})).toEqual([]);
   });
 
-  it("rejects an out-of-range plan return or tolerance", () => {
+  it("rejects an out-of-range plan return or band", () => {
     expect(errorsOf({ planReturn: 0.9 }).join(" ")).toMatch(/tervezési hozam/);
-    expect(errorsOf({ targetTolPp: -0.01 }).join(" ")).toMatch(/tűrés/);
+    expect(errorsOf({ targetBandPp: 0 }).join(" ")).toMatch(/sáv/);
+    expect(errorsOf({ targetBandPp: 0.4 }).join(" ")).toMatch(/sáv/);
   });
 
   it("needs each bucket's end date", () => {

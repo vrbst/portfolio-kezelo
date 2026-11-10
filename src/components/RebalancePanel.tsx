@@ -355,7 +355,7 @@ export default function RebalancePanel() {
             {(isInflowMode(cfg) || isTargetMode(cfg) || flow.ahead) && (
               <InfoTip>
                 {isTargetMode(cfg)
-                  ? "Célelérés: a pénz a végső arány felé megy; a sáv azt méri, hogy a határidőre a tervezési hozammal elérhető-e a cél."
+                  ? "Célelérés: a pénz a végső arány felé megy; a sáv a mai szükséges arány ± sáv (ezzel az aránnyal a befizetés és a tervezési hozam a határidőre pont a célba visz). Ha a tényleges arány kilép belőle, rebalansz."
                   : isInflowMode(cfg)
                   ? "A pálya a befizetésekből számolt: minden pénz a végső arány felé megy; a sáv a pályához mér."
                   : "Előretekintés: a sáv és az állapot továbbra is a mai pályacélhoz mér."}

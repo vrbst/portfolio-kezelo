@@ -33,15 +33,15 @@ describe("targetFutureRows", () => {
     const rows = targetFutureRows(
       ["2026-12-01", "2027-01-01", "2027-02-01"],
       [
-        { day: "2026-12-01", low: 0.41, high: 0.47 },
-        { day: "2027-01-01", low: 0.42, high: 0.48 },
+        { day: "2026-12-01", target: 0.44, low: 0.41, high: 0.47 },
+        { day: "2027-01-01", target: 0.45, low: 0.42, high: 0.48 },
       ],
       () => 0.43,
       (day) => (day === "2027-01-01" ? 0.45 : undefined),
     );
     expect(rows.map((r) => r.band)).toEqual([[0.41, 0.47], [0.42, 0.48], undefined]);
     expect(rows[1]).toMatchObject({ projZero: 0.43, projReal: 0.45 });
-    // The mode has no drawn path.
-    expect(rows.every((r) => r.target == null)).toBe(true);
+    // The path is the required weight ahead.
+    expect(rows.map((r) => r.target)).toEqual([0.44, 0.45, undefined]);
   });
 });

@@ -97,21 +97,22 @@ export function previewRows(
 }
 
 /**
- * "target" mode: the months ahead with the expected weights and the band of
- * the day's check (its corridor: staying inside it the deadline is met). No
- * path target — the mode has none.
+ * "target" mode: the months ahead with the expected weights, and the day's
+ * check's corridor — the required weight ahead (drawn as the path) and its
+ * band.
  */
 export function targetFutureRows(
   days: string[],
-  corridor: { day: string; low: number; high: number }[] | undefined,
+  corridor: { day: string; target: number; low: number; high: number }[] | undefined,
   projZero: (day: string) => number | undefined,
   projReal: (day: string) => number | undefined,
 ): Row[] {
-  const band = new Map((corridor ?? []).map((c) => [c.day, [c.low, c.high] as [number, number]]));
+  const at = new Map((corridor ?? []).map((c) => [c.day, c]));
   return days.map((day) => ({
     ts: dayTs(day),
     day,
-    band: band.get(day),
+    target: at.get(day)?.target,
+    band: at.has(day) ? ([at.get(day)!.low, at.get(day)!.high] as [number, number]) : undefined,
     projZero: projZero(day),
     projReal: projReal(day),
   }));

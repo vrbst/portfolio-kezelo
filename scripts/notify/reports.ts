@@ -29,7 +29,7 @@ import {
   positionsFromSummary,
   suggestionText,
 } from "../../src/lib/rebalance";
-import { isTargetMode, planReturnOf, requiredReturnText } from "../../src/lib/glidePath";
+import { alarmText, isTargetMode, planReturnOf, requiredReturnText } from "../../src/lib/glidePath";
 import { benchmarkIndex, BENCHMARK, computeReturns, monthlyPerformance } from "../../src/lib/returns";
 import { computeIncomeByYear } from "../../src/lib/income";
 import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
@@ -515,7 +515,7 @@ export function targetCheckLines(ctx: Context): string[] {
     }
     const extra = [
       c.requiredReturn != null ? requiredReturnText(c.requiredReturn, p1) : "",
-      c.alarmShock != null && c.alarmShock > 0 ? `riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél` : "",
+      alarmText(c),
     ].filter(Boolean);
     lines.push(
       `• ${esc(b.bucket.name)}: ${p1(c.projected)} · ${p1(c.projectedZero)} (${goal})${extra.length ? ` – ${extra.join(", ")}` : ""}`,
@@ -556,7 +556,7 @@ export function glideText(ctx: Context): string {
   if (!g.buckets.some((b) => b.status === "below" || b.status === "above")) {
     lines.push(
       target
-        ? "✅ A cél a határidőre elérhető – nincs teendő, az új pénz a havi terv szerint megy."
+        ? "✅ Minden csoport a szükséges arány sávjában – nincs teendő, az új pénz a havi terv szerint megy."
         : "✅ Minden csoport a sávon belül – nincs teendő, az új pénz a havi terv szerint megy.",
     );
     return lines.join("\n");
@@ -565,7 +565,7 @@ export function glideText(ctx: Context): string {
   const ok = plan.suggestions.filter((s) => s.status === "ok");
   lines.push(
     target
-      ? "⚠️ <b>A befizetés és a hozam már nem elég – javasolt lépések</b>"
+      ? "⚠️ <b>Eltért a szükséges aránytól – rebalansz, javasolt lépések</b>"
       : "⚠️ <b>Sávon kívül – javasolt lépések</b>",
   );
   if (ok.length) lines.push(...ok.map((s) => `→ ${esc(suggestionText(s))}`));
