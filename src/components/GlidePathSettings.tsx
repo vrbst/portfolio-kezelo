@@ -27,6 +27,7 @@ import {
   saveGlideVersion,
   withAssignments,
   type GlideConfig,
+  requiredReturnText,
 } from "../lib/glidePath";
 import {
   bandBaseNote,
@@ -55,7 +56,7 @@ import {
 import { computeTargetLive } from "../lib/targetCheck";
 import { Amt, Badge, Card } from "./ui";
 import GlidePathChart from "./GlidePathChart";
-import { BUCKET_COLORS, previewRows, type Row } from "./glideChartData";
+import { BUCKET_COLORS, previewRows, targetFutureRows, type Row } from "./glideChartData";
 import GlidePathEditor from "./GlidePathEditor";
 import PrivateText from "./PrivateText";
 
@@ -414,14 +415,12 @@ export default function GlidePathSettings() {
   const realAt = projAt(projection?.real);
   const future: Row[] =
     target && bucket
-      ? checkDays("monthly", today, chartEnd)
-          .filter((d) => d > today)
-          .map((day) => ({
-            ts: Date.parse(`${day}T00:00:00Z`),
-            day,
-            projZero: zeroAt.get(day)?.[bucket.id],
-            projReal: realAt.get(day)?.[bucket.id],
-          }))
+      ? targetFutureRows(
+          checkDays("monthly", today, chartEnd).filter((d) => d > today),
+          liveCfg?.targetLive?.buckets[bucket.id]?.corridor,
+          (day) => zeroAt.get(day)?.[bucket.id],
+          (day) => realAt.get(day)?.[bucket.id],
+        )
       : liveCfg && bucket
       ? previewRows(checkDays("monthly", today, chartEnd), (day) =>
           bandLimits(bandBucket(liveCfg, bucket), day, pathTargets(liveCfg, day).get(bucket.id) ?? 0),
@@ -518,7 +517,7 @@ export default function GlidePathSettings() {
                     <>
                       {" "}· várható {pct(b.check.projected)} (évi {pct(planReturnOf(cfg!))} hozammal),{" "}
                       {pct(b.check.projectedZero)} hozam nélkül
-                      {b.check.requiredReturn != null && ` · a célhoz évi ${pct(b.check.requiredReturn)} kell`}
+                      {b.check.requiredReturn != null && ` · ${requiredReturnText(b.check.requiredReturn, pct)}`}
                       {b.check.alarmShock != null &&
                         b.check.alarmShock > 0 &&
                         ` · riasztás kb. ${Math.round(b.check.alarmShock * 100)}%-os esésnél`}

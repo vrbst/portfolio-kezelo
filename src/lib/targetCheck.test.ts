@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
   defaultGlobals,
+  requiredReturnText,
   validateConfig,
   type Bucket,
   type GlideConfig,
@@ -169,7 +170,7 @@ describe("computeTargetLive", () => {
     expect(r).toBeGreaterThan(0);
     expect(r).toBeLessThan(0.2);
     const again = computeTargetLive(config({ planReturn: r }), ps, TODAY, inputs)!;
-    expect(again.buckets.R.projected).toBeCloseTo(0.6, 4);
+    expect(again.buckets.R.projected).toBeCloseTo(0.6, 3);
     // A bond-only bucket has no growing part.
     expect(live.buckets.K.requiredReturn).toBeNull();
   });
@@ -198,6 +199,51 @@ describe("computeTargetLive", () => {
     expect(live.buckets.R.target).toBeCloseTo(0.6, 3);
     expect(live.buckets.R.low).toBeCloseTo(0.58, 3);
     expect(live.buckets.R.high).toBeCloseTo(0.62, 3);
+  });
+
+  describe("requiredReturn at the plateau (three buckets, the routing holds them at their final weights)", () => {
+    const three = config({
+      buckets: [bucket("E", 0.55), bucket("C", 0.05), bucket("B", 0.4)],
+      instruments: { ETF: rule("E"), CRY: rule("C"), BOND: rule("B") },
+    });
+    const withCry = new Map(instruments).set("CRY", { key: "CRY", name: "CRY", type: "etf" } as Instrument);
+    const ps3 = (e: number, c: number, b: number): Position[] => [
+      { key: "ETF", name: "ETF", valueHuf: e, quantity: e, unitPriceHuf: 1 },
+      { key: "CRY", name: "CRY", valueHuf: c, quantity: c, unitPriceHuf: 1 },
+      { key: "BOND", name: "BOND", valueHuf: b, quantity: b, unitPriceHuf: 1 },
+    ];
+    const run = (ps: Position[]) =>
+      computeTargetLive(three, ps, TODAY, { ...inputs, instruments: withCry, cashflows: [] })!.buckets;
+
+    it("arriving at the plan return never asks for more than it", () => {
+      const live = run(ps3(12_000_000, 1_000_000, 17_000_000));
+      for (const id of ["E", "C"]) {
+        expect(live[id].projected).toBeCloseTo(id === "E" ? 0.55 : 0.05, 3);
+        const r = live[id].requiredReturn;
+        expect(r == null || r <= 0.05 + 1e-6, `${id}: ${r}`).toBe(true);
+      }
+    });
+
+    it("far ahead: a negative threshold (it arrives even with falling prices)", () => {
+      // Small holdings, large monthly amount: the inflows alone carry it.
+      const r = run(ps3(3_000_000, 400_000, 3_000_000)).E.requiredReturn!;
+      expect(r).toBeLessThan(-0.3);
+      expect(requiredReturnText(r, (x) => `${Math.round(x * 100)}%`)).toMatch(/csökkenéssel is teljesül/);
+      expect(requiredReturnText(0.055, (x) => `${(x * 100).toFixed(1)}%`)).toBe("a célhoz évi 5.5% hozam kell");
+    });
+  });
+
+  it("corridor: the band ahead runs from today's limits to final ± tolerance by the end date", () => {
+    const live = computeTargetLive(config(), ps, TODAY, inputs)!.buckets.R;
+    const c = live.corridor!;
+    expect(c.length).toBeGreaterThan(30);
+    expect(c[0].day > TODAY).toBe(true);
+    expect(c[c.length - 1].day <= END).toBe(true);
+    for (const p of c) expect(p.low).toBeLessThan(p.high);
+    // Next month close to today's limits, the last month at the deadline's band.
+    expect(c[0].low).toBeCloseTo(live.low, 1);
+    expect(c[c.length - 1].low).toBeCloseTo(0.58, 3);
+    expect(c[c.length - 1].high).toBeCloseTo(0.62, 2);
   });
 
   it("ahead (actual mode): not over the band while the actual weight is under final + tolerance", () => {

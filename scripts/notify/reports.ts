@@ -29,7 +29,7 @@ import {
   positionsFromSummary,
   suggestionText,
 } from "../../src/lib/rebalance";
-import { isTargetMode, planReturnOf } from "../../src/lib/glidePath";
+import { isTargetMode, planReturnOf, requiredReturnText } from "../../src/lib/glidePath";
 import { benchmarkIndex, BENCHMARK, computeReturns, monthlyPerformance } from "../../src/lib/returns";
 import { computeIncomeByYear } from "../../src/lib/income";
 import { tbszExitScenarios, tbszStatus } from "../../src/lib/tbsz";
@@ -514,7 +514,7 @@ export function targetCheckLines(ctx: Context): string[] {
       continue;
     }
     const extra = [
-      c.requiredReturn != null ? `a célhoz évi ${p1(c.requiredReturn)} hozam kell` : "",
+      c.requiredReturn != null ? requiredReturnText(c.requiredReturn, p1) : "",
       c.alarmShock != null && c.alarmShock > 0 ? `riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél` : "",
     ].filter(Boolean);
     lines.push(

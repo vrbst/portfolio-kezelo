@@ -133,26 +133,30 @@ export function computeTargetLive(
   const tol = targetTolOf(cfg);
   const plan = planReturnOf(cfg);
 
+  /** The monthly projection to the last end date (none when it has passed). */
+  const pathOf = (st: AllocationState, r: number) =>
+    until <= day || st.totalHuf <= 0
+      ? []
+      : projectGlide({
+          cfg: base,
+          state: st,
+          instruments: inputs.instruments,
+          cashflows: inputs.cashflows,
+          savings: inputs.savings,
+          dcaGoals: inputs.dcaGoals,
+          budgetHuf: inputs.budgetHuf,
+          annualReturn: r,
+          today: day,
+          until,
+        }).points;
   /** Each bucket's projected weight on its own end date. */
   const project = (st: AllocationState, r: number): Map<string, number> => {
     const now = new Map(st.buckets.map((b) => [b.bucket.id, b.weight]));
-    if (until <= day || st.totalHuf <= 0) return now;
-    const p = projectGlide({
-      cfg: base,
-      state: st,
-      instruments: inputs.instruments,
-      cashflows: inputs.cashflows,
-      savings: inputs.savings,
-      dcaGoals: inputs.dcaGoals,
-      budgetHuf: inputs.budgetHuf,
-      annualReturn: r,
-      today: day,
-      until,
-    });
+    const points = pathOf(st, r);
     const out = new Map<string, number>();
     for (const b of cfg.buckets) {
       let w = now.get(b.id) ?? 0;
-      for (const pt of p.points) {
+      for (const pt of points) {
         if (pt.day > b.endDate) break;
         w = pt.weights[b.id] ?? w;
       }
@@ -194,13 +198,35 @@ export function computeTargetLive(
     const low = projectedMode ? lowP : Math.min(lowP, Math.max(0, F - tol));
     const high = projectedMode ? highP : Math.max(highP, Math.min(1, F + tol));
 
-    // Return of the growing part that lands exactly on the final weight.
+    // The band ahead: following the low (high) weight's projection, every
+    // later day's check lands on the same edge — so the edge of each day is
+    // that projection (with the actual-weight rule's floor / ceiling).
+    const endDate = cfg.buckets.find((b) => b.id === id)!.endDate;
+    const edge = (wt: number) =>
+      pathOf(stateOf(shifted(state0, id, wt - w)), plan).filter((pt) => pt.day <= endDate);
+    const hiPath = edge(highP);
+    const corridor = edge(lowP).map((pt, i) => {
+      const l = pt.weights[id] ?? 0;
+      const h = hiPath[i]?.weights[id] ?? l;
+      return {
+        day: pt.day,
+        low: projectedMode ? l : Math.min(l, Math.max(0, F - tol)),
+        high: projectedMode ? h : Math.max(h, Math.min(1, F + tol)),
+      };
+    });
+
+    // The lowest return of the growing part that still lands on the final
+    // weight. Arriving means reaching the plateau (within REACH_EPS), not F
+    // exactly — or a bucket that arrives at the plan return would show a far
+    // higher figure. None when even the range's floor arrives (any return
+    // does) or its ceiling does not.
     let requiredReturn: number | null = null;
     if (growthHuf(id) > 0 && until > day) {
       const f = (r: number) => project(state0, r).get(id) ?? 0;
       const rLo = -0.5;
       const rHi = 1;
-      if (f(rLo) <= F && f(rHi) >= F) requiredReturn = solveUp(f, F, rLo, rHi);
+      const goal = F - REACH_EPS;
+      if (f(rLo) < goal && f(rHi) >= goal) requiredReturn = solveUp(f, goal, rLo, rHi);
     }
 
     // The fall of the bucket's securities that would put it below its band.
@@ -233,6 +259,7 @@ export function computeTargetLive(
       projectedZero: projectedZero.get(id) ?? w,
       requiredReturn,
       alarmShock,
+      corridor,
     };
   }
   return { day, buckets };

@@ -23,6 +23,7 @@ import {
   type MonthlyAmount,
   type OutOfBandMode,
   type TargetLive,
+  requiredReturnText,
 } from "../lib/glidePath";
 import { glideMonthlyHuf } from "../lib/budget";
 import { useMonthlyBudget } from "../lib/store";
@@ -115,7 +116,7 @@ function TargetFields({
                 {" "}szükséges ma {pct1(c.target)} (sáv {pct1(c.low)}–{pct1(c.high)}) · várható{" "}
                 {b.endDate}-re {pct1(c.projected)} ({pct1(planReturnOf(draft))}/év) vagy{" "}
                 {pct1(c.projectedZero)} (hozam nélkül)
-                {c.requiredReturn != null && ` · a célhoz évi ${pct1(c.requiredReturn)} kell`}
+                {c.requiredReturn != null && ` · ${requiredReturnText(c.requiredReturn, pct1)}`}
                 {c.alarmShock != null && c.alarmShock > 0 && ` · riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél`}
               </li>
             );

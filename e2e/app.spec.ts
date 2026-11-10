@@ -882,6 +882,20 @@ test.describe("glide-path editor", () => {
     expect(await sidewaysOverflow(page), "elements wider than the screen").toEqual([]);
   });
 
+  test("target mode, saved: the chart draws the band ahead, not just today's", async ({ page }) => {
+    const errors = await openEditor(page);
+    const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
+    await mode.selectOption("target");
+    await page.getByRole("button", { name: /Mentés új verzióként/ }).click();
+    await expect(page.getByText(/ezen belül a határidőre/).first()).toBeVisible();
+    // The band is an area spanning the months ahead (today alone draws none).
+    const band = page.locator(".recharts-area-area").first();
+    await expect(band).toBeVisible();
+    const box = (await band.boundingBox())!;
+    expect(box.width, "band width").toBeGreaterThan(100);
+    expect(errors, "console / page errors").toEqual([]);
+  });
+
   test("target mode, privacy mode: nothing personal is readable", async ({ page }) => {
     await openEditor(page, true);
     const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
