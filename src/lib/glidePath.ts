@@ -299,6 +299,13 @@ export interface TargetBucketLive {
    * below its band today; null when no fall would (or it has no securities).
    */
   alarmShock: number | null;
+  /**
+   * The band ahead, monthly until the bucket's end date: the projection (at
+   * the plan return) from today's low / high weight — staying inside it, the
+   * deadline is still met within the tolerance. Starts at low / high and
+   * ends at final ∓ tolerance.
+   */
+  corridor?: { day: string; low: number; high: number }[];
 }
 
 export interface TargetLive {
@@ -310,6 +317,14 @@ export interface TargetLive {
 /** The final weights checked by projection to the end dates. */
 export function isTargetMode(cfg: GlideConfig): boolean {
   return cfg.pathMode === "target";
+}
+
+/**
+ * The required return as a phrase: what the growth has to bring, or — when
+ * the bucket is far enough ahead — how much of a fall it still arrives with.
+ */
+export function requiredReturnText(r: number, pct: (x: number) => string): string {
+  return r >= 0 ? `a célhoz évi ${pct(r)} hozam kell` : `a cél évi ${pct(-r)}-os csökkenéssel is teljesül`;
 }
 
 export function planReturnOf(cfg: GlideConfig): number {

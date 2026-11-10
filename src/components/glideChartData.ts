@@ -97,6 +97,27 @@ export function previewRows(
 }
 
 /**
+ * "target" mode: the months ahead with the expected weights and the band of
+ * the day's check (its corridor: staying inside it the deadline is met). No
+ * path target — the mode has none.
+ */
+export function targetFutureRows(
+  days: string[],
+  corridor: { day: string; low: number; high: number }[] | undefined,
+  projZero: (day: string) => number | undefined,
+  projReal: (day: string) => number | undefined,
+): Row[] {
+  const band = new Map((corridor ?? []).map((c) => [c.day, [c.low, c.high] as [number, number]]));
+  return days.map((day) => ({
+    ts: dayTs(day),
+    day,
+    band: band.get(day),
+    projZero: projZero(day),
+    projReal: projReal(day),
+  }));
+}
+
+/**
  * The history from the first day the charted bucket was neither empty nor
  * the whole portfolio: before that the allocation was still being built (one
  * holding at 100%, the other at 0%), which only squashes the chart. Only the

@@ -16,6 +16,7 @@ import type { ValuePoint } from "./series";
 import type { DayChange } from "./store";
 import type { BondAdvice, BondMarket } from "./bondSwitch";
 import type { RefillProgress } from "./refill";
+import { requiredReturnText } from "./glidePath";
 // The SDK is loaded on first use (dynamic import → its own chunk), so it
 // doesn't weigh on the app's startup; only the types are static.
 type AnthropicSdk = typeof import("@anthropic-ai/sdk").default;
@@ -470,7 +471,7 @@ export function buildAiPortfolioContext(
       if (b.check) {
         // "target" mode: no path — the check whether the final weight is still reached.
         lines.push(
-          `- ${b.bucket.name}: tény ${pct(b.weight)}, a határidős célhoz szükséges mai arány ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig; várható akkor ${pct(b.check.projected)} a tervezési hozammal, ${pct(b.check.projectedZero)} hozam nélkül${b.check.requiredReturn != null ? `; a célhoz évi ${pct(b.check.requiredReturn)} részvényhozam kell` : ""}`,
+          `- ${b.bucket.name}: tény ${pct(b.weight)}, a határidős célhoz szükséges mai arány ${pct(b.target)} (sáv ${pct(b.low)}–${pct(b.high)}, ${status[b.status]}), végső cél ${pct(b.bucket.finalWeight)} ${b.bucket.endDate}-ig; várható akkor ${pct(b.check.projected)} a tervezési hozammal, ${pct(b.check.projectedZero)} hozam nélkül${b.check.requiredReturn != null ? `; ${requiredReturnText(b.check.requiredReturn, pct)}` : ""}`,
         );
         continue;
       }

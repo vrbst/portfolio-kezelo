@@ -393,7 +393,7 @@ export default function GlidePathChart({
         {!targetMode && <LegendItem color={CHART.text} dash="5 4" label="pálya (ehhez mér a riasztás)" />}
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-4 rounded-sm" style={{ background: color, opacity: 0.25 }} />
-          {targetMode ? "mai sáv (szükséges arány ± tűrés)" : "sáv"}
+          {targetMode ? "sáv (ezen belül a határidőre a cél ± tűrés elérhető)" : "sáv"}
         </span>
         {markers.map((m) => (
           <span key={m.kind} className="flex items-center gap-1.5">
