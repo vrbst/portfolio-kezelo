@@ -318,8 +318,8 @@ export default function GlidePathChart({
   /** The bucket's name, for the legend when mirrored. */
   name?: string;
   /**
-   * "target" mode: the band is today's only (no drawn path), and the line
-   * with the plan return is what the alert measures against.
+   * "target" mode: the path is the required weight ahead (the band's
+   * middle); the dotted line with the plan return is only informative.
    */
   targetMode?: { planReturn: number };
 }) {
@@ -390,10 +390,14 @@ export default function GlidePathChart({
           </span>
         )}
         {goal != null && <LegendItem color={CHART.highlight} label="végső cél" />}
-        {!targetMode && <LegendItem color={CHART.text} dash="5 4" label="pálya (ehhez mér a riasztás)" />}
+        <LegendItem
+          color={CHART.text}
+          dash="5 4"
+          label={targetMode ? "szükséges arány (a sáv közepe)" : "pálya (ehhez mér a riasztás)"}
+        />
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-4 rounded-sm" style={{ background: color, opacity: 0.25 }} />
-          {targetMode ? "sáv (ezen belül a határidőre a cél ± tűrés elérhető)" : "sáv"}
+          {targetMode ? "sáv (ezen kívül rebalansz)" : "sáv"}
         </span>
         {markers.map((m) => (
           <span key={m.kind} className="flex items-center gap-1.5">
@@ -422,7 +426,7 @@ export default function GlidePathChart({
             opacity={0.55}
             label={
               targetMode
-                ? `várható, évi ${(targetMode.planReturn * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}% hozammal (ehhez mér a riasztás)`
+                ? `várható a mai állásból, évi ${(targetMode.planReturn * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}% hozammal`
                 : "várható, hozammal (tájékoztató)"
             }
           />

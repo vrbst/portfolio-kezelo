@@ -28,6 +28,7 @@ import {
   withAssignments,
   type GlideConfig,
   requiredReturnText,
+  alarmText,
 } from "../lib/glidePath";
 import {
   bandBaseNote,
@@ -518,9 +519,7 @@ export default function GlidePathSettings() {
                       {" "}· várható {pct(b.check.projected)} (évi {pct(planReturnOf(cfg!))} hozammal),{" "}
                       {pct(b.check.projectedZero)} hozam nélkül
                       {b.check.requiredReturn != null && ` · ${requiredReturnText(b.check.requiredReturn, pct)}`}
-                      {b.check.alarmShock != null &&
-                        b.check.alarmShock > 0 &&
-                        ` · riasztás kb. ${Math.round(b.check.alarmShock * 100)}%-os esésnél`}
+                      {alarmText(b.check) && ` · ${alarmText(b.check)}`}
                     </>
                   )}
                 </div>
@@ -619,7 +618,7 @@ export default function GlidePathSettings() {
                     A végső célsúlyok elérése ±{(REACH_TOLERANCE * 100).toLocaleString("hu-HU")}{" "}
                     százalékpontos pontossággal.{" "}
                     {target
-                      ? "Célelérés: a halvány vonal a tervezési hozammal számolt vetítés, a riasztás ehhez mér; a sáv a mai napra szól. "
+                      ? "Célelérés: a szaggatott vonal a szükséges arány (ebből a befizetés és a tervezési hozam a határidőre pont a célba visz), a sáv körülötte ± a beállított sáv; ha a tényleges arány kilép belőle, rebalansz. A halvány pontozott vonal a mai állásból várható arány. "
                       : inflows
                         ? "A pálya a mentéskor számolt, csak befizetésből vonal; a sáv ehhez mér, frissíteni új mentéssel lehet. "
                         : ""}

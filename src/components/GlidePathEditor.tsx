@@ -7,9 +7,9 @@ import {
   isInflowMode,
   isTargetMode,
   planReturnOf,
-  targetTolOf,
+  targetBandOf,
   DEFAULT_PLAN_RETURN,
-  DEFAULT_TARGET_TOL,
+  DEFAULT_TARGET_BAND,
   isCashKey,
   cashCurrency,
   DEFAULT_QTY_DECIMALS,
@@ -24,6 +24,7 @@ import {
   type OutOfBandMode,
   type TargetLive,
   requiredReturnText,
+  alarmText,
 } from "../lib/glidePath";
 import { glideMonthlyHuf } from "../lib/budget";
 import { useMonthlyBudget } from "../lib/store";
@@ -51,9 +52,8 @@ const LABEL = "text-xs text-[var(--color-muted)]";
 const pct1 = (v: number) => `${(v * 100).toLocaleString("hu-HU", { maximumFractionDigits: 1 })}%`;
 
 /**
- * "target" mode settings — the plan return, the tolerance, a bucket running
- * ahead — and today's check of the draft, so the effect of each number shows
- * while it is typed.
+ * "target" mode settings — the plan return and the band — and today's check
+ * of the draft, so the effect of each number shows while it is typed.
  */
 function TargetFields({
   draft,
@@ -80,29 +80,16 @@ function TargetFields({
           <span className={LABEL}>%/év</span>
         </label>
         <label className="flex items-center gap-1.5">
-          <span className={LABEL} title="Ennyivel maradhat el (vagy futhat túl) a várható arány a végső céltól, mielőtt riaszt.">
-            Tűrés ±
+          <span className={LABEL} title="Ennyivel térhet el a tényleges arány a mai szükséges aránytól bármelyik irányba, mielőtt rebalanszot jelez (mint egy fix arányos portfólió sávja).">
+            Sáv ±
           </span>
           <PctInput
-            value={draft.targetTolPp}
-            placeholder={String(DEFAULT_TARGET_TOL * 100)}
+            value={draft.targetBandPp}
+            placeholder={String(DEFAULT_TARGET_BAND * 100)}
             className="w-16"
-            onChange={(targetTolPp) => setDraft((d) => ({ ...d, targetTolPp }))}
+            onChange={(targetBandPp) => setDraft((d) => ({ ...d, targetBandPp }))}
           />
-          <span className={LABEL}>%pont</span>
-        </label>
-        <label className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className={LABEL}>Ha egy csoport előrébb jár</span>
-          <select
-            className={`${INPUT} min-w-0`}
-            value={draft.aheadMode ?? "actual"}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, aheadMode: e.target.value === "projected" ? "projected" : "actual" }))
-            }
-          >
-            <option value="actual">a pénz a tényleges célig oda megy</option>
-            <option value="projected">a vetítés szerint előbb máshová</option>
-          </select>
+          <span className={LABEL}>%pont a szükséges arány körül</span>
         </label>
       </div>
       {live && (
@@ -117,11 +104,14 @@ function TargetFields({
                 {b.endDate}-re {pct1(c.projected)} ({pct1(planReturnOf(draft))}/év) vagy{" "}
                 {pct1(c.projectedZero)} (hozam nélkül)
                 {c.requiredReturn != null && ` · ${requiredReturnText(c.requiredReturn, pct1)}`}
-                {c.alarmShock != null && c.alarmShock > 0 && ` · riasztás kb. ${Math.round(c.alarmShock * 100)}%-os esésnél`}
+{alarmText(c) && ` · ${alarmText(c)}`}
               </li>
             );
           })}
-          <li>Tűrés a határidőn: ±{pct1(targetTolOf(draft))}.</li>
+          <li>
+            Rebalansz, ha a tényleges arány ±{pct1(targetBandOf(draft))}-nál többel eltér a szükséges aránytól; a
+            határidőn a sáv a végső cél ±{pct1(targetBandOf(draft))}.
+          </li>
         </ul>
       )}
     </div>
@@ -518,7 +508,7 @@ export default function GlidePathEditor({
               });
             }}
           >
-            <option value="target">Célelérés: a határidőre elérem-e (javasolt)</option>
+            <option value="target">Célelérés: mozgó cél, rebalansz sávval (javasolt)</option>
             <option value="inflows">A befizetésekből számolva</option>
             <option value="calendar">Naptár szerint (kézi kezdő és záró dátum)</option>
           </select>

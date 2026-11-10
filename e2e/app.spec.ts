@@ -873,7 +873,7 @@ test.describe("glide-path editor", () => {
     const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
     await mode.selectOption("target");
     await expect(page.getByText("Tervezési hozam").first()).toBeVisible();
-    await expect(page.getByText("Tűrés ±").first()).toBeVisible();
+    await expect(page.getByText("Sáv ±").first()).toBeVisible();
     await expect(page.getByText(/Határidő \(eddigre/).first()).toBeVisible();
     await expect(page.getByText("Pálya (kezdő → záró dátum)").first()).toBeHidden();
     await expect(page.getByText(/szükséges ma/).first()).toBeVisible();
@@ -887,7 +887,7 @@ test.describe("glide-path editor", () => {
     const mode = page.locator("select").filter({ has: page.locator('option[value="target"]') });
     await mode.selectOption("target");
     await page.getByRole("button", { name: /Mentés új verzióként/ }).click();
-    await expect(page.getByText(/ezen belül a határidőre/).first()).toBeVisible();
+    await expect(page.getByText(/ezen kívül rebalansz/).first()).toBeVisible();
     // The band is an area spanning the months ahead (today alone draws none).
     const band = page.locator(".recharts-area-area").first();
     await expect(band).toBeVisible();
