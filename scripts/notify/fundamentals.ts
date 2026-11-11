@@ -129,6 +129,28 @@ function parsePrevious(text: string): FundamentalsFile | null {
 
 const shortErr = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
+/**
+ * The held papers the file knows nothing about: neither data nor an error. A
+ * run records one or the other for every paper, so these are new ones (the
+ * daily job has not seen them yet). A missing file counts as knowing nothing;
+ * a failed or unreadable read says nothing, so it names no paper (otherwise a
+ * broken store would start the job on every tick).
+ */
+export async function unseenByFundamentals(
+  targets: { key: string }[],
+  store: NewsStore,
+): Promise<string[]> {
+  let text: string | null;
+  try {
+    text = await store.read(FUNDAMENTALS_PATH);
+  } catch {
+    return [];
+  }
+  const prev = text ? parsePrevious(text) : null;
+  if (text && !prev) return [];
+  return targets.filter((t) => !prev?.items[t.key] && !prev?.errors[t.key]).map((t) => t.key);
+}
+
 export async function refreshFundamentals(
   targets: FundamentalsTarget[],
   deps: FundamentalsDeps,
