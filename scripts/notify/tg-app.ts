@@ -65,7 +65,7 @@ import {
   type LiveQuote,
   type SymbolQuote,
 } from "../../src/lib/prices";
-import { refreshFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
+import { refreshFundamentals, unseenByFundamentals, yahooFetcher, type FundamentalsDeps } from "./fundamentals";
 import { refreshOutlook, type OutlookDeps, type OutlookTarget } from "./outlook/refresh";
 import { fetchImpliedBands } from "./outlook/optionsImplied";
 import { OUTLOOK_AI_SCHEMA } from "./outlook/aiViews";
@@ -1139,6 +1139,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
     whyTaken: cur.whyTaken,
     whyFailing: cur.whyFailing,
   }));
+  await startJobsForNewPapers(ctx, deps);
   const request = st.why?.request?.at;
   if (request && request !== asked && deps.runJob)
     try {
@@ -1156,7 +1157,10 @@ const QUOTED_TYPES = new Set(["etf", "stock", "fund"]);
 
 /** The held, quoted papers (what fundamentals and the outlook look at). */
 async function heldTargets(deps: Deps): Promise<{ targets: OutlookTarget[]; at: Date }> {
-  const ctx = await deps.load();
+  return heldTargetsOf(await deps.load());
+}
+
+function heldTargetsOf(ctx: Context): { targets: OutlookTarget[]; at: Date } {
   const targets = consolidatedHoldings(ctx.summary)
     .filter((h) => h.quantity > 1e-9 && h.instrument && QUOTED_TYPES.has(h.instrument.type))
     .map((h) => ({
@@ -1167,6 +1171,28 @@ async function heldTargets(deps: Deps): Promise<{ targets: OutlookTarget[]; at: 
       type: h.instrument!.type as OutlookTarget["type"],
     }));
   return { targets, at: ctx.at };
+}
+
+/**
+ * A paper just imported has no fundamentals or outlook until the daily jobs
+ * (06:40, 06:50) next run. When the fundamentals file knows nothing about a
+ * held paper, start both jobs now; afterwards only the daily refresh runs.
+ * Both jobs record data or an error for every paper, so this fires once per
+ * new paper (an unreachable Yahoo ends up as a recorded error, not a retry
+ * every five minutes).
+ */
+async function startJobsForNewPapers(ctx: Context, deps: Deps): Promise<void> {
+  if (!deps.fundamentals || !deps.runJob) return;
+  try {
+    const { targets } = heldTargetsOf(ctx);
+    const fresh = await unseenByFundamentals(targets, deps.fundamentals().store);
+    if (!fresh.length) return;
+    console.error(`new paper(s) ${fresh.join(", ")}: starting fundamentals and outlook`);
+    await deps.runJob(FUNDAMENTALS_JOB);
+    if (deps.outlook) await deps.runJob(OUTLOOK_JOB);
+  } catch (e) {
+    console.error("new paper: job start failed:", (e as Error).message);
+  }
 }
 
 async function fundamentalsJob(deps: Deps): Promise<HubResponse> {

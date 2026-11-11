@@ -1151,6 +1151,45 @@ describe("schedule.app.json: the outlook jobs", () => {
   });
 });
 
+describe("a newly imported paper", () => {
+  const yahoo = {
+    quoteSummary: { result: [{ price: { quoteType: "EQUITY", currency: "USD" }, summaryDetail: {} }], error: null },
+  };
+  const setup = () => {
+    const store = memoryStore();
+    const started: string[] = [];
+    const deps: Deps = {
+      ...depsFor(() => contextAt(WED)),
+      fundamentals: () => ({ store, resolve: async () => "X", fetch: async () => yahoo }),
+      outlook: () => ({ store }) as never,
+      runJob: async (job) => {
+        started.push(job);
+        return "started";
+      },
+    };
+    return { deps, started };
+  };
+
+  it("starts the fundamentals and outlook jobs at once; after the daily-job run the next ticks start nothing", async () => {
+    const { deps, started } = setup();
+    await call(jobReq(), deps);
+    expect(started).toEqual(["fundamentals", "outlook"]);
+
+    await call(jobReq("fundamentals"), deps);
+    started.length = 0;
+    await call(jobReq(), deps);
+    expect(started).toEqual([]);
+  });
+
+  it("a paper whose download failed has an error recorded: it is not started again every tick", async () => {
+    const { deps, started } = setup();
+    const failing: Deps = { ...deps, fundamentals: () => ({ ...deps.fundamentals!(), fetch: async () => Promise.reject(new Error("401")) }) };
+    await call(jobReq("fundamentals"), failing);
+    await call(jobReq(), failing);
+    expect(started).toEqual([]);
+  });
+});
+
 describe("the hub request binds the AI calls' run_id", () => {
   it("runHandler hands every parsed request (its id is the run_id) to bindRequest before handling it", async () => {
     const seen: { id: string; type: string; job?: string }[] = [];

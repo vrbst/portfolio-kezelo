@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseQuoteSummary, refreshFundamentals, type FundamentalsTarget } from "./fundamentals";
+import { parseQuoteSummary, refreshFundamentals, unseenByFundamentals, type FundamentalsTarget } from "./fundamentals";
 import { memoryStore } from "./news/testFakes";
 import { FUNDAMENTALS_PATH, sectorExposure, validateFundamentalsFile, type FundamentalsFile } from "../../src/lib/fundamentals";
 
@@ -150,6 +150,29 @@ describe("refreshFundamentals", () => {
       "a Yahoo crumb-kérés nem sikerült (429)",
       "a Yahoo crumb-kérés nem sikerült (429)",
     ]);
+  });
+});
+
+describe("unseenByFundamentals", () => {
+  const known = { v: 1, updatedAt: "2026-10-09T05:00:00.000Z", items: {}, errors: {} };
+  const withFile = (items: object, errors: object) =>
+    memoryStore({ [FUNDAMENTALS_PATH]: JSON.stringify({ ...known, items, errors }) });
+  const targets = [{ key: "A" }, { key: "B" }, { key: "C" }];
+  const item = { symbol: "A", fetchedAt: "2026-10-09T05:00:00.000Z" };
+
+  it("names the papers with neither data nor an error (a paper just imported)", async () => {
+    const store = withFile({ A: item }, { B: { since: "2026-10-01T05:00:00.000Z", message: "401" } });
+    expect(await unseenByFundamentals(targets, store)).toEqual(["C"]);
+  });
+
+  it("no file yet: every paper is unseen", async () => {
+    expect(await unseenByFundamentals(targets, memoryStore())).toEqual(["A", "B", "C"]);
+  });
+
+  it("a failed or damaged read names nothing, so a broken store cannot start the job on every tick", async () => {
+    const broken = { read: async () => Promise.reject(new Error("503")), write: async () => {} };
+    expect(await unseenByFundamentals(targets, broken)).toEqual([]);
+    expect(await unseenByFundamentals(targets, memoryStore({ [FUNDAMENTALS_PATH]: "{csonka" }))).toEqual([]);
   });
 });
 
