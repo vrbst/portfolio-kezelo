@@ -89,8 +89,13 @@
     {
       "name": "koltseg",
       "description": "AI-futások token- és $-felhasználása (7 és 30 nap)"
+    },
+    {
+      "name": "uj",
+      "description": "Új beszélgetés az AI-val (minden más szöveg kérdés a portfóliódról)"
     }
   ],
+  "freeText": true,
   "quietHours": {
     "from": "22:00",
     "to": "08:00"

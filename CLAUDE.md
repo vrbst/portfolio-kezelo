@@ -63,3 +63,13 @@
   `-- -Status` / `-- -Remove`). A végleges mappából telepítsd, ne worktree-ből. Ez folyamatos szerver, nem job, ezért nem a schedulerben van.
 - A chat és az árfolyam-kilátás továbbra is a saját API-kulccsal megy (böngészős kivétel, lásd a közös CONVENTIONS).
 - Chrome a nyilvános oldalról (GitHub Pages) a loopbackre először engedélyt kérhet („helyi hálózat elérése”): egyszer engedélyezni kell.
+
+## Telegram-beszélgetés a portfólióról (szabad szöveg)
+- Minden nem-parancs üzenet (`tg-hub.app.json` `freeText: true`) kérdés az AI-nak, a my-claude-hubon át (Opus, WebSearch/WebFetch; modell: `CHAT_MODEL`).
+  Kivétel: a `/maradek` utáni várt összeg (`expectText`). `/uj` új beszélgetést kezd.
+- A válasz percekig tart, a kezelő 60 s-os, ezért a kezelő csak eltárolja a kérdést (`.notify/chat.json`, külön fájl, nem a `state.json`: a tick felülírná),
+  elindítja a `chat` jobot (`runJob`) és nyugtáz; a job küldi a választ. Kódja: `scripts/notify/chat/` (`store`, `prompt`, `job`).
+- A hubnak nincs session-je: minden körben a teljes pillanatkép (`analysisContext`) + az utolsó ≤20 üzenet megy a promptba. 60 perc csend után új beszélgetés.
+- A `chat` jobnak az ütemező miatt kell `every`; a 10 perces futás csak pótlás (nincs függő kérdés → üres). A függő kérdés 25 percig él.
+- Hibánál a felhasználó a hub `error.code`-ja szerinti üzenetet kapja (kvóta → mikor nullázódik), a függő kérdés mindig törlődik.
+- Éles használathoz: `tg-hub restart` és `scheduler restart` (a leírók változtak).
