@@ -253,6 +253,26 @@ export function buildFxHistory(txs: Transaction[]): FxHistory {
   return map;
 }
 
+/** Derive a fallback EUR->HUF rate from the latest conversion legs. */
+export function deriveFx(txs: Transaction[]): Record<string, number> {
+  const fx: Record<string, number> = {};
+  for (const [ccy, points] of buildFxHistory(txs)) {
+    const last = points[points.length - 1];
+    if (last) fx[ccy] = last.rate;
+  }
+  const eurLegs = txs
+    .filter(
+      (t) =>
+        t.type === "conversion" &&
+        t.currency === "EUR" &&
+        typeof t.fxRate === "number" &&
+        t.fxRate > 1,
+    )
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (eurLegs[0]?.fxRate) fx["EUR"] = eurLegs[0].fxRate;
+  return fx;
+}
+
 /** Rate in effect at `date`: the latest conversion on/before it (else nearest). */
 export function histFxRate(
   history: FxHistory | undefined,
@@ -271,6 +291,21 @@ export function histFxRate(
     return chosen.rate;
   }
   return fx[ccy] ?? 1; // no conversion history — fall back to current rate
+}
+
+/**
+ * HUF value of an external deposit / withdrawal, at the rate of ITS OWN day
+ * (the latest conversion on/before it), not today's: a past EUR deposit must
+ * not change its forint value as the exchange rate moves — that would show up
+ * as a phantom cash flow in the net deposit, XIRR and TWR.
+ */
+export function externalFlowHuf(
+  t: Transaction,
+  fx: Record<string, number>,
+  fxHistory: FxHistory | undefined,
+): number {
+  const amt = Math.abs(t.netAmount ?? t.grossAmount ?? 0);
+  return t.currency === "HUF" ? amt : amt * histFxRate(fxHistory, t.currency, t.date, fx);
 }
 
 export function computeAccountSummary(
@@ -529,18 +564,8 @@ export function computeAccountSummary(
   for (const t of accountTxs) {
     if (t.internal) continue;
     if (isInternalTransfer(t)) continue; // internal — not external capital
-    if (t.type === "deposit")
-      netDepositedHuf += toHuf(
-        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-        t.currency,
-        fx,
-      );
-    if (t.type === "withdrawal")
-      netDepositedHuf -= toHuf(
-        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-        t.currency,
-        fx,
-      );
+    if (t.type === "deposit") netDepositedHuf += externalFlowHuf(t, fx, history);
+    if (t.type === "withdrawal") netDepositedHuf -= externalFlowHuf(t, fx, history);
   }
 
   const cashValueHuf = Object.entries(cash).reduce(

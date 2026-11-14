@@ -4,8 +4,8 @@ import type { Account, Instrument, Transaction } from "./model";
 import type { ParsedImport } from "./parsers";
 import { matchExisting } from "./parsers/match";
 import {
-  buildFxHistory,
   computePortfolio,
+  deriveFx,
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
@@ -62,6 +62,7 @@ import {
   pruneAlertState,
   unionIds,
   unionSnapshots,
+  mergeTransactions,
   unionAccounts,
   keepLocalRaw,
 } from "./syncMerge";
@@ -215,26 +216,6 @@ function savePrivacy(v: boolean) {
   }
 }
 
-/** Derive a fallback EUR->HUF rate from the latest conversion legs. */
-function deriveFx(txs: Transaction[]): Record<string, number> {
-  const fx: Record<string, number> = {};
-  for (const [ccy, points] of buildFxHistory(txs)) {
-    const last = points[points.length - 1];
-    if (last) fx[ccy] = last.rate;
-  }
-  const eurLegs = txs
-    .filter(
-      (t) =>
-        t.type === "conversion" &&
-        t.currency === "EUR" &&
-        typeof t.fxRate === "number" &&
-        t.fxRate > 1,
-    )
-    .sort((a, b) => b.date.localeCompare(a.date));
-  if (eurLegs[0]?.fxRate) fx["EUR"] = eurLegs[0].fxRate;
-  return fx;
-}
-
 /**
  * Layer prices by freshness: committed snapshot < live quotes < manual override
  * (later wins). Live fills in fresh intraday values over the committed
@@ -334,10 +315,9 @@ async function mergeSnapshot(
 ): Promise<number> {
   const s = get();
 
-  const txById = new Map(s.transactions.map((t) => [t.id, t]));
-  for (const t of snap.transactions ?? []) {
-    if (!txById.has(t.id)) txById.set(t.id, t);
-  }
+  // Local wins per id, except a remote "redemption" replaces a local
+  // "interest" row (the import's rewrite must propagate — see mergeTransactions).
+  const mergedTxs = mergeTransactions(snap.transactions, s.transactions);
 
   // Remote wins so instrument edits (e.g. bond series terms) propagate across
   // devices, mirroring the account-merge policy below.
@@ -360,7 +340,7 @@ async function mergeSnapshot(
     removedIds: removedAccountIds,
   } = dropDeletedAccounts(
     mergedAccounts,
-    [...txById.values()],
+    mergedTxs,
     deletedAccounts,
   );
   const localTxIds = new Set(s.transactions.map((t) => t.id));

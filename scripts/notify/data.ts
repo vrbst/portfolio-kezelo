@@ -3,7 +3,7 @@
 // the app's own pure lib functions in Node.
 
 import type { Instrument, Transaction } from "../../src/lib/model";
-import { getRepoFile, type PortfolioSnapshot } from "../../src/lib/sync";
+import { getRepoFile, validateSnapshot, type PortfolioSnapshot } from "../../src/lib/sync";
 import { OUTLOOK_PATH, validateOutlookFile, type OutlookFile } from "../../src/lib/outlook";
 import { loadForecastSettings, monthlyBudgetHuf } from "../../src/lib/forecast";
 import {
@@ -11,6 +11,7 @@ import {
   bondImportReminders,
   buildValueSeries,
   computeDayChange,
+  deriveFx,
   type DayChange,
   type PortfolioSummary,
   type PriceMap,
@@ -166,13 +167,17 @@ async function fetchJson<T>(
 }
 
 async function loadSnapshot(env: NotifyEnv): Promise<PortfolioSnapshot> {
-  return fetchJson<PortfolioSnapshot>(
-    `https://api.github.com/repos/${env.syncRepo}/contents/${env.syncPath}`,
-    {
-      Authorization: `Bearer ${githubToken()}`,
-      Accept: "application/vnd.github.raw+json",
-      "User-Agent": "portfolio-notify",
-    },
+  // The same check as the app: a damaged or newer-version file stops the load
+  // (tolerated as a load error) instead of producing wrong numbers.
+  return validateSnapshot(
+    await fetchJson<PortfolioSnapshot>(
+      `https://api.github.com/repos/${env.syncRepo}/contents/${env.syncPath}`,
+      {
+        Authorization: `Bearer ${githubToken()}`,
+        Accept: "application/vnd.github.raw+json",
+        "User-Agent": "portfolio-notify",
+      },
+    ),
   );
 }
 
@@ -326,7 +331,15 @@ export function buildContext(input: ContextInput): Context {
   for (const [k, e] of Object.entries(priceFile?.prices ?? {}))
     if (typeof e?.price === "number") prices.set(k, e.price);
   for (const [k, q] of Object.entries(priceQuotes)) prices.set(k, q.price);
-  const fx: Record<string, number> = { ...(priceFile?.fx ?? {}) };
+  // Weakest first, like the app: rate implied by the conversions < last daily
+  // close in history.json < the committed price file < live quote. Without the
+  // two weaker layers a missing source values EUR holdings at 1 HUF/EUR.
+  const fx: Record<string, number> = { ...deriveFx(transactions) };
+  for (const [ccy, series] of Object.entries(history?.fx ?? {})) {
+    const last = series[series.length - 1]?.[1];
+    if (typeof last === "number" && last > 0) fx[ccy] = last;
+  }
+  Object.assign(fx, priceFile?.fx ?? {});
   for (const [k, q] of Object.entries(fxQuotes)) fx[k] = q.price;
 
   const summary = computePortfolio(accounts, transactions, instMap, prices, fx, at);
@@ -337,6 +350,7 @@ export function buildContext(input: ContextInput): Context {
     prices,
     fx,
     history,
+    at,
   );
   const dayChange = computeDayChange(
     series,
@@ -471,7 +485,7 @@ export function buildContext(input: ContextInput): Context {
       prices,
       fx,
     ),
-    ...bondImportAlerts(bondImportReminders(summary, transactions)),
+    ...bondImportAlerts(bondImportReminders(summary, transactions, at)),
     ...(loadCashflowSettings().remind ? cashflowImportAlerts(loadCashflow(), day) : []),
     ...incomeAlerts(income),
     ...reserveConflictAlerts(reserveConflicts(savingsGoals, transactions, instMap, fx)),

@@ -1,8 +1,22 @@
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, anthropic-version',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
+// Csak az app (GitHub Pages) és a helyi fejlesztői szerverek hívhatják böngészőből.
+const ALLOWED_ORIGINS = new Set([
+  'https://vrbst.github.io',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:4173',
+]);
+
+function corsFor(request) {
+  const cors = {
+    'Access-Control-Allow-Headers': 'Content-Type, x-api-key, anthropic-version',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    Vary: 'Origin',
+  };
+  const origin = request.headers.get('Origin');
+  if (origin && ALLOWED_ORIGINS.has(origin)) cors['Access-Control-Allow-Origin'] = origin;
+  return cors;
+}
 
 // Csak ezek a hostok proxyzhatók — megakadályozza, hogy idegenek abuse-olják a Workert
 const ALLOWED_HOSTS = new Set([
@@ -23,13 +37,13 @@ const ALLOWED_HOSTS = new Set([
 
 export default {
   async fetch(request) {
+    const CORS = corsFor(request);
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
 
     const url = new URL(request.url);
     const target = url.searchParams.get('url');
-    const apikey = url.searchParams.get('apikey');
     if (!target) return new Response('Missing url param', { status: 400, headers: CORS });
 
     // Host allowlist ellenőrzés
@@ -54,13 +68,14 @@ export default {
     // Anthropic-specifikus header-ek csak az Anthropic-ra:
     if (isAnthropic) {
       headers['anthropic-version'] = '2023-06-01';
-      if (apikey) headers['x-api-key'] = apikey;
-      else if (request.headers.get('x-api-key')) headers['x-api-key'] = request.headers.get('x-api-key');
+      // A kulcs csak fejlécben jöhet (URL-paraméterben a naplóba kerülne).
+      if (request.headers.get('x-api-key')) headers['x-api-key'] = request.headers.get('x-api-key');
     }
 
     if (request.headers.get('content-type')) headers['content-type'] = request.headers.get('content-type');
 
-    const init = { headers };
+    // Az átirányítást nem követjük: egy engedélyezett host nem terelhet át nem engedélyezettre.
+    const init = { headers, redirect: 'manual' };
     if (request.method === 'POST') {
       init.method = 'POST';
       init.body = await request.text();

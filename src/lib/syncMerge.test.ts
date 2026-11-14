@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PortfolioSnapshot } from "./sync";
 import type { Account, Transaction } from "./model";
-import { keepLocalRaw, unionSnapshots } from "./syncMerge";
+import { keepLocalRaw, mergeTransactions, unionSnapshots } from "./syncMerge";
 import { mergePrefs, type SyncedPrefs } from "./prefs";
 import { mergeNewsSeen } from "./newsSeen";
 
@@ -134,5 +134,29 @@ describe("newsSeen pref", () => {
       expect(out).toContain(key(26));
       expect(out).not.toContain(key(1));
     }
+  });
+});
+
+describe("tranzakció átírása a szinkronban (kamat → beváltás)", () => {
+  const tx = (type: Transaction["type"]): Transaction =>
+    ({
+      id: "t1",
+      accountId: "a",
+      instrumentKey: "k",
+      date: "2026-05-01T00:00:00.000",
+      type,
+      reference: "ref",
+    }) as Transaction;
+
+  it("feltöltéskor a beváltás nyer a kamat felett, bármelyik oldalon van", () => {
+    const withRedemption = snap({ transactions: [tx("redemption")] });
+    const withInterest = snap({ transactions: [tx("interest")] });
+    expect(unionSnapshots(withRedemption, withInterest).transactions[0].type).toBe("redemption");
+    expect(unionSnapshots(withInterest, withRedemption).transactions[0].type).toBe("redemption");
+  });
+
+  it("letöltéskor a távoli beváltás átírja a helyi kamatot, fordítva nem", () => {
+    expect(mergeTransactions([tx("interest")], [tx("redemption")])[0].type).toBe("redemption");
+    expect(mergeTransactions([tx("redemption")], [tx("interest")])[0].type).toBe("redemption");
   });
 });

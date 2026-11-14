@@ -18,6 +18,9 @@ const fix = (key: string, firstCouponDate: string, maturity: string): Instrument
 });
 
 const FIX = fix("FIX", "2026-01-23", "2031-10-23");
+// The same series with a coupon on a working day (21 Oct 2026, Wednesday): the
+// 23rd is a public holiday, so there the valuation rolls on to Monday.
+const FIX21 = fix("FIX21", "2026-01-21", "2031-10-21");
 
 const at = (y: number, m: number, d: number, h = 10) => new Date(y, m - 1, d, h).toISOString();
 let n = 0;
@@ -37,12 +40,23 @@ describe("presumed coupon until the statement is imported", () => {
   const txs = [deposit, buy("FIX")];
 
   it("the 16:00 roll to the coupon day does not drop the position's value", () => {
-    // Thu 22 Oct 2026: before 16:00 the accrual is still the quarter's 91/92,
+    // Tue 20 Oct 2026: before 16:00 the accrual is still the quarter's 91/92,
     // after it the valuation day is the coupon day and the accrual restarts.
-    const before = summary(FIX, txs, new Date(2026, 9, 22, 15, 59));
-    const after = summary(FIX, txs, new Date(2026, 9, 22, 16, 1));
+    const t = [deposit, buy("FIX21")];
+    const before = summary(FIX21, t, new Date(2026, 9, 20, 15, 59));
+    const after = summary(FIX21, t, new Date(2026, 9, 20, 16, 1));
     expect(Math.abs(total(after) - total(before))).toBeLessThan(500);
     expect(after.cashValueHuf).toBeCloseTo(17_500, 6);
+  });
+
+  it("a coupon on a public holiday (23 Oct): the valuation day is the Monday after", () => {
+    // Thu 22 Oct 16:01 → Fri 23 is a holiday, then the weekend: Monday 26 Oct,
+    // so the new quarter has accrued 3 days by then.
+    const after = summary(FIX, txs, new Date(2026, 9, 22, 16, 1));
+    const threeDays = 1_000_000 * 0.0175 * (3 / 92);
+    expect(after.cashValueHuf).toBeCloseTo(17_500, 6);
+    // (± a few forints: the clocks change back on 25 Oct, the day count is by ms)
+    expect(Math.abs(total(after) - (1_017_500 + threeDays))).toBeLessThan(15);
   });
 
   it("the presumed coupon is listed with its date and amount", () => {
@@ -51,7 +65,7 @@ describe("presumed coupon until the statement is imported", () => {
   });
 
   it("is replaced, not doubled, once the real coupon is imported", () => {
-    const imported = summary(FIX, [...txs, coupon("FIX", at(2026, 10, 22))], new Date(2026, 9, 22, 16, 1));
+    const imported = summary(FIX21, [deposit, buy("FIX21"), coupon("FIX21", at(2026, 10, 20))], new Date(2026, 9, 20, 16, 1));
     expect(imported.presumedCoupons).toEqual([]);
     expect(imported.cashValueHuf).toBeCloseTo(17_500, 6);
     expect(total(imported)).toBeCloseTo(1_017_500, 6);

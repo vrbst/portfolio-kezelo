@@ -5,9 +5,10 @@
 
 import type { Account, Instrument, Transaction } from "./model";
 import {
+  buildFxHistory,
   computePortfolio,
+  externalFlowHuf,
   isInternalTransfer,
-  toHuf,
   type PriceMap,
 } from "./portfolio";
 import {
@@ -121,7 +122,9 @@ export function computeReturns(
   const invested = live.netDepositedHuf;
   const simplePct = invested > 0 ? (value - invested) / invested : 0;
 
-  // External cash flows (investor view: deposit = money out = negative).
+  // External cash flows (investor view: deposit = money out = negative), each
+  // at the rate of its own day.
+  const fxHistory = buildFxHistory(txs);
   const flowTxs = txs
     .filter(
       (t) =>
@@ -130,11 +133,7 @@ export function computeReturns(
         (t.type === "deposit" || t.type === "withdrawal"),
     )
     .map((t) => {
-      const huf = toHuf(
-        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-        t.currency,
-        fx,
-      );
+      const huf = externalFlowHuf(t, fx, fxHistory);
       return { ms: Date.parse(t.date), amt: t.type === "deposit" ? -huf : huf };
     })
     .filter((f) => Number.isFinite(f.ms))

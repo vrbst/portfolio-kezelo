@@ -1193,6 +1193,7 @@ async function tick(deps: Deps): Promise<HubResponse> {
   // this process.
   await followEvents(deps);
   const st = loadState(deps.stateFile);
+  const before = structuredClone(st);
   delete st.loadFailingSince;
   const alertIds = new Set((st.priceAlerts ?? []).map((a) => a.id));
   await withAlertPrices(ctx, st, deps);
@@ -1202,8 +1203,15 @@ async function tick(deps: Deps): Promise<HubResponse> {
   // Save before answering: a kill after this only loses messages, never
   // sends them twice. /maradek and the news job may have written meanwhile:
   // keep their fields.
+  // The save starts from the FRESH file and overwrites only what the tick
+  // itself changed (a field another process wrote meanwhile, like the analysis
+  // day, is kept without having to list it).
+  const changed = (k: keyof State) => JSON.stringify(st[k]) !== JSON.stringify(before[k]);
   updateState(deps.stateFile, (cur) => ({
-    ...st,
+    ...cur,
+    ...Object.fromEntries(
+      (Object.keys({ ...before, ...st }) as (keyof State)[]).filter(changed).map((k) => [k, st[k]]),
+    ),
     leftover: { ...st.leftover, answered: cur.leftover?.answered },
     news: cur.news,
     events: cur.events,
@@ -1405,10 +1413,17 @@ export function tickMessages(ctx: Context, st: State, env: Deps["env"]): HubMess
 
   // 1) New alerts (the app's own rules, dismissed ones skipped).
   const active = new Set(ctx.alerts.map((a) => a.id));
-  const fresh = ctx.alerts.filter((a) => !st.sentAlerts[a.id]);
+  // No usable FX rate at all (even after the fallbacks): the weights, targets
+  // and moves are distorted, so only the "missing rate" alert goes out and the
+  // rest waits (nothing is marked sent) until the rate is back.
+  const fxBroken = ctx.summary.missingFxCcys.length > 0;
+  const fresh = ctx.alerts.filter(
+    (a) => !st.sentAlerts[a.id] && (!fxBroken || a.id.startsWith("missing-fx:")),
+  );
   send("alerts", ...alertMessages(fresh.filter((a) => !isDeepGlideAlert(a))));
   send("deepGlide", ...alertMessages(fresh.filter(isDeepGlideAlert)));
   for (const a of fresh) st.sentAlerts[a.id] = now.toISOString();
+  if (fxBroken) return out;
   // Resolved alerts are forgotten, so a later re-trigger is new again.
   for (const id of Object.keys(st.sentAlerts))
     if (!active.has(id)) delete st.sentAlerts[id];

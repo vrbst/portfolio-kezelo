@@ -10,9 +10,9 @@ import { addDaysIso, txDay, utcDay } from "./day";
 import {
   buildFxHistory,
   computePortfolio,
+  externalFlowHuf,
   histFxRate,
   isInternalTransfer,
-  toHuf,
   type PortfolioSummary,
   type PriceMap,
 } from "./portfolio";
@@ -239,6 +239,7 @@ export function buildValueSeries(
   // that would hide the withdrawal and shrink the deposit's step.
   const TRANSIT_DAYS = 4;
   const AMOUNT_TOLERANCE = 0.02;
+  const flowFxHistory = buildFxHistory(sorted);
   const flows = sorted
     .filter(
       (t) =>
@@ -247,11 +248,7 @@ export function buildValueSeries(
         (t.type === "deposit" || t.type === "withdrawal"),
     )
     .map((t) => {
-      const huf = toHuf(
-        Math.abs(t.netAmount ?? t.grossAmount ?? 0),
-        t.currency,
-        fx,
-      );
+      const huf = externalFlowHuf(t, fx, flowFxHistory);
       return {
         day: txDay(t.date),
         amt: t.type === "deposit" ? huf : -huf,

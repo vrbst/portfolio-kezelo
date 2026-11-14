@@ -6,6 +6,7 @@
 
 import type { BondTerms, Instrument, Transaction } from "./model";
 import type { PortfolioSummary } from "./portfolio";
+import { isWorkday } from "./huCalendar";
 import { localDayMs, toLocalDay, txDay } from "./day";
 import { quantityAfterSales, storedPlannedSales, type PlannedSale } from "./refillStore";
 
@@ -62,25 +63,29 @@ const BOND_CUTOFF_HOUR_FRIDAY = 15;
  *  - Hétköznap a vágás UTÁN: a következő elszámolási nap (Hét–Csüt → másnap,
  *    Péntek → következő hétfő).
  *  - A vágás órája Hét–Csüt 16:00, pénteken 15:00.
- *  - Hétvégén (Szo/Vas) bármikor: a következő hétfő (a MobilKincstár is így).
+ *  - Hétvégén (Szo/Vas) és munkaszüneti napon bármikor: a következő elszámolási nap
+ *    (hétfő vagy ünnep utáni munkanap; a MobilKincstár is így).
  */
 export function bondValuationMs(ms: number): number {
   const hour = new Date(ms).getHours();
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0); // local midnight
-  const day = d.getDay(); // 0 = Vas, 1 = Hét, ... 5 = Pén, 6 = Szo
-  const cutoff = day === 5 ? BOND_CUTOFF_HOUR_FRIDAY : BOND_CUTOFF_HOUR;
+  const cutoff = d.getDay() === 5 ? BOND_CUTOFF_HOUR_FRIDAY : BOND_CUTOFF_HOUR;
 
-  if (day === 6) {
-    d.setDate(d.getDate() + 2); // Szo → Hét
-  } else if (day === 0) {
-    d.setDate(d.getDate() + 1); // Vas → Hét
-  } else if (hour >= cutoff) {
-    // A vágás után előrelépünk a következő elszámolási napra.
-    d.setDate(d.getDate() + (day === 5 ? 3 : 1)); // Pén → Hét, egyébként másnap
+  // Non-settlement day (weekend, public holiday, swapped rest day) or past the
+  // cutoff: roll forward to the next settlement day. Hétköznap a vágás előtt
+  // marad az aznapi.
+  if (!isSettlementDay(d) || hour >= cutoff) {
+    do d.setDate(d.getDate() + 1);
+    while (!isSettlementDay(d));
   }
-  // Hétköznap a vágás előtt: marad az aznapi.
   return d.getTime();
+}
+
+/** Mon–Fri working day (holidays and swapped rest days excluded; a swapped working Saturday is not a settlement day). */
+function isSettlementDay(d: Date): boolean {
+  const dow = d.getDay();
+  return dow >= 1 && dow <= 5 && isWorkday(d);
 }
 
 /**
@@ -165,6 +170,11 @@ function fixedBondAccrued(
   // keep growing phantom interest until the redemption is imported.
   const matMs = parseDayMs(bond?.maturity);
   if (Number.isFinite(matMs) && nowMs > matMs) nowMs = matMs;
+  // On/after the maturity day the maturity coupon still counts as accrued
+  // (the period ends AT maturity), until the redemption import settles it:
+  // otherwise the value drops by a coupon between the afternoon cutoff and
+  // the import. The presumed coupon skips the maturity coupon on purpose.
+  const atMaturity = Number.isFinite(matMs) && nowMs >= matMs;
 
   let anchorMs: number;
   // End of the regular period that starts at anchorMs.
@@ -177,6 +187,7 @@ function fixedBondAccrued(
     while (k < 600) {
       const next = couponAt(first, interval, k + 1);
       if (!Number.isFinite(next) || next > nowMs) break;
+      if (atMaturity && next >= matMs) break;
       k++;
     }
     anchorMs = couponAt(first, interval, k);
