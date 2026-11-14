@@ -1,14 +1,8 @@
-import InfoTip from "./InfoTip";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles,
-  Send,
   RefreshCw,
-  Coins,
   Square,
-  Wrench,
-  Globe,
   Brain,
   Layers,
   Euro,
@@ -19,8 +13,6 @@ import {
   Landmark,
   Info,
   History,
-  ExternalLink,
-  Trash2,
 } from "lucide-react";
 import {
   usePortfolio,
@@ -30,7 +22,6 @@ import {
   useGoalProgress,
   useActiveAlerts,
   useSavingsGoals,
-  useMonthlyBudget,
   useGlideVersions,
   useGlideState,
   useValuedInstruments,
@@ -42,22 +33,8 @@ import {
   consolidatedHoldings,
 } from "../lib/portfolio";
 import { bondAdvice, bondMarket } from "../lib/bondSwitch";
-import { savingsGoalExpenses } from "../lib/savings";
 import { Card } from "./ui";
-import {
-  loadAiKey,
-  loadAiModel,
-  modelLabel,
-  modelInfo,
-  runClaude,
-  loadSpend,
-  loadAiLimits,
-  loadAiToggles,
-  saveAiToggles,
-  type AiSpend,
-  type AiToggles,
-} from "../lib/ai";
-import { CLIENT_TOOLS, runTool, toolLabel, type ToolEnv } from "../lib/aiTools";
+import { modelLabel } from "../lib/ai";
 import {
   loadAnalyses,
   loadLegacyAnalysis,
@@ -67,15 +44,9 @@ import {
   type StoredAnalysis,
   type Topic,
 } from "../lib/aiAnalysis";
-import { bridgeAvailable, runBridgeAnalysis } from "../lib/aiBridge";
-import {
-  loadConversation,
-  newConversation,
-  questionCount,
-  saveConversation,
-  type Conversation,
-  type DisplayTurn,
-} from "../lib/aiChat";
+import { bridgeStatus, runBridgeAnalysis } from "../lib/aiBridge";
+import { formatWhen } from "../lib/aiChat";
+import BridgeChat from "./BridgeChat";
 import { txDay } from "../lib/day";
 import { buildFullAiContext } from "../lib/aiContext";
 import { useOutlookFile } from "../lib/outlookStore";
@@ -126,20 +97,10 @@ export default function AiPanel() {
   const sales = usePlannedSales();
   const glide = useGlideState(useGlideVersions());
 
-  const apiKey = loadAiKey();
-  const model = loadAiModel();
-  const limits = loadAiLimits();
-
   const cashflows = useMemo(
     () => futureBondCashflows(summary, new Date(), transactions, sales),
     [summary, transactions, sales],
   );
-  const { savings: savingsProgress } = useMonthlyBudget();
-  const goalExpenses = useMemo(
-    () => savingsGoalExpenses(savingsGoals, savingsProgress),
-    [savingsGoals, savingsProgress],
-  );
-
   const bonds = useMemo(() => {
     const today = toLocalDay(new Date());
     return {
@@ -188,31 +149,6 @@ export default function AiPanel() {
     ],
   );
 
-  const toolEnv: ToolEnv = {
-    summary,
-    transactions,
-    instruments,
-    prices,
-    fx,
-    history: historyFile,
-    series,
-    cashflows,
-    goalExpenses,
-    bondRates,
-    savingsGoals,
-    outlook,
-  };
-
-  const [spend, setSpend] = useState<AiSpend>(loadSpend);
-  const [toggles, setToggles] = useState<AiToggles>(loadAiToggles);
-  // Functional update: two quick toggles must not overwrite each other.
-  const setToggle = (k: keyof AiToggles, v: boolean) =>
-    setToggles((t) => {
-      const next = { ...t, [k]: v };
-      saveAiToggles(next);
-      return next;
-    });
-
   // ---- analysis -------------------------------------------------------------
   const [analyses] = useState<StoredAnalysis[]>(loadAnalyses);
   const [legacy] = useState(loadLegacyAnalysis);
@@ -233,9 +169,16 @@ export default function AiPanel() {
   // "Új elemzés" runs on the my-claude-hub (the subscription) through a bridge that listens on
   // this machine only: the button exists only where the bridge answers.
   const [bridgeUp, setBridgeUp] = useState(false);
+  // The chat also needs a bridge that knows it: an older process still running does not.
+  const [chatUp, setChatUp] = useState(false);
   useEffect(() => {
     let live = true;
-    const probe = () => void bridgeAvailable().then((ok) => live && setBridgeUp(ok));
+    const probe = () =>
+      void bridgeStatus().then((st) => {
+        if (!live) return;
+        setBridgeUp(st !== null);
+        setChatUp(st?.chat === true);
+      });
     probe();
     window.addEventListener("focus", probe);
     return () => {
@@ -261,108 +204,6 @@ export default function AiPanel() {
     }
   }
 
-  // ---- chat -------------------------------------------------------------------
-  const [conv, setConv] = useState<Conversation | null>(loadConversation);
-  const [question, setQuestion] = useState("");
-  const [cRunning, setCRunning] = useState(false);
-  const [cError, setCError] = useState<string | null>(null);
-  const [pending, setPending] = useState<{
-    text: string;
-    thinking: string;
-    activity: string[];
-  } | null>(null);
-  const cAbort = useRef<AbortController | null>(null);
-  // Activity of the running answer (also mirrored into `pending` for display).
-  const activityRef = useRef<string[]>([]);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => saveConversation(conv), [conv]);
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [conv?.turns.length, pending?.activity.length]);
-
-  const asked = questionCount(conv);
-  const atTurnLimit = asked >= limits.maxChatTurns;
-  // Settings changed since the conversation began → they apply to the next one.
-  const stale =
-    !!conv &&
-    conv.turns.length > 0 &&
-    (conv.model !== model || conv.tools !== toggles.tools || conv.web !== toggles.web);
-
-  async function ask(q0?: string) {
-    const q = (q0 ?? question).trim();
-    if (!q || cRunning || atTurnLimit) return;
-    setQuestion("");
-    setCError(null);
-    // First question: freeze snapshot, model and tools for this conversation.
-    const base =
-      conv && conv.turns.length > 0
-        ? conv
-        : newConversation(model, toggles.tools, toggles.web, context);
-    const userMsg = { role: "user" as const, content: q };
-    const shown: Conversation = {
-      ...base,
-      turns: [...base.turns, { role: "user", text: q }],
-    };
-    setConv(shown);
-    setCRunning(true);
-    setPending({ text: "", thinking: "", activity: [] });
-    activityRef.current = [];
-    const ctl = new AbortController();
-    cAbort.current = ctl;
-    try {
-      const r = await runClaude({
-        key: apiKey,
-        model: base.model,
-        context: base.context,
-        messages: [...base.api, userMsg],
-        tools: base.tools ? CLIENT_TOOLS.map((t) => t.def) : undefined,
-        onToolCall: (name, input) => runTool(name, input, toolEnv),
-        web: base.web,
-        maxTokens: 4000,
-        signal: ctl.signal,
-        onText: (d) => setPending((p) => p && { ...p, text: p.text + d }),
-        onThinking: (d) =>
-          setPending((p) => p && { ...p, thinking: (p.thinking + d).slice(-400) }),
-        onActivity: (a) => {
-          activityRef.current = [
-            ...activityRef.current,
-            a.kind === "search"
-              ? `Webes keresés: ${String((a.input as { query?: string })?.query ?? "")}`
-              : toolLabel(a.name, a.input),
-          ];
-          const activity = activityRef.current;
-          setPending((p) => p && { ...p, activity });
-        },
-      });
-      // Commit the whole exchange at once (append-only history).
-      const turn: DisplayTurn = {
-        role: "assistant",
-        text: r.text,
-        activity: activityRef.current.length ? activityRef.current : undefined,
-        sources: r.sources.length ? r.sources.slice(0, 6) : undefined,
-        costUsd: r.costUsd,
-        note: r.note,
-      };
-      setConv({
-        ...shown,
-        api: [...base.api, userMsg, ...r.appended],
-        turns: [...shown.turns, turn],
-      });
-      setPending(null);
-    } catch (e) {
-      // Nothing was appended to the API history: drop the unanswered question.
-      setConv(base.turns.length ? base : null);
-      setPending(null);
-      setQuestion(q);
-      setCError((e as Error).message);
-    } finally {
-      setCRunning(false);
-      cAbort.current = null;
-      setSpend(loadSpend());
-    }
-  }
-
   // Suggested questions, from what's actually in the portfolio.
   const suggestions = useMemo(() => {
     const s: string[] = [];
@@ -376,73 +217,23 @@ export default function AiPanel() {
     if (bonds.advice.some((a) => a.verdict.kind === "switch"))
       s.push("Érdemes lecserélnem valamelyik állampapíromat egy most kaphatóra?");
     s.push("Mekkora a devizakockázatom, és kell-e vele foglalkoznom?");
-    if (toggles.tools)
-      s.push("Mi lenne, ha havonta 50 000 Ft-tal többet tennék félre?");
-    else s.push("Mennyire koncentrált a portfólióm?");
-    if (toggles.web) s.push("Mennyi most a lakossági állampapírok kamata?");
+    s.push("Mennyire koncentrált a portfólióm?");
+    s.push("Mennyi most a lakossági állampapírok kamata?");
     return s.slice(0, 5);
-  }, [savingsGoals, cashflows, bonds, toggles.tools, toggles.web]);
+  }, [savingsGoals, cashflows, bonds]);
 
-  if (!apiKey && !latest && !bridgeUp)
+  if (!latest && !bridgeUp)
     return (
       <Card className="p-6">
         <p className="text-sm text-[var(--color-muted)]">
-          Az AI funkciókhoz add meg a saját Claude API-kulcsodat a{" "}
-          <Link to="/settings" className="text-[var(--color-brand)] hover:underline">
-            Beállításokban
-          </Link>
-          . A kulcs csak ezen az eszközön tárolódik.
+          Az AI-elemzés és a beszélgetés azon a gépen érhető el, ahol fut a helyi híd (
+          <code>npm run ai-bridge</code>). Itt egyelőre nincs mit mutatni.
         </p>
       </Card>
     );
 
-  const spendPct = Math.min(1, spend.monthUsd / Math.max(0.01, limits.monthlyUsd));
-
   return (
     <div className="space-y-4">
-      {/* Status strip: model, monthly spend vs. limit, opt-in switches */}
-{apiKey && (
-      <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
-        <div className="min-w-44 flex-1">
-          <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-muted)]">
-            <span className="flex items-center gap-1" title="Becsült költség ebben a hónapban (a tokenhasználatból). Nem a maradék kredit.">
-              <Coins className="h-3.5 w-3.5" />
-              {usd(spend.monthUsd)} / {usd(limits.monthlyUsd)} ebben a hónapban
-            </span>
-            <span>{modelLabel(model)}</span>
-          </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${spendPct * 100}%`,
-                background:
-                  spendPct >= 0.9
-                    ? "var(--color-negative)"
-                    : spendPct >= 0.6
-                      ? "var(--color-warning)"
-                      : "var(--color-positive)",
-              }}
-            />
-          </div>
-        </div>
-        <Switch
-          on={toggles.tools}
-          onChange={(v) => setToggle("tools", v)}
-          icon={<Wrench className="h-4 w-4" />}
-          label="Eszközhasználat"
-          hint="A modell a beszélgetésben lefuttathatja az app számításait (pl. előrejelzés más feltételekkel), és lekérheti a részleteket (pozíciók, tranzakciók, árfolyam-előzmény). Ilyenkor a kért konkrét adatok is elmennek."
-        />
-        <Switch
-          on={toggles.web}
-          onChange={(v) => setToggle("web", v)}
-          icon={<Globe className="h-4 w-4" />}
-          label="Webes keresés"
-          hint={`Friss piaci információ a webről, forrásokkal. Keresésenként kb. 1 cent, kérdésenként legfeljebb ${limits.webSearchMaxUses} keresés.`}
-        />
-      </Card>
-      )}
-
       {/* Analysis */}
       <Card className="p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -544,117 +335,8 @@ export default function AiPanel() {
         )}
       </Card>
 
-      {/* Chat */}
-{apiKey && (
-      <Card className="p-5 sm:p-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">Beszélgess a portfóliódról</h2>
-          {conv && conv.turns.length > 0 && !cRunning && (
-            <button
-              className="btn-ghost text-xs"
-              onClick={() => {
-                setConv(null);
-                setCError(null);
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Új beszélgetés
-            </button>
-          )}
-        </div>
-
-        {conv && conv.turns.length > 0 && (
-          <p className="mb-3 text-xs text-[var(--color-muted)]">
-            {modelLabel(conv.model)}
-            {conv.tools ? " · eszközökkel" : ""}
-            {conv.web ? " · webes kereséssel" : ""} · pillanatkép:{" "}
-            {formatWhen(conv.startedAt)} · {asked}/{limits.maxChatTurns} kérdés
-          </p>
-        )}
-        {stale && (
-          <p className="mb-3 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs">
-            A modell vagy a kapcsolók megváltoztak: az új beállítás az{" "}
-            <strong>új beszélgetéstől</strong> érvényes (a mostani változatlan
-            marad, hogy a korábbi körök érvényesek maradjanak).
-          </p>
-        )}
-
-        <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
-          {conv?.turns.map((t, i) => (
-            <ChatBubble key={i} turn={t} privacy={privacy} />
-          ))}
-          {pending && (
-            <div className="flex justify-start">
-              <div className="amt max-w-[95%] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 text-sm leading-relaxed">
-                <Activity items={pending.activity} />
-                {pending.text ? (
-                  <div className="whitespace-pre-wrap">{pending.text}</div>
-                ) : (
-                  <ThinkingBox text={pending.thinking} label="Gondolkodik…" compact />
-                )}
-              </div>
-            </div>
-          )}
-          <div ref={chatEndRef} />
-        </div>
-
-        {(!conv || conv.turns.length === 0) && !cRunning && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {suggestions.map((s) => (
-              <button
-                key={s}
-                onClick={() => ask(s)}
-                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-3 py-1.5 text-xs transition hover:border-[var(--color-brand)]/50 hover:text-[var(--color-text)]"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {atTurnLimit ? (
-          <p className="mt-3 text-xs text-[var(--color-muted)]">
-            Elérted a beszélgetésenkénti {limits.maxChatTurns} kérdést. Indíts
-            új beszélgetést (a hosszú előzmény minden kérdésnél drágább).
-          </p>
-        ) : (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input
-              className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
-              placeholder="Kérdezz a portfóliódról…"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !cRunning) ask();
-              }}
-            />
-            {cRunning ? (
-              <button className="btn-ghost" onClick={() => cAbort.current?.abort()}>
-                <Square className="h-4 w-4" />
-                Leállítás
-              </button>
-            ) : (
-              <button className="btn-ghost" onClick={() => ask()} disabled={!question.trim()}>
-                <Send className="h-4 w-4" />
-                Kérdez
-              </button>
-            )}
-          </div>
-        )}
-        {cError && (
-          <p className="mt-3 text-sm text-[var(--color-negative)]">{cError}</p>
-        )}
-        <p className="mt-3 flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
-          Költségkeret
-          <InfoTip>
-            Kérdésenként legfeljebb {usd(limits.perQuestionUsd)}
-            {toggles.tools ? ` és ${limits.maxToolRounds} eszközkör` : ""}. A
-            keretek a Beállításokban módosíthatók.
-            {modelInfo(model).thinking ? "" : " Ez a modell nem gondolkodik válasz előtt."}
-          </InfoTip>
-        </p>
-      </Card>
-      )}
+      {/* Chat: through the local bridge, so only on the machine that runs it */}
+      {chatUp && <BridgeChat context={context} suggestions={suggestions} privacy={privacy} />}
     </div>
   );
 }
@@ -671,51 +353,6 @@ function StatusPill({ status }: { status: Status }) {
     >
       {m.label}
     </span>
-  );
-}
-
-function Switch({
-  on,
-  onChange,
-  icon,
-  label,
-  hint,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  icon: ReactNode;
-  label: string;
-  hint: string;
-}) {
-  // One button for track + label: a <label> around a <button> would forward
-  // the click and toggle twice.
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-      title={hint}
-      className="flex items-center gap-2 text-sm"
-    >
-      <span
-        className={`relative h-5 w-9 shrink-0 rounded-full transition ${
-          on ? "bg-[var(--color-brand)]" : "bg-[var(--color-surface-2)]"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-            on ? "left-[18px]" : "left-0.5"
-          }`}
-        />
-      </span>
-      <span
-        className={`flex items-center gap-1.5 ${on ? "" : "text-[var(--color-muted)]"}`}
-      >
-        {icon}
-        {label}
-      </span>
-    </button>
   );
 }
 
@@ -745,74 +382,3 @@ function ThinkingBox({
   );
 }
 
-function Activity({ items }: { items: string[] }) {
-  if (!items.length) return null;
-  return (
-    <div className="mb-2 flex flex-wrap gap-1.5">
-      {items.map((a, i) => (
-        <span
-          key={i}
-          className="priv inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-muted)]"
-        >
-          {a.startsWith("Webes") ? <Globe className="h-3 w-3" /> : <Wrench className="h-3 w-3" />}
-          {a}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ChatBubble({ turn, privacy }: { turn: DisplayTurn; privacy: boolean }) {
-  if (turn.role === "user")
-    return (
-      <div className="flex justify-end">
-        <div className="amt max-w-[85%] rounded-xl bg-[var(--color-brand)]/15 px-3 py-2 text-sm">
-          {turn.text}
-        </div>
-      </div>
-    );
-  return (
-    <div className="flex justify-start">
-      <div className={`amt max-w-[95%] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 text-sm leading-relaxed ${privacy ? "select-none" : ""}`}>
-        <Activity items={turn.activity ?? []} />
-        <div className="whitespace-pre-wrap">{turn.text}</div>
-        {turn.note && (
-          <p className="mt-2 text-xs text-[var(--color-warning)]">{turn.note}</p>
-        )}
-        {turn.sources && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {turn.sources.map((s) => (
-              <a
-                key={s.url}
-                href={s.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex max-w-56 items-center gap-1 truncate rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-brand)] hover:underline"
-                title={s.url}
-              >
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate">{s.title || new URL(s.url).hostname}</span>
-              </a>
-            ))}
-          </div>
-        )}
-        {turn.costUsd != null && (
-          <div className="mt-1.5 text-right text-[10px] text-[var(--color-muted)]/70">
-            {usd(turn.costUsd)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("hu-HU", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(d);
-}

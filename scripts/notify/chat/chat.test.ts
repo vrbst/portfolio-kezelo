@@ -71,8 +71,8 @@ describe("prompt", () => {
     const p = buildChatPrompt({
       context: "SNAPSHOT-SOR",
       history: [
-        { role: "user", text: "első", at: "" },
-        { role: "assistant", text: "másodikra válasz", at: "" },
+        { role: "user", text: "első" },
+        { role: "assistant", text: "másodikra válasz" },
       ],
       question: "harmadik?",
       profile: "kockázatkerülő",

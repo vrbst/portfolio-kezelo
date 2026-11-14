@@ -10,7 +10,7 @@ import { HUB_CODE, QuotaExhaustedError, hubErrorCode } from "../hubClient";
 import type { NewsEngine } from "../news/engine";
 import { esc } from "../reports";
 import { buildChatPrompt, CHAT_SCHEMA } from "./prompt";
-import { activeHistory, appendExchange, loadChat, updateChat } from "./store";
+import { activeHistory, appendExchange, loadChat, updateChat, type ChatTurn } from "./store";
 
 export const CHAT_JOB = "chat";
 
@@ -76,6 +76,15 @@ export function chatErrorText(e: unknown): string {
   return `⚠️ Nem sikerült válaszolni: ${(e as Error).message.slice(0, 200)}`;
 }
 
+/** One question to the AI (the engine is built with CHAT_SCHEMA); throws the hub's errors. Shared by Telegram and the app's bridge. */
+export async function askChat(
+  chat: Pick<ChatDeps, "engine" | "profile">,
+  o: { context: string; history: Pick<ChatTurn, "role" | "text">[]; question: string },
+): Promise<string> {
+  const { output } = await chat.engine.run(buildChatPrompt({ ...o, profile: chat.profile?.() }));
+  return answerOf(output);
+}
+
 /**
  * Answers the pending question; returns the HTML of the Telegram messages
  * (answer or error text). Never throws: the question is cleared either way.
@@ -85,15 +94,11 @@ export async function runChat(chat: ChatDeps, ctx: Context, now = new Date()): P
   const question = st.pending?.text;
   if (!question) return [];
   try {
-    const prompt = buildChatPrompt({
+    const answer = await askChat(chat, {
       context: analysisContext(ctx),
       history: activeHistory(st, now),
       question,
-      profile: chat.profile?.(),
     });
-    // The engine is built with CHAT_SCHEMA (tg-app.ts); the prompt asks for that shape.
-    const { output } = await chat.engine.run(prompt);
-    const answer = answerOf(output);
     updateChat(chat.file, (cur) => ({
       history: appendExchange(cur, question, answer, now),
       ...(cur.pending && cur.pending.text !== question ? { pending: cur.pending } : {}),

@@ -26,7 +26,7 @@ export const CHAT_RULES = [
 
 export function buildChatPrompt(o: {
   context: string;
-  history: ChatTurn[];
+  history: Pick<ChatTurn, "role" | "text">[];
   question: string;
   profile?: string;
 }): string {

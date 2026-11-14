@@ -19,9 +19,62 @@ export const BRIDGE_SERVICE = "portfolio-ai-bridge";
 /** Required on POST /analysis (forces a CORS preflight). */
 export const BRIDGE_HEADER = "x-portfolio-bridge";
 
+/** One chat question from the app: the earlier turns and the snapshot it carries (the hub has no session). */
+export interface ChatRequest {
+  question: string;
+  history: { role: "user" | "assistant"; text: string }[];
+  context: string;
+}
+
+export const CHAT_LIMITS = {
+  /** The whole request body, bytes. */
+  bodyBytes: 4_000_000,
+  question: 2000,
+  turns: 40,
+  turnChars: 20_000,
+  context: 3_000_000,
+} as const;
+
+/** The request body as a ChatRequest, or the reason it is refused. */
+export function parseChatRequest(raw: unknown): ChatRequest | string {
+  if (!raw || typeof raw !== "object") return "A kérés nem JSON-objektum.";
+  const b = raw as Record<string, unknown>;
+  if (typeof b.question !== "string" || !b.question.trim()) return "Hiányzik a kérdés.";
+  if (typeof b.context !== "string" || !b.context.trim()) return "Hiányzik a portfólió-pillanatkép.";
+  if (b.context.length > CHAT_LIMITS.context) return "A pillanatkép túl nagy.";
+  const history = b.history ?? [];
+  if (!Array.isArray(history) || history.length > CHAT_LIMITS.turns) return "Az előzmény hibás vagy túl hosszú.";
+  for (const t of history) {
+    const turn = t as { role?: unknown; text?: unknown } | null;
+    if ((turn?.role !== "user" && turn?.role !== "assistant") || typeof turn.text !== "string" || turn.text.length > CHAT_LIMITS.turnChars)
+      return "Az előzmény hibás.";
+  }
+  return {
+    question: b.question.trim().slice(0, CHAT_LIMITS.question),
+    history: (history as ChatRequest["history"]).map(({ role, text }) => ({ role, text })),
+    context: b.context,
+  };
+}
+
+function readBody(req: IncomingMessage, maxBytes: number): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    // Too big: keep reading (and dropping) so the 413 can still be sent over the open socket.
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size <= maxBytes) chunks.push(c);
+    });
+    req.on("end", () => resolve(size > maxBytes ? null : Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 export interface BridgeOptions {
   /** One fresh analysis (the hub call). */
   run: () => Promise<AnalysisRun>;
+  /** One chat answer (the hub call); absent: the bridge reports `chat: false` and the app shows no chat. */
+  chat?: (req: ChatRequest) => Promise<string>;
   /** Web origins allowed to call the bridge (the deployed app, the dev servers). */
   origins: string[];
   port?: number;
@@ -75,6 +128,7 @@ export function bridgeError(e: unknown): { status: number; error: BridgeError } 
 
 export function createBridge(opts: BridgeOptions): Server {
   let running = false;
+  let chatRunning = false;
   const port = () => (server.address() as { port: number } | null)?.port ?? opts.port ?? BRIDGE_PORT;
 
   const send = (res: ServerResponse, status: number, body: unknown, cors: Record<string, string>) => {
@@ -109,7 +163,33 @@ export function createBridge(opts: BridgeOptions): Server {
     }
 
     if (req.method === "GET" && url.pathname === "/health")
-      return send(res, 200, { ok: true, service: BRIDGE_SERVICE, running }, cors);
+      return send(res, 200, { ok: true, service: BRIDGE_SERVICE, running, chat: !!opts.chat }, cors);
+
+    if (req.method === "POST" && url.pathname === "/chat" && opts.chat) {
+      if (req.headers[BRIDGE_HEADER] !== "1")
+        return send(res, 403, { error: { code: "forbidden", message: "Hiányzó fejléc." } }, cors);
+      if (chatRunning)
+        return send(res, 409, { error: { code: "busy", message: "Még az előző kérdésen dolgozom." } }, cors);
+      const text = await readBody(req, CHAT_LIMITS.bodyBytes);
+      if (text === null) return send(res, 413, { error: { code: "too_large", message: "A kérés túl nagy." } }, cors);
+      let parsed: ChatRequest | string;
+      try {
+        parsed = parseChatRequest(JSON.parse(text));
+      } catch {
+        parsed = "A kérés nem érvényes JSON.";
+      }
+      if (typeof parsed === "string") return send(res, 400, { error: { code: "bad_request", message: parsed } }, cors);
+      chatRunning = true;
+      try {
+        return send(res, 200, { answer: await opts.chat(parsed) }, cors);
+      } catch (e) {
+        console.error("bridge: chat failed:", e instanceof Error ? e.message : e);
+        const b = bridgeError(e);
+        return send(res, b.status, { error: b.error }, cors);
+      } finally {
+        chatRunning = false;
+      }
+    }
 
     if (req.method === "POST" && url.pathname === "/analysis") {
       if (req.headers[BRIDGE_HEADER] !== "1")
