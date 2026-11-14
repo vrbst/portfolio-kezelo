@@ -23,6 +23,26 @@ export function unionById<T>(
 }
 
 /**
+ * Transactions by id, `over` winning — except that a redemption is never
+ * overwritten by an interest row of the same id: the import rewrites a
+ * mis-booked maturity („interest") to `redemption` under the SAME id, and
+ * that rewrite must reach the other device instead of being undone by it.
+ */
+export function mergeTransactions(
+  base: Transaction[] | undefined,
+  over: Transaction[] | undefined,
+): Transaction[] {
+  const m = new Map<string, Transaction>();
+  for (const t of base ?? []) m.set(t.id, t);
+  for (const t of over ?? []) {
+    const prev = m.get(t.id);
+    if (prev?.type === "redemption" && t.type === "interest") continue;
+    m.set(t.id, t);
+  }
+  return [...m.values()];
+}
+
+/**
  * Accounts by id, `over` winning per account — but the LATEST re-import
  * (restoredAt) of either copy is kept. A device still holding an old copy of
  * a deleted-then-re-imported account must not undo the re-import: without
@@ -156,7 +176,7 @@ export function unionSnapshots(
   // Drop tombstoned accounts with their transactions, so a delete is never re-added.
   const { accounts, transactions } = dropDeletedAccounts(
     unionAccounts(remote.accounts, local.accounts),
-    unionById(remote.transactions, local.transactions, (t) => t.id),
+    mergeTransactions(remote.transactions, local.transactions),
     deletedAccounts,
   );
   const reminders = unionById(

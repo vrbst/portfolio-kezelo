@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument } from "./model";
 import type { PortfolioSummary } from "./portfolio";
-import { bondMarketValue, futureBondCashflows, nextCouponDate } from "./bonds";
+import { bondValuationMs, bondMarketValue, futureBondCashflows, nextCouponDate } from "./bonds";
 
 // Invented sample data. The app stores a maturity picked as a local day as
 // the ISO timestamp of LOCAL midnight — in Budapest "2026-10-28" becomes
@@ -74,5 +74,51 @@ describe("coupon schedule on a month-end day", () => {
     const v = bondMarketValue(fix, 1_000_000, 1_000_000, 0, new Date(2026, 11, 30).getTime());
     expect(v.value).toBeGreaterThan(1_014_800);
     expect(v.value).toBeLessThan(1_015_000);
+  });
+});
+
+describe("a lejárat napja import előtt", () => {
+  const fix: Instrument = {
+    key: "fix",
+    name: "FIX",
+    type: "gov_bond",
+    currency: "HUF",
+    faceValue: 1,
+    bond: {
+      couponRate: 0.06,
+      couponIntervalMonths: 3,
+      firstCouponDate: "2026-03-31",
+      maturity: "2027-03-31",
+    },
+  };
+
+  it("névérték + az utolsó kupon, nem csak a névérték", () => {
+    const at = (y: number, m: number, d: number) => new Date(y, m - 1, d).getTime();
+    for (const day of [at(2027, 3, 31), at(2027, 4, 2)]) {
+      const v = bondMarketValue(fix, 1_000_000, 1_000_000, 0, day);
+      expect(v.value).toBeCloseTo(1_015_000, 0);
+    }
+  });
+});
+
+describe("bondValuationMs – ünnepnapok", () => {
+  const day = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).getTime();
+  const local = (ms: number) => new Date(ms).toDateString();
+
+  it("az ünnepnap (2026-10-23, péntek) után a következő hétfő a nap", () => {
+    expect(local(bondValuationMs(day(2026, 10, 23, 10)))).toBe(new Date(2026, 9, 26).toDateString());
+    // csütörtök a vágás után: péntek ünnep, hétvége → hétfő
+    expect(local(bondValuationMs(day(2026, 10, 22, 17)))).toBe(new Date(2026, 9, 26).toDateString());
+  });
+
+  it("áthelyezett pihenőnap (2026-08-21) is kimarad", () => {
+    expect(local(bondValuationMs(day(2026, 8, 20, 17)))).toBe(new Date(2026, 7, 24).toDateString());
+  });
+
+  it("a hétköznapi és hétvégi szabály változatlan", () => {
+    expect(local(bondValuationMs(day(2026, 10, 14, 10)))).toBe(new Date(2026, 9, 14).toDateString());
+    expect(local(bondValuationMs(day(2026, 10, 14, 17)))).toBe(new Date(2026, 9, 15).toDateString());
+    expect(local(bondValuationMs(day(2026, 10, 16, 15)))).toBe(new Date(2026, 9, 19).toDateString());
+    expect(local(bondValuationMs(day(2026, 10, 17, 9)))).toBe(new Date(2026, 9, 19).toDateString());
   });
 });

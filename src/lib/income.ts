@@ -68,9 +68,11 @@ export function computeIncomeByYear(
       const year = new Date(t.date).getFullYear();
       if (!Number.isFinite(year)) continue;
       const yr = ensure(year);
+      // An internal transfer is skipped whole, fee included — as in the summary
+      // (computeAccountSummary), so the two views add up to the same figures.
+      if (isInternalTransfer(t)) continue;
       if (t.fee) yr.feesHuf += toHuf(t.fee, ccy, fx);
       if (t.taxAmount) yr.taxHuf += toHuf(t.taxAmount, ccy, fx);
-      if (isInternalTransfer(t)) continue;
 
       switch (t.type) {
         case "buy": {
@@ -97,14 +99,16 @@ export function computeIncomeByYear(
           const qty = t.quantity ?? 0;
           const proceedsCcy = Math.abs(t.netAmount ?? t.grossAmount ?? 0);
           if (p && p.qty > 0) {
-            const soldFrac = qty > 0 ? Math.min(qty / p.qty, 1) : 1;
+            // No quantity (a maturity): the whole position goes, as in the summary.
+            const soldQty = qty > 0 ? Math.min(qty, p.qty) : p.qty;
+            const soldFrac = soldQty / p.qty;
             const costHufOut = p.costHuf * soldFrac;
             const proceedsHuf =
               p.ccy === "HUF"
                 ? proceedsCcy
                 : proceedsCcy * histFxRate(fxHistory, p.ccy, t.date, fx);
             yr.realizedPlHuf += proceedsHuf - costHufOut;
-            p.qty -= qty;
+            p.qty -= soldQty;
             p.cost -= p.cost * soldFrac;
             p.costHuf -= costHufOut;
             if (p.qty < 1e-9) {

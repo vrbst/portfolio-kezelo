@@ -9,13 +9,14 @@ A címe be van égetve a [`src/lib/prices.ts`](../src/lib/prices.ts)-be
 
 - Csak az `ALLOWED_HOSTS` listán lévő hosztokat proxyzza (különben `403`), így mások nem
   használhatják tetszőleges címekre. A lista a kódban van (`index.js`).
-- Minden válaszhoz `Access-Control-Allow-Origin: *`-ot ad, `OPTIONS` kérésre `204`-gyel felel.
+- CORS: az `Access-Control-Allow-Origin` csak az app eredetére (`https://vrbst.github.io`, valamint a helyi 5173/4173-as fejlesztői portok) áll be, más `Origin`-re nincs ilyen fejléc; `OPTIONS` kérésre `204`.
+- Az átirányítást nem követi (`redirect: 'manual'`), az API-kulcsot pedig csak `x-api-key` fejlécben fogadja (az `?apikey=` paraméter megszűnt).
 - Nincs benne tárolás, titok vagy időzítés (nincs binding, nincs cron).
 
 A lista tágabb, mint amit a portfolio ma használ: a portfolio csak a Yahoo-t
 (`query1.finance.yahoo.com`) és a frankfurtert (`api.frankfurter.app`) kéri rajta át. Az
 Anthropic- és RSS-hosztok régi használatból maradtak; az Anthropic-ág akkor számítana, ha
-az app a kulcsot valaha újra a proxyn át küldené (`?apikey=` vagy `x-api-key`).
+az app a kulcsot valaha újra a proxyn át küldené (`x-api-key` fejléccel).
 Ha ez megtörténne, a Worker naplózása (`redact_query_string: false`) a lekérdezési
 paramétert is eltárolná. Ma ilyen hívás nincs.
 

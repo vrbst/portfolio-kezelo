@@ -182,6 +182,25 @@ describe("tick", () => {
     expect(second.messages).toEqual([]);
   });
 
+  it("a field another process writes during the tick (the analysis day) survives the save", async () => {
+    const alert = { id: "p1", key: "yahoo:XYZ", label: "XYZ", currency: "USD", fx: false, symbol: "XYZ", op: "above", level: 10, createdAt: "2026-10-01T10:00:00.000Z" };
+    writeFileSync(stateFile, JSON.stringify({ sentAlerts: {}, warned: {}, priceAlerts: [alert] }));
+    const deps: Deps = {
+      ...depsFor(() => contextAt(WED)),
+      // The external price lookup is slow: the nightly analysis job finishes meanwhile.
+      symbols: {
+        find: async () => null,
+        quote: async () => {
+          const cur = readState();
+          writeFileSync(stateFile, JSON.stringify({ ...cur, analysis: "2026-10-14" }));
+          return null;
+        },
+      },
+    };
+    await call(jobReq(), deps);
+    expect(readState().analysis).toBe("2026-10-14");
+  });
+
   it("without a high-severity alert the alert message waits out the quiet hours", async () => {
     expect(contextAt(WED).alerts.some((a) => a.severity === "high")).toBe(false);
     const r = await call(jobReq(), depsFor(() => contextAt(WED)));

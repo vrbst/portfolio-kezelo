@@ -136,3 +136,31 @@ describe("computeReturns", () => {
     expect(r.days).toBe(0);
   });
 });
+
+describe("devizás külső befizetés a saját napi árfolyamán", () => {
+  // Két váltás: 2025-01-03-án 400, 2025-06-03-án 440 Ft/EUR; a mai árfolyam 410.
+  const conv = (day: [number, number, number], huf: number, eur: number, ref: string) => [
+    tx({ accountId: "inv", date: at(...day), type: "conversion", currency: "HUF", grossAmount: -huf, netAmount: -huf, reference: ref }),
+    tx({ accountId: "inv", date: at(...day), type: "conversion", currency: "EUR", grossAmount: eur, netAmount: eur, reference: ref }),
+  ];
+  const txs: Transaction[] = [
+    ...conv([2025, 1, 3], 400_000, 1_000, "C1"),
+    ...conv([2025, 6, 3], 440_000, 1_000, "C2"),
+    // 1000 EUR közvetlen befizetés januárban (400-as árfolyam idején)
+    tx({ accountId: "inv", date: at(2025, 1, 10), type: "deposit", currency: "EUR", grossAmount: 1_000, netAmount: 1_000 }),
+  ];
+  const now = new Date(2025, 11, 31, 12);
+
+  it("a befektetett tőke a befizetés napi árfolyamával számol", () => {
+    const s = computePortfolio([INV], txs, instruments, new Map(), { EUR: 410 }, now);
+    expect(s.netDepositedHuf).toBeCloseTo(400_000, 0);
+  });
+
+  it("az XIRR pénzmozgása is a saját napi árfolyamon van", () => {
+    const r = computeReturns([INV], txs, instruments, new Map(), { EUR: 410 }, null, now);
+    expect(r.simplePct).toBeDefined();
+    // Ha a mai árfolyamon (410) váltana, a tőke 410 000 lenne; a napi 400 000.
+    const s = computePortfolio([INV], txs, instruments, new Map(), { EUR: 410 }, now);
+    expect(r.simplePct).toBeCloseTo((s.totalValueHuf - 400_000) / 400_000, 6);
+  });
+});

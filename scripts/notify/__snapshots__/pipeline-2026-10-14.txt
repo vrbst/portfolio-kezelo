@@ -5,7 +5,7 @@ nettó befizetés 9700000 | bekerülés 9644821 | nem realizált 994849 | realiz
   számla ly-tbsz25: érték 2243908, készpénz 9498, IE00BK5BQT80×28.7031=2001114, GB00BJYDH287×37.7228=233297
   számla ly-tbsz26: érték 4035803, készpénz 7131, IE00BK5BQT80×52.4738=3658352, GB00BJYDH287×59.8787=370320
   számla mak: érték 4740018, készpénz 363430, HU0000TESZT1×2500000=2594810, HU0000TESZT2×1000000=996158, HU0000TESZT3×500000=489616, HU0000TESZT4×300000=296004
-hozam: {"simplePct":0.1361,"xirrPct":0.1225,"xirrCumulativePct":0.228,"twrPct":0.1099,"twrCumulativePct":0.2038,"twrIndex":[{"date":"2025-01-03","cum":0},{"date":"2025-02-03","cum":0.0103},{"date":"2025-03-01","cum":0.0103},{"date":"2025-03-03","cum":0.0115},{"date":"2025-03-04","cum":0.0406},{"date":"2025-03-17","cum":0.0419},{"date":"2025-04-03","cum":0.0454},{"date":"2025-05-03","cum":0.0509},{"date":"2025-06-03","cum":0.0567},{"date":"2025-07-03","cum":0.0629},{"date":"2025-08-03","cum":0.0696},{"date":"2025-09-03","cum":0.0767},{"date":"2025-10-03","cum":0.0842},{"date":"2025-11-03","cum":0.0918},{"date":"2025-11-20","cum":0.0932},{"date":"2025-12-03","cum":0.1},{"date":"2026-01-03","cum":0.0909},{"date":"2026-02-03","cum":0.0977},{"date":"2026-02-10","cum":0.0983},{"date":"2026-03-03","cum":0.1047},{"date":"2026-03-16","cum":0.1058},{"date":"2026-04-03","cum":0.1124},{"date":"2026-05-03","cum":0.1198},{"date":"2026-05-14","cum":0.1207},{"date":"2026-06-03","cum":0.1278},{"date":"2026-07-03","cum":0.136},{"date":"2026-08-03","cum":0.1441},{"date":"2026-08-28","cum":0.1461},{"date":"2026-09-03","cum":0.1523},{"date":"2026-10-14","cum":0.2038}],"days":649}
+hozam: {"simplePct":0.1361,"xirrPct":0.1225,"xirrCumulativePct":0.228,"twrPct":0.1099,"twrCumulativePct":0.2038,"twrIndex":[{"date":"2025-01-03","cum":0},{"date":"2025-02-03","cum":0.0103},{"date":"2025-03-01","cum":0.0103},{"date":"2025-03-03","cum":0.0115},{"date":"2025-03-04","cum":0.0406},{"date":"2025-03-17","cum":0.0419},{"date":"2025-04-03","cum":0.0454},{"date":"2025-05-03","cum":0.0509},{"date":"2025-06-03","cum":0.0567},{"date":"2025-07-03","cum":0.0629},{"date":"2025-08-03","cum":0.0696},{"date":"2025-09-03","cum":0.0767},{"date":"2025-10-03","cum":0.0842},{"date":"2025-11-03","cum":0.0918},{"date":"2025-11-20","cum":0.0932},{"date":"2025-12-03","cum":0.1},{"date":"2026-01-03","cum":0.0909},{"date":"2026-02-03","cum":0.0977},{"date":"2026-02-10","cum":0.0983},{"date":"2026-03-03","cum":0.1047},{"date":"2026-03-16","cum":0.1058},{"date":"2026-04-03","cum":0.1125},{"date":"2026-05-03","cum":0.1198},{"date":"2026-05-14","cum":0.1207},{"date":"2026-06-03","cum":0.1278},{"date":"2026-07-03","cum":0.136},{"date":"2026-08-03","cum":0.1441},{"date":"2026-08-28","cum":0.1461},{"date":"2026-09-03","cum":0.1523},{"date":"2026-10-14","cum":0.2038}],"days":649}
 eladás most: bruttó 11019729, költség 25000, adó 246319, nettó 10748410
 TBSZ 2025: {"year":2025,"phase":"locked","phaseLabel":"Lekötés (3 év előtt)","szjaRate":0.15,"szochoRate":0.13,"taxRate":0.28,"taxLabel":"Megszakításkor 28% (15% szja + 13% szocho) a hozamra.","hasSzocho":true,"milestones":[{"key":"deposit","date":"2025-12-31 23:59:59","label":"Gyűjtőév vége","hint":"Utolsó nap, amikor befizethetsz erre a TBSZ-re.","done":true},{"key":"three","date":"2028-12-31 23:59:59","label":"3 éves lekötés","hint":"Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.","done":false},{"key":"five","date":"2030-12-31 23:59:59","label":"5 éves lejárat","hint":"A teljes hozam adómentes — sem szja, sem szocho.","done":false}],"next":{"key":"three","date":"2028-12-31 23:59:59","label":"3 éves lekötés","hint":"Innentől a hozam adója 18%-ra csökken (10% szja + 8% szocho). Részkivét lehetséges.","done":false},"daysToNext":810,"progress":0.2973}
 értékgörbe: 356 pont, utolsó {"date":"2026-10-14","value":11019729,"invested":9700000,"valueEur":27939,"investedEur":24134}
@@ -151,7 +151,7 @@ VWCE (FTSE All-World) ugyanezalatt: +35,5% (Ft-ban)
 
 <b>Piaci eredmény</b>
 📉 Elmúlt 1 hónap: −26 009 Ft (−0,2%)
-📈 Idén: +838 214 Ft (+13,3%)
+📈 Idén: +835 994 Ft (+13,3%)
 📈 Elmúlt 12 hónap: +980 538 Ft (+16,8%)
 
 <b>Számlánként</b> (érték − befizetett tőke)
@@ -203,7 +203,7 @@ Vagyon: <b>11 019 729 Ft</b>
 Hónap végi vagyon: <b>11 052 483 Ft</b>
 📈 Havi piaci eredmény: +242 150 Ft (+2,3%)
 Nettó befizetés: +400 000 Ft (havi keret 400 000 Ft – ✅ teljesítve)
-Idei piaci eredmény: +870 968 Ft
+Idei piaci eredmény: +868 749 Ft
 
 <b>Célpálya (tény / pálya, sáv)</b>
 ✅ Részvény: 54% / 58% (53%–63%; −450 379 Ft)
@@ -271,8 +271,8 @@ Az appban (Teendők → Havi terv → „Maradt pénz a hónapból?”) ugyanez 
 ==== éves zárás ====
 🎆 <b>Éves zárás – 2025</b>
 
-Év végi vagyon: <b>6 281 515 Ft</b>
-📈 Éves piaci eredmény: +482 028 Ft (TWR +11,9%)
+Év végi vagyon: <b>6 283 735 Ft</b>
+📈 Éves piaci eredmény: +484 247 Ft (TWR +12,0%)
 VWCE (FTSE All-World) ugyanezalatt: +22,6% (Ft-ban)
 Nettó befizetés: +5 650 000 Ft
 
