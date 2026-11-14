@@ -61,7 +61,11 @@
   egyszerre egy elemzés (409 `busy`).
 - Automatikus indítás: `npm run ai-bridge:install` (Windows ütemezett feladat `portfolio-ai-bridge`, bejelentkezéskor indul, hiba után újraindul, napló: `logs/ai-bridge.log`;
   `-- -Status` / `-- -Remove`). A végleges mappából telepítsd, ne worktree-ből. Ez folyamatos szerver, nem job, ezért nem a schedulerben van.
-- A chat és az árfolyam-kilátás továbbra is a saját API-kulccsal megy (böngészős kivétel, lásd a közös CONVENTIONS).
+- Az app AI-chatje is a hídon át megy (`POST /chat`, ugyanaz a fejléc- és Origin-védelem; egyszerre egy kérdés, 409 `busy`): a böngésző küldi a kérdést, az eddigi
+  köröket és a beszélgetés indulásakor befagyasztott pillanatképet (`buildFullAiContext`), a híd `askChat`-tal (`scripts/notify/chat/job.ts`) kérdezi a hubot (Opus, webes keresés).
+  Az előzmény a böngészőben él (`src/lib/aiChat.ts`, `pf-ai-hub-chat`), külön a Telegramétól. A chat csak akkor jelenik meg, ha a `/health` `chat: true`-t jelez
+  (egy régi, még futó híd-folyamat nem tud chatelni: `ai-bridge` újraindítás kell). Más gépen a chat nincs a felületen. A régi, API-kulcsos chat kikerült.
+- Az árfolyam-kilátás (böngészős, `src/lib/ai.ts`) továbbra is a saját API-kulccsal megy (böngészős kivétel, lásd a közös CONVENTIONS).
 - Chrome a nyilvános oldalról (GitHub Pages) a loopbackre először engedélyt kérhet („helyi hálózat elérése”): egyszer engedélyezni kell.
 
 ## Telegram-beszélgetés a portfólióról (szabad szöveg)

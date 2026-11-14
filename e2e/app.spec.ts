@@ -1432,3 +1432,90 @@ test.describe("leftovers of the removed Google sync", () => {
     expect(keys).toEqual([null, null]);
   });
 });
+
+test.describe("AI chat through the local bridge", () => {
+  const BRIDGE = "http://127.0.0.1:47811";
+  const cors = { "access-control-allow-origin": "*", "access-control-allow-private-network": "true" };
+  const CHAT_TITLE = "Beszélgess a portfóliódról";
+
+  /** A fake bridge: /health as given, /chat answers (and records what the app sent). */
+  async function fakeBridge(page: Page, health: object | null) {
+    const sent: { question: string; history: { role: string; text: string }[]; context: string }[] = [];
+    await page.route(`${BRIDGE}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/health" && health)
+        return route.fulfill({ json: { ok: true, service: "portfolio-ai-bridge", running: false, ...health }, headers: cors });
+      if (url.pathname === "/chat" && health) {
+        const body = route.request().postDataJSON() as (typeof sent)[number];
+        sent.push(body);
+        return route.fulfill({ json: { answer: `Válasz ${sent.length}.` }, headers: cors });
+      }
+      return route.abort();
+    });
+    return sent;
+  }
+
+  test("no chat where there is no bridge, or only an older one that cannot chat", async ({ page }) => {
+    const errors = await openSeeded(page);
+    await fakeBridge(page, null);
+    await show(page, "/ai");
+    await expect(page.getByText(CHAT_TITLE)).toHaveCount(0);
+    // an older bridge process: answers /health, but does not know the chat
+    await fakeBridge(page, { chat: false });
+    await show(page, "/ai");
+    await expect(page.getByRole("button", { name: /Elemzés indítása|Új elemzés/ })).toBeVisible();
+    await expect(page.getByText(CHAT_TITLE)).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("with a chat-capable bridge: ask, follow up with the history, start anew", async ({ page }) => {
+    const errors = await openSeeded(page);
+    const sent = await fakeBridge(page, { chat: true });
+    await show(page, "/ai");
+    await expect(page.getByText(CHAT_TITLE)).toBeVisible();
+
+    const input = page.getByPlaceholder("Kérdezz a portfóliódról…");
+    await input.fill("Mennyi a vagyonom?");
+    await page.getByRole("button", { name: "Kérdez" }).click();
+    await expect(page.getByText("Válasz 1.")).toBeVisible();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].history).toEqual([]);
+    expect(sent[0].context.length).toBeGreaterThan(100); // the app's own snapshot goes along
+
+    await input.fill("És a hozam?");
+    await page.getByRole("button", { name: "Kérdez" }).click();
+    await expect(page.getByText("Válasz 2.")).toBeVisible();
+    expect(sent[1].history).toEqual([
+      { role: "user", text: "Mennyi a vagyonom?" },
+      { role: "assistant", text: "Válasz 1." },
+    ]);
+    expect(sent[1].context).toBe(sent[0].context); // frozen for the conversation
+
+    // it survives a reload, and "Új beszélgetés" empties it
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText("Válasz 2.")).toBeVisible();
+    await page.getByRole("button", { name: "Új beszélgetés" }).click();
+    await expect(page.getByText("Válasz 2.")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("a failed question comes back to the input with the reason", async ({ page }) => {
+    await openSeeded(page);
+    await page.route(`${BRIDGE}/**`, (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/health") return route.fulfill({ json: { ok: true, service: "portfolio-ai-bridge", chat: true }, headers: cors });
+      return route.fulfill({
+        status: 429,
+        json: { error: { code: "quota_exhausted", message: "Elfogyott az előfizetés kerete." } },
+        headers: cors,
+      });
+    });
+    await show(page, "/ai");
+    const input = page.getByPlaceholder("Kérdezz a portfóliódról…");
+    await input.fill("Mennyi a vagyonom?");
+    await page.getByRole("button", { name: "Kérdez" }).click();
+    await expect(page.getByText("Elfogyott az előfizetés kerete.")).toBeVisible();
+    await expect(input).toHaveValue("Mennyi a vagyonom?");
+  });
+});
