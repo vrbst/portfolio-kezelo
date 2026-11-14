@@ -35,6 +35,8 @@ export interface NotifyEnv {
   newsModel: string;
   /** Nightly AI analysis (analysis/): the model Claude Code runs it with. */
   analysisModel: string;
+  /** Telegram conversation about the portfolio (chat/): the model Claude Code answers with. */
+  chatModel: string;
   /** Weekly outlook run (outlook/): the model Claude Code runs it with. */
   outlookModel: string;
   /** The local my-claude-hub that runs every AI call (docs/API.md) and this app's key. */
@@ -105,6 +107,7 @@ export function loadEnv(): NotifyEnv {
     whyModel: e.NEWS_WHY_MODEL || "sonnet",
     newsModel: e.NEWS_MODEL || "opus",
     analysisModel: e.ANALYSIS_MODEL || "opus",
+    chatModel: e.CHAT_MODEL || "opus",
     outlookModel: e.OUTLOOK_MODEL || "opus",
     hubUrl: e.MY_CLAUDE_HUB_URL || "http://127.0.0.1:7420",
     hubKey: e.MY_CLAUDE_HUB_KEY || "",

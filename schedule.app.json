@@ -115,6 +115,14 @@
       "expectSuccessWithin": "1d"
     },
     {
+      "id": "chat",
+      "description": "Telegram-beszélgetés a portfólióról (AI, előfizetésből): a szabad szöveges kérdést a kezelő indítja, ez csak pótlás, ha a kezelő indítása pont egy üres futásra esett",
+      "every": "10m",
+      "catchUp": "skip",
+      "timeout": "22m",
+      "expectSuccessWithin": "1d"
+    },
+    {
       "id": "news-why",
       "description": "„Miért mozdult?” hírkeresés nagy mozgás után (a tick indítja; ez csak pótlás, ha nem sikerült)",
       "every": "30m",

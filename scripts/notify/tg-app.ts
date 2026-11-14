@@ -46,6 +46,8 @@ import {
 import { probeCoverage, type Coverage } from "./news/rss";
 import { portfolioExposure } from "./news/prompt";
 import { makeAnalysis, type AnalysisDeps, type AnalysisRun } from "./analysis/job";
+import { CHAT_JOB, CHAT_SCHEMA, runChat, type ChatDeps } from "./chat/job";
+import { CHAT_QUESTION_MAX, loadChat, pendingAlive, updateChat } from "./chat/store";
 import { WHY_JSON_SCHEMA, askWhy, buildWhyPrompt, whyText, type WhyFactor } from "./news/why";
 import { ANALYSIS_SCHEMA } from "../../src/lib/aiAnalysis";
 import { NEWS_EDITION_LABEL, assetKey, digestAssets, type DigestAsset, type NewsEdition } from "../../src/lib/newsSchema";
@@ -178,6 +180,8 @@ export interface Deps {
   outlookDocs?: () => IssuerDocsDeps;
   /** The weekly outlook run: Claude Code on the subscription. */
   outlookAi?: () => WeeklyOutlookDeps;
+  /** The Telegram conversation about the portfolio: its AI and history file (chat/). */
+  chat?: () => ChatDeps;
   aiUsageFile?: string;
   /** Called with each request before it is handled (run_id and job deadline of the AI calls). */
   bindRequest?: (req: HubRequest) => void;
@@ -258,6 +262,18 @@ export function defaultDeps(): Deps {
         priority: "normal",
         onRun: logRun(EVENT_JOB, env.newsModel),
       }),
+    chat: () => ({
+      // Snapshot in the prompt, web research allowed (the owner's choice); interactive: a person waits.
+      engine: engine({
+        model: env.chatModel,
+        schema: CHAT_SCHEMA,
+        tools: "WebSearch,WebFetch",
+        priority: "interactive",
+        onRun: logRun(CHAT_JOB, env.chatModel),
+      }),
+      file: resolve(NOTIFY_DIR, "chat.json"),
+      profile: () => loadProfile(),
+    }),
     aiUsageFile,
     runJob: hubRunJob,
     profile: () => loadProfile(),
@@ -436,6 +452,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.command === "hirek") return latestNews(req.args, deps, false);
       if (req.command === "hirkereses") return searchNews(deps);
       if (req.command === "assistant_view") return assistantView(deps);
+      if (req.command === "uj") return chatReset(deps);
       if (req.command === "bejelentesek") return followUps(deps);
       if (req.command === "riasztas") return priceAlerts(req.args, deps);
       if (req.command === "koltseg") return aiCost(deps);
@@ -445,9 +462,9 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
         ? leftover(req.args, deps)
         : command(req.command, deps);
     case "text":
-      // Only the amount after a bare /maradek is expected (expectText).
+      // The amount after a bare /maradek is expected (expectText); any other text is a question for the AI.
       if (req.context === "maradek") return leftover(req.text, deps);
-      return { v: 1, messages: [msg("Ehhez most nem tudok mit kezdeni. A parancsokat a /help sorolja fel.")] };
+      return chatAsk(req.text, deps);
     case "callback":
       if (req.data.startsWith(CHART_PREFIX)) return chart(req.data.slice(CHART_PREFIX.length), deps, true);
       if (req.data.startsWith(NEWS_PREFIX)) return latestNews(req.data.slice(NEWS_PREFIX.length), deps, true);
@@ -458,6 +475,7 @@ export async function handleRequest(req: HubRequest, deps: Deps): Promise<HubRes
       if (req.job === "news-morning") return news(deps, "morning", req.manual === true);
       if (req.job === "news-evening") return news(deps, "evening", req.manual === true);
       if (req.job === ANALYSIS_JOB) return analysisJob(deps, req.manual === true);
+      if (req.job === CHAT_JOB) return chatJob(deps);
       if (req.job === WHY_JOB) return whyMoved(deps);
       if (req.job === EVENT_JOB) return eventsJob(deps);
       if (req.job === FUNDAMENTALS_JOB) return fundamentalsJob(deps);
@@ -943,6 +961,60 @@ async function searchNews(deps: Deps): Promise<HubResponse> {
     status: "started",
     messages: [msg(`🔎 Keresem a friss híreket (${NEWS_EDITION_LABEL[edition].toLowerCase()}), 2–4 perc és küldöm.`)],
   };
+}
+
+// ---- conversation with the AI ---------------------------------------------
+
+/**
+ * Any free text: a question about the portfolio. The answer takes minutes (Opus, web
+ * research, the hub's queue), the handler has 60 s, so this only stores the question,
+ * starts the "chat" job and acknowledges; the job sends the answer on its own.
+ */
+async function chatAsk(text: string, deps: Deps): Promise<HubResponse> {
+  if (!deps.chat || !deps.runJob) return fail("A beszélgetés nincs beállítva.");
+  const question = text.trim().slice(0, CHAT_QUESTION_MAX);
+  if (!question) return { v: 1, messages: [] };
+  const chat = deps.chat();
+  const now = new Date();
+  if (pendingAlive(loadChat(chat.file), now))
+    return { v: 1, status: "pending", messages: [msg("🤔 Még az előző kérdésen gondolkodom, utána jöhet a következő.")] };
+  updateChat(chat.file, (cur) => ({ ...cur, pending: { text: question, at: now.toISOString() } }));
+  try {
+    await deps.runJob(CHAT_JOB);
+  } catch (e) {
+    updateChat(chat.file, (cur) => ({ history: cur.history }));
+    return fail((e as Error).message);
+  }
+  return { v: 1, status: "started", messages: [msg("🤔 Gondolkodom… (akár pár perc, küldöm)")] };
+}
+
+/** The "chat" job: answers the pending question (nothing pending: nothing to do). */
+async function chatJob(deps: Deps): Promise<HubResponse> {
+  if (!deps.chat) return fail("A beszélgetés nincs beállítva.");
+  const chat = deps.chat();
+  const st = loadChat(chat.file);
+  if (!st.pending) return { v: 1, messages: [] };
+  if (!pendingAlive(st, new Date())) {
+    // A question left behind by a crashed run: answering it hours later would only confuse.
+    updateChat(chat.file, (cur) => ({ history: cur.history }));
+    return { v: 1, messages: [] };
+  }
+  const ctx = await contextFor(deps);
+  if (typeof ctx === "string") {
+    updateChat(chat.file, (cur) => ({ history: cur.history }));
+    return { v: 1, messages: [msg(esc(ctx))] };
+  }
+  const started = Date.now();
+  const html = await runChat(chat, ctx);
+  console.error(`chat: answered in ${Math.round((Date.now() - started) / 1000)} s`);
+  return { v: 1, messages: html.map((h) => msg(h)) };
+}
+
+/** /uj: forget the conversation, the next question starts fresh. */
+function chatReset(deps: Deps): HubResponse {
+  if (!deps.chat) return fail("A beszélgetés nincs beállítva.");
+  updateChat(deps.chat().file, (cur) => ({ history: [], ...(cur.pending ? { pending: cur.pending } : {}) }));
+  return { v: 1, messages: [msg("🧹 Új beszélgetés: elfelejtettem az eddigieket.")] };
 }
 
 /** Callback data of the /hirek buttons: `news:<asset>`, or `news:*` for the whole digest. */

@@ -29,6 +29,7 @@ export const DEADLINE_JOBS = [
   "analysis",
   "outlook-ai",
   "outlook-ai-retry",
+  "chat",
 ] as const;
 
 /** A job's `timeout` in the descriptor, ms. */
