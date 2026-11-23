@@ -331,35 +331,21 @@ body::before {
   }
 }
 
-/* A headline number that is the PREVIOUS value while a price round runs: it is
- * dimmed, and a bright band sweeps across it (a moving mask, so it works on
- * gradient glyphs and plain text alike). When the round ends the class goes
- * away and the number rolls to the new value. */
+/* A headline number that is the PREVIOUS value while a price round runs: it
+ * breathes (opacity only, so the compositor runs it even while the main thread
+ * is busy recomputing the portfolio — a moving mask repainted every frame and
+ * stuttered). When the round ends the class goes away and the number rolls to
+ * the new value. */
 .refreshing {
-  -webkit-mask-image: linear-gradient(
-    100deg,
-    rgb(0 0 0 / 0.42) 35%,
-    #000 50%,
-    rgb(0 0 0 / 0.42) 65%
-  );
-  mask-image: linear-gradient(
-    100deg,
-    rgb(0 0 0 / 0.42) 35%,
-    #000 50%,
-    rgb(0 0 0 / 0.42) 65%
-  );
-  -webkit-mask-size: 280% 100%;
-  mask-size: 280% 100%;
-  animation: refresh-sweep 1.5s linear infinite;
+  animation: refresh-breathe 1.6s ease-in-out infinite;
 }
-@keyframes refresh-sweep {
-  from {
-    -webkit-mask-position: 100% 0;
-    mask-position: 100% 0;
+@keyframes refresh-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
   }
-  to {
-    -webkit-mask-position: 0% 0;
-    mask-position: 0% 0;
+  50% {
+    opacity: 0.85;
   }
 }
 .refreshing-soft {
@@ -472,11 +458,9 @@ body::before {
   .celebrate-bit {
     animation: none;
   }
-  /* No sweep: just a static dim. */
+  /* No breathing: just a static dim. */
   .refreshing {
     animation: none;
-    -webkit-mask-image: none;
-    mask-image: none;
     opacity: 0.6;
   }
 }
