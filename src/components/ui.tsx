@@ -550,8 +550,14 @@ export function StatCard({
   sparkline,
   sparkStroke = "var(--color-brand)",
   variant = "card",
+  refreshing = false,
 }: {
   label: string;
+  /**
+   * The shown number is the previous one while a fresh one is on its way:
+   * dimmed, with a sweeping highlight and a "frissül…" tag.
+   */
+  refreshing?: boolean;
   /** Static value; ignored when numericValue + format are given (count-up). */
   value?: ReactNode;
   /** When set (with `format`), the value counts up on mount / change. */
@@ -659,11 +665,24 @@ export function StatCard({
         >
           {label}
         </span>
+        {refreshing && (
+          <span
+            className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--color-muted)]"
+            role="status"
+          >
+            <span className="live-dot relative h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" />
+            frissül…
+          </span>
+        )}
         {icon && !bare && (
           <span className="shrink-0 text-[var(--color-muted)]">{icon}</span>
         )}
       </div>
-      <div className={`amt relative ${numberCls} ${flashCls}`}>{showValue}</div>
+      <div
+        className={`amt relative ${numberCls} ${flashCls} ${refreshing ? "refreshing" : ""}`}
+      >
+        {showValue}
+      </div>
       {sub != null && (
         <div
           className={`amt relative mt-0.5 tabular-nums text-[var(--color-muted)] ${compact ? "truncate text-xs" : "text-sm"}`}
@@ -672,7 +691,11 @@ export function StatCard({
         </div>
       )}
       {(delta != null || deltaPct != null) && (
-        <div className="relative mt-1.5 flex items-center gap-x-1.5 whitespace-nowrap text-sm">
+        <div
+          className={`relative mt-1.5 flex items-center gap-x-1.5 whitespace-nowrap text-sm transition-opacity ${
+            refreshing ? "refreshing-soft" : ""
+          }`}
+        >
           {deltaDetail ? (
             <HoverPopup content={deltaDetail} className="shrink-0">
               <Delta value={delta} pct={deltaPct} />

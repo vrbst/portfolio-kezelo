@@ -21,6 +21,7 @@ import {
   useDayChange,
   useValuedInstruments,
 } from "../lib/store";
+import { useSettledValue } from "../lib/settledValue";
 import {
   accountReturn,
   isEmptyAccount,
@@ -129,7 +130,16 @@ export default function Dashboard() {
     valueSpark.length > 1 && valueSpark[valueSpark.length - 1] >= valueSpark[0];
 
   // Change between the last two samples → the hero's "ma" pill (shared hook).
-  const dayChange = useDayChange();
+  const liveDayChange = useDayChange();
+
+  // The hero total, its EUR line and the day change move together, once per
+  // price round — not through every partial write of the round.
+  const headline = useMemo(
+    () => ({ total: summary.totalValueHuf, eurHuf, dayChange: liveDayChange }),
+    [summary.totalValueHuf, eurHuf, liveDayChange],
+  );
+  const { value: held, stale: headlineStale } = useSettledValue(headline);
+  const dayChange = held.dayChange;
 
   // Per-account value trend for the account-card sparklines. Reuses the same
   // history-aware builder on each account alone (bridge off — inter-account
@@ -320,11 +330,12 @@ export default function Dashboard() {
     <StatCard
       variant={isMobile ? "bare" : undefined}
       label="Teljes érték"
-      numericValue={summary.totalValueHuf}
+      refreshing={headlineStale}
+      numericValue={held.total}
       format={(n) => formatMoney(n, "HUF")}
       sub={
         <>
-          {eurEquivalent(summary.totalValueHuf, eurHuf)}
+          {eurEquivalent(held.total, held.eurHuf)}
           {dayChange?.eurPct != null && (
             <span
               className={`ml-1.5 ${

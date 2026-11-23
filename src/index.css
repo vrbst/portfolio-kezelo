@@ -331,6 +331,45 @@ body::before {
   }
 }
 
+/* A headline number that is the PREVIOUS value while a price round runs: it is
+ * dimmed, and a bright band sweeps across it (a moving mask, so it works on
+ * gradient glyphs and plain text alike). When the round ends the class goes
+ * away and the number rolls to the new value. */
+.refreshing {
+  -webkit-mask-image: linear-gradient(
+    100deg,
+    rgb(0 0 0 / 0.42) 35%,
+    #000 50%,
+    rgb(0 0 0 / 0.42) 65%
+  );
+  mask-image: linear-gradient(
+    100deg,
+    rgb(0 0 0 / 0.42) 35%,
+    #000 50%,
+    rgb(0 0 0 / 0.42) 65%
+  );
+  -webkit-mask-size: 280% 100%;
+  mask-size: 280% 100%;
+  animation: refresh-sweep 1.5s linear infinite;
+}
+@keyframes refresh-sweep {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0% 0;
+    mask-position: 0% 0;
+  }
+}
+.refreshing-soft {
+  opacity: 0.55;
+}
+.refreshing-soft,
+.refreshing {
+  transition: opacity 0.25s ease;
+}
+
 /* Slow aurora wash for the hero card. Two drifting radial blooms in the brand
  * hues; kept low-opacity so the number stays crisp. */
 .aurora {
@@ -432,6 +471,13 @@ body::before {
   .flash-down,
   .celebrate-bit {
     animation: none;
+  }
+  /* No sweep: just a static dim. */
+  .refreshing {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    opacity: 0.6;
   }
 }
 
