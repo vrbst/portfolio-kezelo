@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { usePortfolio, usePortfolioSummary, useValuedInstruments } from "../lib/store";
+import { useSettledValue } from "../lib/settledValue";
 import {
   accountReturn,
   isInternalTransfer,
@@ -98,6 +99,13 @@ export default function AccountDetail() {
   const [year, setYear] = useState<string>(
     account?.tbszYear ? String(account.tbszYear) : "",
   );
+
+  // The total and its EUR line move once per price round (see settledValue).
+  const headline = useMemo(
+    () => ({ total: accSummary?.totalValueHuf ?? 0, eurHuf }),
+    [accSummary?.totalValueHuf, eurHuf],
+  );
+  const { value: heldHeadline, stale: headlineStale } = useSettledValue(headline);
 
   if (!account || !accSummary) {
     return (
@@ -237,9 +245,14 @@ export default function AccountDetail() {
       >
         <StatCard
           label="Teljes érték"
-          numericValue={accSummary.totalValueHuf}
+          refreshing={headlineStale}
+          numericValue={heldHeadline.total}
           format={(n) => formatMoney(n)}
-          sub={eur(accSummary.totalValueHuf)}
+          sub={
+            isTreasury
+              ? undefined
+              : eurEquivalent(heldHeadline.total, heldHeadline.eurHuf)
+          }
           index={0}
           hero
           sparkline={accSpark.length >= 2 ? accSpark : undefined}

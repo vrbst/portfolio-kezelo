@@ -1,4 +1,5 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSettledValue } from "../lib/settledValue";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   usePortfolio,
@@ -36,8 +37,15 @@ export default function Sidebar() {
   // Today's unread news items (older unread digests are never flagged).
   const newsCount = useTodayUnread().reduce((n, e) => n + e.count, 0);
   const summary = usePortfolioSummary();
-  const day = useDayChange();
-  const hasValue = summary.totalValueHuf > 0;
+  const liveDay = useDayChange();
+  // Total and day change move once per price round, not through its partial writes.
+  const headline = useMemo(
+    () => ({ total: summary.totalValueHuf, day: liveDay }),
+    [summary.totalValueHuf, liveDay],
+  );
+  const { value: held, stale } = useSettledValue(headline);
+  const day = held.day;
+  const hasValue = held.total > 0;
   const dayUp = (day?.abs ?? 0) >= 0;
   const navRef = useRef<HTMLElement>(null);
   const markerRef = useRef<HTMLDivElement>(null);
@@ -151,13 +159,24 @@ export default function Sidebar() {
             <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
               <span className="live-dot relative h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" />
               Teljes érték
+              {stale && (
+                <span className="ml-auto" role="status">
+                  frissül…
+                </span>
+              )}
             </div>
-            <div className="amt font-display mt-0.5 text-lg font-semibold tabular-nums">
-              {formatMoney(summary.totalValueHuf)}
+            <div
+              className={`amt font-display mt-0.5 text-lg font-semibold tabular-nums ${
+                stale ? "refreshing" : ""
+              }`}
+            >
+              {formatMoney(held.total)}
             </div>
             {day && (
               <div
-                className={`mt-0.5 flex items-center gap-1 text-xs ${
+                className={`mt-0.5 flex items-center gap-1 text-xs transition-opacity ${
+                  stale ? "refreshing-soft" : ""
+                } ${
                   dayUp
                     ? "text-[var(--color-positive)]"
                     : "text-[var(--color-negative)]"
