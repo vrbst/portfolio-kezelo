@@ -1,19 +1,19 @@
 {
-  "updatedAt": "2026-11-24T02:51:02.074Z",
+  "updatedAt": "2026-11-25T00:32:53.351Z",
   "fx": {
-    "EUR": 372.28,
-    "USD": 340.32
+    "EUR": 369.7,
+    "USD": 337.23
   },
   "prices": {
     "IE00BK5BQT80": {
-      "price": 164.62,
+      "price": 162.68,
       "currency": "EUR",
       "symbol": "IE00BK5BQT80.SG",
       "label": "VWCE",
       "name": "Vanguard FTSE All-World UCITS ETF USD Accumulation"
     },
     "GB00BJYDH287": {
-      "price": 13.348,
+      "price": 12.987,
       "currency": "EUR",
       "symbol": "GB00BJYDH287.SG",
       "label": "WBIT",
